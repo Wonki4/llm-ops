@@ -1,7 +1,5 @@
-import { auth } from "@/auth";
 import { NextRequest, NextResponse } from "next/server";
 
-// Server-side backend URL (Docker internal or localhost fallback)
 const BACKEND_URL =
   process.env.BACKEND_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -10,35 +8,29 @@ async function proxyRequest(
   { params }: { params: Promise<{ path: string[] }> },
 ) {
   try {
-    const session = await auth();
-    const accessToken = session?.accessToken;
-
-    // If session has a refresh error or no token, return 401 immediately.
-    // This prevents forwarding stale/missing tokens to the backend.
-    if (!accessToken || session?.error) {
-      return NextResponse.json({ detail: "Not authenticated" }, { status: 401 });
-    }
-
     const { path } = await params;
     const backendPath = `/api/${path.join("/")}`;
     const url = new URL(backendPath, BACKEND_URL);
 
-    // Forward query params
     req.nextUrl.searchParams.forEach((value, key) => {
       url.searchParams.set(key, value);
     });
 
     const headers: Record<string, string> = {
-      "Authorization": `Bearer ${accessToken}`,
       "Content-Type": req.headers.get("Content-Type") || "application/json",
     };
+
+    const cookieHeader = req.headers.get("cookie");
+    if (cookieHeader) {
+      headers["cookie"] = cookieHeader;
+    }
 
     const init: RequestInit = {
       method: req.method,
       headers,
+      redirect: "manual",
     };
 
-    // Forward body for non-GET/HEAD requests
     if (req.method !== "GET" && req.method !== "HEAD") {
       const body = await req.text();
       if (body) {
@@ -47,14 +39,36 @@ async function proxyRequest(
     }
 
     const response = await fetch(url.toString(), init);
-    const responseBody = await response.arrayBuffer();
 
+    const responseHeaders = new Headers();
+    const contentType = response.headers.get("Content-Type");
+    if (contentType) responseHeaders.set("Content-Type", contentType);
+
+    // Forward set-cookie headers (getSetCookie may not work in all Node.js builds)
+    const rawSetCookie = response.headers.get("set-cookie");
+    if (rawSetCookie) {
+      // Split multiple cookies: comma-separated but not commas inside values like expires dates
+      // Pattern: split on comma followed by a cookie-name= pattern
+      const cookies = rawSetCookie.split(/,\s*(?=[A-Za-z_][A-Za-z0-9_]*=)/);
+      for (const cookie of cookies) {
+        responseHeaders.append("set-cookie", cookie.trim());
+      }
+    }
+
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get("location");
+      if (location) responseHeaders.set("location", location);
+      return new NextResponse(null, {
+        status: response.status,
+        headers: responseHeaders,
+      });
+    }
+
+    const responseBody = await response.arrayBuffer();
     return new NextResponse(responseBody, {
       status: response.status,
       statusText: response.statusText,
-      headers: {
-        "Content-Type": response.headers.get("Content-Type") || "application/json",
-      },
+      headers: responseHeaders,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
