@@ -1,0 +1,107 @@
+{{- if .Values.frontend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-frontend
+  labels:
+    app.kubernetes.io/component: frontend
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.frontend.service.type }}
+  ports:
+    - port: {{ .Values.frontend.service.port }}
+      targetPort: 3000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: frontend
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if and .Values.frontend.enabled .Values.backend.enabled }}
+---
+{{- end }}
+{{- if .Values.backend.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-backend
+  labels:
+    app.kubernetes.io/component: backend
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.backend.service.type }}
+  ports:
+    - port: {{ .Values.backend.service.port }}
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: backend
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if and .Values.backend.enabled .Values.database.enabled }}
+---
+{{- end }}
+{{- if .Values.database.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-db
+  labels:
+    app.kubernetes.io/component: database
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.database.service.type }}
+  ports:
+    - port: {{ .Values.database.service.port }}
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/component: database
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if and .Values.database.enabled .Values.keycloak.enabled }}
+---
+{{- end }}
+{{- if .Values.keycloak.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-keycloak
+  labels:
+    app.kubernetes.io/component: keycloak
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.keycloak.service.type }}
+  ports:
+    - port: {{ .Values.keycloak.service.port }}
+      targetPort: 8080
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: keycloak
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}
+{{- if and .Values.keycloak.enabled .Values.prometheus.enabled }}
+---
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-prometheus
+  labels:
+    app.kubernetes.io/component: prometheus
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.prometheus.service.type }}
+  ports:
+    - port: {{ .Values.prometheus.service.port }}
+      targetPort: 9090
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: prometheus
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}

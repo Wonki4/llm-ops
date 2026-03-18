@@ -1,0 +1,172 @@
+services:
+  # ═══════════════════════════════════════════
+  # Database (shared by LiteLLM + custom backend)
+  # ═══════════════════════════════════════════
+  db:
+    image: postgres:16
+    restart: always
+    container_name: litellm_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-litellm}
+      POSTGRES_USER: ${POSTGRES_USER:-llmproxy}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dbpassword9090}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d litellm -U llmproxy"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # ═══════════════════════════════════════════
+  # Keycloak (authentication)
+  # ═══════════════════════════════════════════
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: litellm_keycloak
+    command: start-dev --import-realm --hostname=http://localhost:8082 --hostname-strict=true
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./deploy/keycloak:/opt/keycloak/data/import
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # ═══════════════════════════════════════════
+  # LiteLLM Proxy
+  # ═══════════════════════════════════════════
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: litellm_proxy
+    volumes:
+      - ./litellm/proxy_server_config.yaml:/app/config.yaml
+    command:
+      - "--config=/app/config.yaml"
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      STORE_MODEL_IN_DB: "True"
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ═══════════════════════════════════════════
+  # Custom Backend (FastAPI)
+  # ═══════════════════════════════════════════
+  backend:
+    build:
+      context: ./backend
+    container_name: litellm_backend
+    ports:
+      - "8002:8000"
+    environment:
+      APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      APP_LITELLM_BASE_URL: "http://litellm:4000"
+      APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
+      APP_KEYCLOAK_ISSUER: "http://localhost:8082/realms/litellm"
+      APP_JWT_AUDIENCE: "litellm-portal"
+      APP_CORS_ORIGINS: '["http://localhost:3002"]'
+      APP_SLACK_WEBHOOK_URL: "${APP_SLACK_WEBHOOK_URL:-}"
+      APP_KEYCLOAK_JWKS_URI: "http://keycloak:8080/realms/litellm/protocol/openid-connect/certs"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ═══════════════════════════════════════════
+  # Backend Worker (auto-deprecation jobs)
+  # ═══════════════════════════════════════════
+  backend-worker:
+    build:
+      context: ./backend
+    container_name: litellm_worker
+    entrypoint: []  # Skip migration entrypoint; only backend runs migrations
+    command: ["python", "-m", "app.worker"]
+    environment:
+      APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      APP_LITELLM_BASE_URL: "http://litellm:4000"
+      APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
+    env_file:
+      - .env
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════
+  # Frontend (Next.js)
+  # ═══════════════════════════════════════════
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8002
+    container_name: litellm_frontend
+    ports:
+      - "3002:3000"
+    environment:
+      NEXTAUTH_URL: "http://localhost:3002"
+      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-super-secret-nextauth-key-change-in-production}"
+      KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-litellm-portal}"
+      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:-change-me-in-keycloak}"
+      KEYCLOAK_ISSUER: "http://localhost:8082/realms/litellm"
+      KEYCLOAK_ISSUER_INTERNAL: "http://keycloak:8080/realms/litellm"
+      NEXT_PUBLIC_API_URL: "http://localhost:8002"
+      AUTH_TRUST_HOST: "true"
+      BACKEND_INTERNAL_URL: "http://backend:8000"
+    depends_on:
+      keycloak:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  # ═══════════════════════════════════════════
+  # Prometheus (metrics)
+  # ═══════════════════════════════════════════
+  prometheus:
+    image: prom/prometheus
+    container_name: litellm_prometheus
+    volumes:
+      - prometheus_data:/prometheus
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=15d"
+    restart: always
+
+volumes:
+  postgres_data:
+    name: litellm_portal_postgres_data
+  prometheus_data:
+    name: litellm_portal_prometheus_data

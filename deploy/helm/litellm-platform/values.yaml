@@ -1,0 +1,131 @@
+global:
+  imagePullSecrets: []
+
+frontend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: litellm-portal-frontend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 3000
+  env:
+    NEXTAUTH_URL: "http://localhost:3002"
+    NEXTAUTH_SECRET: "super-secret-nextauth-key-change-in-production"
+    KEYCLOAK_CLIENT_ID: "litellm-portal"
+    KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
+    KEYCLOAK_ISSUER: ""
+    KEYCLOAK_ISSUER_INTERNAL: ""
+    NEXT_PUBLIC_API_URL: ""
+    AUTH_TRUST_HOST: "true"
+    BACKEND_INTERNAL_URL: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+backend:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: litellm-portal-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    APP_DATABASE_URL: ""
+    APP_LITELLM_BASE_URL: ""
+    APP_LITELLM_ADMIN_API_KEY: "sk-1234"
+    APP_KEYCLOAK_ISSUER: ""
+    APP_KEYCLOAK_JWKS_URI: ""
+    APP_JWT_AUDIENCE: "litellm-portal"
+    APP_CORS_ORIGINS: '["http://localhost:3002"]'
+    APP_SLACK_WEBHOOK_URL: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+worker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: litellm-portal-backend
+    tag: latest
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+database:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 5432
+  auth:
+    database: litellm
+    username: llmproxy
+    password: dbpassword9090
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+  external:
+    host: ""
+    port: 5432
+    database: litellm
+    username: llmproxy
+    password: dbpassword9090
+
+keycloak:
+  enabled: true
+  image:
+    repository: quay.io/keycloak/keycloak
+    tag: "26.0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  realm: litellm
+  adminUser: admin
+  adminPassword: admin
+  importRealm: true
+  external:
+    issuer: ""
+    jwksUri: ""
+
+prometheus:
+  enabled: true
+  image:
+    repository: prom/prometheus
+    tag: latest
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 9090
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+
+litellm:
+  enabled: true
+  internalServiceName: "litellm-helm-litellm"

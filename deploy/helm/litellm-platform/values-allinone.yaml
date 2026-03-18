@@ -1,0 +1,48 @@
+frontend:
+  enabled: true
+  env:
+    NEXTAUTH_URL: "http://localhost:3002"
+    NEXTAUTH_SECRET: "super-secret-nextauth-key-change-in-production"
+    KEYCLOAK_CLIENT_ID: "litellm-portal"
+    KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
+    KEYCLOAK_ISSUER: "http://localhost:3002/auth/issuer-placeholder"
+    KEYCLOAK_ISSUER_INTERNAL: ""
+    NEXT_PUBLIC_API_URL: "http://localhost:3002/api-placeholder"
+    AUTH_TRUST_HOST: "true"
+    BACKEND_INTERNAL_URL: ""
+
+backend:
+  enabled: true
+  env:
+    APP_DATABASE_URL: ""
+    APP_LITELLM_BASE_URL: ""
+    APP_LITELLM_ADMIN_API_KEY: "sk-1234"
+    APP_KEYCLOAK_ISSUER: ""
+    APP_KEYCLOAK_JWKS_URI: ""
+    APP_JWT_AUDIENCE: "litellm-portal"
+    APP_CORS_ORIGINS: '["http://localhost:3002"]'
+    APP_SLACK_WEBHOOK_URL: ""
+
+worker:
+  enabled: true
+
+database:
+  enabled: true
+  auth:
+    database: litellm
+    username: llmproxy
+    password: dbpassword9090
+
+keycloak:
+  enabled: true
+  realm: litellm
+  adminUser: admin
+  adminPassword: admin
+  importRealm: true
+
+prometheus:
+  enabled: true
+
+litellm:
+  enabled: true
+  internalServiceName: "litellm-helm-litellm"

@@ -1,0 +1,65 @@
+{{- if .Values.keycloak.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-keycloak
+  labels:
+    app.kubernetes.io/component: keycloak
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+      {{- include "litellm-platform.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: keycloak
+        {{- include "litellm-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: keycloak
+          image: "{{ .Values.keycloak.image.repository }}:{{ .Values.keycloak.image.tag }}"
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          command:
+            - start-dev
+            {{- if .Values.keycloak.importRealm }}
+            - --import-realm
+            {{- end }}
+            - --hostname-strict=false
+          env:
+            - name: KEYCLOAK_ADMIN
+              value: {{ .Values.keycloak.adminUser | quote }}
+            - name: KEYCLOAK_ADMIN_PASSWORD
+              value: {{ .Values.keycloak.adminPassword | quote }}
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          {{- if .Values.keycloak.importRealm }}
+          volumeMounts:
+            - name: keycloak-realm
+              mountPath: /opt/keycloak/data/import/litellm-realm.json
+              subPath: litellm-realm.json
+          {{- end }}
+          livenessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
+      {{- if .Values.keycloak.importRealm }}
+      volumes:
+        - name: keycloak-realm
+          configMap:
+            name: {{ include "litellm-platform.fullname" . }}-keycloak-realm
+      {{- end }}
+{{- end }}

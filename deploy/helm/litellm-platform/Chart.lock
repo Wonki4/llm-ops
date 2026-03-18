@@ -1,0 +1,6 @@
+dependencies:
+- name: litellm-helm
+  repository: file://../../../litellm/deploy/charts/litellm-helm
+  version: 1.1.0
+digest: sha256:a7f0c0e53592e872d131b91b0d148e1587c271328c716aae876b8dc25dec18c8
+generated: "2026-03-18T15:41:43.491502+09:00"

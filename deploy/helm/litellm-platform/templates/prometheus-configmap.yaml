@@ -1,0 +1,25 @@
+{{- if .Values.prometheus.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-prometheus
+  labels:
+    app.kubernetes.io/component: prometheus
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: "litellm"
+        static_configs:
+          - targets: ["{{ .Values.litellm.internalServiceName }}:4000"]
+        metrics_path: /metrics
+
+      - job_name: "backend"
+        static_configs:
+          - targets: ["{{ include "litellm-platform.fullname" . }}-backend:{{ .Values.backend.service.port }}"]
+        metrics_path: /metrics
+{{- end }}

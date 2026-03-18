@@ -1,0 +1,48 @@
+frontend:
+  enabled: true
+  env:
+    NEXTAUTH_URL: "https://portal.example.com"
+    NEXTAUTH_SECRET: "change-me"
+    KEYCLOAK_CLIENT_ID: "litellm-portal"
+    KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
+    KEYCLOAK_ISSUER: "https://sso.example.com/realms/litellm"
+    KEYCLOAK_ISSUER_INTERNAL: "https://sso.example.com/realms/litellm"
+    NEXT_PUBLIC_API_URL: "https://portal-api.example.com"
+    AUTH_TRUST_HOST: "true"
+    BACKEND_INTERNAL_URL: ""
+
+backend:
+  enabled: true
+  env:
+    APP_DATABASE_URL: ""
+    APP_LITELLM_BASE_URL: "https://litellm.example.com"
+    APP_LITELLM_ADMIN_API_KEY: "sk-1234"
+    APP_KEYCLOAK_ISSUER: "https://sso.example.com/realms/litellm"
+    APP_KEYCLOAK_JWKS_URI: "https://sso.example.com/realms/litellm/protocol/openid-connect/certs"
+    APP_JWT_AUDIENCE: "litellm-portal"
+    APP_CORS_ORIGINS: '["https://portal.example.com"]'
+    APP_SLACK_WEBHOOK_URL: ""
+
+worker:
+  enabled: true
+
+database:
+  enabled: false
+  external:
+    host: db.example.internal
+    port: 5432
+    database: litellm
+    username: llmproxy
+    password: change-me
+
+keycloak:
+  enabled: false
+  external:
+    issuer: "https://sso.example.com/realms/litellm"
+    jwksUri: "https://sso.example.com/realms/litellm/protocol/openid-connect/certs"
+
+prometheus:
+  enabled: false
+
+litellm:
+  enabled: false

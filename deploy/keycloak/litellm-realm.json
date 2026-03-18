@@ -1,0 +1,160 @@
+{
+  "realm": "litellm",
+  "enabled": true,
+  "sslRequired": "none",
+  "displayName": "LiteLLM Portal",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": true,
+  "editUsernameAllowed": false,
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 1800,
+  "ssoSessionIdleTimeout": 7200,
+  "ssoSessionMaxLifespan": 43200,
+  "roles": {
+    "realm": [
+      {
+        "name": "super_user",
+        "description": "Global administrator with full access to all features"
+      },
+      {
+        "name": "user",
+        "description": "Regular user"
+      }
+    ],
+    "client": {
+      "litellm-portal": [
+        {
+          "name": "super_user",
+          "description": "Super user access in LiteLLM Portal"
+        }
+      ]
+    }
+  },
+  "clients": [
+    {
+      "clientId": "litellm-portal",
+      "name": "LiteLLM Portal",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "change-me-in-keycloak",
+      "redirectUris": [
+        "http://localhost:3002/*",
+        "http://frontend:3000/*"
+      ],
+      "webOrigins": [
+        "http://localhost:3002",
+        "http://frontend:3000"
+      ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": true,
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles"
+      ],
+      "protocolMappers": [
+        {
+          "name": "preferred_username_mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "litellm-portal",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "client-roles-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "config": {
+            "usermodel.clientRoleMapping.clientId": "litellm-portal",
+            "claim.name": "resource_access.litellm-portal.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "admin001",
+      "enabled": true,
+      "email": "admin@example.com",
+      "firstName": "Admin",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "admin001",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "super_user",
+        "user"
+      ],
+      "clientRoles": {
+        "litellm-portal": [
+          "super_user"
+        ]
+      }
+    },
+    {
+      "username": "user001",
+      "enabled": true,
+      "email": "user001@example.com",
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "user001",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "user"
+      ]
+    },
+    {
+      "username": "user002",
+      "enabled": true,
+      "email": "user002@example.com",
+      "firstName": "Another",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "user002",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "user"
+      ]
+    }
+  ]
+}

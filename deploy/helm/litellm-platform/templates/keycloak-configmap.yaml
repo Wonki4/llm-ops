@@ -1,0 +1,12 @@
+{{- if and .Values.keycloak.enabled .Values.keycloak.importRealm }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-keycloak-realm
+  labels:
+    app.kubernetes.io/component: keycloak
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+data:
+  litellm-realm.json: |
+{{ .Files.Get "files/litellm-realm.json" | indent 4 }}
+{{- end }}

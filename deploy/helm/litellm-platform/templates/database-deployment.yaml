@@ -1,0 +1,60 @@
+{{- if .Values.database.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-db
+  labels:
+    app.kubernetes.io/component: database
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database
+      {{- include "litellm-platform.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: database
+        {{- include "litellm-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgres
+          image: "{{ .Values.database.image.repository }}:{{ .Values.database.image.tag }}"
+          imagePullPolicy: {{ .Values.database.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.database.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.database.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.database.auth.password | quote }}
+          {{- if .Values.database.persistence.enabled }}
+          volumeMounts:
+            - name: db-data
+              mountPath: /var/lib/postgresql/data
+          {{- end }}
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U {{ .Values.database.auth.username }} -d {{ .Values.database.auth.database }}"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U {{ .Values.database.auth.username }} -d {{ .Values.database.auth.database }}"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      {{- if .Values.database.persistence.enabled }}
+      volumes:
+        - name: db-data
+          persistentVolumeClaim:
+            claimName: {{ include "litellm-platform.fullname" . }}-db
+      {{- end }}
+{{- end }}

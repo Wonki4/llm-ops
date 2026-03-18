@@ -1,0 +1,39 @@
+{{- if and .Values.worker.enabled .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-worker
+  labels:
+    app.kubernetes.io/component: worker
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: worker
+      {{- include "litellm-platform.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: worker
+        {{- include "litellm-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          command: ["python", "-m", "app.worker"]
+          env:
+            - name: APP_DATABASE_URL
+              value: {{ default (printf "postgresql+asyncpg://%s:%s@%s:%s/%s" (include "litellm-platform.databaseUser" .) (include "litellm-platform.databasePassword" .) (include "litellm-platform.databaseHost" .) (include "litellm-platform.databasePort" .) (include "litellm-platform.databaseName" .)) (index .Values.backend.env "APP_DATABASE_URL") | quote }}
+            - name: APP_LITELLM_BASE_URL
+              value: {{ default (printf "http://%s:4000" .Values.litellm.internalServiceName) (index .Values.backend.env "APP_LITELLM_BASE_URL") | quote }}
+            - name: APP_LITELLM_ADMIN_API_KEY
+              value: {{ index .Values.backend.env "APP_LITELLM_ADMIN_API_KEY" | quote }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+{{- end }}
