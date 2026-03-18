@@ -1,0 +1,72 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: litellm-stg
+
+namePrefix: stg-
+
+resources:
+  - ../../base
+
+images:
+  - name: litellm-portal-backend
+    newName: litellm-portal-backend
+    newTag: stg
+  - name: litellm-portal-frontend
+    newName: litellm-portal-frontend
+    newTag: stg
+
+patches:
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+
+configMapGenerator:
+  - name: backend-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:changeme@db-stg.litellm-stg.svc:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm-stg.litellm-stg.svc:4000
+      - APP_KEYCLOAK_BASE_URL=https://sso-stg.example.com
+      - APP_KEYCLOAK_INTERNAL_URL=https://sso-stg.example.com
+      - APP_KEYCLOAK_REALM=litellm
+      - APP_KEYCLOAK_CLIENT_ID=litellm-portal
+      - APP_KEYCLOAK_REDIRECT_URI=https://portal-stg.example.com/api/auth/callback
+      - APP_KEYCLOAK_IDP_HINT=
+      - APP_KEYCLOAK_SSL_VERIFY=true
+      - APP_JWT_AUDIENCE=litellm-portal
+      - APP_FRONTEND_URL=https://portal-stg.example.com
+      - APP_CORS_ORIGINS=["https://portal-stg.example.com"]
+      - APP_SLACK_WEBHOOK_URL=
+      - APP_SESSION_COOKIE_SECURE=true
+      - APP_DEBUG=false
+
+  - name: frontend-config
+    literals:
+      - NEXT_PUBLIC_API_URL=https://portal-api-stg.example.com
+      - BACKEND_INTERNAL_URL=http://stg-backend:8000
+
+  - name: worker-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:changeme@db-stg.litellm-stg.svc:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm-stg.litellm-stg.svc:4000
+
+secretGenerator:
+  - name: backend-secrets
+    literals:
+      - APP_LITELLM_ADMIN_API_KEY=change-me-stg
+      - APP_KEYCLOAK_CLIENT_SECRET=change-me-stg
+      - APP_SESSION_SECRET_KEY=change-me-stg-session-secret-32bytes
+
+generatorOptions:
+  disableNameSuffixHash: true

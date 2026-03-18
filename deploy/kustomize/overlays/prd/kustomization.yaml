@@ -1,0 +1,106 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: litellm-prd
+
+namePrefix: prd-
+
+resources:
+  - ../../base
+
+images:
+  - name: litellm-portal-backend
+    newName: litellm-portal-backend
+    newTag: stable
+  - name: litellm-portal-frontend
+    newName: litellm-portal-frontend
+    newTag: stable
+
+patches:
+  - target:
+      kind: Deployment
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: "2"
+            memory: 1Gi
+  - target:
+      kind: Deployment
+      name: frontend
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+  - target:
+      kind: Deployment
+      name: worker
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: "1"
+            memory: 512Mi
+
+configMapGenerator:
+  - name: backend-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:changeme@db-prd.litellm-prd.svc:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm-prd.litellm-prd.svc:4000
+      - APP_KEYCLOAK_BASE_URL=https://sso.example.com
+      - APP_KEYCLOAK_INTERNAL_URL=https://sso.example.com
+      - APP_KEYCLOAK_REALM=litellm
+      - APP_KEYCLOAK_CLIENT_ID=litellm-portal
+      - APP_KEYCLOAK_REDIRECT_URI=https://portal.example.com/api/auth/callback
+      - APP_KEYCLOAK_IDP_HINT=
+      - APP_KEYCLOAK_SSL_VERIFY=true
+      - APP_JWT_AUDIENCE=litellm-portal
+      - APP_FRONTEND_URL=https://portal.example.com
+      - APP_CORS_ORIGINS=["https://portal.example.com"]
+      - APP_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/CHANGE_ME
+      - APP_SESSION_COOKIE_SECURE=true
+      - APP_DEBUG=false
+
+  - name: frontend-config
+    literals:
+      - NEXT_PUBLIC_API_URL=https://portal-api.example.com
+      - BACKEND_INTERNAL_URL=http://prd-backend:8000
+
+  - name: worker-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:changeme@db-prd.litellm-prd.svc:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm-prd.litellm-prd.svc:4000
+
+secretGenerator:
+  - name: backend-secrets
+    literals:
+      - APP_LITELLM_ADMIN_API_KEY=change-me-prd
+      - APP_KEYCLOAK_CLIENT_SECRET=change-me-prd
+      - APP_SESSION_SECRET_KEY=change-me-prd-session-secret-32bytes
+
+generatorOptions:
+  disableNameSuffixHash: true

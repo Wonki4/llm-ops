@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: litellm-dev
+
+namePrefix: dev-
+
+resources:
+  - ../../base
+
+images:
+  - name: litellm-portal-backend
+    newName: litellm-portal-backend
+    newTag: dev
+  - name: litellm-portal-frontend
+    newName: litellm-portal-frontend
+    newTag: dev
+
+configMapGenerator:
+  - name: backend-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:dbpassword9090@db:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm:4000
+      - APP_KEYCLOAK_BASE_URL=http://keycloak-dev.litellm-dev.svc:8080
+      - APP_KEYCLOAK_INTERNAL_URL=http://keycloak-dev.litellm-dev.svc:8080
+      - APP_KEYCLOAK_REALM=litellm
+      - APP_KEYCLOAK_CLIENT_ID=litellm-portal
+      - APP_KEYCLOAK_REDIRECT_URI=https://portal-dev.example.com/api/auth/callback
+      - APP_KEYCLOAK_IDP_HINT=
+      - APP_KEYCLOAK_SSL_VERIFY=
+      - APP_JWT_AUDIENCE=litellm-portal
+      - APP_FRONTEND_URL=https://portal-dev.example.com
+      - APP_CORS_ORIGINS=["https://portal-dev.example.com"]
+      - APP_SLACK_WEBHOOK_URL=
+      - APP_SESSION_COOKIE_SECURE=false
+      - APP_DEBUG=true
+
+  - name: frontend-config
+    literals:
+      - NEXT_PUBLIC_API_URL=https://portal-api-dev.example.com
+      - BACKEND_INTERNAL_URL=http://dev-backend:8000
+
+  - name: worker-config
+    literals:
+      - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:dbpassword9090@db:5432/litellm
+      - APP_LITELLM_BASE_URL=http://litellm:4000
+
+secretGenerator:
+  - name: backend-secrets
+    literals:
+      - APP_LITELLM_ADMIN_API_KEY=sk-1234
+      - APP_KEYCLOAK_CLIENT_SECRET=change-me-in-keycloak
+      - APP_SESSION_SECRET_KEY=change-me-dev-session-secret-32bytes
+
+generatorOptions:
+  disableNameSuffixHash: true
