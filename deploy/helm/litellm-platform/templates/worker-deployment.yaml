@@ -34,6 +34,8 @@ spec:
               value: {{ default (printf "http://%s:4000" .Values.litellm.internalServiceName) (index .Values.backend.env "APP_LITELLM_BASE_URL") | quote }}
             - name: APP_LITELLM_ADMIN_API_KEY
               value: {{ index .Values.backend.env "APP_LITELLM_ADMIN_API_KEY" | quote }}
+            - name: APP_KEYCLOAK_SSL_VERIFY
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_SSL_VERIFY" | quote }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
 {{- end }}

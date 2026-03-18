@@ -30,22 +30,8 @@ spec:
             - containerPort: 3000
               protocol: TCP
           env:
-            - name: NEXTAUTH_URL
-              value: {{ index .Values.frontend.env "NEXTAUTH_URL" | quote }}
-            - name: NEXTAUTH_SECRET
-              value: {{ index .Values.frontend.env "NEXTAUTH_SECRET" | quote }}
-            - name: KEYCLOAK_CLIENT_ID
-              value: {{ index .Values.frontend.env "KEYCLOAK_CLIENT_ID" | quote }}
-            - name: KEYCLOAK_CLIENT_SECRET
-              value: {{ index .Values.frontend.env "KEYCLOAK_CLIENT_SECRET" | quote }}
-            - name: KEYCLOAK_ISSUER
-              value: {{ default (printf "http://localhost:8082/realms/%s" .Values.keycloak.realm) (index .Values.frontend.env "KEYCLOAK_ISSUER") | quote }}
-            - name: KEYCLOAK_ISSUER_INTERNAL
-              value: {{ default (ternary (include "litellm-platform.keycloakInternalIssuer" .) .Values.keycloak.external.issuer .Values.keycloak.enabled) (index .Values.frontend.env "KEYCLOAK_ISSUER_INTERNAL") | quote }}
             - name: NEXT_PUBLIC_API_URL
               value: {{ default (include "litellm-platform.backendUrl" .) (index .Values.frontend.env "NEXT_PUBLIC_API_URL") | quote }}
-            - name: AUTH_TRUST_HOST
-              value: {{ index .Values.frontend.env "AUTH_TRUST_HOST" | quote }}
             - name: BACKEND_INTERNAL_URL
               value: {{ default (include "litellm-platform.backendUrl" .) (index .Values.frontend.env "BACKEND_INTERNAL_URL") | quote }}
           livenessProbe:

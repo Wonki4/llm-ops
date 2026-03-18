@@ -1,14 +1,7 @@
 frontend:
   enabled: true
   env:
-    NEXTAUTH_URL: "https://portal.example.com"
-    NEXTAUTH_SECRET: "change-me"
-    KEYCLOAK_CLIENT_ID: "litellm-portal"
-    KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
-    KEYCLOAK_ISSUER: "https://sso.example.com/realms/litellm"
-    KEYCLOAK_ISSUER_INTERNAL: "https://sso.example.com/realms/litellm"
     NEXT_PUBLIC_API_URL: "https://portal-api.example.com"
-    AUTH_TRUST_HOST: "true"
     BACKEND_INTERNAL_URL: ""
 
 backend:
@@ -17,9 +10,17 @@ backend:
     APP_DATABASE_URL: ""
     APP_LITELLM_BASE_URL: "https://litellm.example.com"
     APP_LITELLM_ADMIN_API_KEY: "sk-1234"
-    APP_KEYCLOAK_ISSUER: "https://sso.example.com/realms/litellm"
-    APP_KEYCLOAK_JWKS_URI: "https://sso.example.com/realms/litellm/protocol/openid-connect/certs"
+    APP_KEYCLOAK_BASE_URL: "https://sso.example.com"
+    APP_KEYCLOAK_INTERNAL_URL: "https://sso.example.com"
+    APP_KEYCLOAK_REALM: "litellm"
+    APP_KEYCLOAK_CLIENT_ID: "litellm-portal"
+    APP_KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
+    APP_KEYCLOAK_REDIRECT_URI: "https://portal.example.com/api/auth/callback"
+    APP_KEYCLOAK_IDP_HINT: ""
+    APP_KEYCLOAK_SSL_VERIFY: "true"
     APP_JWT_AUDIENCE: "litellm-portal"
+    APP_SESSION_SECRET_KEY: "change-me-in-production-must-be-32-bytes"
+    APP_FRONTEND_URL: "https://portal.example.com"
     APP_CORS_ORIGINS: '["https://portal.example.com"]'
     APP_SLACK_WEBHOOK_URL: ""
 
@@ -37,9 +38,6 @@ database:
 
 keycloak:
   enabled: false
-  external:
-    issuer: "https://sso.example.com/realms/litellm"
-    jwksUri: "https://sso.example.com/realms/litellm/protocol/openid-connect/certs"
 
 prometheus:
   enabled: false
