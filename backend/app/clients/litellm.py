@@ -21,7 +21,7 @@ class LiteLLMClient:
         }
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self._base_url, headers=self._headers, timeout=30.0)
+        return httpx.AsyncClient(base_url=self._base_url, headers=self._headers, timeout=30.0, verify=settings.ssl_verify)
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         async with self._client() as client:
