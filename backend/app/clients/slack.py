@@ -62,7 +62,7 @@ async def send_slack_notification(
     payload = {"blocks": blocks}
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(verify=settings.ssl_verify) as client:
             resp = await client.post(settings.slack_webhook_url, json=payload, timeout=10.0)
             resp.raise_for_status()
             return True

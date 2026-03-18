@@ -1,4 +1,3 @@
-import { signIn } from "@/auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -11,16 +10,11 @@ export default function LoginPage() {
           <CardDescription>사번으로 로그인하세요</CardDescription>
         </CardHeader>
         <CardContent>
-          <form
-            action={async () => {
-              "use server";
-              await signIn("keycloak", { redirectTo: "/teams" });
-            }}
-          >
-            <Button className="w-full" size="lg" type="submit">
+          <a href="/api/proxy/auth/login?return_to=/teams">
+            <Button className="w-full" size="lg">
               SSO 로그인
             </Button>
-          </form>
+          </a>
         </CardContent>
       </Card>
     </div>

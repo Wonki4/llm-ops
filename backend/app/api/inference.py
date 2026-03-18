@@ -67,7 +67,7 @@ async def proxy_inference(request: Request, path: str) -> Response:
     body = await request.body()
 
     # ── Upstream request (always stream so we can inspect headers) ─
-    client = httpx.AsyncClient(timeout=_TIMEOUT)
+    client = httpx.AsyncClient(timeout=_TIMEOUT, verify=settings.ssl_verify)
     try:
         upstream = await client.send(
             client.build_request(

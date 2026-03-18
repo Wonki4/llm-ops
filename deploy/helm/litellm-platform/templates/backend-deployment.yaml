@@ -36,12 +36,28 @@ spec:
               value: {{ default (printf "http://%s:4000" .Values.litellm.internalServiceName) (index .Values.backend.env "APP_LITELLM_BASE_URL") | quote }}
             - name: APP_LITELLM_ADMIN_API_KEY
               value: {{ index .Values.backend.env "APP_LITELLM_ADMIN_API_KEY" | quote }}
-            - name: APP_KEYCLOAK_ISSUER
-              value: {{ default (ternary (include "litellm-platform.keycloakInternalIssuer" .) .Values.keycloak.external.issuer .Values.keycloak.enabled) (index .Values.backend.env "APP_KEYCLOAK_ISSUER") | quote }}
-            - name: APP_KEYCLOAK_JWKS_URI
-              value: {{ default (ternary (include "litellm-platform.keycloakInternalJwksUri" .) .Values.keycloak.external.jwksUri .Values.keycloak.enabled) (index .Values.backend.env "APP_KEYCLOAK_JWKS_URI") | quote }}
+            - name: APP_KEYCLOAK_BASE_URL
+              value: {{ default (ternary (printf "http://%s-keycloak:%v" (include "litellm-platform.fullname" .) (.Values.keycloak.service.port | toString)) "" .Values.keycloak.enabled) (index .Values.backend.env "APP_KEYCLOAK_BASE_URL") | quote }}
+            - name: APP_KEYCLOAK_INTERNAL_URL
+              value: {{ default (ternary (printf "http://%s-keycloak:%v" (include "litellm-platform.fullname" .) (.Values.keycloak.service.port | toString)) "" .Values.keycloak.enabled) (index .Values.backend.env "APP_KEYCLOAK_INTERNAL_URL") | quote }}
+            - name: APP_KEYCLOAK_REALM
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_REALM" | quote }}
+            - name: APP_KEYCLOAK_CLIENT_ID
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_CLIENT_ID" | quote }}
+            - name: APP_KEYCLOAK_CLIENT_SECRET
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_CLIENT_SECRET" | quote }}
+            - name: APP_KEYCLOAK_REDIRECT_URI
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_REDIRECT_URI" | quote }}
+            - name: APP_KEYCLOAK_IDP_HINT
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_IDP_HINT" | quote }}
+            - name: APP_KEYCLOAK_SSL_VERIFY
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_SSL_VERIFY" | quote }}
             - name: APP_JWT_AUDIENCE
               value: {{ index .Values.backend.env "APP_JWT_AUDIENCE" | quote }}
+            - name: APP_SESSION_SECRET_KEY
+              value: {{ index .Values.backend.env "APP_SESSION_SECRET_KEY" | quote }}
+            - name: APP_FRONTEND_URL
+              value: {{ index .Values.backend.env "APP_FRONTEND_URL" | quote }}
             - name: APP_CORS_ORIGINS
               value: {{ index .Values.backend.env "APP_CORS_ORIGINS" | quote }}
             - name: APP_SLACK_WEBHOOK_URL

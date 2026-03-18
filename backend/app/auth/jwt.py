@@ -18,7 +18,7 @@ async def _get_jwks() -> dict:
     now = time.time()
     if _jwks_cache and (now - _jwks_cache_time) < JWKS_CACHE_TTL:
         return _jwks_cache
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=settings.ssl_verify) as client:
         resp = await client.get(settings.effective_jwks_uri)
         resp.raise_for_status()
         _jwks_cache = resp.json()

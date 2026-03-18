@@ -83,11 +83,17 @@ services:
       APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
       APP_LITELLM_BASE_URL: "http://litellm:4000"
       APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
-      APP_KEYCLOAK_ISSUER: "http://localhost:8082/realms/litellm"
+      APP_KEYCLOAK_BASE_URL: "http://localhost:8082"
+      APP_KEYCLOAK_INTERNAL_URL: "http://keycloak:8080"
+      APP_KEYCLOAK_REALM: "litellm"
+      APP_KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-litellm-portal}"
+      APP_KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:-change-me-in-keycloak}"
+      APP_KEYCLOAK_REDIRECT_URI: "http://localhost:3002/api/auth/callback"
+      APP_KEYCLOAK_IDP_HINT: "${APP_KEYCLOAK_IDP_HINT:-}"
+      APP_KEYCLOAK_SSL_VERIFY: "${APP_KEYCLOAK_SSL_VERIFY:-}"
       APP_JWT_AUDIENCE: "litellm-portal"
-      APP_CORS_ORIGINS: '["http://localhost:3002"]'
-      APP_SLACK_WEBHOOK_URL: "${APP_SLACK_WEBHOOK_URL:-}"
-      APP_KEYCLOAK_JWKS_URI: "http://keycloak:8080/realms/litellm/protocol/openid-connect/certs"
+      APP_SESSION_SECRET_KEY: "${APP_SESSION_SECRET_KEY:-change-me-in-production-must-be-32-bytes}"
+      APP_FRONTEND_URL: "http://localhost:3002"
     env_file:
       - .env
     depends_on:
@@ -115,6 +121,7 @@ services:
       APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
       APP_LITELLM_BASE_URL: "http://litellm:4000"
       APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
+      APP_CA_CERT_PATH: "${APP_CA_CERT_PATH:-}"
     env_file:
       - .env
     depends_on:
@@ -133,14 +140,7 @@ services:
     ports:
       - "3002:3000"
     environment:
-      NEXTAUTH_URL: "http://localhost:3002"
-      NEXTAUTH_SECRET: "${NEXTAUTH_SECRET:-super-secret-nextauth-key-change-in-production}"
-      KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-litellm-portal}"
-      KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:-change-me-in-keycloak}"
-      KEYCLOAK_ISSUER: "http://localhost:8082/realms/litellm"
-      KEYCLOAK_ISSUER_INTERNAL: "http://keycloak:8080/realms/litellm"
       NEXT_PUBLIC_API_URL: "http://localhost:8002"
-      AUTH_TRUST_HOST: "true"
       BACKEND_INTERNAL_URL: "http://backend:8000"
     depends_on:
       keycloak:

@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, History, BarChart3, Key } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
@@ -20,7 +19,6 @@ const navigation: { name: string; href: string; icon: typeof Users; roles: UserR
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { data: session } = useSession();
   const { data: me } = useMe();
 
   const userRole: UserRole = me?.role ?? "user";
@@ -57,15 +55,15 @@ export function AppSidebar() {
       </nav>
       <div className="border-t p-3 space-y-2">
         <p className="text-xs text-gray-500 truncate px-1">
-          {session?.user?.id || ""}
+          {me?.user_id || ""}
         </p>
-        <button
-          onClick={() => signOut({ callbackUrl: "/login" })}
+        <a
+          href="/api/auth/logout"
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
         >
           <LogOut className="h-4 w-4" />
           로그아웃
-        </button>
+        </a>
       </div>
     </aside>
   );

@@ -12,14 +12,7 @@ frontend:
     type: ClusterIP
     port: 3000
   env:
-    NEXTAUTH_URL: "http://localhost:3002"
-    NEXTAUTH_SECRET: "super-secret-nextauth-key-change-in-production"
-    KEYCLOAK_CLIENT_ID: "litellm-portal"
-    KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
-    KEYCLOAK_ISSUER: ""
-    KEYCLOAK_ISSUER_INTERNAL: ""
     NEXT_PUBLIC_API_URL: ""
-    AUTH_TRUST_HOST: "true"
     BACKEND_INTERNAL_URL: ""
   resources:
     requests:
@@ -43,9 +36,17 @@ backend:
     APP_DATABASE_URL: ""
     APP_LITELLM_BASE_URL: ""
     APP_LITELLM_ADMIN_API_KEY: "sk-1234"
-    APP_KEYCLOAK_ISSUER: ""
-    APP_KEYCLOAK_JWKS_URI: ""
+    APP_KEYCLOAK_BASE_URL: ""
+    APP_KEYCLOAK_INTERNAL_URL: ""
+    APP_KEYCLOAK_REALM: "litellm"
+    APP_KEYCLOAK_CLIENT_ID: "litellm-portal"
+    APP_KEYCLOAK_CLIENT_SECRET: "change-me-in-keycloak"
+    APP_KEYCLOAK_REDIRECT_URI: ""
+    APP_KEYCLOAK_IDP_HINT: ""
+    APP_KEYCLOAK_SSL_VERIFY: ""
     APP_JWT_AUDIENCE: "litellm-portal"
+    APP_SESSION_SECRET_KEY: "change-me-in-production-must-be-32-bytes"
+    APP_FRONTEND_URL: ""
     APP_CORS_ORIGINS: '["http://localhost:3002"]'
     APP_SLACK_WEBHOOK_URL: ""
   resources:

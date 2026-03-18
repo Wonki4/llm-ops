@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import inference, keys, me, models_catalog, team_requests, teams
+from app.api import auth, inference, keys, me, models_catalog, team_requests, teams
 from app.config import settings
 
 
@@ -34,6 +34,7 @@ app.add_middleware(
 )
 
 # Register routers
+app.include_router(auth.router)
 app.include_router(me.router)
 app.include_router(teams.router)
 app.include_router(keys.router)
