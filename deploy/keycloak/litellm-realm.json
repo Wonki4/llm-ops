@@ -41,11 +41,15 @@
       "secret": "change-me-in-keycloak",
       "redirectUris": [
         "http://localhost:3002/*",
-        "http://frontend:3000/*"
+        "http://frontend:3000/*",
+        "http://localhost:8002/*",
+        "http://backend:8000/*"
       ],
       "webOrigins": [
         "http://localhost:3002",
-        "http://frontend:3000"
+        "http://frontend:3000",
+        "http://localhost:8002",
+        "http://backend:8000"
       ],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
