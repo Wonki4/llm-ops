@@ -1,0 +1,72 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useSession, signOut } from "next-auth/react";
+import { cn } from "@/lib/utils";
+import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, History, BarChart3, Key } from "lucide-react";
+import { useMe } from "@/hooks/use-api";
+import type { UserRole } from "@/types";
+
+const navigation: { name: string; href: string; icon: typeof Users; roles: UserRole[] }[] = [
+  { name: "내 팀", href: "/teams", icon: Users, roles: ["user", "team_admin", "super_user"] },
+  { name: "팀 탐색", href: "/teams/discover", icon: Globe, roles: ["user", "team_admin", "super_user"] },
+  { name: "내 전체 키", href: "/keys", icon: Key, roles: ["user", "team_admin", "super_user"] },
+  { name: "가입 요청 관리", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
+  { name: "모델 대시보드", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
+  { name: "모델 관리", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
+  { name: "변경 이력", href: "/admin/models/history", icon: History, roles: ["super_user"] },
+];
+
+export function AppSidebar() {
+  const pathname = usePathname();
+  const { data: session } = useSession();
+  const { data: me } = useMe();
+
+  const userRole: UserRole = me?.role ?? "user";
+
+  return (
+    <aside className="flex h-full w-64 flex-col border-r bg-white">
+      <div className="flex h-14 items-center border-b px-4">
+        <Link href="/" className="flex items-center gap-2 font-bold text-lg">
+          <LayoutDashboard className="h-5 w-5" />
+          LiteLLM Portal
+        </Link>
+      </div>
+      <nav className="flex-1 space-y-1 p-3">
+        {navigation
+          .filter((item) => item.roles.includes(userRole))
+          .map((item) => {
+            const isActive = pathname === item.href || (item.href !== "/admin/models" && item.href !== "/keys" && pathname.startsWith(item.href + "/"));
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-gray-100 text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                )}
+              >
+                <item.icon className="h-4 w-4" />
+                {item.name}
+              </Link>
+            );
+          })}
+      </nav>
+      <div className="border-t p-3 space-y-2">
+        <p className="text-xs text-gray-500 truncate px-1">
+          {session?.user?.id || ""}
+        </p>
+        <button
+          onClick={() => signOut({ callbackUrl: "/login" })}
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+        >
+          <LogOut className="h-4 w-4" />
+          로그아웃
+        </button>
+      </div>
+    </aside>
+  );
+}
