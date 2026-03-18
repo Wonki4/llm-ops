@@ -24,7 +24,7 @@ spec:
       {{- end }}
       containers:
         - name: backend
-          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          image: {{ include "litellm-platform.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.backend.image.repository "tag" .Values.backend.image.tag) | quote }}
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
           ports:
             - containerPort: 8000

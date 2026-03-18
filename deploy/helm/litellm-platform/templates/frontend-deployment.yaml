@@ -24,7 +24,7 @@ spec:
       {{- end }}
       containers:
         - name: frontend
-          image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
+          image: {{ include "litellm-platform.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.frontend.image.repository "tag" .Values.frontend.image.tag) | quote }}
           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
           ports:
             - containerPort: 3000

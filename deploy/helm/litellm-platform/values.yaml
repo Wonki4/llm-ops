@@ -1,12 +1,13 @@
 global:
+  imageRegistry: "harbor-srep01.xxx.com"
   imagePullSecrets: []
 
 frontend:
   enabled: true
   replicaCount: 1
   image:
-    repository: litellm-portal-frontend
-    tag: latest
+    repository: llm-ops/frontend
+    tag: v0.0.1-rc1
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -26,8 +27,8 @@ backend:
   enabled: true
   replicaCount: 1
   image:
-    repository: litellm-portal-backend
-    tag: latest
+    repository: llm-ops/backend
+    tag: v0.0.1-rc1
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
@@ -61,8 +62,8 @@ worker:
   enabled: true
   replicaCount: 1
   image:
-    repository: litellm-portal-backend
-    tag: latest
+    repository: llm-ops/backend
+    tag: v0.0.1-rc1
     pullPolicy: IfNotPresent
   resources:
     requests:

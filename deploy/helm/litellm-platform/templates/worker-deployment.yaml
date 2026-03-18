@@ -24,7 +24,7 @@ spec:
       {{- end }}
       containers:
         - name: worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag }}"
+          image: {{ include "litellm-platform.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.worker.image.repository "tag" .Values.worker.image.tag) | quote }}
           imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           command: ["python", "-m", "app.worker"]
           env:
