@@ -47,3 +47,19 @@ prometheus:
 litellm:
   enabled: true
   internalServiceName: "litellm-helm-litellm"
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  tls: []
+  frontend:
+    enabled: true
+    host: "portal-dev.example.com"
+    path: "/"
+    pathType: Prefix
+  backend:
+    enabled: true
+    host: "portal-api-dev.example.com"
+    path: "/"
+    pathType: Prefix
