@@ -16,6 +16,22 @@ images:
     newName: registry.example.com/llm-ops/litellm-portal-frontend
     newTag: dev
 
+patches:
+  - target:
+      kind: Ingress
+      name: frontend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal-dev.example.com
+  - target:
+      kind: Ingress
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal-api-dev.example.com
+
 configMapGenerator:
   - name: backend-config
     literals:

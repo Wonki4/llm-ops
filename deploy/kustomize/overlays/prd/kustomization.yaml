@@ -65,6 +65,20 @@ patches:
           limits:
             cpu: "1"
             memory: 512Mi
+  - target:
+      kind: Ingress
+      name: frontend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal.example.com
+  - target:
+      kind: Ingress
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal-api.example.com
 
 configMapGenerator:
   - name: backend-config

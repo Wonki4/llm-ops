@@ -31,6 +31,20 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 2
+  - target:
+      kind: Ingress
+      name: frontend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal-stg.example.com
+  - target:
+      kind: Ingress
+      name: backend
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: portal-api-stg.example.com
 
 configMapGenerator:
   - name: backend-config

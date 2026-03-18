@@ -12,3 +12,5 @@ resources:
   - frontend-deployment.yaml
   - frontend-service.yaml
   - worker-deployment.yaml
+  - frontend-ingress.yaml
+  - backend-ingress.yaml
