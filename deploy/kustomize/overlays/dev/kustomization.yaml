@@ -10,10 +10,10 @@ resources:
 
 images:
   - name: litellm-portal-backend
-    newName: litellm-portal-backend
+    newName: registry.example.com/llm-ops/litellm-portal-backend
     newTag: dev
   - name: litellm-portal-frontend
-    newName: litellm-portal-frontend
+    newName: registry.example.com/llm-ops/litellm-portal-frontend
     newTag: dev
 
 configMapGenerator:
