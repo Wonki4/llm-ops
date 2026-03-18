@@ -39,6 +39,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
+Build image string: registry/repository:tag
+*/}}
+{{- define "litellm-platform.image" -}}
+{{- $registry := .registry -}}
+{{- $repo := .repository -}}
+{{- $tag := .tag -}}
+{{- if $registry -}}
+{{ printf "%s/%s:%s" $registry $repo $tag }}
+{{- else -}}
+{{ printf "%s:%s" $repo $tag }}
+{{- end -}}
+{{- end }}
+
+{{/*
 Database host for internal/external mode.
 */}}
 {{- define "litellm-platform.databaseHost" -}}
