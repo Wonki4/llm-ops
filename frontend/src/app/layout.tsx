@@ -11,8 +11,8 @@ const inter = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "LiteLLM Portal",
-  description: "LiteLLM Team & Model Management Portal",
+  title: "LLM Ops",
+  description: "LLM Ops Team and Model Management",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
