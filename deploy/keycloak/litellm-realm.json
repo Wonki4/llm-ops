@@ -2,7 +2,7 @@
   "realm": "litellm",
   "enabled": true,
   "sslRequired": "none",
-  "displayName": "LiteLLM Portal",
+  "displayName": "LLM Ops",
   "registrationAllowed": false,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
@@ -27,7 +27,7 @@
       "litellm-portal": [
         {
           "name": "super_user",
-          "description": "Super user access in LiteLLM Portal"
+          "description": "Super user access in LLM Ops"
         }
       ]
     }
@@ -35,7 +35,7 @@
   "clients": [
     {
       "clientId": "litellm-portal",
-      "name": "LiteLLM Portal",
+      "name": "LLM Ops",
       "enabled": true,
       "publicClient": false,
       "secret": "change-me-in-keycloak",

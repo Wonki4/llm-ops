@@ -1,4 +1,4 @@
-"""FastAPI application entry point for LiteLLM Portal Backend."""
+"""FastAPI application entry point for LLM Ops Backend."""
 
 from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
@@ -18,7 +18,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(
-    title="LiteLLM Portal Backend",
+    title="LLM Ops Backend",
     description="Custom backend for LiteLLM team & model management",
     version="0.1.0",
     lifespan=lifespan,

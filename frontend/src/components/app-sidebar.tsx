@@ -28,7 +28,7 @@ export function AppSidebar() {
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/" className="flex items-center gap-2 font-bold text-lg">
           <LayoutDashboard className="h-5 w-5" />
-          LiteLLM Portal
+          LLM Ops
         </Link>
       </div>
       <nav className="flex-1 space-y-1 p-3">

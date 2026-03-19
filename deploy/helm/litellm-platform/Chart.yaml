@@ -1,6 +1,6 @@
 apiVersion: v2
 name: litellm-platform
-description: LiteLLM Portal - Frontend + Backend + Worker
+description: LLM Ops - Frontend + Backend + Worker
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
