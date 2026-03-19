@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
@@ -21,8 +23,8 @@ async def get_current_token(
     if session and session.access_token:
         try:
             return await verify_token(session.access_token)
-        except ValueError:
-            pass
+        except ValueError as e:
+            logging.error("Session token verification failed: %s", e)
 
     if credentials:
         try:
