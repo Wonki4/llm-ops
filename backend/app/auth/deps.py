@@ -19,6 +19,8 @@ async def get_current_token(
     response: Response,
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> TokenPayload:
+    cookie_names = list(request.cookies.keys())
+    logging.debug("Auth check - cookies present: %s, has Bearer: %s", cookie_names, bool(credentials))
     session: SessionData | None = await refresh_session_if_needed(request, response)
     if session and session.access_token:
         try:

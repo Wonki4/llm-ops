@@ -1,3 +1,5 @@
+import logging
+
 import json
 import time
 import zlib
@@ -48,7 +50,8 @@ def decode_session(cookie_value: str) -> SessionData | None:
         raw = zlib.decompress(compressed)
         payload = json.loads(raw)
         return SessionData(**payload)
-    except (InvalidToken, json.JSONDecodeError, TypeError, zlib.error):
+    except (InvalidToken, json.JSONDecodeError, TypeError, zlib.error) as e:
+        logging.error("Session cookie decode failed: %s: %s", type(e).__name__, e)
         return None
 
 
@@ -87,6 +90,7 @@ def clear_session_cookie(response: Response) -> None:
 def load_session(request: Request) -> SessionData | None:
     cookie_value = request.cookies.get(settings.session_cookie_name)
     if not cookie_value:
+        logging.warning("No session cookie found in request")
         return None
     return decode_session(cookie_value)
 
