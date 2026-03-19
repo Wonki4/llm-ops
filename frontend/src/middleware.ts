@@ -12,7 +12,8 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/teams", req.url));
   }
   if (!isLoginPage && !hasSession) {
-    return NextResponse.redirect(new URL("/login", req.url));
+    const returnTo = encodeURIComponent(req.nextUrl.pathname + req.nextUrl.search);
+    return NextResponse.redirect(new URL(`/api/proxy/auth/login?return_to=${returnTo}`, req.url));
   }
   return NextResponse.next();
 }
