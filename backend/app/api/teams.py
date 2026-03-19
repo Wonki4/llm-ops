@@ -1,5 +1,8 @@
 """Team management endpoints - proxies to LiteLLM + adds custom logic."""
 
+from collections.abc import Mapping
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,7 +22,7 @@ _TEAM_COLUMNS = (
 )
 
 
-def _row_to_team(row: dict, preview_limit: int = MEMBER_PREVIEW_LIMIT) -> dict:
+def _row_to_team(row: Mapping[str, Any], preview_limit: int = MEMBER_PREVIEW_LIMIT) -> dict:
     """Convert a LiteLLM_TeamTable row to a lightweight team dict."""
     all_members: list[str] = list(row["members"] or [])
     all_admins: list[str] = list(row["admins"] or [])
@@ -48,13 +51,17 @@ async def list_my_teams(
         text(
             f"SELECT {_TEAM_COLUMNS} "
             'FROM "LiteLLM_TeamTable" t '
-            'WHERE :user_id = ANY(t.members) '
-            '   OR :user_id = ANY(t.admins) '
-            '   OR EXISTS ('
+            "WHERE :user_id = ANY(t.members) "
+            "   OR :user_id = ANY(t.admins) "
+            "   OR EXISTS ("
             '       SELECT 1 FROM "LiteLLM_TeamMembership" m '
-            '       WHERE m.team_id = t.team_id AND m.user_id = :user_id'
-            '   ) '
-            'ORDER BY t.team_alias'
+            "       WHERE m.team_id = t.team_id AND m.user_id = :user_id"
+            "   ) "
+            "   OR EXISTS ("
+            '       SELECT 1 FROM "LiteLLM_UserTable" u '
+            "       WHERE u.user_id = :user_id AND t.team_id = ANY(u.teams)"
+            "   ) "
+            "ORDER BY t.team_alias"
         ),
         {"user_id": user.user_id},
     )
@@ -74,7 +81,12 @@ async def discover_teams(
     )
     # Fetch user's current team memberships
     membership_result = await db.execute(
-        text('SELECT team_id FROM "LiteLLM_TeamMembership" WHERE user_id = :user_id'),
+        text(
+            'SELECT team_id FROM "LiteLLM_TeamMembership" WHERE user_id = :user_id '
+            "UNION "
+            "SELECT UNNEST(COALESCE(teams, ARRAY[]::text[])) AS team_id "
+            'FROM "LiteLLM_UserTable" WHERE user_id = :user_id'
+        ),
         {"user_id": user.user_id},
     )
     user_team_ids = {r["team_id"] for r in membership_result.mappings()}
@@ -231,17 +243,19 @@ async def list_team_members(
     # 6. Group keys by user_id
     keys_by_user: dict[str, list[dict]] = {uid: [] for uid in paged_ids}
     for k in keys_result.mappings():
-        keys_by_user[k["user_id"]].append({
-            "token": k["token"],
-            "key_alias": k["key_alias"],
-            "key_name": k["key_name"],
-            "spend": float(k["spend"]),
-            "max_budget": float(k["max_budget"]) if k["max_budget"] is not None else None,
-            "budget_duration": k["budget_duration"],
-            "budget_reset_at": (k["budget_reset_at"].isoformat() if k["budget_reset_at"] else None),
-            "models": list(k["models"] or []),
-            "created_at": k["created_at"].isoformat() if k["created_at"] else None,
-        })
+        keys_by_user[k["user_id"]].append(
+            {
+                "token": k["token"],
+                "key_alias": k["key_alias"],
+                "key_name": k["key_name"],
+                "spend": float(k["spend"]),
+                "max_budget": float(k["max_budget"]) if k["max_budget"] is not None else None,
+                "budget_duration": k["budget_duration"],
+                "budget_reset_at": (k["budget_reset_at"].isoformat() if k["budget_reset_at"] else None),
+                "models": list(k["models"] or []),
+                "created_at": k["created_at"].isoformat() if k["created_at"] else None,
+            }
+        )
 
     # 7. Build member objects
     members = []
@@ -250,16 +264,17 @@ async def list_team_members(
         total_spend = sum(k["spend"] for k in user_keys)
         has_unlimited = any(k["max_budget"] is None for k in user_keys)
         total_max_budget: float | None = (
-            None if has_unlimited
-            else (sum(k["max_budget"] for k in user_keys) if user_keys else None)  # type: ignore[arg-type]
+            None if has_unlimited else (sum(k["max_budget"] for k in user_keys) if user_keys else None)  # type: ignore[arg-type]
         )
-        members.append({
-            "user_id": uid,
-            "is_admin": uid in all_admins_set,
-            "key_count": len(user_keys),
-            "total_spend": total_spend,
-            "total_max_budget": total_max_budget,
-            "keys": user_keys,
-        })
+        members.append(
+            {
+                "user_id": uid,
+                "is_admin": uid in all_admins_set,
+                "key_count": len(user_keys),
+                "total_spend": total_spend,
+                "total_max_budget": total_max_budget,
+                "keys": user_keys,
+            }
+        )
 
     return {"members": members, "total": total, "page": page, "page_size": page_size}
