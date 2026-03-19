@@ -4,6 +4,9 @@ metadata:
   name: backend
   labels:
     app.kubernetes.io/component: backend
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffer-size: "8k"
+    nginx.ingress.kubernetes.io/proxy-buffers-number: "4"
 spec:
   ingressClassName: nginx
   rules:

@@ -103,6 +103,7 @@ configMapGenerator:
     literals:
       - NEXT_PUBLIC_API_URL=https://portal-api.example.com
       - BACKEND_INTERNAL_URL=http://prd-backend:8000
+      - COOKIE_SECURE=true
 
   - name: worker-config
     literals:

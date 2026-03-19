@@ -55,6 +55,7 @@ configMapGenerator:
     literals:
       - NEXT_PUBLIC_API_URL=https://portal-api-dev.example.com
       - BACKEND_INTERNAL_URL=http://dev-backend:8000
+      - COOKIE_SECURE=false
 
   - name: worker-config
     literals:

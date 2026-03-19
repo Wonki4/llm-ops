@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   const redirectUrl = new URL(data.redirect_to, origin).toString();
   const html = `<!DOCTYPE html><html><head><meta http-equiv="refresh" content="0;url=${redirectUrl}"></head><body>Redirecting...</body></html>`;
 
-  const isSecure = proto === "https";
+  const isSecure = process.env.COOKIE_SECURE === "true";
   const cookieValue = [
     `${data.cookie_name}=${data.session_value}`,
     `Path=/`,

@@ -69,6 +69,7 @@ configMapGenerator:
     literals:
       - NEXT_PUBLIC_API_URL=https://portal-api-stg.example.com
       - BACKEND_INTERNAL_URL=http://stg-backend:8000
+      - COOKIE_SECURE=true
 
   - name: worker-config
     literals:
