@@ -2,10 +2,13 @@
 
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser
+from app.db.session import get_db
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
 
@@ -40,31 +43,40 @@ async def create_key(
 async def list_my_keys(
     team_id: str | None = None,
     user: CustomUser = Depends(get_current_user),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List current user's API keys, optionally filtered by team."""
-    key_hashes = await litellm.list_keys(user_id=user.user_id, team_id=team_id)
-    # key/list now returns hashes only; fetch full info for each key
-    keys = []
-    for kh in key_hashes:
-        if isinstance(kh, dict):
-            # Ensure token field exists (normalize key_name -> token)
-            if "token" not in kh and "key_name" in kh:
-                kh["token"] = kh["key_name"]
-            keys.append(kh)
-        elif isinstance(kh, str):
-            try:
-                info = await litellm.get_key_info(kh)
-                key_data = info.get("info", info)
-                if isinstance(key_data, dict):
-                    # Ensure token field exists
-                    if "token" not in key_data and "key_name" in key_data:
-                        key_data["token"] = key_data["key_name"]
-                    elif "token" not in key_data:
-                        key_data["token"] = kh
-                    keys.append(key_data)
-            except Exception:
-                pass  # skip keys that can't be fetched
+    query = (
+        "SELECT token, key_name, key_alias, team_id, user_id, "
+        "       spend, max_budget, budget_duration, budget_reset_at, "
+        "       models, expires, created_at "
+        'FROM "LiteLLM_VerificationToken" '
+        "WHERE user_id = :user_id "
+    )
+    params: dict = {"user_id": user.user_id}
+    if team_id:
+        query += "AND team_id = :team_id "
+        params["team_id"] = team_id
+    query += "ORDER BY created_at DESC"
+
+    result = await db.execute(text(query), params)
+    keys = [
+        {
+            "token": k["token"],
+            "key_name": k["key_name"],
+            "key_alias": k["key_alias"],
+            "team_id": k["team_id"],
+            "user_id": k["user_id"],
+            "spend": float(k["spend"]),
+            "max_budget": k["max_budget"],
+            "budget_duration": k["budget_duration"],
+            "budget_reset_at": (k["budget_reset_at"].isoformat() if k["budget_reset_at"] else None),
+            "models": list(k["models"] or []),
+            "expires": k["expires"].isoformat() if k["expires"] else None,
+            "created_at": k["created_at"].isoformat() if k["created_at"] else None,
+        }
+        for k in result.mappings()
+    ]
     return {"keys": keys}
 
 

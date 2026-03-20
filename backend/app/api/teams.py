@@ -48,12 +48,10 @@ async def list_my_teams(
         text(
             f"SELECT {_TEAM_COLUMNS} "
             'FROM "LiteLLM_TeamTable" t '
-            'WHERE :user_id = ANY(t.members) '
-            '   OR :user_id = ANY(t.admins) '
-            '   OR EXISTS ('
-            '       SELECT 1 FROM "LiteLLM_TeamMembership" m '
-            '       WHERE m.team_id = t.team_id AND m.user_id = :user_id'
-            '   ) '
+            'WHERE t.team_id = ANY('
+            '    SELECT unnest(u.teams) FROM "LiteLLM_UserTable" u '
+            '    WHERE u.user_id = :user_id'
+            ') '
             'ORDER BY t.team_alias'
         ),
         {"user_id": user.user_id},
