@@ -46,7 +46,11 @@ async def get_current_user(
 
     if not user:
         all_roles = (token.realm_roles or []) + (token.client_roles or [])
-        is_super = settings.super_user_role in all_roles
+        user_groups = token.groups or []
+        is_super = (
+            settings.super_user_role in all_roles
+            or bool(settings.admin_groups and set(user_groups) & set(settings.admin_groups))
+        )
 
         user = CustomUser(
             user_id=token.preferred_username,
@@ -58,7 +62,11 @@ async def get_current_user(
         await db.flush()
     else:
         all_roles = (token.realm_roles or []) + (token.client_roles or [])
-        is_super = settings.super_user_role in all_roles
+        user_groups = token.groups or []
+        is_super = (
+            settings.super_user_role in all_roles
+            or bool(settings.admin_groups and set(user_groups) & set(settings.admin_groups))
+        )
         new_role = GlobalRole.SUPER_USER if is_super else user.global_role
         if user.global_role != new_role:
             user.global_role = new_role

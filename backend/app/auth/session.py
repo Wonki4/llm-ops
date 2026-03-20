@@ -36,6 +36,7 @@ class SessionData:
     name: str = ""
     id_token: str = ""
     roles: list[str] = field(default_factory=list)
+    groups: list[str] = field(default_factory=list)
 
 
 def encode_session(data: SessionData) -> str:

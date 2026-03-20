@@ -35,6 +35,7 @@ class TokenPayload:
     name: str | None = None
     realm_roles: list[str] | None = None
     client_roles: list[str] | None = None
+    groups: list[str] | None = None
 
 
 async def verify_token(token: str) -> TokenPayload:
@@ -68,6 +69,7 @@ async def verify_token(token: str) -> TokenPayload:
     # Extract roles from realm_access and resource_access
     realm_roles = payload.get("realm_access", {}).get("roles", [])
     client_roles = payload.get("resource_access", {}).get(settings.jwt_audience, {}).get("roles", [])
+    groups = payload.get("groups", [])
 
     return TokenPayload(
         sub=subject,
@@ -76,4 +78,5 @@ async def verify_token(token: str) -> TokenPayload:
         name=payload.get("name"),
         realm_roles=realm_roles,
         client_roles=client_roles,
+        groups=groups,
     )

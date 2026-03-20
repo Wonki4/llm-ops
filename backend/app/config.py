@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     jwt_audience: str = "litellm-portal"
     super_user_role: str = "super_user"
+    admin_groups: list[str] = []
 
     session_secret_key: str = "change-me-in-production-must-be-32-bytes"
     session_cookie_name: str = "litellm_session"
