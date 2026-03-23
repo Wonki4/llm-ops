@@ -9,11 +9,11 @@ import type { UserRole } from "@/types";
 
 const navigation: { name: string; href: string; icon: typeof Users; roles: UserRole[] }[] = [
   { name: "모델 캘린더", href: "/admin/models/history", icon: Calendar, roles: ["user", "team_admin", "super_user"] },
+  { name: "모델 대시보드", href: "/admin/models/dashboard", icon: BarChart3, roles: ["user", "team_admin", "super_user"] },
   { name: "내 팀", href: "/teams", icon: Users, roles: ["user", "team_admin", "super_user"] },
   { name: "팀 탐색", href: "/teams/discover", icon: Globe, roles: ["user", "team_admin", "super_user"] },
   { name: "내 전체 키", href: "/keys", icon: Key, roles: ["user", "team_admin", "super_user"] },
   { name: "요청 관리", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
-  { name: "모델 대시보드", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
   { name: "모델 관리", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
 ];
 
