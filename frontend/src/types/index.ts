@@ -33,6 +33,8 @@ export interface DiscoverTeam extends Team {
 export interface TeamMembership {
   spend: number;
   max_budget: number | null;
+  budget_duration: string | null;
+  budget_reset_at: string | null;
 }
 
 export interface TeamDetail {
