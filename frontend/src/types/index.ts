@@ -68,6 +68,7 @@ export interface ModelCatalog {
   description: string | null;
   status: ModelStatus;
   status_schedule: StatusSchedule | null;
+  visible: boolean;
   status_change_date: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -195,6 +196,7 @@ export interface UpdateModelCatalogRequest {
   description?: string;
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
+  visible?: boolean;
 }
 
 // ─── Team Members ─────────────────────────────────────────────

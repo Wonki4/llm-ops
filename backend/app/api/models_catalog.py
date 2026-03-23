@@ -24,6 +24,7 @@ class CreateModelCatalogEntry(BaseModel):
     description: str | None = None
     status: ModelStatus = ModelStatus.TESTING
     status_schedule: dict | None = None  # {"testing": "2026-01-15", "lts": "2026-03-01", ...}
+    visible: bool = True
 
 
 class UpdateModelCatalogEntry(BaseModel):
@@ -31,6 +32,7 @@ class UpdateModelCatalogEntry(BaseModel):
     description: str | None = None
     status: ModelStatus | None = None
     status_schedule: dict | None = None
+    visible: bool | None = None
 
 
 def _serialize_model(m: CustomModelCatalog) -> dict:
@@ -41,6 +43,7 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "description": m.description,
         "status": m.status.value,
         "status_schedule": m.status_schedule,
+        "visible": m.visible,
         "status_change_date": m.status_change_date.isoformat() if m.status_change_date else None,
         "created_by": m.created_by,
         "updated_by": m.updated_by,
@@ -299,6 +302,7 @@ async def create_catalog_entry(
         description=body.description,
         status=body.status,
         status_schedule=body.status_schedule,
+        visible=body.visible,
         status_change_date=datetime.now() if body.status != ModelStatus.TESTING else None,
         created_by=user.user_id,
         updated_by=user.user_id,

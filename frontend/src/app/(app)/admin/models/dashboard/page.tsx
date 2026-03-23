@@ -426,7 +426,7 @@ export default function ModelDashboardPage() {
 
   // ── Computed stats ──
   const stats = useMemo(() => {
-    const all = models ?? [];
+    const all = (models ?? []).filter((m) => !m.catalog || m.catalog.visible !== false);
     const total = all.length;
     const withCatalog = all.filter((m) => m.catalog).length;
     const withLiteLLM = all.filter((m) => m.litellm_info).length;

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,6 +43,7 @@ class CustomModelCatalog(CustomBase):
         server_default="testing",
         index=True,
     )
+    visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     status_change_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

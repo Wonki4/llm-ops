@@ -84,7 +84,7 @@ function extractEvents(catalog: ModelCatalog[]): ScheduleEvent[] {
   const events: ScheduleEvent[] = [];
 
   for (const model of catalog) {
-    if (!model.status_schedule) continue;
+    if (!model.status_schedule || model.visible === false) continue;
 
     for (const { value: status } of STATUS_OPTIONS) {
       const dateStr = model.status_schedule[status];
