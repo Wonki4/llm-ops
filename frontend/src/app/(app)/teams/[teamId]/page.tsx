@@ -2,7 +2,8 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useModels } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useCreateBudgetRequest } from "@/hooks/use-api";
+import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -154,10 +155,84 @@ function DeleteKeyDialog({
   );
 }
 
+function BudgetRequestDialog({ teamId }: { teamId: string }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [message, setMessage] = useState("");
+  const mutation = useCreateBudgetRequest();
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="w-full mt-2">
+          <DollarSign className="size-3.5 mr-1" />
+          예산 증액 요청
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>예산 증액 요청</DialogTitle>
+          <DialogDescription>
+            팀 관리자에게 예산 증액을 요청합니다. 승인 시 모든 키의 max_budget이 변경됩니다.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium">요청 금액 ($)</label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="예: 100"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">사유 (선택)</label>
+            <Input
+              placeholder="증액이 필요한 이유를 입력하세요"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="ghost">취소</Button>
+          </DialogClose>
+          <Button
+            disabled={!amount || Number(amount) <= 0 || mutation.isPending}
+            onClick={() => {
+              mutation.mutate(
+                { team_id: teamId, requested_budget: Number(amount), message: message || undefined },
+                {
+                  onSuccess: () => {
+                    toast.success("예산 증액 요청이 제출되었습니다.");
+                    setOpen(false);
+                    setAmount("");
+                    setMessage("");
+                  },
+                  onError: (err) => {
+                    toast.error(err instanceof Error ? err.message : "요청 실패");
+                  },
+                },
+              );
+            }}
+          >
+            {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : "요청 제출"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function OverviewTab({
   team,
   isAdmin,
   myKeys,
+  myMembership,
   modelsByName,
   onMoveToKeys,
   onMoveToModels,
@@ -178,6 +253,7 @@ function OverviewTab({
   };
   isAdmin: boolean;
   myKeys: ApiKey[];
+  myMembership: { spend: number; max_budget: number | null };
   modelsByName: Map<string, ModelWithCatalog>;
   onMoveToKeys: () => void;
   onMoveToModels: () => void;
@@ -186,6 +262,9 @@ function OverviewTab({
   const totalMembers = team.member_count ?? team.members.length;
   const totalAdmins = team.admin_count ?? team.admins.length;
   const pct = budgetPercent(team.spend, team.max_budget);
+  const mySpend = myMembership.spend;
+  const myMaxBudget = myMembership.max_budget;
+  const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
   const scopedModels = team.models.slice(0, 5).map((modelName) => ({
     modelName,
@@ -197,19 +276,35 @@ function OverviewTab({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">예산 사용률</CardTitle>
+            <CardTitle className="text-sm font-medium">팀 예산</CardTitle>
             <DollarSign className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-2">
             <div className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget)}</div>
-            <p className="text-xs text-muted-foreground">예산 사용 현황</p>
+            <p className="text-xs text-muted-foreground">팀 전체 사용량</p>
             <div className="h-2 w-full rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-primary transition-all"
                 style={{ width: `${team.max_budget === null ? 0 : pct}%` }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">내 사용량</CardTitle>
+            <DollarSign className="size-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget)}</div>
+            <p className="text-xs text-muted-foreground">팀 내 내 예산</p>
+            <div className="h-2 w-full rounded-full bg-muted">
+              <div
+                className="h-full rounded-full bg-blue-500 transition-all"
+                style={{ width: `${myMaxBudget === null ? 0 : myPct}%` }}
               />
             </div>
           </CardContent>
@@ -250,12 +345,12 @@ function OverviewTab({
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">예산 상세</CardTitle>
+              <CardTitle className="text-base">팀 예산 상세</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-sm text-muted-foreground">총 사용량</p>
+                  <p className="text-sm text-muted-foreground">팀 전체 사용량</p>
                   <p className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget)}</p>
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">
@@ -272,6 +367,23 @@ function OverviewTab({
                 <p>예산 주기: {team.budget_duration ? `${formatBudgetDuration(team.budget_duration)} 주기` : "-"}</p>
                 <p>예산 초기화: {team.budget_reset_at ? formatResetDate(team.budget_reset_at) : "-"}</p>
               </div>
+              <Separator />
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-sm text-muted-foreground">내 사용량</p>
+                  <p className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget)}</p>
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {myMaxBudget === null ? "무제한" : `${myPct.toFixed(1)}%`}
+                </p>
+              </div>
+              <div className="h-2 w-full rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-blue-500 transition-all"
+                  style={{ width: `${myMaxBudget === null ? 0 : myPct}%` }}
+                />
+              </div>
+              <BudgetRequestDialog teamId={team.team_id} />
             </CardContent>
           </Card>
 
@@ -436,6 +548,7 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const changeRoleMutation = useChangeMemberRole();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -515,14 +628,32 @@ function MembersTab({ teamId }: { teamId: string }) {
                         </TableCell>
                         <TableCell className="font-medium">{member.user_id}</TableCell>
                         <TableCell>
-                          {member.is_admin ? (
-                            <Badge variant="default" className="gap-1">
-                              <Shield className="size-3" />
-                              관리자
-                            </Badge>
-                          ) : (
-                            <Badge variant="outline">멤버</Badge>
-                          )}
+                          <div className="flex items-center gap-2">
+                            {member.is_admin ? (
+                              <Badge variant="default" className="gap-1">
+                                <Shield className="size-3" />
+                                관리자
+                              </Badge>
+                            ) : (
+                              <Badge variant="outline">멤버</Badge>
+                            )}
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-muted-foreground"
+                              disabled={changeRoleMutation.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                changeRoleMutation.mutate({
+                                  teamId,
+                                  userId: member.user_id,
+                                  role: member.is_admin ? "member" : "admin",
+                                });
+                              }}
+                            >
+                              {member.is_admin ? "멤버로 변경" : "관리자로 변경"}
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">{member.key_count}개</TableCell>
                         <TableCell>
@@ -689,7 +820,7 @@ export default function TeamDetailPage({
 
   if (!data) return null;
 
-  const { team, my_keys, is_admin } = data;
+  const { team, my_keys, is_admin, my_membership } = data;
   const enrichedTeamModels = team.models.map((modelName) => ({
     modelName,
     model: modelsByName.get(modelName) ?? null,
@@ -734,6 +865,7 @@ export default function TeamDetailPage({
             team={team}
             isAdmin={is_admin}
             myKeys={my_keys}
+            myMembership={my_membership}
             modelsByName={modelsByName}
             onMoveToKeys={() => setActiveTab("keys")}
             onMoveToModels={() => setActiveTab("models")}

@@ -30,12 +30,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import type { TeamJoinRequest, JoinRequestStatus } from "@/types";
+import type { TeamJoinRequest, JoinRequestStatus, RequestType } from "@/types";
 
 const STATUS_LABELS: Record<JoinRequestStatus, string> = {
   pending: "대기중",
   approved: "승인",
   rejected: "거절",
+};
+
+const TYPE_LABELS: Record<RequestType, string> = {
+  join: "팀 가입",
+  budget: "예산 증액",
 };
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
@@ -48,6 +53,14 @@ function StatusBadge({ status }: { status: JoinRequestStatus }) {
   };
 
   return <Badge className={styles[status]}>{STATUS_LABELS[status]}</Badge>;
+}
+
+function TypeBadge({ type }: { type: RequestType }) {
+  const styles: Record<RequestType, string> = {
+    join: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    budget: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  };
+  return <Badge className={styles[type]}>{TYPE_LABELS[type]}</Badge>;
 }
 
 function formatDate(dateStr: string) {
@@ -81,7 +94,8 @@ export default function AdminRequestsPage() {
   const approveRequest = useApproveRequest();
   const rejectRequest = useRejectRequest();
 
-  const [activeTab, setActiveTab] = useState("all");
+  const [statusTab, setStatusTab] = useState("all");
+  const [typeTab, setTypeTab] = useState("all");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<"approve" | "reject">(
     "approve",
@@ -91,8 +105,9 @@ export default function AdminRequestsPage() {
   const [comment, setComment] = useState("");
 
   const filteredRequests = requests?.filter((req) => {
-    if (activeTab === "all") return true;
-    return req.status === activeTab;
+    const statusMatch = statusTab === "all" || req.status === statusTab;
+    const typeMatch = typeTab === "all" || (req.request_type ?? "join") === typeTab;
+    return statusMatch && typeMatch;
   });
 
   function openActionDialog(
@@ -134,26 +149,38 @@ export default function AdminRequestsPage() {
   }
 
   const isPending = approveRequest.isPending || rejectRequest.isPending;
+  const reqType = (selectedRequest?.request_type ?? "join") as RequestType;
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">가입 요청 관리</h1>
+        <h1 className="text-2xl font-bold">요청 관리</h1>
         <p className="text-muted-foreground mt-1">
-          팀 가입 요청을 검토하세요
+          팀 가입 및 예산 증액 요청을 검토하세요
         </p>
       </div>
 
       {/* Error state */}
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          가입 요청 목록을 불러오는 중 오류가 발생했습니다.
+          요청 목록을 불러오는 중 오류가 발생했습니다.
         </div>
       )}
 
-      {/* Tabs + Table */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* Type filter */}
+      <div className="flex items-center gap-4">
+        <Tabs value={typeTab} onValueChange={setTypeTab}>
+          <TabsList>
+            <TabsTrigger value="all">전체 유형</TabsTrigger>
+            <TabsTrigger value="join">팀 가입</TabsTrigger>
+            <TabsTrigger value="budget">예산 증액</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      {/* Status tabs + Table */}
+      <Tabs value={statusTab} onValueChange={setStatusTab}>
         <TabsList>
           <TabsTrigger value="all">전체</TabsTrigger>
           <TabsTrigger value="pending">대기중</TabsTrigger>
@@ -161,7 +188,7 @@ export default function AdminRequestsPage() {
           <TabsTrigger value="rejected">거절</TabsTrigger>
         </TabsList>
 
-        <TabsContent value={activeTab} className="mt-4">
+        <TabsContent value={statusTab} className="mt-4">
           {isLoading ? (
             <TableSkeleton />
           ) : filteredRequests && filteredRequests.length > 0 ? (
@@ -169,9 +196,10 @@ export default function AdminRequestsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead>유형</TableHead>
                     <TableHead>요청자</TableHead>
                     <TableHead>팀</TableHead>
-                    <TableHead>메시지</TableHead>
+                    <TableHead>내용</TableHead>
                     <TableHead>상태</TableHead>
                     <TableHead>요청일</TableHead>
                     <TableHead>처리</TableHead>
@@ -180,18 +208,31 @@ export default function AdminRequestsPage() {
                 <TableBody>
                   {filteredRequests.map((req) => (
                     <TableRow key={req.id}>
+                      <TableCell>
+                        <TypeBadge type={(req.request_type ?? "join") as RequestType} />
+                      </TableCell>
                       <TableCell className="font-medium">
                         {req.requester_id}
                       </TableCell>
                       <TableCell>
                         {req.team_alias || req.team_id}
                       </TableCell>
-                      <TableCell
-                        className="max-w-[200px] truncate"
-                        title={req.message ?? undefined}
-                      >
-                        {req.message || (
-                          <span className="text-muted-foreground">-</span>
+                      <TableCell className="max-w-[200px]">
+                        {(req.request_type ?? "join") === "budget" ? (
+                          <div>
+                            <span className="font-medium text-purple-700 dark:text-purple-400">
+                              ${req.requested_budget?.toFixed(2)}
+                            </span>
+                            {req.message && (
+                              <p className="text-xs text-muted-foreground truncate mt-0.5" title={req.message}>
+                                {req.message}
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="truncate" title={req.message ?? undefined}>
+                            {req.message || <span className="text-muted-foreground">-</span>}
+                          </span>
                         )}
                       </TableCell>
                       <TableCell>
@@ -235,7 +276,7 @@ export default function AdminRequestsPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Inbox className="size-10 text-muted-foreground mb-3" />
               <p className="text-muted-foreground">
-                처리할 가입 요청이 없습니다.
+                처리할 요청이 없습니다.
               </p>
             </div>
           )}
@@ -247,9 +288,7 @@ export default function AdminRequestsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {dialogAction === "approve"
-                ? "가입 요청 승인"
-                : "가입 요청 거절"}
+              {TYPE_LABELS[reqType]} {dialogAction === "approve" ? "승인" : "거절"}
             </DialogTitle>
             <DialogDescription>
               <span className="font-semibold text-foreground">
@@ -259,8 +298,13 @@ export default function AdminRequestsPage() {
               <span className="font-semibold text-foreground">
                 {selectedRequest?.team_alias || selectedRequest?.team_id}
               </span>{" "}
-              팀 가입 요청을{" "}
+              팀 {TYPE_LABELS[reqType]} 요청을{" "}
               {dialogAction === "approve" ? "승인" : "거절"}합니다.
+              {reqType === "budget" && selectedRequest?.requested_budget != null && (
+                <span className="block mt-1 font-semibold text-purple-700 dark:text-purple-400">
+                  요청 금액: ${selectedRequest.requested_budget.toFixed(2)}
+                </span>
+              )}
             </DialogDescription>
           </DialogHeader>
 

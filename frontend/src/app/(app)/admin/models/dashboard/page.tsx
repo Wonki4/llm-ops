@@ -77,20 +77,22 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-const STATUS_BAR_COLORS: Record<ModelStatus, string> = {
+const STATUS_BAR_COLORS: Record<ModelStatus | "unregistered", string> = {
   testing: "bg-blue-400",
   prerelease: "bg-purple-400",
   lts: "bg-green-500",
   deprecating: "bg-yellow-400",
   deprecated: "bg-red-400",
+  unregistered: "bg-gray-300 dark:bg-gray-600",
 };
 
-const STATUS_DOT_COLORS: Record<ModelStatus, string> = {
+const STATUS_DOT_COLORS: Record<ModelStatus | "unregistered", string> = {
   testing: "bg-blue-400",
   prerelease: "bg-purple-400",
   lts: "bg-green-500",
   deprecating: "bg-yellow-400",
   deprecated: "bg-red-400",
+  unregistered: "bg-gray-300 dark:bg-gray-600",
 };
 
 const STATUS_ORDER: ModelStatus[] = [
@@ -256,11 +258,25 @@ function SourceBadge({ model }: { model: ModelWithCatalog }) {
 
 // ─── Status Distribution Bar ──────────────────────────────────
 
+const DISTRIBUTION_ORDER: (ModelStatus | "unregistered")[] = [
+  ...STATUS_ORDER,
+  "unregistered",
+];
+
+const DISTRIBUTION_LABELS: Record<ModelStatus | "unregistered", string> = {
+  testing: "testing",
+  prerelease: "prerelease",
+  lts: "lts",
+  deprecating: "deprecating",
+  deprecated: "deprecated",
+  unregistered: "미등록",
+};
+
 function StatusDistributionBar({
   counts,
   total,
 }: {
-  counts: Record<ModelStatus, number>;
+  counts: Record<ModelStatus | "unregistered", number>;
   total: number;
 }) {
   if (total === 0) {
@@ -268,7 +284,7 @@ function StatusDistributionBar({
       <div className="space-y-3">
         <div className="h-4 w-full rounded-full bg-muted" />
         <p className="text-sm text-muted-foreground text-center">
-          카탈로그에 등록된 모델이 없습니다
+          등록된 모델이 없습니다
         </p>
       </div>
     );
@@ -278,7 +294,7 @@ function StatusDistributionBar({
     <div className="space-y-3">
       {/* Stacked bar */}
       <div className="flex h-4 w-full overflow-hidden rounded-full border">
-        {STATUS_ORDER.map((status) => {
+        {DISTRIBUTION_ORDER.map((status) => {
           const count = counts[status];
           if (count === 0) return null;
           const pct = (count / total) * 100;
@@ -289,12 +305,12 @@ function StatusDistributionBar({
                   <div
                     className={`${STATUS_BAR_COLORS[status]} transition-all`}
                     style={{ width: `${pct}%`, minWidth: count > 0 ? "8px" : "0" }}
-                    aria-label={`${status}: ${count}개 (${pct.toFixed(0)}%)`}
+                    aria-label={`${DISTRIBUTION_LABELS[status]}: ${count}개 (${pct.toFixed(0)}%)`}
                   />
                 </TooltipTrigger>
                 <TooltipContent>
                   <p className="text-xs">
-                    {status}: {count}개 ({pct.toFixed(1)}%)
+                    {DISTRIBUTION_LABELS[status]}: {count}개 ({pct.toFixed(1)}%)
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -305,13 +321,13 @@ function StatusDistributionBar({
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-        {STATUS_ORDER.map((status) => (
+        {DISTRIBUTION_ORDER.map((status) => (
           <div key={status} className="flex items-center gap-1.5">
             <div
               className={`size-2.5 rounded-full ${STATUS_DOT_COLORS[status]}`}
             />
             <span className="text-xs text-muted-foreground">
-              {status}
+              {DISTRIBUTION_LABELS[status]}
             </span>
             <span className="text-xs font-medium">{counts[status]}</span>
           </div>
@@ -427,21 +443,24 @@ export default function ModelDashboardPage() {
     return { total, withCatalog, withLiteLLM, retiring };
   }, [models]);
 
-  // ── Status distribution (catalog-only) ──
+  // ── Status distribution (including unregistered) ──
   const statusCounts = useMemo(() => {
-    const counts: Record<ModelStatus, number> = {
+    const counts: Record<ModelStatus | "unregistered", number> = {
       testing: 0,
       prerelease: 0,
       lts: 0,
       deprecating: 0,
       deprecated: 0,
+      unregistered: 0,
     };
     let total = 0;
     for (const m of models ?? []) {
       if (m.catalog) {
         counts[m.catalog.status]++;
-        total++;
+      } else {
+        counts.unregistered++;
       }
+      total++;
     }
     return { counts, total };
   }, [models]);
@@ -553,7 +572,7 @@ export default function ModelDashboardPage() {
           <CardHeader>
             <CardTitle className="text-base">상태 분포</CardTitle>
             <CardDescription>
-              카탈로그에 등록된 모델의 상태별 비율
+              전체 모델의 상태별 비율 (미등록 포함)
             </CardDescription>
           </CardHeader>
           <CardContent>

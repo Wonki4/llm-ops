@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, String, Text, func
+from sqlalchemy import DateTime, Enum, Float, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -15,8 +15,13 @@ class JoinRequestStatus(str, enum.Enum):
     REJECTED = "rejected"
 
 
+class RequestType(str, enum.Enum):
+    JOIN = "join"
+    BUDGET = "budget"
+
+
 class CustomTeamJoinRequest(CustomBase):
-    """Tracks team join requests and approval workflow."""
+    """Tracks team join requests and budget increase requests."""
 
     __tablename__ = "custom_team_join_requests"
 
@@ -24,7 +29,9 @@ class CustomTeamJoinRequest(CustomBase):
     requester_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)  # 사번
     team_id: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     team_alias: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    request_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default="join", index=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    requested_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[JoinRequestStatus] = mapped_column(
         Enum(
             JoinRequestStatus,

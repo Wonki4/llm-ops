@@ -30,10 +30,16 @@ export interface DiscoverTeam extends Team {
   is_member: boolean;
 }
 
+export interface TeamMembership {
+  spend: number;
+  max_budget: number | null;
+}
+
 export interface TeamDetail {
   team: Team;
   my_keys: ApiKey[];
   is_admin: boolean;
+  my_membership: TeamMembership;
 }
 
 export interface ApiKey {
@@ -133,12 +139,16 @@ export interface ModelStatusHistorySummary {
   top_models: StatusHistoryTopModel[];
 }
 
+export type RequestType = "join" | "budget";
+
 export interface TeamJoinRequest {
   id: string;
   requester_id: string;
   team_id: string;
   team_alias?: string;
+  request_type: RequestType;
   message: string | null;
+  requested_budget: number | null;
   status: JoinRequestStatus;
   reviewed_by: string | null;
   review_comment: string | null;
@@ -157,6 +167,12 @@ export interface CreateKeyRequest {
 
 export interface CreateJoinRequestBody {
   team_id: string;
+  message?: string;
+}
+
+export interface CreateBudgetRequestBody {
+  team_id: string;
+  requested_budget: number;
   message?: string;
 }
 
