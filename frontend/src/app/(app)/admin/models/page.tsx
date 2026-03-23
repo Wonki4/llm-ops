@@ -82,7 +82,7 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
 function formatCost(cost: number | null | undefined): string {
   if (cost == null) return "-";
   if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1000).toFixed(3)} / 1K`;
+  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
 function formatDate(dateStr: string | null | undefined): string {
