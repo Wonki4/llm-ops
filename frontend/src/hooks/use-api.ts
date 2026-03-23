@@ -16,6 +16,7 @@ import type {
   TeamJoinRequest,
   CreateKeyRequest,
   CreateJoinRequestBody,
+  CreateBudgetRequestBody,
   ReviewRequestBody,
   CreateModelCatalogRequest,
   UpdateModelCatalogRequest,
@@ -83,6 +84,21 @@ export function useTeamMembers(
     queryFn: () =>
       apiFetch<TeamMembersResponse>(`/api/teams/${teamId}/members?${params.toString()}`),
     enabled: enabled && !!teamId,
+  });
+}
+
+export function useChangeMemberRole() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId, role }: { teamId: string; userId: string; role: "admin" | "member" }) =>
+      apiFetch<{ status: string }>(`/api/teams/${teamId}/members/role`, {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId, role }),
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
+      qc.invalidateQueries({ queryKey: ["teams", variables.teamId, "members"] });
+    },
   });
 }
 
@@ -159,6 +175,20 @@ export function useCreateJoinRequest() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["join-requests"] });
       qc.invalidateQueries({ queryKey: queryKeys.discoverTeams });
+    },
+  });
+}
+
+export function useCreateBudgetRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateBudgetRequestBody) =>
+      apiFetch<TeamJoinRequest>("/api/team-requests/budget", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["join-requests"] });
     },
   });
 }

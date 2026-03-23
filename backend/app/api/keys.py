@@ -85,13 +85,18 @@ async def delete_key(
     key_hash: str,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete an API key (user can only delete their own keys)."""
-    # Verify ownership
-    key_info = await litellm.get_key_info(key_hash)
-    info = key_info.get("info", key_info)
-    if info.get("user_id") != user.user_id:
-        from fastapi import HTTPException, status
+    from fastapi import HTTPException, status as http_status
 
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own keys")
+    result = await db.execute(
+        text('SELECT user_id FROM "LiteLLM_VerificationToken" WHERE token = :token'),
+        {"token": key_hash},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Key not found")
+    if row["user_id"] != user.user_id:
+        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="You can only delete your own keys")
     return await litellm.delete_key(key_hash)

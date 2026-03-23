@@ -1,10 +1,12 @@
 """User session/profile endpoints."""
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
-from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser
+from app.db.session import get_db
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -12,26 +14,24 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 @router.get("")
 async def get_me(
     user: CustomUser = Depends(get_current_user),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get current user profile including LiteLLM data."""
-    # Try to get LiteLLM user info; auto-provision if missing
-    try:
-        litellm_info = await litellm.get_user_info(user.user_id)
-    except Exception:
-        # User doesn't exist in LiteLLM yet - create them
-        await litellm.create_user(user.user_id, user.email)
-        litellm_info = await litellm.get_user_info(user.user_id)
-
-    user_data = litellm_info.get("user_info", {})
-    teams = litellm_info.get("teams", [])
+    """Get current user profile."""
+    result = await db.execute(
+        text(
+            "SELECT spend, max_budget "
+            'FROM "LiteLLM_UserTable" '
+            "WHERE user_id = :user_id"
+        ),
+        {"user_id": user.user_id},
+    )
+    row = result.mappings().first()
 
     return {
         "user_id": user.user_id,
         "email": user.email,
         "display_name": user.display_name,
         "role": user.global_role.value,
-        "teams": teams,
-        "spend": user_data.get("spend", 0),
-        "max_budget": user_data.get("max_budget"),
+        "spend": float(row["spend"]) if row else 0,
+        "max_budget": row["max_budget"] if row else None,
     }

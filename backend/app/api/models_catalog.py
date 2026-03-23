@@ -125,10 +125,10 @@ async def list_all_history(
     date_to: datetime | None = None,
     limit: int = 200,
     offset: int = 0,
-    user: CustomUser = Depends(require_super_user),
+    user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """List all status change history across all catalog entries (Super User only)."""
+    """List all status change history across all catalog entries."""
     query = select(CustomModelStatusHistory)
 
     if model_name:
@@ -175,10 +175,10 @@ async def history_summary(
     date_to: datetime | None = None,
     bucket: str = "month",
     top_n: int = 5,
-    user: CustomUser = Depends(require_super_user),
+    user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Aggregated statistics for model status changes within a date range (Super User only)."""
+    """Aggregated statistics for model status changes within a date range."""
     # Build shared WHERE conditions
     conditions = []
     if date_from:
@@ -385,10 +385,10 @@ async def delete_catalog_entry(
 @router.get("/catalog/{catalog_id}/history")
 async def get_catalog_history(
     catalog_id: str,
-    user: CustomUser = Depends(require_super_user),
+    user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get status change history for a catalog entry (Super User only)."""
+    """Get status change history for a catalog entry."""
     # Verify catalog entry exists
     result = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.id == uuid.UUID(catalog_id)))
     if not result.scalar_one_or_none():
