@@ -253,7 +253,7 @@ function OverviewTab({
   };
   isAdmin: boolean;
   myKeys: ApiKey[];
-  myMembership: { spend: number; max_budget: number | null };
+  myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null };
   modelsByName: Map<string, ModelWithCatalog>;
   onMoveToKeys: () => void;
   onMoveToModels: () => void;
@@ -382,6 +382,10 @@ function OverviewTab({
                   className="h-full rounded-full bg-blue-500 transition-all"
                   style={{ width: `${myMaxBudget === null ? 0 : myPct}%` }}
                 />
+              </div>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>예산 주기: {myMembership.budget_duration ? `${formatBudgetDuration(myMembership.budget_duration)} 주기` : "-"}</p>
+                <p>예산 초기화: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at) : "-"}</p>
               </div>
               <BudgetRequestDialog teamId={team.team_id} />
             </CardContent>
