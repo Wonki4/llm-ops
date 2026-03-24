@@ -207,7 +207,33 @@ async def approve_request(
     await require_team_admin(user, req.team_id, db)
 
     if req.request_type == "join":
-        await litellm.add_team_member(req.team_id, req.requester_id)
+        # 1. Add to TeamTable.members array
+        await db.execute(
+            text(
+                'UPDATE "LiteLLM_TeamTable" '
+                "SET members = array_append(members, :user_id) "
+                "WHERE team_id = :team_id AND NOT (:user_id = ANY(members))"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
+        # 2. Create TeamMembership row (upsert)
+        await db.execute(
+            text(
+                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
+                "VALUES (:user_id, :team_id, 0) "
+                "ON CONFLICT (user_id, team_id) DO NOTHING"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
+        # 3. Add team_id to UserTable.teams array
+        await db.execute(
+            text(
+                'UPDATE "LiteLLM_UserTable" '
+                "SET teams = array_append(teams, :team_id) "
+                "WHERE user_id = :user_id AND NOT (:team_id = ANY(teams))"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
     elif req.request_type == "budget":
         # Find an existing budget with the exact requested max_budget
         existing_budget = await db.execute(
