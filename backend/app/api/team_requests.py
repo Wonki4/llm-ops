@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.auth.permissions import require_team_admin
-from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.clients.slack import send_slack_notification
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest, JoinRequestStatus
 from app.db.models.custom_user import CustomUser, GlobalRole
@@ -54,7 +53,6 @@ def _request_to_dict(r: CustomTeamJoinRequest) -> dict:
 async def create_join_request(
     body: CreateJoinRequest,
     user: CustomUser = Depends(get_current_user),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Request to join a team. Prevents duplicate pending requests."""
@@ -71,17 +69,17 @@ async def create_join_request(
             status_code=status.HTTP_409_CONFLICT, detail="You already have a pending request for this team"
         )
 
-    try:
-        team_info = await litellm.get_team_info(body.team_id)
-        team_data = team_info.get("team_info", {})
-        members = team_data.get("members", [])
-        if user.user_id in members:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You are already a member of this team")
-        team_alias = team_data.get("team_alias", body.team_id)
-    except HTTPException:
-        raise
-    except Exception:
-        team_alias = body.team_id
+    # Check team exists and get alias + membership check via DB
+    team_result = await db.execute(
+        text('SELECT team_alias, members FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        {"team_id": body.team_id},
+    )
+    team_row = team_result.mappings().first()
+    if not team_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
+    if user.user_id in (team_row["members"] or []):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You are already a member of this team")
+    team_alias = team_row["team_alias"] or body.team_id
 
     join_request = CustomTeamJoinRequest(
         id=uuid.uuid4(),
@@ -191,7 +189,6 @@ async def approve_request(
     request_id: str,
     body: ReviewRequest = ReviewRequest(),
     user: CustomUser = Depends(get_current_user),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Approve a request. Must be team admin or super user."""
@@ -207,7 +204,33 @@ async def approve_request(
     await require_team_admin(user, req.team_id, db)
 
     if req.request_type == "join":
-        await litellm.add_team_member(req.team_id, req.requester_id)
+        # 1. Add to TeamTable.members array
+        await db.execute(
+            text(
+                'UPDATE "LiteLLM_TeamTable" '
+                "SET members = array_append(members, :user_id) "
+                "WHERE team_id = :team_id AND NOT (:user_id = ANY(members))"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
+        # 2. Create TeamMembership row (upsert)
+        await db.execute(
+            text(
+                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
+                "VALUES (:user_id, :team_id, 0) "
+                "ON CONFLICT (user_id, team_id) DO NOTHING"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
+        # 3. Add team_id to UserTable.teams array
+        await db.execute(
+            text(
+                'UPDATE "LiteLLM_UserTable" '
+                "SET teams = array_append(teams, :team_id) "
+                "WHERE user_id = :user_id AND NOT (:team_id = ANY(teams))"
+            ),
+            {"user_id": req.requester_id, "team_id": req.team_id},
+        )
     elif req.request_type == "budget":
         # Find an existing budget with the exact requested max_budget
         existing_budget = await db.execute(

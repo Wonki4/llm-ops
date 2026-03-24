@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import auth, inference, keys, me, models_catalog, team_requests, teams
+from app.api import auth, budgets, inference, keys, me, models_catalog, team_requests, teams
 from app.config import settings
 
 
@@ -41,6 +41,7 @@ app.include_router(keys.router)
 app.include_router(team_requests.router)
 app.include_router(models_catalog.router)
 app.include_router(inference.router)
+app.include_router(budgets.router)
 
 
 @app.get("/health")
