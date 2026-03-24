@@ -20,6 +20,8 @@ import type {
   ReviewRequestBody,
   CreateModelCatalogRequest,
   UpdateModelCatalogRequest,
+  BudgetListResponse,
+  BudgetDetails,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -348,5 +350,27 @@ export function useDeleteCatalogEntry() {
       qc.invalidateQueries({ queryKey: queryKeys.modelCatalog });
       qc.invalidateQueries({ queryKey: queryKeys.models });
     },
+  });
+}
+
+// ─── Budgets ────────────────────────────────────────────────────
+
+export function useBudgets(page: number, pageSize: number, search: string) {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  if (search) params.set("search", search);
+
+  return useQuery({
+    queryKey: ["budgets", { page, pageSize, search }],
+    queryFn: () => apiFetch<BudgetListResponse>(`/api/budgets?${params.toString()}`),
+  });
+}
+
+export function useBudgetDetails(budgetId: string | null) {
+  return useQuery({
+    queryKey: ["budgets", budgetId, "details"],
+    queryFn: () => apiFetch<BudgetDetails>(`/api/budgets/${budgetId}/details`),
+    enabled: !!budgetId,
   });
 }

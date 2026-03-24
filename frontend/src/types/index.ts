@@ -199,6 +199,38 @@ export interface UpdateModelCatalogRequest {
   visible?: boolean;
 }
 
+// ─── Budgets ──────────────────────────────────────────────────
+
+export interface Budget {
+  budget_id: string;
+  max_budget: number | null;
+  soft_budget: number | null;
+  budget_duration: string | null;
+  budget_reset_at: string | null;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
+  created_at: string | null;
+  created_by: string;
+  updated_at: string | null;
+  updated_by: string;
+  team_membership_count: number;
+  key_count: number;
+  org_count: number;
+}
+
+export interface BudgetListResponse {
+  budgets: Budget[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface BudgetDetails {
+  team_memberships: { user_id: string; team_id: string; team_alias: string | null; spend: number }[];
+  keys: { token: string; key_alias: string | null; key_name: string | null; user_id: string | null; team_id: string | null; spend: number }[];
+  organizations: { organization_id: string; organization_alias: string | null }[];
+}
+
 // ─── Team Members ─────────────────────────────────────────────
 
 export interface MemberKey {
