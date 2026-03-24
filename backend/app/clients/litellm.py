@@ -68,6 +68,7 @@ class LiteLLMClient:
         models: list[str] | None = None,
         max_budget: float | None = None,
         budget_duration: str | None = None,
+        key: str | None = None,
     ) -> dict:
         payload: dict[str, Any] = {"user_id": user_id, "team_id": team_id}
         if key_alias:
@@ -78,6 +79,8 @@ class LiteLLMClient:
             payload["max_budget"] = max_budget
         if budget_duration:
             payload["budget_duration"] = budget_duration
+        if key:
+            payload["key"] = key
         return await self._request("POST", "/key/generate", json=payload)
 
     async def list_keys(self, user_id: str | None = None, team_id: str | None = None) -> list[dict]:

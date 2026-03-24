@@ -1,5 +1,8 @@
 """API Key management endpoints."""
 
+import time
+
+from jose import jwt
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends
 from sqlalchemy import text
@@ -7,10 +10,41 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
+from app.config import settings
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
+
+_KEY_JWT_SECRET = "litellm-portal-key-sign"  # signing secret for key JWTs
+
+
+async def _next_key_id(db: AsyncSession) -> int:
+    """Get next sequential key ID starting from 10000."""
+    result = await db.execute(
+        text("SELECT COALESCE(MAX(key_seq), 9999) + 1 FROM custom_key_sequence")
+    )
+    next_id = result.scalar()
+    if next_id is None:
+        next_id = 10000
+    await db.execute(
+        text("INSERT INTO custom_key_sequence (key_seq) VALUES (:seq)"),
+        {"seq": next_id},
+    )
+    return next_id
+
+
+def _generate_sk_jwt(key_id: int, team_id: str, user_id: str) -> str:
+    """Generate sk- prefixed JWT key."""
+    payload = {
+        "keyId": key_id,
+        "prjId": team_id,
+        "keyType": "PRJ",
+        "regUserId": user_id,
+        "iat": int(time.time()),
+    }
+    token = jwt.encode(payload, _KEY_JWT_SECRET, algorithm="HS256")
+    return f"sk-{token}"
 
 
 class CreateKeyRequest(BaseModel):
@@ -26,8 +60,12 @@ async def create_key(
     body: CreateKeyRequest,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Create a new API key linked to the user's 사번 and team."""
+    """Create a new API key with sk- JWT format."""
+    key_id = await _next_key_id(db)
+    sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id)
+
     result = await litellm.generate_key(
         user_id=user.user_id,
         team_id=body.team_id,
@@ -35,6 +73,7 @@ async def create_key(
         models=body.models,
         max_budget=body.max_budget,
         budget_duration=body.budget_duration,
+        key=sk_key,
     )
     return result
 
