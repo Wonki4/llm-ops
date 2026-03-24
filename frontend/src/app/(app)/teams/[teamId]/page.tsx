@@ -68,7 +68,7 @@ function StatusBadge({ status }: { status: ModelStatus }) {
 }
 
 function formatTokenCost(cost: number | null): string {
-  return cost != null ? `$ ${(cost * 1000).toFixed(3)}` : "-";
+  return cost != null ? `$ ${(cost * 1_000_000).toFixed(2)}` : "-";
 }
 
 function formatBudget(spend: number, maxBudget: number | null): string {
@@ -1035,7 +1035,7 @@ export default function TeamDetailPage({
                         <TableCell className="hidden md:table-cell">{provider}</TableCell>
                         <TableCell>{model.catalog ? <StatusBadge status={model.catalog.status} /> : "-"}</TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                          I: {formatTokenCost(inputCost)} / O: {formatTokenCost(outputCost)} per 1K tokens
+                          I: {formatTokenCost(inputCost)} / O: {formatTokenCost(outputCost)} per 1M tokens
                         </TableCell>
                         <TableCell>
                           {supportsVision || supportsFunctionCalling ? (

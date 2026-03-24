@@ -71,7 +71,7 @@ function formatDateTime(dateStr: string | null | undefined): string {
 
 function formatCost(cost: number | null | undefined): string {
   if (cost == null) return "-";
-  return `$ ${(cost * 1000).toFixed(3)} / 1K tokens`;
+  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M tokens`;
 }
 
 function renderBoolean(value: boolean | null | undefined): string {

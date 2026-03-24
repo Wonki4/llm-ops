@@ -82,7 +82,7 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
 function formatCost(cost: number | null | undefined): string {
   if (cost == null) return "-";
   if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1000).toFixed(3)} / 1K`;
+  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
 function formatDate(dateStr: string | null | undefined): string {
@@ -441,6 +441,7 @@ export default function ModelManagementPage() {
                   <TableHead>소스</TableHead>
                   <TableHead>Provider</TableHead>
                   <TableHead>상태</TableHead>
+                  <TableHead>노출</TableHead>
                   <TableHead>Input Cost</TableHead>
                   <TableHead>Output Cost</TableHead>
                   <TableHead>다음 전환</TableHead>
@@ -493,6 +494,27 @@ export default function ModelManagementPage() {
                     <TableCell>
                       {model.catalog ? (
                         <StatusBadge status={model.catalog.status} />
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+
+                    {/* Visible toggle */}
+                    <TableCell>
+                      {model.catalog ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className={`h-6 px-2 text-xs ${model.catalog.visible !== false ? "text-green-600" : "text-muted-foreground"}`}
+                          onClick={() => {
+                            updateEntry.mutate({
+                              catalogId: model.catalog!.id,
+                              body: { visible: model.catalog!.visible === false },
+                            });
+                          }}
+                        >
+                          {model.catalog.visible !== false ? "ON" : "OFF"}
+                        </Button>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
                       )}
