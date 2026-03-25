@@ -149,26 +149,11 @@ export default function CreateKeyPage({
     params.team_id ?? ""
   );
   const [keyAlias, setKeyAlias] = useState("");
-  const [maxBudget, setMaxBudget] = useState("");
-  const [budgetDuration, setBudgetDuration] = useState("none");
-  const [selectedModels, setSelectedModels] = useState<Set<string>>(new Set());
   const [createdToken, setCreatedToken] = useState<string | null>(null);
 
   const selectedTeam: Team | undefined = teams?.find(
     (t) => t.team_id === selectedTeamId
   );
-
-  const handleToggleModel = (model: string) => {
-    setSelectedModels((prev) => {
-      const next = new Set(prev);
-      if (next.has(model)) {
-        next.delete(model);
-      } else {
-        next.add(model);
-      }
-      return next;
-    });
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -184,18 +169,6 @@ export default function CreateKeyPage({
 
     if (keyAlias.trim()) {
       body.key_alias = keyAlias.trim();
-    }
-
-    if (maxBudget && Number(maxBudget) > 0) {
-      body.max_budget = Number(maxBudget);
-    }
-
-    if (budgetDuration !== "none") {
-      body.budget_duration = budgetDuration;
-    }
-
-    if (selectedModels.size > 0) {
-      body.models = Array.from(selectedModels);
     }
 
     createKeyMutation.mutate(body, {
@@ -216,15 +189,10 @@ export default function CreateKeyPage({
   const handleDialogClose = () => {
     setCreatedToken(null);
     setKeyAlias("");
-    setMaxBudget("");
-    setBudgetDuration("none");
-    setSelectedModels(new Set());
   };
 
-  // When team changes, reset model selection
   const handleTeamChange = (teamId: string) => {
     setSelectedTeamId(teamId);
-    setSelectedModels(new Set());
   };
 
   return (
@@ -295,49 +263,21 @@ export default function CreateKeyPage({
               />
             </div>
 
-            {/* Max Budget */}
-            <div className="space-y-2">
-              <Label htmlFor="max-budget">예산 한도</Label>
-              <Input
-                id="max-budget"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="예산 한도 (USD)"
-                value={maxBudget}
-                onChange={(e) => setMaxBudget(e.target.value)}
-              />
-            </div>
-
-            {/* Budget Duration */}
-            <div className="space-y-2">
-              <Label htmlFor="budget-duration">예산 주기</Label>
-              <Select
-                value={budgetDuration}
-                onValueChange={setBudgetDuration}
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {BUDGET_DURATION_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Models */}
+            {/* Models (read-only) */}
             {selectedTeam && (
               <div className="space-y-2">
-                <Label>모델 제한 (선택하지 않으면 전체 모델 사용)</Label>
-                <ModelSelector
-                  models={selectedTeam.models}
-                  selectedModels={selectedModels}
-                  onToggle={handleToggleModel}
-                />
+                <Label>사용 가능한 모델 (팀 설정 기준)</Label>
+                <div className="flex flex-wrap gap-2">
+                  {selectedTeam.models.length > 0 ? (
+                    selectedTeam.models.map((model) => (
+                      <Badge key={model} variant="secondary">
+                        {model}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-muted-foreground">배정된 모델이 없습니다.</p>
+                  )}
+                </div>
               </div>
             )}
 
