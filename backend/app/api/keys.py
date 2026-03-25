@@ -1,12 +1,17 @@
 """API Key management endpoints."""
 
+import asyncio
+import logging
 import time
 
+from httpx import HTTPStatusError
 from jose import jwt
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
@@ -62,20 +67,42 @@ async def create_key(
     litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Create a new API key with sk- JWT format."""
-    key_id = await _next_key_id(db)
-    sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id)
+    """Create a new API key with sk- JWT format. Retries on 500 errors."""
+    max_retries = 3
+    last_error = None
 
-    result = await litellm.generate_key(
-        user_id=user.user_id,
-        team_id=body.team_id,
-        key_alias=body.key_alias or f"{user.user_id}-{body.team_id}",
-        models=body.models,
-        max_budget=body.max_budget,
-        budget_duration=body.budget_duration,
-        key=sk_key,
-    )
-    return result
+    for attempt in range(max_retries):
+        key_id = await _next_key_id(db)
+        sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id)
+
+        try:
+            result = await litellm.generate_key(
+                user_id=user.user_id,
+                team_id=body.team_id,
+                key_alias=body.key_alias or f"{user.user_id}-{body.team_id}",
+                models=body.models,
+                max_budget=body.max_budget,
+                budget_duration=body.budget_duration,
+                key=sk_key,
+            )
+            return result
+        except HTTPStatusError as e:
+            if e.response.status_code >= 500:
+                last_error = e
+                logger.warning("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1 * (attempt + 1))
+                continue
+            raise
+        except Exception as e:
+            last_error = e
+            logger.warning("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(1 * (attempt + 1))
+                continue
+            raise
+
+    raise HTTPException(status_code=502, detail=f"Key generation failed after {max_retries} attempts: {last_error}")
 
 
 @router.get("")
