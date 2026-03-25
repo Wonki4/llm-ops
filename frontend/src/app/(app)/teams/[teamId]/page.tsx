@@ -173,7 +173,7 @@ function BudgetRequestDialog({ teamId }: { teamId: string }) {
         <DialogHeader>
           <DialogTitle>예산 증액 요청</DialogTitle>
           <DialogDescription>
-            팀 관리자에게 예산 증액을 요청합니다. 승인 시 모든 키의 max_budget이 변경됩니다.
+            팀 관리자에게 예산 증액을 요청합니다.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
