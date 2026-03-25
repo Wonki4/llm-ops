@@ -989,7 +989,6 @@ export default function TeamDetailPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead>모델명</TableHead>
-                    <TableHead className="hidden md:table-cell">Provider</TableHead>
                     <TableHead>상태</TableHead>
                     <TableHead className="hidden lg:table-cell">비용</TableHead>
                     <TableHead>기능</TableHead>
@@ -1032,7 +1031,6 @@ export default function TeamDetailPage({
                             )}
                           </div>
                         </TableCell>
-                        <TableCell className="hidden md:table-cell">{provider}</TableCell>
                         <TableCell>{model.catalog ? <StatusBadge status={model.catalog.status} /> : "-"}</TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
                           I: {formatTokenCost(inputCost)} / O: {formatTokenCost(outputCost)} per 1M tokens
