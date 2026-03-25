@@ -143,9 +143,6 @@ export default function TeamDiscoveryPage() {
                 <Card key={team.team_id}>
                   <CardHeader>
                     <CardTitle>{team.team_alias}</CardTitle>
-                    <CardDescription className="font-mono text-xs">
-                      {team.team_id}
-                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">

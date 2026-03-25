@@ -141,9 +141,6 @@ export default function MyTeamsPage() {
                     <CardTitle className="text-base">
                       {team.team_alias}
                     </CardTitle>
-                    <CardDescription className="truncate text-xs font-mono">
-                      {team.team_id}
-                    </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {/* Budget bar */}
