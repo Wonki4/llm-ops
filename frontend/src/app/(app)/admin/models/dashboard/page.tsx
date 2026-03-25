@@ -710,10 +710,9 @@ export default function ModelDashboardPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead className="min-w-[200px]">모델명</TableHead>
-                    <TableHead className="w-[100px]">소스</TableHead>
-                    <TableHead className="w-[100px]">제공자</TableHead>
                     <TableHead className="w-[100px]">상태</TableHead>
-                    <TableHead className="w-[160px]">비용 (Input / Output)</TableHead>
+                    <TableHead>Input 비용</TableHead>
+                    <TableHead>Output 비용</TableHead>
                     <TableHead className="w-[110px]">다음 전환</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -740,37 +739,17 @@ export default function ModelDashboardPage() {
                         </button>
                       </TableCell>
                       <TableCell>
-                        <SourceBadge model={m} />
-                      </TableCell>
-                      <TableCell>
-                        <span className="text-sm text-muted-foreground">
-                          {getProvider(m)}
-                        </span>
-                      </TableCell>
-                      <TableCell>
                         {m.catalog ? (
                           <StatusBadge status={m.catalog.status} />
                         ) : (
                           <span className="text-xs text-muted-foreground">-</span>
                         )}
                       </TableCell>
-                      <TableCell>
-                        <div className="text-xs font-mono text-muted-foreground">
-                          {m.litellm_info?.model_info?.input_cost_per_token != null ||
-                          m.litellm_info?.model_info?.output_cost_per_token != null ? (
-                            <>
-                              <span>
-                                I: {formatCost(m.litellm_info?.model_info?.input_cost_per_token)}
-                              </span>
-                              <br />
-                              <span>
-                                O: {formatCost(m.litellm_info?.model_info?.output_cost_per_token)}
-                              </span>
-                            </>
-                          ) : (
-                            <span>-</span>
-                          )}
-                        </div>
+                      <TableCell className="text-xs font-mono text-muted-foreground">
+                        {formatCost(m.litellm_info?.model_info?.input_cost_per_token)}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-muted-foreground">
+                        {formatCost(m.litellm_info?.model_info?.output_cost_per_token)}
                       </TableCell>
                       <TableCell>
                         <span className="text-sm">
