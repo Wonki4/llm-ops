@@ -148,7 +148,7 @@ function getProvider(model: ModelWithCatalog): string {
   return model.litellm_info?.model_info?.litellm_provider ?? "-";
 }
 
-function getNextTransitionDate(catalog: ModelCatalog | null): string | null {
+function getNextTransition(catalog: ModelCatalog | null): { date: string; status: ModelStatus } | null {
   if (!catalog?.status_schedule) return null;
 
   const today = new Date();
@@ -156,6 +156,7 @@ function getNextTransitionDate(catalog: ModelCatalog | null): string | null {
 
   const currentStatusIndex = STATUS_INDEX[catalog.status];
   let nextDate: string | null = null;
+  let nextStatus: ModelStatus | null = null;
   let nextTimestamp = Number.POSITIVE_INFINITY;
 
   for (const { value } of STATUS_OPTIONS) {
@@ -171,10 +172,11 @@ function getNextTransitionDate(catalog: ModelCatalog | null): string | null {
     if (timestamp < nextTimestamp) {
       nextTimestamp = timestamp;
       nextDate = dateStr;
+      nextStatus = value;
     }
   }
 
-  return nextDate;
+  return nextDate && nextStatus ? { date: nextDate, status: nextStatus } : null;
 }
 
 // ─── Stat Card ────────────────────────────────────────────────
@@ -752,9 +754,16 @@ export default function ModelDashboardPage() {
                         {formatCost(m.litellm_info?.model_info?.output_cost_per_token)}
                       </TableCell>
                       <TableCell>
-                        <span className="text-sm">
-                          {formatDate(getNextTransitionDate(m.catalog))}
-                        </span>
+                        {(() => {
+                          const next = getNextTransition(m.catalog);
+                          if (!next) return <span className="text-sm">-</span>;
+                          return (
+                            <div className="space-y-0.5">
+                              <span className="text-sm">{formatDate(next.date)}</span>
+                              <div><StatusBadge status={next.status} /></div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                     </TableRow>
                   ))}
