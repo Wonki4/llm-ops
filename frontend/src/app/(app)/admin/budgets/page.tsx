@@ -156,19 +156,22 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
 
 export default function BudgetManagementPage() {
   const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  const [idInput, setIdInput] = useState("");
+  const [amountInput, setAmountInput] = useState("");
+  const [searchId, setSearchId] = useState("");
+  const [searchAmount, setSearchAmount] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput);
+      setSearchId(idInput);
+      setSearchAmount(amountInput);
       setPage(1);
     }, 300);
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [idInput, amountInput]);
 
-  const { data, isLoading } = useBudgets(page, PAGE_SIZE, search);
+  const { data, isLoading } = useBudgets(page, PAGE_SIZE, searchId, searchAmount);
 
   const toggleExpand = (budgetId: string) => {
     setExpanded((prev) => {
@@ -210,14 +213,24 @@ export default function BudgetManagementPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
-            placeholder="budget_id 또는 금액 검색..."
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Budget ID 검색..."
+            value={idInput}
+            onChange={(e) => setIdInput(e.target.value)}
             className="pl-8 h-9"
           />
         </div>
-        {search && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearchInput(""); setSearch(""); }}>
+        <div className="w-[140px]">
+          <Input
+            type="number"
+            step="0.01"
+            placeholder="금액 검색..."
+            value={amountInput}
+            onChange={(e) => setAmountInput(e.target.value)}
+            className="h-9"
+          />
+        </div>
+        {(searchId || searchAmount) && (
+          <Button variant="ghost" size="sm" onClick={() => { setIdInput(""); setAmountInput(""); setSearchId(""); setSearchAmount(""); }}>
             <X className="size-3.5 mr-1" />
             초기화
           </Button>

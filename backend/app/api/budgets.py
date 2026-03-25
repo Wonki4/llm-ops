@@ -15,23 +15,31 @@ router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 async def list_budgets(
     page: int = 1,
     page_size: int = 50,
-    search: str | None = None,
+    search_id: str | None = None,
+    search_amount: float | None = None,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List all budgets with pagination and linked entity counts."""
-    # Count total
-    count_query = 'SELECT COUNT(*) FROM "LiteLLM_BudgetTable"'
-    count_params: dict = {}
-    if search:
-        count_query += " WHERE budget_id ILIKE :search OR CAST(max_budget AS TEXT) LIKE :search"
-        count_params["search"] = f"%{search}%"
+    # Build WHERE conditions
+    conditions = []
+    search_params: dict = {}
+    if search_id:
+        conditions.append("b.budget_id ILIKE :search_id")
+        search_params["search_id"] = f"%{search_id}%"
+    if search_amount is not None:
+        conditions.append("b.max_budget = :search_amount")
+        search_params["search_amount"] = search_amount
 
-    total = (await db.execute(text(count_query), count_params)).scalar() or 0
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    # Count total
+    count_query = f'SELECT COUNT(*) FROM "LiteLLM_BudgetTable" b {where_clause}'
+    total = (await db.execute(text(count_query), search_params)).scalar() or 0
 
     # Fetch budgets with linked counts via subqueries
     offset = (page - 1) * page_size
-    query = text("""
+    query = text(f"""
         SELECT
             b.budget_id,
             b.max_budget,
@@ -51,16 +59,9 @@ async def list_budgets(
         {where_clause}
         ORDER BY b.created_at DESC
         OFFSET :offset LIMIT :limit
-    """.format(
-        where_clause=(
-            'WHERE b.budget_id ILIKE :search OR CAST(b.max_budget AS TEXT) LIKE :search'
-            if search else ''
-        )
-    ))
+    """)
 
-    params = {"offset": offset, "limit": min(page_size, 100)}
-    if search:
-        params["search"] = f"%{search}%"
+    params = {**search_params, "offset": offset, "limit": min(page_size, 100)}
 
     result = await db.execute(query, params)
     budgets = [
