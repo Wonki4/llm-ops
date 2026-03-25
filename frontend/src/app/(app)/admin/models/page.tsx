@@ -462,9 +462,11 @@ export default function ModelManagementPage() {
                           <span className="font-medium">
                             {getDisplayName(model)}
                           </span>
-                          <p className="text-xs text-muted-foreground font-mono truncate">
-                            {model.model_name}
-                          </p>
+                          {getDisplayName(model) !== model.model_name && (
+                            <p className="text-xs text-muted-foreground font-mono truncate">
+                              {model.model_name}
+                            </p>
+                          )}
                           {model.litellm_info && getActualModel(model) !== model.model_name && (
                             <p className="text-[10px] text-muted-foreground/60 font-mono truncate">
                               → {getActualModel(model)}
