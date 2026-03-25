@@ -467,7 +467,7 @@ export default function ModelDashboardPage() {
 
   // ── Filtered models for table ──
   const filteredModels = useMemo(() => {
-    let result = models ?? [];
+    let result = (models ?? []).filter((m) => !m.catalog || m.catalog.visible !== false);
 
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
