@@ -634,32 +634,32 @@ export default function ModelManagementPage() {
                     disabled
                   />
                 ) : (
-                  <Select
+                  <Input
+                    id="model-name"
                     value={form.model_name}
-                    onValueChange={(value) => {
+                    onChange={(e) => {
+                      const value = e.target.value;
                       handleFormChange("model_name", value);
                       if (!form.display_name || form.display_name === form.model_name) {
                         handleFormChange("display_name", value);
                       }
                     }}
-                  >
-                    <SelectTrigger id="model-name">
-                      <SelectValue placeholder="모델을 선택하세요" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {models
-                        ?.filter((m) => m.litellm_info && !m.catalog)
-                        .map((m) => (
-                          <SelectItem key={m.model_name} value={m.model_name}>
-                            {m.model_name}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="모델명을 입력하세요"
+                    list="model-name-suggestions"
+                  />
+                )}
+                {!editingId && (
+                  <datalist id="model-name-suggestions">
+                    {models
+                      ?.filter((m) => m.litellm_info && !m.catalog)
+                      .map((m) => (
+                        <option key={m.model_name} value={m.model_name} />
+                      ))}
+                  </datalist>
                 )}
                 {!editingId && (
                   <p className="text-xs text-muted-foreground">
-                    LiteLLM에 배포된 모델 중 카탈로그 미등록 모델만 표시됩니다.
+                    직접 입력하거나, LiteLLM 배포 모델 중 선택할 수 있습니다.
                   </p>
                 )}
               </div>
