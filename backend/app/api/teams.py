@@ -189,7 +189,7 @@ async def get_team_detail(
             "admin_count": len(all_admins),
         },
         "my_keys": my_keys,
-        "is_admin": user.user_id in all_admins,
+        "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
             "max_budget": membership_row["max_budget"] if membership_row else None,
@@ -220,8 +220,8 @@ async def list_team_members(
 
     all_admins_set = set(row["admins"] or [])
 
-    # Admin check
-    if user.user_id not in all_admins_set:
+    # Admin or super user check
+    if user.global_role != GlobalRole.SUPER_USER and user.user_id not in all_admins_set:
         raise HTTPException(status_code=403, detail="Admin access required")
 
     # 2. Build unique member list (members + admins combined, sorted)
