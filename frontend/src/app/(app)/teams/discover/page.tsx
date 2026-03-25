@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Search, Users, Box } from "lucide-react";
+import { Search, Users, Box, Shield } from "lucide-react";
 import { toast } from "sonner";
 
 import { useDiscoverTeams, useCreateJoinRequest } from "@/hooks/use-api";
@@ -153,8 +153,8 @@ export default function TeamDiscoveryPage() {
                       <span>{team.models.length}개 모델 사용 가능</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Users className="size-4" />
-                      <span>{(team.member_count ?? team.members.length).toLocaleString()}명</span>
+                      <Shield className="size-4" />
+                      <span>관리자: {team.admins.length > 0 ? team.admins.join(", ") : "-"}</span>
                     </div>
                   </CardContent>
                   <CardFooter>
