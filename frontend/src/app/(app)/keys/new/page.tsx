@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
-import { useMyTeams, useCreateKey } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
@@ -144,6 +144,7 @@ export default function CreateKeyPage({
   const params = use(searchParams);
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
+  const { data: portalSettings } = usePortalSettings();
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(
     params.team_id ?? ""
@@ -277,6 +278,26 @@ export default function CreateKeyPage({
                   ) : (
                     <p className="text-sm text-muted-foreground">배정된 모델이 없습니다.</p>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* TPM / RPM (read-only from portal settings) */}
+            {portalSettings && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>TPM (Tokens Per Minute)</Label>
+                  <Input
+                    value={portalSettings.default_tpm_limit.toLocaleString()}
+                    disabled
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>RPM (Requests Per Minute)</Label>
+                  <Input
+                    value={portalSettings.default_rpm_limit.toLocaleString()}
+                    disabled
+                  />
                 </div>
               </div>
             )}

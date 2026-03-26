@@ -375,3 +375,31 @@ export function useBudgetDetails(budgetId: string | null) {
     enabled: !!budgetId,
   });
 }
+
+// ─── Portal Settings ────────────────────────────────────────────
+
+export interface PortalSettings {
+  default_tpm_limit: number;
+  default_rpm_limit: number;
+}
+
+export function usePortalSettings() {
+  return useQuery({
+    queryKey: ["portal-settings"],
+    queryFn: () => apiFetch<PortalSettings>("/api/settings"),
+  });
+}
+
+export function useUpdatePortalSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<PortalSettings>) =>
+      apiFetch<PortalSettings>("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portal-settings"] });
+    },
+  });
+}
