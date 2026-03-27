@@ -138,6 +138,13 @@ export function useCreateKey() {
   });
 }
 
+export function useRevealKey() {
+  return useMutation({
+    mutationFn: (keyHash: string) =>
+      apiFetch<{ key: string }>(`/api/keys/${keyHash}/reveal`),
+  });
+}
+
 export function useDeleteKey() {
   const qc = useQueryClient();
   return useMutation({
