@@ -467,9 +467,9 @@ export default function ModelDashboardPage() {
     return { counts, total };
   }, [models]);
 
-  // ── Filtered models for table ──
+  // ── Filtered models for table (catalog only) ──
   const filteredModels = useMemo(() => {
-    let result = (models ?? []).filter((m) => !m.catalog || m.catalog.visible !== false);
+    let result = (models ?? []).filter((m) => m.catalog && m.catalog.visible !== false);
 
     if (nameFilter) {
       const q = nameFilter.toLowerCase();
@@ -526,46 +526,6 @@ export default function ModelDashboardPage() {
           전체 모델 현황을 한눈에 확인합니다
         </p>
       </div>
-
-      {/* ── Stat Cards ── */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <div className="h-8 w-16 animate-pulse rounded bg-muted" />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard
-            title="전체 모델"
-            value={stats.total}
-            icon={Boxes}
-            description="LiteLLM + 카탈로그 합산"
-          />
-          <StatCard
-            title="카탈로그 등록"
-            value={stats.withCatalog}
-            icon={BookOpen}
-            description="상태 관리 중인 모델"
-          />
-          <StatCard
-            title="LiteLLM 활성"
-            value={stats.withLiteLLM}
-            icon={Server}
-            description="배포된 모델"
-          />
-          <StatCard
-            title="폐기 예정"
-            value={stats.retiring}
-            icon={AlertTriangle}
-            description="deprecating / deprecated"
-          />
-        </div>
-      )}
 
       {/* ── Status Distribution + Recent Changes (side by side) ── */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
