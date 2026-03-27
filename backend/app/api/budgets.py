@@ -245,23 +245,42 @@ async def list_orphan_budgets(
 
 
 @router.delete("/orphans")
-async def delete_all_orphan_budgets(
+async def delete_orphan_budgets(
+    batch_size: int = 10000,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Delete all orphan budgets (not linked to anything)."""
-    result = await db.execute(text("""
-        DELETE FROM "LiteLLM_BudgetTable" b
-        WHERE NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id)
-          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id)
-    """))
-    await db.commit()
-    return {"deleted": result.rowcount}
+    """Delete orphan budgets in batches to avoid long locks."""
+    orphan_condition = """
+        NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id)
+        AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id)
+    """
+    safe_batch = min(batch_size, 50000)
+    total_deleted = 0
+
+    while True:
+        result = await db.execute(text(f"""
+            DELETE FROM "LiteLLM_BudgetTable"
+            WHERE budget_id IN (
+                SELECT b.budget_id FROM "LiteLLM_BudgetTable" b
+                WHERE {orphan_condition}
+                LIMIT :batch_size
+            )
+        """), {"batch_size": safe_batch})
+        await db.commit()
+
+        deleted = result.rowcount
+        total_deleted += deleted
+
+        if deleted < safe_batch:
+            break
+
+    return {"deleted": total_deleted}
 
 
 @router.delete("/{budget_id}")
