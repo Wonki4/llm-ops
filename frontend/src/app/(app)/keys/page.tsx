@@ -228,16 +228,6 @@ export default function AllKeysPage() {
             <p className="text-2xl font-bold">{keyTeamIds.length}</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">총 사용량</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              ${allKeys.reduce((sum, k) => sum + (k.spend ?? 0), 0).toFixed(2)}
-            </p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Filters */}
