@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useCreateBudgetRequest } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useRemoveTeamMember, useCreateBudgetRequest } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -532,6 +532,7 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const changeRoleMutation = useChangeMemberRole();
+  const removeMemberMutation = useRemoveTeamMember();
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -635,6 +636,26 @@ function MembersTab({ teamId }: { teamId: string }) {
                               }}
                             >
                               {member.is_admin ? "멤버로 변경" : "관리자로 변경"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-destructive hover:text-destructive"
+                              disabled={removeMemberMutation.isPending}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (!confirm(`${member.user_id} 멤버를 팀에서 삭제하시겠습니까?`)) return;
+                                removeMemberMutation.mutate(
+                                  { teamId, userId: member.user_id },
+                                  {
+                                    onSuccess: () => toast.success(`${member.user_id} 멤버가 삭제되었습니다.`),
+                                    onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                                  },
+                                );
+                              }}
+                            >
+                              <Trash2 className="size-3 mr-0.5" />
+                              삭제
                             </Button>
                           </div>
                         </TableCell>

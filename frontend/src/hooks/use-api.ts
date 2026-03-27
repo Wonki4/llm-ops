@@ -89,6 +89,20 @@ export function useTeamMembers(
   });
 }
 
+export function useRemoveTeamMember() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiFetch<{ status: string }>(`/api/teams/${teamId}/members/${userId}`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
+      qc.invalidateQueries({ queryKey: ["teams", variables.teamId, "members"] });
+    },
+  });
+}
+
 export function useChangeMemberRole() {
   const qc = useQueryClient();
   return useMutation({
