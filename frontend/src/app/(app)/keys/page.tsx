@@ -9,7 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -43,7 +42,6 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
-  Boxes,
   Key,
   Search,
 } from "lucide-react";
@@ -51,36 +49,12 @@ import type { ApiKey } from "@/types";
 
 /* ── helpers (same as team detail page) ── */
 
-function formatBudget(spend: number, maxBudget: number | null): string {
-  const spendStr = `$${spend.toFixed(2)}`;
-  if (maxBudget === null) return `${spendStr} / 무제한`;
-  return `${spendStr} / $${maxBudget.toFixed(2)}`;
-}
-
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("ko-KR", {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
-}
-
-function formatResetDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatBudgetDuration(duration: string | null): string | null {
-  if (!duration) return null;
-  const match = duration.match(/^(\d+)([dhms])$/);
-  if (!match) return duration;
-  const [, num, unit] = match;
-  const unitMap: Record<string, string> = { d: "일", h: "시간", m: "분", s: "초" };
-  return `${num}${unitMap[unit] || unit}`;
 }
 
 function maskKey(token: string): string {
@@ -318,8 +292,6 @@ export default function AllKeysPage() {
                 <TableHead>별칭</TableHead>
                 <TableHead>키</TableHead>
                 <TableHead>팀</TableHead>
-                <TableHead>예산</TableHead>
-                <TableHead>모델</TableHead>
                 <TableHead>생성일</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
@@ -343,34 +315,6 @@ export default function AllKeysPage() {
                       </Link>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div>
-                      <span className="text-sm">
-                        {formatBudget(key.spend, key.max_budget)}
-                      </span>
-                      {(key.budget_duration || key.budget_reset_at) && (
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <RefreshCw className="size-3" />
-                          {[
-                            key.budget_duration ? `${formatBudgetDuration(key.budget_duration)} 주기` : null,
-                            key.budget_reset_at ? `다음: ${formatResetDate(key.budget_reset_at)}` : null,
-                          ].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {(key.models?.length ?? 0) > 0 ? (
-                      <Badge variant="secondary" className="gap-1">
-                        <Boxes className="size-3" />
-                        {key.models.length}개
-                      </Badge>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        전체
-                      </span>
                     )}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
