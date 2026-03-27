@@ -278,7 +278,7 @@ function StatusDistributionBar({
   counts,
   total,
 }: {
-  counts: Record<ModelStatus | "unregistered", number>;
+  counts: Partial<Record<ModelStatus | "unregistered", number>>;
   total: number;
 }) {
   if (total === 0) {
@@ -297,7 +297,7 @@ function StatusDistributionBar({
       {/* Stacked bar */}
       <div className="flex h-4 w-full overflow-hidden rounded-full border">
         {DISTRIBUTION_ORDER.map((status) => {
-          const count = counts[status];
+          const count = counts[status] ?? 0;
           if (count === 0) return null;
           const pct = (count / total) * 100;
           return (
@@ -331,7 +331,7 @@ function StatusDistributionBar({
             <span className="text-xs text-muted-foreground">
               {DISTRIBUTION_LABELS[status]}
             </span>
-            <span className="text-xs font-medium">{counts[status]}</span>
+            <span className="text-xs font-medium">{counts[status] ?? 0}</span>
           </div>
         ))}
       </div>
@@ -445,24 +445,21 @@ export default function ModelDashboardPage() {
     return { total, withCatalog, withLiteLLM, retiring };
   }, [models]);
 
-  // ── Status distribution (including unregistered) ──
+  // ── Status distribution (visible catalog only) ──
   const statusCounts = useMemo(() => {
-    const counts: Record<ModelStatus | "unregistered", number> = {
+    const counts: Record<ModelStatus, number> = {
       testing: 0,
       prerelease: 0,
       lts: 0,
       deprecating: 0,
       deprecated: 0,
-      unregistered: 0,
     };
     let total = 0;
     for (const m of models ?? []) {
-      if (m.catalog) {
+      if (m.catalog && m.catalog.visible !== false) {
         counts[m.catalog.status]++;
-      } else {
-        counts.unregistered++;
+        total++;
       }
-      total++;
     }
     return { counts, total };
   }, [models]);
