@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { useBudgets, useBudgetDetails, useOrphanBudgets, useDeleteOrphanBudgets, useDeleteBudget } from "@/hooks/use-api";
+import { useBudgets, useBudgetDetails, useOrphanBudgets, useDeleteOrphanBudgets, useDeleteBudget, useDeleteBudgetsBatch } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -37,7 +37,8 @@ import {
 } from "@/components/ui/table";
 import type { Budget } from "@/types";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300, 500, 1000] as const;
+const DEFAULT_PAGE_SIZE = 50;
 
 function formatBudget(value: number | null): string {
   if (value == null) return "무제한";
@@ -223,12 +224,14 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
 
 export default function BudgetManagementPage() {
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [idInput, setIdInput] = useState("");
   const [amountInput, setAmountInput] = useState("");
   const [searchId, setSearchId] = useState("");
   const [searchAmount, setSearchAmount] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [orphansOnly, setOrphansOnly] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -239,10 +242,11 @@ export default function BudgetManagementPage() {
     return () => clearTimeout(timer);
   }, [idInput, amountInput]);
 
-  const { data, isLoading } = useBudgets(page, PAGE_SIZE, searchId, searchAmount, orphansOnly);
+  const { data, isLoading } = useBudgets(page, pageSize, searchId, searchAmount, orphansOnly);
   const { data: orphanData } = useOrphanBudgets();
   const deleteOrphansMutation = useDeleteOrphanBudgets();
   const deleteBudgetMutation = useDeleteBudget();
+  const deleteBatchMutation = useDeleteBudgetsBatch();
 
   const toggleExpand = (budgetId: string) => {
     setExpanded((prev) => {
@@ -253,7 +257,35 @@ export default function BudgetManagementPage() {
     });
   };
 
-  const totalPages = data ? Math.ceil(data.total / PAGE_SIZE) : 0;
+  const toggleSelect = (budgetId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(budgetId)) next.delete(budgetId);
+      else next.add(budgetId);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (!data) return;
+    const allIds = data.budgets.map((b) => b.budget_id);
+    const allSelected = allIds.every((id) => selected.has(id));
+    if (allSelected) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        allIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        allIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  };
+
+  const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
   return (
     <div className="space-y-6">
@@ -344,6 +376,34 @@ export default function BudgetManagementPage() {
         )}
       </div>
 
+      {/* Batch delete bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
+          <span className="text-sm font-medium">{selected.size}개 선택됨</span>
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={deleteBatchMutation.isPending}
+            onClick={() => {
+              if (!confirm(`선택한 ${selected.size}개의 예산을 삭제하시겠습니까?\n연결된 항목이 있는 예산은 건너뜁니다.`)) return;
+              deleteBatchMutation.mutate([...selected], {
+                onSuccess: (res) => {
+                  toast.success(`${res.deleted}개 삭제 완료${res.skipped > 0 ? ` (연결된 ${res.skipped}개 건너뜀)` : ""}`);
+                  setSelected(new Set());
+                },
+                onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+              });
+            }}
+          >
+            <Trash2 className="size-3.5 mr-1" />
+            {deleteBatchMutation.isPending ? "삭제 중..." : "선택 삭제"}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+            선택 해제
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
@@ -360,6 +420,14 @@ export default function BudgetManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10">
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-gray-300"
+                      checked={data.budgets.length > 0 && data.budgets.every((b) => selected.has(b.budget_id))}
+                      onChange={toggleSelectAll}
+                    />
+                  </TableHead>
                   <TableHead className="w-10" />
                   <TableHead>Budget ID</TableHead>
                   <TableHead>한도</TableHead>
@@ -382,6 +450,14 @@ export default function BudgetManagementPage() {
                         className={linkedTotal > 0 ? "cursor-pointer" : ""}
                         onClick={() => linkedTotal > 0 && toggleExpand(b.budget_id)}
                       >
+                        <TableCell onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            className="size-4 rounded border-gray-300"
+                            checked={selected.has(b.budget_id)}
+                            onChange={() => toggleSelect(b.budget_id)}
+                          />
+                        </TableCell>
                         <TableCell>
                           {linkedTotal > 0 && (
                             <ChevronExpand
@@ -448,7 +524,7 @@ export default function BudgetManagementPage() {
                       </TableRow>
                       {isExpanded && (
                         <TableRow>
-                          <TableCell colSpan={10} className="p-0">
+                          <TableCell colSpan={11} className="p-0">
                             <BudgetDetailPanel budgetId={b.budget_id} />
                           </TableCell>
                         </TableRow>
@@ -462,9 +538,20 @@ export default function BudgetManagementPage() {
 
           {/* Pagination */}
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">
-              총 {data.total}개 중 {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, data.total)}
-            </p>
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-muted-foreground">
+                총 {data.total}개 중 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, data.total)}
+              </p>
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+              >
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>{size}개씩</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
                 <ChevronLeft className="size-4" />
