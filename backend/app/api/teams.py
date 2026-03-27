@@ -209,9 +209,9 @@ async def list_team_members(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List team members with their key/budget info (admin only, paginated)."""
-    # 1. Get team row
+    # 1. Get team admins for role check
     result = await db.execute(
-        text('SELECT members, admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
     row = result.mappings().first()
@@ -224,24 +224,37 @@ async def list_team_members(
     if user.global_role != GlobalRole.SUPER_USER and user.user_id not in all_admins_set:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # 2. Build unique member list (members + admins combined, sorted)
-    all_member_ids = sorted(set(row["members"] or []) | all_admins_set)
-
-    # 3. Filter by search
+    # 2. Get members from TeamMembership table (source of truth)
+    search_condition = ""
+    search_params: dict = {"team_id": team_id}
     if search:
-        search_lower = search.lower()
-        all_member_ids = [m for m in all_member_ids if search_lower in m.lower()]
+        search_condition = "AND tm.user_id ILIKE :search"
+        search_params["search"] = f"%{search}%"
 
-    total = len(all_member_ids)
+    count_result = await db.execute(
+        text(f'SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.team_id = :team_id {search_condition}'),
+        search_params,
+    )
+    total = count_result.scalar() or 0
 
-    # 4. Paginate
+    # 3. Paginate via DB
     offset = (page - 1) * page_size
-    paged_ids = all_member_ids[offset : offset + page_size]
+    membership_result = await db.execute(
+        text(f"""
+            SELECT tm.user_id
+            FROM "LiteLLM_TeamMembership" tm
+            WHERE tm.team_id = :team_id {search_condition}
+            ORDER BY tm.user_id
+            OFFSET :offset LIMIT :limit
+        """),
+        {**search_params, "offset": offset, "limit": page_size},
+    )
+    paged_ids = [r["user_id"] for r in membership_result.mappings()]
 
     if not paged_ids:
         return {"members": [], "total": total, "page": page, "page_size": page_size}
 
-    # 5. Get keys for paginated members
+    # 4. Get keys for paginated members
     keys_result = await db.execute(
         text(
             "SELECT user_id, token, key_alias, key_name, spend, max_budget, "
@@ -253,7 +266,7 @@ async def list_team_members(
         {"team_id": team_id, "member_ids": paged_ids},
     )
 
-    # 6. Group keys by user_id
+    # 5. Group keys by user_id
     keys_by_user: dict[str, list[dict]] = {uid: [] for uid in paged_ids}
     for k in keys_result.mappings():
         keys_by_user[k["user_id"]].append(
@@ -270,7 +283,7 @@ async def list_team_members(
             }
         )
 
-    # 7. Build member objects
+    # 6. Build member objects
     members = []
     for uid in paged_ids:
         user_keys = keys_by_user.get(uid, [])
