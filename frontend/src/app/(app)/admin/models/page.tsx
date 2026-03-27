@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -197,6 +197,31 @@ export default function ModelManagementPage() {
   const createEntry = useCreateCatalogEntry();
   const updateEntry = useUpdateCatalogEntry();
   const deleteEntry = useDeleteCatalogEntry();
+
+  // Filter state
+  const [nameFilter, setNameFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sourceFilter, setSourceFilter] = useState<string>("all");
+
+  const filteredModels = useMemo(() => {
+    if (!models) return [];
+    return models.filter((m) => {
+      if (nameFilter) {
+        const q = nameFilter.toLowerCase();
+        const displayName = m.catalog?.display_name?.toLowerCase() ?? "";
+        const modelName = m.model_name.toLowerCase();
+        if (!displayName.includes(q) && !modelName.includes(q)) return false;
+      }
+      if (statusFilter !== "all") {
+        if (!m.catalog || m.catalog.status !== statusFilter) return false;
+      }
+      if (sourceFilter === "litellm" && !m.litellm_info) return false;
+      if (sourceFilter === "catalog" && !m.catalog) return false;
+      if (sourceFilter === "both" && (!m.litellm_info || !m.catalog)) return false;
+      if (sourceFilter === "unregistered" && m.catalog) return false;
+      return true;
+    });
+  }, [models, nameFilter, statusFilter, sourceFilter]);
 
   // Form dialog state
   const [formOpen, setFormOpen] = useState(false);
@@ -429,10 +454,57 @@ export default function ModelManagementPage() {
           </div>
         )}
 
+        {/* Filters */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="relative flex-1 max-w-xs">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <Input
+              placeholder="모델명 검색..."
+              value={nameFilter}
+              onChange={(e) => setNameFilter(e.target.value)}
+              className="pl-8 h-9"
+            />
+          </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-[140px] h-9">
+              <SelectValue placeholder="상태" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체 상태</SelectItem>
+              {STATUS_OPTIONS.map((s) => (
+                <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={sourceFilter} onValueChange={setSourceFilter}>
+            <SelectTrigger className="w-[140px] h-9">
+              <SelectValue placeholder="소스" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체 소스</SelectItem>
+              <SelectItem value="both">LiteLLM + 카탈로그</SelectItem>
+              <SelectItem value="litellm">LiteLLM만</SelectItem>
+              <SelectItem value="catalog">카탈로그만</SelectItem>
+              <SelectItem value="unregistered">미등록</SelectItem>
+            </SelectContent>
+          </Select>
+          {(nameFilter || statusFilter !== "all" || sourceFilter !== "all") && (
+            <Button variant="ghost" size="sm" onClick={() => { setNameFilter(""); setStatusFilter("all"); setSourceFilter("all"); }}>
+              <X className="size-3.5 mr-1" />
+              초기화
+            </Button>
+          )}
+          {models && (
+            <span className="text-sm text-muted-foreground ml-auto">
+              {filteredModels.length} / {models.length}개
+            </span>
+          )}
+        </div>
+
         {/* Table */}
         {isLoading ? (
           <TableSkeleton />
-        ) : models && models.length > 0 ? (
+        ) : filteredModels.length > 0 ? (
           <div className="rounded-lg border">
             <Table>
               <TableHeader>
@@ -449,7 +521,7 @@ export default function ModelManagementPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {models.map((model) => (
+                {filteredModels.map((model) => (
                   <TableRow key={model.model_name}>
                     {/* Model name column */}
                     <TableCell>
