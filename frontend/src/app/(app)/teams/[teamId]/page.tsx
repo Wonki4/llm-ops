@@ -471,32 +471,11 @@ function OverviewTab({
                   </Link>
                 </div>
               ) : (
-                topKeys.map((key) => {
-                  const keyPct = budgetPercent(key.spend, key.max_budget);
-                  return (
-                    <div key={key.token} className="space-y-1.5 rounded-lg border p-3">
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-medium">{key.key_alias || key.key_name || maskKey(key.token)}</p>
-                        <p className="text-xs text-muted-foreground">{formatBudget(key.spend, key.max_budget)}</p>
-                      </div>
-                      <div className="h-1.5 w-full rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: `${key.max_budget === null ? 0 : keyPct}%` }}
-                        />
-                      </div>
-                    {(key.budget_duration || key.budget_reset_at) && (
-                      <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                        <RefreshCw className="size-2.5" />
-                        {[
-                          key.budget_duration ? `${formatBudgetDuration(key.budget_duration)} 주기` : null,
-                          key.budget_reset_at ? `다음: ${formatResetDate(key.budget_reset_at)}` : null,
-                        ].filter(Boolean).join(" · ")}
-                      </p>
-                    )}
+                topKeys.map((key) => (
+                    <div key={key.token} className="rounded-lg border p-3">
+                      <p className="text-sm font-medium">{key.key_alias || key.key_name || maskKey(key.token)}</p>
                     </div>
-                  );
-                })
+                  ))
               )}
             </CardContent>
           </Card>
