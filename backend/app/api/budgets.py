@@ -76,7 +76,7 @@ async def list_budgets(
         OFFSET :offset LIMIT :limit
     """)
 
-    params = {**search_params, "offset": offset, "limit": min(page_size, 100)}
+    params = {**search_params, "offset": offset, "limit": min(page_size, 1000)}
 
     result = await db.execute(query, params)
     budgets = [
