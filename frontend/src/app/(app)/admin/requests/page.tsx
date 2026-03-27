@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Inbox } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Inbox, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Table,
@@ -96,6 +97,7 @@ export default function AdminRequestsPage() {
 
   const [statusTab, setStatusTab] = useState("all");
   const [typeTab, setTypeTab] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<"approve" | "reject">(
     "approve",
@@ -104,11 +106,21 @@ export default function AdminRequestsPage() {
     useState<TeamJoinRequest | null>(null);
   const [comment, setComment] = useState("");
 
-  const filteredRequests = requests?.filter((req) => {
-    const statusMatch = statusTab === "all" || req.status === statusTab;
-    const typeMatch = typeTab === "all" || (req.request_type ?? "join") === typeTab;
-    return statusMatch && typeMatch;
-  });
+  const filteredRequests = useMemo(() => {
+    if (!requests) return [];
+    return requests.filter((req) => {
+      const statusMatch = statusTab === "all" || req.status === statusTab;
+      const typeMatch = typeTab === "all" || (req.request_type ?? "join") === typeTab;
+      if (!statusMatch || !typeMatch) return false;
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        const requester = req.requester_id.toLowerCase();
+        const team = (req.team_alias || req.team_id).toLowerCase();
+        if (!requester.includes(q) && !team.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [requests, statusTab, typeTab, searchQuery]);
 
   function openActionDialog(
     request: TeamJoinRequest,
@@ -168,8 +180,17 @@ export default function AdminRequestsPage() {
         </div>
       )}
 
-      {/* Type filter */}
-      <div className="flex items-center gap-4">
+      {/* Filters */}
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+          <Input
+            placeholder="요청자 / 팀명 검색..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-8 h-9"
+          />
+        </div>
         <Tabs value={typeTab} onValueChange={setTypeTab}>
           <TabsList>
             <TabsTrigger value="all">전체 유형</TabsTrigger>
@@ -177,6 +198,17 @@ export default function AdminRequestsPage() {
             <TabsTrigger value="budget">예산 증액</TabsTrigger>
           </TabsList>
         </Tabs>
+        {(searchQuery || typeTab !== "all") && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setTypeTab("all"); }}>
+            <X className="size-3.5 mr-1" />
+            초기화
+          </Button>
+        )}
+        {requests && (
+          <span className="text-sm text-muted-foreground ml-auto">
+            {filteredRequests.length} / {requests.length}개
+          </span>
+        )}
       </div>
 
       {/* Status tabs + Table */}
@@ -191,7 +223,7 @@ export default function AdminRequestsPage() {
         <TabsContent value={statusTab} className="mt-4">
           {isLoading ? (
             <TableSkeleton />
-          ) : filteredRequests && filteredRequests.length > 0 ? (
+          ) : filteredRequests.length > 0 ? (
             <div className="rounded-lg border">
               <Table>
                 <TableHeader>
