@@ -290,14 +290,16 @@ export default function BudgetManagementPage() {
                 size="sm"
                 disabled={deleteOrphansMutation.isPending}
                 onClick={() => {
+                  if (!confirm(`미연결 예산 ${orphanData.count.toLocaleString()}개를 모두 삭제하시겠습니까?\n대량 데이터의 경우 시간이 걸릴 수 있습니다.`)) return;
+                  toast.info("미연결 예산 삭제를 시작합니다. 잠시 기다려주세요...");
                   deleteOrphansMutation.mutate(undefined, {
-                    onSuccess: (res) => toast.success(`${res.deleted}개의 미연결 예산이 삭제되었습니다.`),
+                    onSuccess: (res) => toast.success(`${res.deleted.toLocaleString()}개의 미연결 예산이 삭제되었습니다.`),
                     onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
                   });
                 }}
               >
                 <Trash2 className="size-3.5 mr-1" />
-                {deleteOrphansMutation.isPending ? "삭제 중..." : "일괄 삭제"}
+                {deleteOrphansMutation.isPending ? "삭제 중... (시간이 걸릴 수 있습니다)" : `일괄 삭제 (${orphanData.count.toLocaleString()}개)`}
               </Button>
             )}
           </CardContent>
