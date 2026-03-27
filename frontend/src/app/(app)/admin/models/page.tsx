@@ -273,8 +273,8 @@ export default function ModelManagementPage() {
   }
 
   function handleFormSubmit() {
-    if (!form.model_name.trim() || !form.display_name.trim()) {
-      toast.error("모델명과 표시 이름은 필수입니다.");
+    if (!form.display_name.trim()) {
+      toast.error("표시 이름은 필수입니다.");
       return;
     }
 
@@ -625,7 +625,7 @@ export default function ModelManagementPage() {
               {/* model_name */}
               <div className="grid gap-2">
                 <Label htmlFor="model-name">
-                  모델명 <span className="text-destructive">*</span>
+                  모델명
                 </Label>
                 {editingId ? (
                   <Input

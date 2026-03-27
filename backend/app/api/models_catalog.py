@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 class CreateModelCatalogEntry(BaseModel):
-    model_name: str
+    model_name: str = ""
     display_name: str
     description: str | None = None
     status: ModelStatus = ModelStatus.TESTING
@@ -297,7 +297,7 @@ async def create_catalog_entry(
 
     entry = CustomModelCatalog(
         id=uuid.uuid4(),
-        model_name=body.model_name,
+        model_name=body.model_name or body.display_name,
         display_name=body.display_name,
         description=body.description,
         status=body.status,
