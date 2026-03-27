@@ -54,7 +54,11 @@ async def list_budgets(
             b.updated_by,
             (SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id) AS team_membership_count,
             (SELECT COUNT(*) FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id) AS key_count,
-            (SELECT COUNT(*) FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id) AS org_count
+            (SELECT COUNT(*) FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id) AS org_count,
+            (SELECT COUNT(*) FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id) AS project_count,
+            (SELECT COUNT(*) FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id) AS end_user_count,
+            (SELECT COUNT(*) FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id) AS tag_count,
+            (SELECT COUNT(*) FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id) AS org_membership_count
         FROM "LiteLLM_BudgetTable" b
         {where_clause}
         ORDER BY b.created_at DESC
@@ -80,6 +84,10 @@ async def list_budgets(
             "team_membership_count": r["team_membership_count"],
             "key_count": r["key_count"],
             "org_count": r["org_count"],
+            "project_count": r["project_count"],
+            "end_user_count": r["end_user_count"],
+            "tag_count": r["tag_count"],
+            "org_membership_count": r["org_membership_count"],
         }
         for r in result.mappings()
     ]
@@ -150,8 +158,114 @@ async def get_budget_details(
         for r in org_result.mappings()
     ]
 
+    # Projects
+    prj_result = await db.execute(
+        text('SELECT project_id, project_name FROM "LiteLLM_ProjectTable" WHERE budget_id = :budget_id'),
+        {"budget_id": budget_id},
+    )
+    projects = [{"project_id": r["project_id"], "project_name": r["project_name"]} for r in prj_result.mappings()]
+
+    # End users
+    eu_result = await db.execute(
+        text('SELECT user_id, alias, spend FROM "LiteLLM_EndUserTable" WHERE budget_id = :budget_id'),
+        {"budget_id": budget_id},
+    )
+    end_users = [{"user_id": r["user_id"], "alias": r["alias"], "spend": float(r["spend"])} for r in eu_result.mappings()]
+
+    # Tags
+    tag_result = await db.execute(
+        text('SELECT tag_name FROM "LiteLLM_TagTable" WHERE budget_id = :budget_id'),
+        {"budget_id": budget_id},
+    )
+    tags = [r["tag_name"] for r in tag_result.mappings()]
+
+    # Organization memberships
+    om_result = await db.execute(
+        text(
+            'SELECT om.user_id, om.organization_id, om.spend '
+            'FROM "LiteLLM_OrganizationMembership" om '
+            'WHERE om.budget_id = :budget_id'
+        ),
+        {"budget_id": budget_id},
+    )
+    org_memberships = [
+        {"user_id": r["user_id"], "organization_id": r["organization_id"], "spend": float(r["spend"] or 0)}
+        for r in om_result.mappings()
+    ]
+
     return {
         "team_memberships": team_memberships,
         "keys": keys,
         "organizations": orgs,
+        "projects": projects,
+        "end_users": end_users,
+        "tags": tags,
+        "org_memberships": org_memberships,
     }
+
+
+@router.get("/orphans")
+async def list_orphan_budgets(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """List budgets not linked to any entity."""
+    result = await db.execute(text("""
+        SELECT b.budget_id, b.max_budget, b.created_at
+        FROM "LiteLLM_BudgetTable" b
+        WHERE NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id)
+        ORDER BY b.created_at DESC
+    """))
+    orphans = [
+        {
+            "budget_id": r["budget_id"],
+            "max_budget": r["max_budget"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+        }
+        for r in result.mappings()
+    ]
+    return {"orphans": orphans, "count": len(orphans)}
+
+
+@router.delete("/orphans")
+async def delete_all_orphan_budgets(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete all orphan budgets (not linked to anything)."""
+    result = await db.execute(text("""
+        DELETE FROM "LiteLLM_BudgetTable" b
+        WHERE NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id)
+          AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id)
+    """))
+    await db.commit()
+    return {"deleted": result.rowcount}
+
+
+@router.delete("/{budget_id}")
+async def delete_budget(
+    budget_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a single budget by ID."""
+    result = await db.execute(
+        text('DELETE FROM "LiteLLM_BudgetTable" WHERE budget_id = :budget_id'),
+        {"budget_id": budget_id},
+    )
+    await db.commit()
+    if result.rowcount == 0:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Budget not found")
+    return {"deleted": True, "budget_id": budget_id}

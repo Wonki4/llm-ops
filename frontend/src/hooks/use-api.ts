@@ -376,6 +376,34 @@ export function useBudgetDetails(budgetId: string | null) {
   });
 }
 
+export function useOrphanBudgets() {
+  return useQuery({
+    queryKey: ["budgets", "orphans"],
+    queryFn: () => apiFetch<{ orphans: import("@/types").OrphanBudget[]; count: number }>("/api/budgets/orphans"),
+  });
+}
+
+export function useDeleteOrphanBudgets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<{ deleted: number }>("/api/budgets/orphans", { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
+export function useDeleteBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (budgetId: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/budgets/${budgetId}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
 // ─── Portal Settings ────────────────────────────────────────────
 
 export interface PortalSettings {

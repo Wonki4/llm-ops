@@ -216,6 +216,10 @@ export interface Budget {
   team_membership_count: number;
   key_count: number;
   org_count: number;
+  project_count: number;
+  end_user_count: number;
+  tag_count: number;
+  org_membership_count: number;
 }
 
 export interface BudgetListResponse {
@@ -229,6 +233,16 @@ export interface BudgetDetails {
   team_memberships: { user_id: string; team_id: string; team_alias: string | null; spend: number }[];
   keys: { token: string; key_alias: string | null; key_name: string | null; user_id: string | null; team_id: string | null; spend: number }[];
   organizations: { organization_id: string; organization_alias: string | null }[];
+  projects: { project_id: string; project_name: string | null }[];
+  end_users: { user_id: string; alias: string | null; spend: number }[];
+  tags: string[];
+  org_memberships: { user_id: string; organization_id: string; spend: number }[];
+}
+
+export interface OrphanBudget {
+  budget_id: string;
+  max_budget: number | null;
+  created_at: string | null;
 }
 
 // ─── Team Members ─────────────────────────────────────────────
