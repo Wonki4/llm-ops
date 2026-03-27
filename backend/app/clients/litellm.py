@@ -71,6 +71,7 @@ class LiteLLMClient:
         key: str | None = None,
         tpm_limit: int | None = None,
         rpm_limit: int | None = None,
+        metadata: dict | None = None,
     ) -> dict:
         payload: dict[str, Any] = {"user_id": user_id, "team_id": team_id}
         if key_alias:
@@ -87,6 +88,8 @@ class LiteLLMClient:
             payload["tpm_limit"] = tpm_limit
         if rpm_limit is not None:
             payload["rpm_limit"] = rpm_limit
+        if metadata is not None:
+            payload["metadata"] = metadata
         return await self._request("POST", "/key/generate", json=payload)
 
     async def list_keys(self, user_id: str | None = None, team_id: str | None = None) -> list[dict]:

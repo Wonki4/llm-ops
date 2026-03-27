@@ -39,14 +39,16 @@ async def _next_key_id(db: AsyncSession) -> int:
     return next_id
 
 
-def _generate_sk_jwt(key_id: int, team_id: str, user_id: str) -> str:
+def _generate_sk_jwt(key_id: int, team_id: str, user_id: str, iat: int | None = None) -> str:
     """Generate sk- prefixed JWT key."""
+    if iat is None:
+        iat = int(time.time())
     payload = {
         "keyId": key_id,
         "prjId": team_id,
         "keyType": "PRJ",
         "regUserId": user_id,
-        "iat": int(time.time()),
+        "iat": iat,
     }
     token = jwt.encode(payload, _KEY_JWT_SECRET, algorithm="HS256")
     return f"sk-{token}"
@@ -81,7 +83,8 @@ async def create_key(
 
     for attempt in range(max_retries):
         key_id = await _next_key_id(db)
-        sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id)
+        iat = int(time.time())
+        sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id, iat=iat)
 
         try:
             result = await litellm.generate_key(
@@ -94,6 +97,7 @@ async def create_key(
                 key=sk_key,
                 tpm_limit=tpm_limit,
                 rpm_limit=rpm_limit,
+                metadata={"sk_key_id": key_id, "sk_iat": iat},
             )
             return result
         except HTTPStatusError as e:
@@ -154,6 +158,36 @@ async def list_my_keys(
         for k in result.mappings()
     ]
     return {"keys": keys}
+
+
+@router.get("/{key_hash}/reveal")
+async def reveal_key(
+    key_hash: str,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Reconstruct and return the sk-JWT key for the user to copy."""
+    result = await db.execute(
+        text(
+            'SELECT user_id, team_id, metadata '
+            'FROM "LiteLLM_VerificationToken" WHERE token = :token'
+        ),
+        {"token": key_hash},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    if row["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="You can only reveal your own keys")
+
+    metadata = row["metadata"] or {}
+    sk_key_id = metadata.get("sk_key_id")
+    sk_iat = metadata.get("sk_iat")
+    if sk_key_id is None or sk_iat is None:
+        raise HTTPException(status_code=404, detail="이 키는 재구성 정보가 없습니다. (이전에 생성된 키)")
+
+    sk_key = _generate_sk_jwt(sk_key_id, row["team_id"], row["user_id"], iat=sk_iat)
+    return {"key": sk_key}
 
 
 @router.delete("/{key_hash}")

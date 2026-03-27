@@ -2,7 +2,8 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useMyKeys, useMyTeams, useDeleteKey } from "@/hooks/use-api";
+import { toast } from "sonner";
+import { useMyKeys, useMyTeams, useDeleteKey, useRevealKey } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
@@ -44,6 +45,8 @@ import {
   Loader2,
   Key,
   Search,
+  Copy,
+  Check,
 } from "lucide-react";
 import type { ApiKey } from "@/types";
 
@@ -112,7 +115,9 @@ export default function AllKeysPage() {
   const { data: keys, isLoading, isError, error, refetch } = useMyKeys();
   const { data: teams } = useMyTeams();
   const deleteKeyMutation = useDeleteKey();
+  const revealKeyMutation = useRevealKey();
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [teamFilter, setTeamFilter] = useState<string>("all");
 
@@ -311,11 +316,32 @@ export default function AllKeysPage() {
                     {formatDate(key.created_at)}
                   </TableCell>
                   <TableCell>
-                    <DeleteKeyDialog
-                      keyItem={key}
-                      onDelete={handleDeleteKey}
-                      isDeleting={deletingKeyId === key.token}
-                    />
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title="키 복사"
+                        disabled={revealKeyMutation.isPending}
+                        onClick={() => {
+                          revealKeyMutation.mutate(key.token, {
+                            onSuccess: (res) => {
+                              navigator.clipboard.writeText(res.key);
+                              setCopiedKeyId(key.token);
+                              toast.success("키가 클립보드에 복사되었습니다.");
+                              setTimeout(() => setCopiedKeyId(null), 2000);
+                            },
+                            onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                          });
+                        }}
+                      >
+                        {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+                      </Button>
+                      <DeleteKeyDialog
+                        keyItem={key}
+                        onDelete={handleDeleteKey}
+                        isDeleting={deletingKeyId === key.token}
+                      />
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
