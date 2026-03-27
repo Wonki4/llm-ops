@@ -405,6 +405,20 @@ export function useDeleteBudget() {
   });
 }
 
+export function useDeleteBudgetsBatch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (budgetIds: string[]) =>
+      apiFetch<{ deleted: number; skipped: number }>("/api/budgets/batch", {
+        method: "DELETE",
+        body: JSON.stringify(budgetIds),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["budgets"] });
+    },
+  });
+}
+
 // ─── Portal Settings ────────────────────────────────────────────
 
 export interface PortalSettings {

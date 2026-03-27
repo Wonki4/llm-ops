@@ -283,6 +283,43 @@ async def delete_orphan_budgets(
     return {"deleted": total_deleted}
 
 
+@router.delete("/batch")
+async def delete_budgets_batch(
+    budget_ids: list[str],
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete multiple budgets by IDs. Skips any that have linked entities."""
+    if not budget_ids or len(budget_ids) > 1000:
+        raise HTTPException(status_code=400, detail="1~1000개의 예산 ID를 지정해주세요.")
+
+    deleted = 0
+    skipped = 0
+    for bid in budget_ids:
+        linked_result = await db.execute(text("""
+            SELECT
+                (SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_TagTable" t WHERE t.budget_id = :bid) +
+                (SELECT COUNT(*) FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = :bid)
+            AS total_linked
+        """), {"bid": bid})
+        total_linked = linked_result.scalar() or 0
+        if total_linked > 0:
+            skipped += 1
+            continue
+        result = await db.execute(
+            text('DELETE FROM "LiteLLM_BudgetTable" WHERE budget_id = :budget_id'),
+            {"budget_id": bid},
+        )
+        deleted += result.rowcount
+    await db.commit()
+    return {"deleted": deleted, "skipped": skipped}
+
+
 @router.delete("/{budget_id}")
 async def delete_budget(
     budget_id: str,
