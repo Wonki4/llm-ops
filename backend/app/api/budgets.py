@@ -17,6 +17,7 @@ async def list_budgets(
     page_size: int = 50,
     search_id: str | None = None,
     search_amount: float | None = None,
+    orphans_only: bool = False,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -30,6 +31,16 @@ async def list_budgets(
     if search_amount is not None:
         conditions.append("b.max_budget = :search_amount")
         search_params["search_amount"] = search_amount
+    if orphans_only:
+        conditions.append("""
+            NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_TagTable" t WHERE t.budget_id = b.budget_id)
+            AND NOT EXISTS (SELECT 1 FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = b.budget_id)
+        """)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -256,16 +267,38 @@ async def delete_all_orphan_budgets(
 @router.delete("/{budget_id}")
 async def delete_budget(
     budget_id: str,
+    force: bool = False,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Delete a single budget by ID."""
+    """Delete a single budget by ID. Rejects if linked unless force=true."""
+    from fastapi import HTTPException
+
+    # Check linked entities
+    linked_result = await db.execute(text("""
+        SELECT
+            (SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_OrganizationTable" o WHERE o.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_ProjectTable" p WHERE p.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_EndUserTable" eu WHERE eu.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_TagTable" t WHERE t.budget_id = :bid) +
+            (SELECT COUNT(*) FROM "LiteLLM_OrganizationMembership" om WHERE om.budget_id = :bid)
+        AS total_linked
+    """), {"bid": budget_id})
+    total_linked = linked_result.scalar() or 0
+
+    if total_linked > 0 and not force:
+        raise HTTPException(
+            status_code=409,
+            detail=f"이 예산에 {total_linked}개의 연결된 항목이 있습니다. 연결을 먼저 해제하세요.",
+        )
+
     result = await db.execute(
         text('DELETE FROM "LiteLLM_BudgetTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
     await db.commit()
     if result.rowcount == 0:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Budget not found")
     return {"deleted": True, "budget_id": budget_id}

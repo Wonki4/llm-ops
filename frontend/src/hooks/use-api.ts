@@ -355,15 +355,16 @@ export function useDeleteCatalogEntry() {
 
 // ─── Budgets ────────────────────────────────────────────────────
 
-export function useBudgets(page: number, pageSize: number, searchId: string, searchAmount: string) {
+export function useBudgets(page: number, pageSize: number, searchId: string, searchAmount: string, orphansOnly: boolean = false) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
   if (searchId) params.set("search_id", searchId);
   if (searchAmount) params.set("search_amount", searchAmount);
+  if (orphansOnly) params.set("orphans_only", "true");
 
   return useQuery({
-    queryKey: ["budgets", { page, pageSize, searchId, searchAmount }],
+    queryKey: ["budgets", { page, pageSize, searchId, searchAmount, orphansOnly }],
     queryFn: () => apiFetch<BudgetListResponse>(`/api/budgets?${params.toString()}`),
   });
 }

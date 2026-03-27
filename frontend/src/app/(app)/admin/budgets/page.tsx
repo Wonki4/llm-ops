@@ -228,6 +228,7 @@ export default function BudgetManagementPage() {
   const [searchId, setSearchId] = useState("");
   const [searchAmount, setSearchAmount] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [orphansOnly, setOrphansOnly] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -238,7 +239,7 @@ export default function BudgetManagementPage() {
     return () => clearTimeout(timer);
   }, [idInput, amountInput]);
 
-  const { data, isLoading } = useBudgets(page, PAGE_SIZE, searchId, searchAmount);
+  const { data, isLoading } = useBudgets(page, PAGE_SIZE, searchId, searchAmount, orphansOnly);
   const { data: orphanData } = useOrphanBudgets();
   const deleteOrphansMutation = useDeleteOrphanBudgets();
   const deleteBudgetMutation = useDeleteBudget();
@@ -324,8 +325,17 @@ export default function BudgetManagementPage() {
             className="h-9"
           />
         </div>
-        {(searchId || searchAmount) && (
-          <Button variant="ghost" size="sm" onClick={() => { setIdInput(""); setAmountInput(""); setSearchId(""); setSearchAmount(""); }}>
+        <Button
+          variant={orphansOnly ? "default" : "outline"}
+          size="sm"
+          className="h-9"
+          onClick={() => { setOrphansOnly(!orphansOnly); setPage(1); }}
+        >
+          <AlertTriangle className="size-3.5 mr-1" />
+          미연결만
+        </Button>
+        {(searchId || searchAmount || orphansOnly) && (
+          <Button variant="ghost" size="sm" onClick={() => { setIdInput(""); setAmountInput(""); setSearchId(""); setSearchAmount(""); setOrphansOnly(false); }}>
             <X className="size-3.5 mr-1" />
             초기화
           </Button>
@@ -416,6 +426,12 @@ export default function BudgetManagementPage() {
                             disabled={deleteBudgetMutation.isPending}
                             onClick={(e) => {
                               e.stopPropagation();
+                              const linkedTotal = b.team_membership_count + b.key_count + b.org_count
+                                + b.project_count + b.end_user_count + b.tag_count + b.org_membership_count;
+                              if (linkedTotal > 0) {
+                                toast.error(`이 예산에 ${linkedTotal}개의 연결된 항목이 있어 삭제할 수 없습니다.`);
+                                return;
+                              }
                               if (confirm(`예산 ${b.budget_id.slice(0, 8)}...을 삭제하시겠습니까?`)) {
                                 deleteBudgetMutation.mutate(b.budget_id, {
                                   onSuccess: () => toast.success("예산이 삭제되었습니다."),
