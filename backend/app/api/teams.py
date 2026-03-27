@@ -367,3 +367,73 @@ async def change_member_role(
     await db.commit()
 
     return {"status": "changed", "user_id": body.user_id, "new_role": body.role}
+
+
+@router.delete("/{team_id}/members/{member_id}")
+async def remove_team_member(
+    team_id: str,
+    member_id: str,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Remove a member from the team. Requires team admin or super user."""
+    # Get team
+    result = await db.execute(
+        text('SELECT members, admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        {"team_id": team_id},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    all_members = list(row["members"] or [])
+    all_admins = list(row["admins"] or [])
+
+    # Permission check
+    if user.global_role != GlobalRole.SUPER_USER and user.user_id not in all_admins:
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    # Cannot remove yourself
+    if member_id == user.user_id:
+        raise HTTPException(status_code=400, detail="자기 자신은 삭제할 수 없습니다.")
+
+    # Cannot remove the last admin
+    if member_id in all_admins and len(all_admins) <= 1:
+        raise HTTPException(status_code=400, detail="마지막 관리자는 삭제할 수 없습니다.")
+
+    # Remove from members and admins arrays
+    if member_id in all_members:
+        all_members.remove(member_id)
+    if member_id in all_admins:
+        all_admins.remove(member_id)
+
+    # Update TeamTable
+    await db.execute(
+        text(
+            'UPDATE "LiteLLM_TeamTable" SET admins = :admins, members = :members '
+            "WHERE team_id = :team_id"
+        ),
+        {"admins": all_admins, "members": all_members, "team_id": team_id},
+    )
+
+    # Remove from TeamMembership
+    await db.execute(
+        text('DELETE FROM "LiteLLM_TeamMembership" WHERE team_id = :team_id AND user_id = :user_id'),
+        {"team_id": team_id, "user_id": member_id},
+    )
+
+    # Remove team from user's teams array
+    user_result = await db.execute(
+        text('SELECT teams FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
+        {"user_id": member_id},
+    )
+    user_row = user_result.mappings().first()
+    if user_row and user_row["teams"]:
+        user_teams = [t for t in user_row["teams"] if t != team_id]
+        await db.execute(
+            text('UPDATE "LiteLLM_UserTable" SET teams = :teams WHERE user_id = :user_id'),
+            {"teams": user_teams, "user_id": member_id},
+        )
+
+    await db.commit()
+    return {"status": "removed", "user_id": member_id, "team_id": team_id}
