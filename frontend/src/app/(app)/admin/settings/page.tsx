@@ -22,11 +22,13 @@ export default function PortalSettingsPage() {
 
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
+  const [defaultTeamId, setDefaultTeamId] = useState("");
 
   useEffect(() => {
     if (settings) {
       setTpmLimit(String(settings.default_tpm_limit));
       setRpmLimit(String(settings.default_rpm_limit));
+      setDefaultTeamId(settings.default_team_id || "");
     }
   }, [settings]);
 
@@ -35,6 +37,7 @@ export default function PortalSettingsPage() {
       {
         default_tpm_limit: Number(tpmLimit),
         default_rpm_limit: Number(rpmLimit),
+        default_team_id: defaultTeamId || undefined,
       },
       {
         onSuccess: () => toast.success("설정이 저장되었습니다."),
@@ -94,19 +97,46 @@ export default function PortalSettingsPage() {
               />
             </div>
           </div>
-          <Button
-            onClick={handleSave}
-            disabled={updateMutation.isPending}
-          >
-            {updateMutation.isPending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Save className="size-4" />
-            )}
-            저장
-          </Button>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="size-4" />
+            신규 유저 자동 등록
+          </CardTitle>
+          <CardDescription>
+            SSO 로그인 시 신규 유저를 자동으로 LiteLLM에 등록하고 기본 팀에 추가합니다
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="default-team-id">기본 팀 ID</Label>
+            <Input
+              id="default-team-id"
+              value={defaultTeamId}
+              onChange={(e) => setDefaultTeamId(e.target.value)}
+              placeholder="비어있으면 팀 없이 유저만 생성됩니다"
+            />
+            <p className="text-xs text-muted-foreground">
+              신규 유저가 자동으로 추가될 팀의 ID입니다
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Button
+        onClick={handleSave}
+        disabled={updateMutation.isPending}
+      >
+        {updateMutation.isPending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Save className="size-4" />
+        )}
+        저장
+      </Button>
     </div>
   );
 }

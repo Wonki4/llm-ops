@@ -447,6 +447,7 @@ export function useDeleteBudgetsBatch() {
 export interface PortalSettings {
   default_tpm_limit: number;
   default_rpm_limit: number;
+  default_team_id: string;
 }
 
 export function usePortalSettings() {
