@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 class UpdateSettingsRequest(BaseModel):
     default_tpm_limit: int | None = None
     default_rpm_limit: int | None = None
+    default_team_id: str | None = None
 
 
 @router.get("")
@@ -28,6 +29,7 @@ async def get_settings(
     return {
         "default_tpm_limit": int(settings.get("default_tpm_limit", "100000")),
         "default_rpm_limit": int(settings.get("default_rpm_limit", "1000")),
+        "default_team_id": settings.get("default_team_id", ""),
     }
 
 

@@ -1,13 +1,16 @@
 import hashlib
+import logging
 import secrets
 import time
 from base64 import urlsafe_b64encode
 from urllib.parse import urlencode
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from jose import jwt as jose_jwt
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.session import (
     SessionData,
@@ -20,6 +23,9 @@ from app.auth.session import (
     set_session_cookie,
 )
 from app.config import settings
+from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -80,8 +86,61 @@ async def login(return_to: str = "/teams") -> Response:
     return response
 
 
+async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> None:
+    """Create user in LiteLLM_UserTable and add to default team if not exists."""
+    # Check if user already exists
+    result = await db.execute(
+        text('SELECT user_id FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
+        {"user_id": user_id},
+    )
+    if result.scalar_one_or_none() is not None:
+        return  # Already exists
+
+    # Get default team from portal settings
+    default_team_result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
+    )
+    default_team_id = default_team_result.scalar()
+
+    # Create user
+    teams_array = [default_team_id] if default_team_id else []
+    await db.execute(
+        text(
+            'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
+            "VALUES (:user_id, :email, :teams, 0, NULL) "
+            "ON CONFLICT (user_id) DO NOTHING"
+        ),
+        {"user_id": user_id, "email": email, "teams": teams_array},
+    )
+    logger.info("Auto-provisioned user: %s", user_id)
+
+    # Add to default team if configured
+    if default_team_id:
+        # Add to TeamTable.members
+        await db.execute(
+            text(
+                'UPDATE "LiteLLM_TeamTable" '
+                "SET members = array_append(members, :user_id) "
+                "WHERE team_id = :team_id AND NOT (:user_id = ANY(COALESCE(members, ARRAY[]::text[])))"
+            ),
+            {"user_id": user_id, "team_id": default_team_id},
+        )
+        # Create TeamMembership
+        await db.execute(
+            text(
+                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
+                "VALUES (:user_id, :team_id, 0) "
+                "ON CONFLICT DO NOTHING"
+            ),
+            {"user_id": user_id, "team_id": default_team_id},
+        )
+        logger.info("Added user %s to default team %s", user_id, default_team_id)
+
+    await db.commit()
+
+
 @router.get("/callback")
-async def callback(request: Request, code: str, state: str) -> Response:
+async def callback(request: Request, code: str, state: str, db: AsyncSession = Depends(get_db)) -> Response:
     temp_cookie = request.cookies.get("_oauth_temp")
     if not temp_cookie:
         raise HTTPException(status_code=400, detail="Missing auth state cookie")
@@ -123,9 +182,16 @@ async def callback(request: Request, code: str, state: str) -> Response:
     access_claims = jose_jwt.get_unverified_claims(token_data["access_token"])
 
     user_id = access_claims.get("preferred_username") or access_claims.get("sub", "")
+    email = access_claims.get("email", "")
     realm_roles = access_claims.get("realm_access", {}).get("roles", [])
     client_roles = access_claims.get("resource_access", {}).get(settings.jwt_audience, {}).get("roles", [])
     groups = access_claims.get("groups", [])
+
+    # Auto-provision user in LiteLLM if not exists
+    try:
+        await _auto_provision_user(db, user_id, email)
+    except Exception:
+        logger.exception("Auto-provision failed for user %s", user_id)
 
     session = SessionData(
         access_token=token_data["access_token"],
@@ -133,7 +199,7 @@ async def callback(request: Request, code: str, state: str) -> Response:
         id_token=id_token_raw,
         expires_at=int(time.time()) + token_data.get("expires_in", 1800),
         user_id=user_id,
-        email=access_claims.get("email", ""),
+        email=email,
         name=access_claims.get("name", ""),
         roles=realm_roles + client_roles,
         groups=groups,
