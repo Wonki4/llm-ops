@@ -1,13 +1,17 @@
-"""Redis-backed model catalog management endpoints."""
+"""Redis-backed model catalog management endpoints with PostgreSQL sync."""
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
-from app.clients.redis import catalog_delete, catalog_get, catalog_get_all, catalog_rename, catalog_set
+from app.clients.redis import catalog_delete, catalog_get, catalog_get_all, catalog_set
 from app.db.models.custom_user import CustomUser
+from app.db.session import get_db
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -30,6 +34,33 @@ class CatalogCreateRequest(BaseModel):
 class CatalogUpdateRequest(BaseModel):
     entry: CatalogEntry | None = None
     new_display_name: str | None = None
+
+
+async def _pg_upsert(db: AsyncSession, display_name: str, data: dict) -> None:
+    """Upsert catalog entry to PostgreSQL for backup."""
+    await db.execute(
+        text("""
+            INSERT INTO custom_redis_catalog (display_name, data, updated_at)
+            VALUES (:name, :data, NOW())
+            ON CONFLICT (display_name) DO UPDATE
+            SET data = :data, updated_at = NOW()
+        """),
+        {"name": display_name, "data": json.dumps(data, ensure_ascii=False)},
+    )
+
+
+async def _pg_delete(db: AsyncSession, display_name: str) -> None:
+    """Delete catalog entry from PostgreSQL."""
+    await db.execute(
+        text("DELETE FROM custom_redis_catalog WHERE display_name = :name"),
+        {"name": display_name},
+    )
+
+
+async def _pg_rename(db: AsyncSession, old_name: str, new_name: str, data: dict) -> None:
+    """Rename catalog entry in PostgreSQL (delete old + insert new)."""
+    await _pg_delete(db, old_name)
+    await _pg_upsert(db, new_name, data)
 
 
 @router.get("")
@@ -63,6 +94,7 @@ async def get_catalog_entry(
 async def create_catalog_entry(
     body: CatalogCreateRequest,
     user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Create a new catalog entry (Super User only)."""
     if not body.display_name.strip():
@@ -74,6 +106,7 @@ async def create_catalog_entry(
 
     data = body.entry.model_dump()
     await catalog_set(body.display_name, data)
+    await _pg_upsert(db, body.display_name, data)
     return {"display_name": body.display_name, **data}
 
 
@@ -82,6 +115,7 @@ async def update_catalog_entry(
     display_name: str,
     body: CatalogUpdateRequest,
     user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Update a catalog entry (Super User only)."""
     existing = await catalog_get(display_name)
@@ -99,7 +133,10 @@ async def update_catalog_entry(
         if conflict is not None:
             raise HTTPException(status_code=409, detail=f"'{body.new_display_name}' already exists")
         await catalog_delete(display_name)
+        await _pg_rename(db, display_name, body.new_display_name, data)
         target_name = body.new_display_name
+    else:
+        await _pg_upsert(db, target_name, data)
 
     await catalog_set(target_name, data)
     return {"display_name": target_name, **data}
@@ -109,11 +146,13 @@ async def update_catalog_entry(
 async def delete_catalog_entry(
     display_name: str,
     user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete a catalog entry (Super User only)."""
     deleted = await catalog_delete(display_name)
     if not deleted:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
+    await _pg_delete(db, display_name)
     return {"deleted": True, "display_name": display_name}
 
 
@@ -122,11 +161,9 @@ async def update_user_api_key(
     display_name: str,
     body: dict,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Allow a user to set their own apiKey for a catalog entry.
-
-    This stores a user-specific key by appending the user_id to the field.
-    """
+    """Allow a user to set their own apiKey for a catalog entry."""
     existing = await catalog_get(display_name)
     if existing is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -136,5 +173,22 @@ async def update_user_api_key(
     user_keys[user.user_id] = api_key
     existing["userApiKeys"] = user_keys
     await catalog_set(display_name, existing)
+    await _pg_upsert(db, display_name, existing)
 
     return {"display_name": display_name, "apiKey": api_key}
+
+
+@router.post("/sync-from-pg")
+async def sync_from_pg(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Restore Redis catalog from PostgreSQL backup (Super User only)."""
+    result = await db.execute(text("SELECT display_name, data FROM custom_redis_catalog"))
+    rows = result.mappings().all()
+    count = 0
+    for row in rows:
+        data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+        await catalog_set(row["display_name"], data)
+        count += 1
+    return {"restored": count}
