@@ -22,6 +22,8 @@ import type {
   UpdateModelCatalogRequest,
   BudgetListResponse,
   BudgetDetails,
+  RedisCatalogEntry,
+  RedisCatalogListResponse,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -464,6 +466,56 @@ export function useUpdatePortalSettings() {
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["portal-settings"] });
+    },
+  });
+}
+
+// ─── Redis Catalog ──────────────────────────────────────────────
+
+export function useRedisCatalog() {
+  return useQuery({
+    queryKey: ["redis-catalog"],
+    queryFn: () => apiFetch<RedisCatalogListResponse>("/api/catalog"),
+  });
+}
+
+export function useCreateRedisCatalogEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { display_name: string; entry: Omit<RedisCatalogEntry, "display_name"> }) =>
+      apiFetch<RedisCatalogEntry>("/api/catalog", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
+    },
+  });
+}
+
+export function useUpdateRedisCatalogEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ displayName, body }: { displayName: string; body: { entry?: Omit<RedisCatalogEntry, "display_name">; new_display_name?: string } }) =>
+      apiFetch<RedisCatalogEntry>(`/api/catalog/${encodeURIComponent(displayName)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
+    },
+  });
+}
+
+export function useDeleteRedisCatalogEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (displayName: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/catalog/${encodeURIComponent(displayName)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
     },
   });
 }
