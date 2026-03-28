@@ -274,3 +274,19 @@ export interface TeamMembersResponse {
   page: number;
   page_size: number;
 }
+
+// ─── Redis Catalog ────────────────────────────────────────────
+
+export interface RedisCatalogEntry {
+  display_name: string;
+  model: string;
+  apiBase: string;
+  apiKey: string;
+  options: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface RedisCatalogListResponse {
+  entries: RedisCatalogEntry[];
+  total: number;
+}
