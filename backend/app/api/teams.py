@@ -86,17 +86,29 @@ async def discover_teams(
     )
     user_team_ids = {r["team_id"] for r in membership_result.mappings()}
 
+    # Fetch user's pending join requests
+    pending_result = await db.execute(
+        text(
+            "SELECT team_id FROM custom_team_join_requests "
+            "WHERE requester_id = :user_id AND status = 'pending' AND request_type = 'join'"
+        ),
+        {"user_id": user.user_id},
+    )
+    pending_team_ids = {r["team_id"] for r in pending_result.mappings()}
+
     teams = []
     for row in all_result.mappings():
         team_data = _row_to_team(row)
-        # Also check if user is in the admins/members arrays directly
-        # (covers edge cases where membership row doesn't exist)
         is_member = (
             team_data["team_id"] in user_team_ids
             or user.user_id in (row["members"] or [])
             or user.user_id in (row["admins"] or [])
         )
-        teams.append({**team_data, "is_member": is_member})
+        teams.append({
+            **team_data,
+            "is_member": is_member,
+            "has_pending_request": team_data["team_id"] in pending_team_ids,
+        })
 
     return {"teams": teams}
 
