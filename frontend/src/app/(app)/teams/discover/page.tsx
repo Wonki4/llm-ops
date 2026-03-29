@@ -159,6 +159,10 @@ export default function TeamDiscoveryPage() {
                       <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
                         가입됨
                       </Badge>
+                    ) : team.has_pending_request ? (
+                      <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
+                        요청중
+                      </Badge>
                     ) : (
                       <Button
                         size="sm"

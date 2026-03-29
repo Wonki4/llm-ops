@@ -28,6 +28,7 @@ export interface Team {
 
 export interface DiscoverTeam extends Team {
   is_member: boolean;
+  has_pending_request: boolean;
 }
 
 export interface TeamMembership {
