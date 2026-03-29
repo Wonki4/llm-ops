@@ -187,7 +187,9 @@ async def reveal_key(
         raise HTTPException(status_code=404, detail="이 키는 재구성 정보가 없습니다. (이전에 생성된 키)")
 
     sk_key = _generate_sk_jwt(sk_key_id, row["team_id"], row["user_id"], iat=sk_iat)
-    return {"key": sk_key}
+    # Strip sk- prefix for user-facing display
+    user_key = sk_key.removeprefix("sk-")
+    return {"key": user_key}
 
 
 @router.delete("/{key_hash}")
