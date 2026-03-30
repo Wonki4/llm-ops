@@ -26,18 +26,36 @@ async def get_redis() -> aioredis.Redis | RedisCluster:
     if _client is not None:
         return _client
 
+    password = settings.redis_password or None
+
     if settings.redis_cluster:
-        _client = RedisCluster.from_url(
-            settings.redis_url,
-            decode_responses=True,
-        )
+        urls = [u.strip() for u in settings.redis_url.split(",") if u.strip()]
+        if len(urls) == 1:
+            _client = RedisCluster.from_url(
+                urls[0],
+                password=password,
+                decode_responses=True,
+            )
+        else:
+            from redis.asyncio.cluster import ClusterNode
+            from urllib.parse import urlparse
+            startup_nodes = []
+            for url in urls:
+                parsed = urlparse(url)
+                startup_nodes.append(ClusterNode(parsed.hostname or "localhost", parsed.port or 6379))
+            _client = RedisCluster(
+                startup_nodes=startup_nodes,
+                password=password,
+                decode_responses=True,
+            )
     else:
         _client = aioredis.from_url(
             settings.redis_url,
+            password=password,
             decode_responses=True,
         )
 
-    logger.info("Redis client created (cluster=%s, url=%s)", settings.redis_cluster, settings.redis_url)
+    logger.info("Redis client created (cluster=%s, nodes=%s)", settings.redis_cluster, settings.redis_url)
     return _client
 
 
