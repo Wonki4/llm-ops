@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, Calendar, BarChart3, Key, DollarSign, Settings, Database } from "lucide-react";
+import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, Calendar, BarChart3, Key, DollarSign, Settings, Database, Inbox } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
 import type { UserRole } from "@/types";
 
@@ -13,6 +13,7 @@ const navigation: { name: string; href: string; icon: typeof Users; roles: UserR
   { name: "내 팀", href: "/teams", icon: Users, roles: ["user", "team_admin", "super_user"] },
   { name: "팀 탐색", href: "/teams/discover", icon: Globe, roles: ["user", "team_admin", "super_user"] },
   { name: "내 전체 키", href: "/keys", icon: Key, roles: ["user", "team_admin", "super_user"] },
+  { name: "내 요청", href: "/requests", icon: Inbox, roles: ["user", "team_admin", "super_user"] },
   { name: "요청 관리", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
   { name: "모델 대시보드 (관리)", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
   { name: "모델 관리", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
