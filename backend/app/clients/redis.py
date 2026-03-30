@@ -12,9 +12,12 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-CATALOG_HASH_KEY = "llm_catalog"
-
 _client: aioredis.Redis | RedisCluster | None = None
+
+
+def _hash_key(catalog: str) -> str:
+    """Build Redis hash key from prefix + catalog suffix."""
+    return f"{settings.redis_catalog_prefix}{catalog}"
 
 
 async def get_redis() -> aioredis.Redis | RedisCluster:
@@ -38,10 +41,10 @@ async def get_redis() -> aioredis.Redis | RedisCluster:
     return _client
 
 
-async def catalog_get_all() -> dict[str, dict]:
+async def catalog_get_all(catalog: str) -> dict[str, dict]:
     """Get all catalog entries from Redis hash."""
     r = await get_redis()
-    raw = await r.hgetall(CATALOG_HASH_KEY)
+    raw = await r.hgetall(_hash_key(catalog))
     result = {}
     for display_name, value in raw.items():
         try:
@@ -51,10 +54,10 @@ async def catalog_get_all() -> dict[str, dict]:
     return result
 
 
-async def catalog_get(display_name: str) -> dict | None:
+async def catalog_get(catalog: str, display_name: str) -> dict | None:
     """Get a single catalog entry by display name."""
     r = await get_redis()
-    raw = await r.hget(CATALOG_HASH_KEY, display_name)
+    raw = await r.hget(_hash_key(catalog), display_name)
     if raw is None:
         return None
     try:
@@ -63,24 +66,13 @@ async def catalog_get(display_name: str) -> dict | None:
         return {"_raw": raw}
 
 
-async def catalog_set(display_name: str, data: dict[str, Any]) -> None:
+async def catalog_set(catalog: str, display_name: str, data: dict[str, Any]) -> None:
     """Set a catalog entry in Redis hash."""
     r = await get_redis()
-    await r.hset(CATALOG_HASH_KEY, display_name, json.dumps(data, ensure_ascii=False))
+    await r.hset(_hash_key(catalog), display_name, json.dumps(data, ensure_ascii=False))
 
 
-async def catalog_delete(display_name: str) -> bool:
+async def catalog_delete(catalog: str, display_name: str) -> bool:
     """Delete a catalog entry. Returns True if deleted."""
     r = await get_redis()
-    return bool(await r.hdel(CATALOG_HASH_KEY, display_name))
-
-
-async def catalog_rename(old_name: str, new_name: str) -> bool:
-    """Rename a catalog entry (get+set+delete)."""
-    r = await get_redis()
-    raw = await r.hget(CATALOG_HASH_KEY, old_name)
-    if raw is None:
-        return False
-    await r.hset(CATALOG_HASH_KEY, new_name, raw)
-    await r.hdel(CATALOG_HASH_KEY, old_name)
-    return True
+    return bool(await r.hdel(_hash_key(catalog), display_name))
