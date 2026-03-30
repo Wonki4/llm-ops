@@ -192,3 +192,26 @@ async def sync_from_pg(
         await catalog_set(row["display_name"], data)
         count += 1
     return {"restored": count}
+
+
+@router.post("/sync-to-pg")
+async def sync_to_pg(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Sync Redis catalog to PostgreSQL (Super User only).
+
+    Entries in Redis but not in PG are inserted.
+    Entries in both are updated from Redis.
+    Entries only in PG are left untouched.
+    """
+    redis_entries = await catalog_get_all()
+    pg_result = await db.execute(text("SELECT display_name FROM custom_redis_catalog"))
+    pg_names = {r["display_name"] for r in pg_result.mappings()}
+
+    synced = 0
+    for display_name, data in redis_entries.items():
+        await _pg_upsert(db, display_name, data)
+        synced += 1
+
+    return {"synced": synced, "new": synced - len(pg_names & set(redis_entries.keys()))}

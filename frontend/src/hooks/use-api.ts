@@ -535,3 +535,21 @@ export function useDeleteRedisCatalogEntry() {
     },
   });
 }
+
+export function useSyncCatalogToPg() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ synced: number; new: number }>("/api/catalog/sync-to-pg", { method: "POST" }),
+  });
+}
+
+export function useSyncCatalogFromPg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ restored: number }>("/api/catalog/sync-from-pg", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
+    },
+  });
+}

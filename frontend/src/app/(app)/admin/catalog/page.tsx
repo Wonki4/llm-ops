@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Pencil, Trash2, Search, X, Loader2, Database } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, Loader2, Database, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -9,6 +9,8 @@ import {
   useCreateRedisCatalogEntry,
   useUpdateRedisCatalogEntry,
   useDeleteRedisCatalogEntry,
+  useSyncCatalogToPg,
+  useSyncCatalogFromPg,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +54,8 @@ export default function CatalogManagementPage() {
   const createEntry = useCreateRedisCatalogEntry();
   const updateEntry = useUpdateRedisCatalogEntry();
   const deleteEntry = useDeleteRedisCatalogEntry();
+  const syncToPg = useSyncCatalogToPg();
+  const syncFromPg = useSyncCatalogFromPg();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -172,10 +176,40 @@ export default function CatalogManagementPage() {
             Redis 기반 모델 카탈로그를 관리합니다
           </p>
         </div>
-        <Button onClick={openCreateDialog}>
-          <Plus className="size-4" />
-          카탈로그 등록
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={syncToPg.isPending}
+            onClick={() => {
+              syncToPg.mutate(undefined, {
+                onSuccess: (res) => toast.success(`Redis → PG 동기화 완료 (${res.synced}건)`),
+                onError: (err) => toast.error(err instanceof Error ? err.message : "동기화 실패"),
+              });
+            }}
+          >
+            <RefreshCw className={`size-3.5 ${syncToPg.isPending ? "animate-spin" : ""}`} />
+            Redis → PG
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={syncFromPg.isPending}
+            onClick={() => {
+              syncFromPg.mutate(undefined, {
+                onSuccess: (res) => toast.success(`PG → Redis 복원 완료 (${res.restored}건)`),
+                onError: (err) => toast.error(err instanceof Error ? err.message : "복원 실패"),
+              });
+            }}
+          >
+            <RefreshCw className={`size-3.5 ${syncFromPg.isPending ? "animate-spin" : ""}`} />
+            PG → Redis
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="size-4" />
+            카탈로그 등록
+          </Button>
+        </div>
       </div>
 
       {/* Error */}
