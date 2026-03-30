@@ -18,6 +18,26 @@ router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 DEFAULT_CATALOG = "chat"
 
 
+async def _get_allowed_catalogs(db: AsyncSession) -> list[str]:
+    """Get allowed catalog suffixes from portal settings."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'catalog_suffixes'")
+    )
+    raw = result.scalar()
+    return json.loads(raw) if raw else [DEFAULT_CATALOG]
+
+
+async def _validate_catalog(catalog: str, db: AsyncSession) -> str:
+    """Validate catalog suffix against allowlist. Raises 400 if invalid."""
+    allowed = await _get_allowed_catalogs(db)
+    if catalog not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"허용되지 않은 카탈로그입니다: '{catalog}'. 허용 목록: {allowed}",
+        )
+    return catalog
+
+
 class CatalogEntry(BaseModel):
     model: str = ""
     apiBase: str = ""
@@ -101,8 +121,10 @@ async def update_catalogs(
 async def list_catalog(
     catalog: str = Query(DEFAULT_CATALOG, description="Catalog suffix (e.g. chat, hcp)"),
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List all catalog entries from Redis."""
+    await _validate_catalog(catalog, db)
     entries = await catalog_get_all(catalog)
     return {
         "catalog": catalog,
@@ -119,8 +141,10 @@ async def get_catalog_entry(
     display_name: str,
     catalog: str = Query(DEFAULT_CATALOG),
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get a single catalog entry."""
+    await _validate_catalog(catalog, db)
     data = await catalog_get(catalog, display_name)
     if data is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -135,6 +159,7 @@ async def create_catalog_entry(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Create a new catalog entry (Super User only)."""
+    await _validate_catalog(catalog, db)
     if not body.display_name.strip():
         raise HTTPException(status_code=400, detail="Display name is required")
 
@@ -157,6 +182,7 @@ async def update_catalog_entry(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Update a catalog entry (Super User only)."""
+    await _validate_catalog(catalog, db)
     existing = await catalog_get(catalog, display_name)
     if existing is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -188,6 +214,7 @@ async def delete_catalog_entry(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete a catalog entry (Super User only)."""
+    await _validate_catalog(catalog, db)
     deleted = await catalog_delete(catalog, display_name)
     if not deleted:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -204,6 +231,7 @@ async def update_user_api_key(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Allow a user to set their own apiKey for a catalog entry."""
+    await _validate_catalog(catalog, db)
     existing = await catalog_get(catalog, display_name)
     if existing is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
@@ -227,6 +255,7 @@ async def sync_from_pg(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Restore Redis catalog from PostgreSQL backup (Super User only)."""
+    await _validate_catalog(catalog, db)
     prefix = f"{catalog}:"
     result = await db.execute(
         text("SELECT display_name, data FROM custom_redis_catalog WHERE display_name LIKE :prefix"),
@@ -249,6 +278,7 @@ async def sync_to_pg(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Sync Redis catalog to PostgreSQL (Super User only)."""
+    await _validate_catalog(catalog, db)
     redis_entries = await catalog_get_all(catalog)
     synced = 0
     for display_name, data in redis_entries.items():
