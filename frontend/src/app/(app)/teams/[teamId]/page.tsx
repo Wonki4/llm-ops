@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useRemoveTeamMember, useCreateBudgetRequest } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,6 +46,7 @@ import {
   Zap,
   Globe,
   ChevronRight,
+  Save,
 } from "lucide-react";
 import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
 
@@ -525,6 +526,108 @@ function OverviewTab({
   );
 }
 
+function TeamSettingsTab({ teamId, team }: { teamId: string; team: import("@/types").Team }) {
+  const updateSettings = useUpdateTeamSettings();
+  const [maxBudget, setMaxBudget] = useState(team.max_budget != null ? String(team.max_budget) : "");
+  const [budgetDuration, setBudgetDuration] = useState(team.budget_duration || "");
+  const [tpmLimit, setTpmLimit] = useState("");
+  const [rpmLimit, setRpmLimit] = useState("");
+
+  // Load tpm/rpm from DB (not in team detail yet, so use empty as default)
+  // These are already on the TeamTable but not returned in team detail
+  // TODO: include in team detail response
+
+  const handleSave = () => {
+    updateSettings.mutate(
+      {
+        teamId,
+        body: {
+          max_budget: maxBudget ? Number(maxBudget) : null,
+          budget_duration: budgetDuration || null,
+          tpm_limit: tpmLimit ? Number(tpmLimit) : null,
+          rpm_limit: rpmLimit ? Number(rpmLimit) : null,
+        },
+      },
+      {
+        onSuccess: () => toast.success("팀 설정이 저장되었습니다."),
+        onError: (err) => toast.error(err instanceof Error ? err.message : "저장 실패"),
+      },
+    );
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <h2 className="text-lg font-semibold">팀 설정</h2>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">예산 설정</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">최대 예산 ($)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={maxBudget}
+                onChange={(e) => setMaxBudget(e.target.value)}
+                placeholder="무제한"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">예산 주기</label>
+              <input
+                type="text"
+                value={budgetDuration}
+                onChange={(e) => setBudgetDuration(e.target.value)}
+                placeholder="예: 30d, 7d, 1h"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">속도 제한</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">TPM (Tokens Per Minute)</label>
+              <input
+                type="number"
+                value={tpmLimit}
+                onChange={(e) => setTpmLimit(e.target.value)}
+                placeholder="미설정"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">RPM (Requests Per Minute)</label>
+              <input
+                type="number"
+                value={rpmLimit}
+                onChange={(e) => setRpmLimit(e.target.value)}
+                placeholder="미설정"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Button onClick={handleSave} disabled={updateSettings.isPending}>
+        {updateSettings.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+        저장
+      </Button>
+    </div>
+  );
+}
+
 function MembersTab({ teamId }: { teamId: string }) {
   const [page, setPage] = useState(1);
   const pageSize = 50;
@@ -862,6 +965,7 @@ export default function TeamDetailPage({
           <TabsTrigger value="keys">내 키</TabsTrigger>
           <TabsTrigger value="models">모델</TabsTrigger>
           {is_admin && <TabsTrigger value="members">멤버</TabsTrigger>}
+          {is_admin && <TabsTrigger value="settings">설정</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
@@ -1057,6 +1161,12 @@ export default function TeamDetailPage({
         {is_admin && (
           <TabsContent value="members" className="mt-6">
             <MembersTab teamId={teamId} />
+          </TabsContent>
+        )}
+
+        {is_admin && (
+          <TabsContent value="settings" className="mt-6">
+            <TeamSettingsTab teamId={teamId} team={team} />
           </TabsContent>
         )}
       </Tabs>
