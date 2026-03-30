@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Pencil, Trash2, Search, X, Loader2, Database, RefreshCw } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, Loader2, Database, RefreshCw, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import {
   useRedisCatalog,
+  useCatalogList,
+  useUpdateCatalogList,
   useCreateRedisCatalogEntry,
   useUpdateRedisCatalogEntry,
   useDeleteRedisCatalogEntry,
@@ -15,6 +17,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -50,12 +59,18 @@ const INITIAL_FORM: FormState = {
 };
 
 export default function CatalogManagementPage() {
-  const { data, isLoading, isError } = useRedisCatalog();
+  const { data: catalogListData } = useCatalogList();
+  const catalogs = catalogListData?.catalogs ?? [];
+  const [activeCatalog, setActiveCatalog] = useState("");
+  const currentCatalog = activeCatalog || catalogs[0] || "chat";
+
+  const { data, isLoading, isError } = useRedisCatalog(currentCatalog);
   const createEntry = useCreateRedisCatalogEntry();
   const updateEntry = useUpdateRedisCatalogEntry();
-  const deleteEntry = useDeleteRedisCatalogEntry();
+  const deleteEntryMutation = useDeleteRedisCatalogEntry();
   const syncToPg = useSyncCatalogToPg();
   const syncFromPg = useSyncCatalogFromPg();
+  const updateCatalogList = useUpdateCatalogList();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
@@ -63,6 +78,8 @@ export default function CatalogManagementPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deletingName, setDeletingName] = useState<string | null>(null);
+  const [catalogSettingsOpen, setCatalogSettingsOpen] = useState(false);
+  const [catalogInput, setCatalogInput] = useState("");
 
   const entries = data?.entries ?? [];
 
@@ -124,6 +141,7 @@ export default function CatalogManagementPage() {
     if (editingName) {
       updateEntry.mutate(
         {
+          catalog: currentCatalog,
           displayName: editingName,
           body: {
             entry: entryData,
@@ -131,21 +149,15 @@ export default function CatalogManagementPage() {
           },
         },
         {
-          onSuccess: () => {
-            toast.success("카탈로그가 수정되었습니다.");
-            setFormOpen(false);
-          },
+          onSuccess: () => { toast.success("카탈로그가 수정되었습니다."); setFormOpen(false); },
           onError: (err) => toast.error(err instanceof Error ? err.message : "수정 실패"),
         },
       );
     } else {
       createEntry.mutate(
-        { display_name: form.display_name, entry: entryData },
+        { catalog: currentCatalog, body: { display_name: form.display_name, entry: entryData } },
         {
-          onSuccess: () => {
-            toast.success("카탈로그가 등록되었습니다.");
-            setFormOpen(false);
-          },
+          onSuccess: () => { toast.success("카탈로그가 등록되었습니다."); setFormOpen(false); },
           onError: (err) => toast.error(err instanceof Error ? err.message : "등록 실패"),
         },
       );
@@ -154,13 +166,32 @@ export default function CatalogManagementPage() {
 
   function handleDelete() {
     if (!deletingName) return;
-    deleteEntry.mutate(deletingName, {
-      onSuccess: () => {
-        toast.success("카탈로그가 삭제되었습니다.");
-        setDeleteOpen(false);
-        setDeletingName(null);
+    deleteEntryMutation.mutate(
+      { catalog: currentCatalog, displayName: deletingName },
+      {
+        onSuccess: () => { toast.success("카탈로그가 삭제되었습니다."); setDeleteOpen(false); setDeletingName(null); },
+        onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
       },
-      onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+    );
+  }
+
+  function handleAddCatalog() {
+    const name = catalogInput.trim();
+    if (!name) return;
+    if (catalogs.includes(name)) { toast.error("이미 존재하는 카탈로그입니다."); return; }
+    updateCatalogList.mutate([...catalogs, name], {
+      onSuccess: () => { toast.success(`'${name}' 카탈로그가 추가되었습니다.`); setCatalogInput(""); },
+      onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+    });
+  }
+
+  function handleRemoveCatalog(name: string) {
+    if (catalogs.length <= 1) { toast.error("최소 1개의 카탈로그가 필요합니다."); return; }
+    updateCatalogList.mutate(catalogs.filter((c) => c !== name), {
+      onSuccess: () => {
+        toast.success(`'${name}' 카탈로그가 제거되었습니다.`);
+        if (currentCatalog === name) setActiveCatalog("");
+      },
     });
   }
 
@@ -172,63 +203,58 @@ export default function CatalogManagementPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">카탈로그 관리</h1>
-          <p className="text-muted-foreground mt-1">
-            Redis 기반 모델 카탈로그를 관리합니다
-          </p>
+          <p className="text-muted-foreground mt-1">Redis 기반 모델 카탈로그를 관리합니다</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={syncToPg.isPending}
-            onClick={() => {
-              syncToPg.mutate(undefined, {
-                onSuccess: (res) => toast.success(`Redis → PG 동기화 완료 (${res.synced}건)`),
-                onError: (err) => toast.error(err instanceof Error ? err.message : "동기화 실패"),
-              });
-            }}
+          <Button variant="outline" size="sm" disabled={syncToPg.isPending}
+            onClick={() => syncToPg.mutate(currentCatalog, {
+              onSuccess: (res) => toast.success(`Redis → PG 동기화 완료 (${res.synced}건)`),
+              onError: (err) => toast.error(err instanceof Error ? err.message : "동기화 실패"),
+            })}
           >
             <RefreshCw className={`size-3.5 ${syncToPg.isPending ? "animate-spin" : ""}`} />
             Redis → PG
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={syncFromPg.isPending}
-            onClick={() => {
-              syncFromPg.mutate(undefined, {
-                onSuccess: (res) => toast.success(`PG → Redis 복원 완료 (${res.restored}건)`),
-                onError: (err) => toast.error(err instanceof Error ? err.message : "복원 실패"),
-              });
-            }}
+          <Button variant="outline" size="sm" disabled={syncFromPg.isPending}
+            onClick={() => syncFromPg.mutate(currentCatalog, {
+              onSuccess: (res) => toast.success(`PG → Redis 복원 완료 (${res.restored}건)`),
+              onError: (err) => toast.error(err instanceof Error ? err.message : "복원 실패"),
+            })}
           >
             <RefreshCw className={`size-3.5 ${syncFromPg.isPending ? "animate-spin" : ""}`} />
             PG → Redis
           </Button>
           <Button onClick={openCreateDialog}>
             <Plus className="size-4" />
-            카탈로그 등록
+            등록
           </Button>
         </div>
       </div>
 
-      {/* Error */}
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           카탈로그를 불러오는 중 오류가 발생했습니다. Redis 연결을 확인하세요.
         </div>
       )}
 
-      {/* Search */}
-      <div className="flex items-center gap-3">
+      {/* Catalog selector + search */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <Select value={currentCatalog} onValueChange={setActiveCatalog}>
+          <SelectTrigger className="w-[180px] h-9">
+            <SelectValue placeholder="카탈로그 선택" />
+          </SelectTrigger>
+          <SelectContent>
+            {catalogs.map((c) => (
+              <SelectItem key={c} value={c}>{c}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button variant="ghost" size="sm" className="h-9" onClick={() => setCatalogSettingsOpen(true)}>
+          <Settings className="size-3.5" />
+        </Button>
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
-            placeholder="이름 / 모델 / API Base 검색..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-8 h-9"
-          />
+          <Input placeholder="이름 / 모델 / API Base 검색..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-8 h-9" />
         </div>
         {searchQuery && (
           <Button variant="ghost" size="sm" onClick={() => setSearchQuery("")}>
@@ -264,36 +290,19 @@ export default function CatalogManagementPage() {
                 <TableRow key={entry.display_name}>
                   <TableCell className="font-medium">{entry.display_name}</TableCell>
                   <TableCell className="font-mono text-xs">{entry.model || "-"}</TableCell>
-                  <TableCell className="font-mono text-xs max-w-[200px] truncate" title={entry.apiBase}>
-                    {entry.apiBase || "-"}
-                  </TableCell>
+                  <TableCell className="font-mono text-xs max-w-[200px] truncate" title={entry.apiBase}>{entry.apiBase || "-"}</TableCell>
                   <TableCell className="text-sm">
-                    {entry.apiKey ? (
-                      <span className="text-green-600">설정됨</span>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
+                    {entry.apiKey ? <span className="text-green-600">설정됨</span> : <span className="text-muted-foreground">-</span>}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground max-w-[150px] truncate">
-                    {Object.keys(entry.options || {}).length > 0
-                      ? JSON.stringify(entry.options)
-                      : "-"}
+                    {Object.keys(entry.options || {}).length > 0 ? JSON.stringify(entry.options) : "-"}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        onClick={() => openEditDialog(entry)}
-                      >
+                      <Button variant="ghost" size="icon-xs" onClick={() => openEditDialog(entry)}>
                         <Pencil className="size-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => openDeleteDialog(entry.display_name)}
-                      >
+                      <Button variant="ghost" size="icon-xs" className="text-destructive hover:text-destructive" onClick={() => openDeleteDialog(entry.display_name)}>
                         <Trash2 className="size-3.5" />
                       </Button>
                     </div>
@@ -315,64 +324,34 @@ export default function CatalogManagementPage() {
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>{editingName ? "카탈로그 수정" : "카탈로그 등록"}</DialogTitle>
-            <DialogDescription>
-              {editingName ? "카탈로그 항목을 수정합니다." : "새 카탈로그 항목을 등록합니다."}
-            </DialogDescription>
+            <DialogDescription>카탈로그: <span className="font-semibold text-foreground">{currentCatalog}</span></DialogDescription>
           </DialogHeader>
-
           <div className="space-y-4">
             <div className="space-y-2">
               <Label>Display Name *</Label>
-              <Input
-                value={form.display_name}
-                onChange={(e) => setForm({ ...form, display_name: e.target.value })}
-                placeholder="예: GPT-4o"
-              />
+              <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="예: GPT-4o" />
             </div>
             <div className="space-y-2">
               <Label>Model (LiteLLM Model Name)</Label>
-              <Input
-                value={form.model}
-                onChange={(e) => setForm({ ...form, model: e.target.value })}
-                placeholder="예: gpt-4o"
-              />
+              <Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="예: gpt-4o" />
             </div>
             <div className="space-y-2">
               <Label>API Base</Label>
-              <Input
-                value={form.apiBase}
-                onChange={(e) => setForm({ ...form, apiBase: e.target.value })}
-                placeholder="예: https://litellm.example.com/v1"
-              />
+              <Input value={form.apiBase} onChange={(e) => setForm({ ...form, apiBase: e.target.value })} placeholder="예: https://litellm.example.com/v1" />
             </div>
             <div className="space-y-2">
               <Label>API Key</Label>
-              <Input
-                type="password"
-                value={form.apiKey}
-                onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
-                placeholder="sk-..."
-              />
+              <Input type="password" value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder="sk-..." />
             </div>
             <div className="space-y-2">
               <Label>Options (JSON)</Label>
-              <textarea
-                rows={4}
-                value={form.options}
-                onChange={(e) => setForm({ ...form, options: e.target.value })}
-                placeholder='{"temperature": 0.7}'
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
+              <textarea rows={4} value={form.options} onChange={(e) => setForm({ ...form, options: e.target.value })} placeholder='{"temperature": 0.7}'
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none" />
             </div>
           </div>
-
           <DialogFooter>
-            <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isPending}>
-              취소
-            </Button>
-            <Button onClick={handleSubmit} disabled={isPending}>
-              {isPending ? "저장 중..." : editingName ? "수정" : "등록"}
-            </Button>
+            <Button variant="outline" onClick={() => setFormOpen(false)} disabled={isPending}>취소</Button>
+            <Button onClick={handleSubmit} disabled={isPending}>{isPending ? "저장 중..." : editingName ? "수정" : "등록"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -382,19 +361,43 @@ export default function CatalogManagementPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>카탈로그 삭제</DialogTitle>
-            <DialogDescription>
-              <span className="font-semibold text-foreground">{deletingName}</span> 카탈로그를
-              삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.
-            </DialogDescription>
+            <DialogDescription><span className="font-semibold text-foreground">{deletingName}</span> 카탈로그를 삭제하시겠습니까?</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteEntry.isPending}>
-              취소
-            </Button>
-            <Button variant="destructive" onClick={handleDelete} disabled={deleteEntry.isPending}>
-              {deleteEntry.isPending ? "삭제 중..." : "삭제"}
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleteEntryMutation.isPending}>취소</Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleteEntryMutation.isPending}>{deleteEntryMutation.isPending ? "삭제 중..." : "삭제"}</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Catalog Settings Dialog */}
+      <Dialog open={catalogSettingsOpen} onOpenChange={setCatalogSettingsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>카탈로그 목록 관리</DialogTitle>
+            <DialogDescription>Redis hash key suffix를 관리합니다 (예: chat → GENERATIVE:AI:chat)</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Input value={catalogInput} onChange={(e) => setCatalogInput(e.target.value)} placeholder="새 카탈로그 이름..." className="h-9"
+                onKeyDown={(e) => e.key === "Enter" && handleAddCatalog()} />
+              <Button size="sm" onClick={handleAddCatalog} disabled={updateCatalogList.isPending}>
+                <Plus className="size-3.5" />
+                추가
+              </Button>
+            </div>
+            <div className="space-y-2">
+              {catalogs.map((c) => (
+                <div key={c} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-sm font-mono">{c}</span>
+                  <Button variant="ghost" size="icon-xs" className="text-destructive hover:text-destructive"
+                    disabled={catalogs.length <= 1} onClick={() => handleRemoveCatalog(c)}>
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

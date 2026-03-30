@@ -488,18 +488,40 @@ export function useUpdatePortalSettings() {
 
 // ─── Redis Catalog ──────────────────────────────────────────────
 
-export function useRedisCatalog() {
+export function useCatalogList() {
   return useQuery({
-    queryKey: ["redis-catalog"],
-    queryFn: () => apiFetch<RedisCatalogListResponse>("/api/catalog"),
+    queryKey: ["catalog-list"],
+    queryFn: () => apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs"),
+  });
+}
+
+export function useUpdateCatalogList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (catalogs: string[]) =>
+      apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs", {
+        method: "PUT",
+        body: JSON.stringify(catalogs),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["catalog-list"] });
+    },
+  });
+}
+
+export function useRedisCatalog(catalog: string) {
+  return useQuery({
+    queryKey: ["redis-catalog", catalog],
+    queryFn: () => apiFetch<RedisCatalogListResponse>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`),
+    enabled: !!catalog,
   });
 }
 
 export function useCreateRedisCatalogEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { display_name: string; entry: Omit<RedisCatalogEntry, "display_name"> }) =>
-      apiFetch<RedisCatalogEntry>("/api/catalog", {
+    mutationFn: ({ catalog, body }: { catalog: string; body: { display_name: string; entry: Omit<RedisCatalogEntry, "display_name"> } }) =>
+      apiFetch<RedisCatalogEntry>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`, {
         method: "POST",
         body: JSON.stringify(body),
       }),
@@ -512,8 +534,8 @@ export function useCreateRedisCatalogEntry() {
 export function useUpdateRedisCatalogEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ displayName, body }: { displayName: string; body: { entry?: Omit<RedisCatalogEntry, "display_name">; new_display_name?: string } }) =>
-      apiFetch<RedisCatalogEntry>(`/api/catalog/${encodeURIComponent(displayName)}`, {
+    mutationFn: ({ catalog, displayName, body }: { catalog: string; displayName: string; body: { entry?: Omit<RedisCatalogEntry, "display_name">; new_display_name?: string } }) =>
+      apiFetch<RedisCatalogEntry>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
         method: "PUT",
         body: JSON.stringify(body),
       }),
@@ -526,8 +548,8 @@ export function useUpdateRedisCatalogEntry() {
 export function useDeleteRedisCatalogEntry() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (displayName: string) =>
-      apiFetch<{ deleted: boolean }>(`/api/catalog/${encodeURIComponent(displayName)}`, {
+    mutationFn: ({ catalog, displayName }: { catalog: string; displayName: string }) =>
+      apiFetch<{ deleted: boolean }>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
         method: "DELETE",
       }),
     onSuccess: () => {
@@ -538,16 +560,16 @@ export function useDeleteRedisCatalogEntry() {
 
 export function useSyncCatalogToPg() {
   return useMutation({
-    mutationFn: () =>
-      apiFetch<{ synced: number; new: number }>("/api/catalog/sync-to-pg", { method: "POST" }),
+    mutationFn: (catalog: string) =>
+      apiFetch<{ synced: number }>(`/api/catalog/sync-to-pg?catalog=${encodeURIComponent(catalog)}`, { method: "POST" }),
   });
 }
 
 export function useSyncCatalogFromPg() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () =>
-      apiFetch<{ restored: number }>("/api/catalog/sync-from-pg", { method: "POST" }),
+    mutationFn: (catalog: string) =>
+      apiFetch<{ restored: number }>(`/api/catalog/sync-from-pg?catalog=${encodeURIComponent(catalog)}`, { method: "POST" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["redis-catalog"] });
     },
