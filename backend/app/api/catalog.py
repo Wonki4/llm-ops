@@ -251,6 +251,8 @@ async def update_user_api_key(
 @router.post("/sync-from-pg")
 async def sync_from_pg(
     catalog: str = Query(DEFAULT_CATALOG),
+    force: bool = Query(False, description="Overwrite existing Redis fields"),
+    dry_run: bool = Query(False, description="Preview without writing"),
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -262,18 +264,25 @@ async def sync_from_pg(
         {"prefix": f"{prefix}%"},
     )
     rows = result.mappings().all()
-    count = 0
+    restored = 0
+    skipped = 0
     for row in rows:
         name = row["display_name"].removeprefix(prefix)
-        data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
-        await catalog_set(catalog, name, data)
-        count += 1
-    return {"restored": count, "catalog": catalog}
+        existing = await catalog_get(catalog, name)
+        if existing is not None and not force:
+            skipped += 1
+            continue
+        if not dry_run:
+            data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+            await catalog_set(catalog, name, data)
+        restored += 1
+    return {"restored": restored, "skipped": skipped, "dry_run": dry_run, "catalog": catalog}
 
 
 @router.post("/sync-to-pg")
 async def sync_to_pg(
     catalog: str = Query(DEFAULT_CATALOG),
+    dry_run: bool = Query(False, description="Preview without writing"),
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -282,6 +291,7 @@ async def sync_to_pg(
     redis_entries = await catalog_get_all(catalog)
     synced = 0
     for display_name, data in redis_entries.items():
-        await _pg_upsert(db, catalog, display_name, data)
+        if not dry_run:
+            await _pg_upsert(db, catalog, display_name, data)
         synced += 1
-    return {"synced": synced, "catalog": catalog}
+    return {"synced": synced, "dry_run": dry_run, "catalog": catalog}

@@ -207,7 +207,7 @@ export default function CatalogManagementPage() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" disabled={syncToPg.isPending}
-            onClick={() => syncToPg.mutate(currentCatalog, {
+            onClick={() => syncToPg.mutate({ catalog: currentCatalog }, {
               onSuccess: (res) => toast.success(`Redis → PG 동기화 완료 (${res.synced}건)`),
               onError: (err) => toast.error(err instanceof Error ? err.message : "동기화 실패"),
             })}
@@ -216,10 +216,21 @@ export default function CatalogManagementPage() {
             Redis → PG
           </Button>
           <Button variant="outline" size="sm" disabled={syncFromPg.isPending}
-            onClick={() => syncFromPg.mutate(currentCatalog, {
-              onSuccess: (res) => toast.success(`PG → Redis 복원 완료 (${res.restored}건)`),
-              onError: (err) => toast.error(err instanceof Error ? err.message : "복원 실패"),
-            })}
+            onClick={() => {
+              syncFromPg.mutate({ catalog: currentCatalog, dryRun: true }, {
+                onSuccess: (res) => {
+                  const msg = `복원 대상: ${res.restored}건, 건너뜀(기존 존재): ${res.skipped}건`;
+                  if (res.restored === 0) { toast.info(msg); return; }
+                  if (confirm(`${msg}\n\n실제로 복원하시겠습니까? (기존 데이터는 건너뜁니다)`)) {
+                    syncFromPg.mutate({ catalog: currentCatalog }, {
+                      onSuccess: (r) => toast.success(`PG → Redis 복원 완료 (${r.restored}건, ${r.skipped}건 건너뜀)`),
+                      onError: (e) => toast.error(e instanceof Error ? e.message : "복원 실패"),
+                    });
+                  }
+                },
+                onError: (err) => toast.error(err instanceof Error ? err.message : "미리보기 실패"),
+              });
+            }}
           >
             <RefreshCw className={`size-3.5 ${syncFromPg.isPending ? "animate-spin" : ""}`} />
             PG → Redis
