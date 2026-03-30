@@ -12,7 +12,8 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-CATALOG_HASH_KEY = "llm_catalog"
+def _catalog_key() -> str:
+    return settings.redis_catalog_key
 
 _client: aioredis.Redis | RedisCluster | None = None
 
@@ -41,7 +42,7 @@ async def get_redis() -> aioredis.Redis | RedisCluster:
 async def catalog_get_all() -> dict[str, dict]:
     """Get all catalog entries from Redis hash."""
     r = await get_redis()
-    raw = await r.hgetall(CATALOG_HASH_KEY)
+    raw = await r.hgetall(_catalog_key())
     result = {}
     for display_name, value in raw.items():
         try:
@@ -54,7 +55,7 @@ async def catalog_get_all() -> dict[str, dict]:
 async def catalog_get(display_name: str) -> dict | None:
     """Get a single catalog entry by display name."""
     r = await get_redis()
-    raw = await r.hget(CATALOG_HASH_KEY, display_name)
+    raw = await r.hget(_catalog_key(), display_name)
     if raw is None:
         return None
     try:
@@ -66,21 +67,21 @@ async def catalog_get(display_name: str) -> dict | None:
 async def catalog_set(display_name: str, data: dict[str, Any]) -> None:
     """Set a catalog entry in Redis hash."""
     r = await get_redis()
-    await r.hset(CATALOG_HASH_KEY, display_name, json.dumps(data, ensure_ascii=False))
+    await r.hset(_catalog_key(), display_name, json.dumps(data, ensure_ascii=False))
 
 
 async def catalog_delete(display_name: str) -> bool:
     """Delete a catalog entry. Returns True if deleted."""
     r = await get_redis()
-    return bool(await r.hdel(CATALOG_HASH_KEY, display_name))
+    return bool(await r.hdel(_catalog_key(), display_name))
 
 
 async def catalog_rename(old_name: str, new_name: str) -> bool:
     """Rename a catalog entry (get+set+delete)."""
     r = await get_redis()
-    raw = await r.hget(CATALOG_HASH_KEY, old_name)
+    raw = await r.hget(_catalog_key(), old_name)
     if raw is None:
         return False
-    await r.hset(CATALOG_HASH_KEY, new_name, raw)
-    await r.hdel(CATALOG_HASH_KEY, old_name)
+    await r.hset(_catalog_key(), new_name, raw)
+    await r.hdel(_catalog_key(), old_name)
     return True
