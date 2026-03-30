@@ -437,3 +437,48 @@ async def remove_team_member(
 
     await db.commit()
     return {"status": "removed", "user_id": member_id, "team_id": team_id}
+
+
+class UpdateTeamSettingsRequest(BaseModel):
+    max_budget: float | None = None
+    budget_duration: str | None = None
+    tpm_limit: int | None = None
+    rpm_limit: int | None = None
+
+
+@router.put("/{team_id}/settings")
+async def update_team_settings(
+    team_id: str,
+    body: UpdateTeamSettingsRequest,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update team budget/rate limit settings. Requires team admin or super user."""
+    result = await db.execute(
+        text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        {"team_id": team_id},
+    )
+    row = result.mappings().first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    if user.global_role != GlobalRole.SUPER_USER and user.user_id not in (row["admins"] or []):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    updates = body.model_dump(exclude_unset=True)
+    if not updates:
+        return {"status": "unchanged"}
+
+    set_clauses = []
+    params: dict = {"team_id": team_id}
+    for field, value in updates.items():
+        set_clauses.append(f"{field} = :{field}")
+        params[field] = value
+
+    await db.execute(
+        text(f'UPDATE "LiteLLM_TeamTable" SET {", ".join(set_clauses)} WHERE team_id = :team_id'),
+        params,
+    )
+    await db.commit()
+
+    return {"status": "updated", "team_id": team_id, **updates}

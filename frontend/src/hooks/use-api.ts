@@ -120,6 +120,21 @@ export function useChangeMemberRole() {
   });
 }
 
+export function useUpdateTeamSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, body }: { teamId: string; body: { max_budget?: number | null; budget_duration?: string | null; tpm_limit?: number | null; rpm_limit?: number | null } }) =>
+      apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
+      qc.invalidateQueries({ queryKey: queryKeys.myTeams });
+    },
+  });
+}
+
 export function useDiscoverTeams() {
   return useQuery({
     queryKey: queryKeys.discoverTeams,
