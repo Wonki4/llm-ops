@@ -80,7 +80,8 @@ services:
     ports:
       - "8002:8000"
     environment:
-      APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      APP_DATABASE_URL: "postgresql+asyncpg://${PORTAL_DB_USER:-llmproxy}:${PORTAL_DB_PASSWORD:-dbpassword9090}@${PORTAL_DB_HOST:-db}:5432/${PORTAL_DB_NAME:-litellm_portal}"
+      APP_LITELLM_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
       APP_LITELLM_BASE_URL: "http://litellm:4000"
       APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
       APP_KEYCLOAK_BASE_URL: "http://localhost:8082"
@@ -118,7 +119,8 @@ services:
     entrypoint: []  # Skip migration entrypoint; only backend runs migrations
     command: ["python", "-m", "app.worker"]
     environment:
-      APP_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      APP_DATABASE_URL: "postgresql+asyncpg://${PORTAL_DB_USER:-llmproxy}:${PORTAL_DB_PASSWORD:-dbpassword9090}@${PORTAL_DB_HOST:-db}:5432/${PORTAL_DB_NAME:-litellm_portal}"
+      APP_LITELLM_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
       APP_LITELLM_BASE_URL: "http://litellm:4000"
       APP_LITELLM_ADMIN_API_KEY: "${LITELLM_MASTER_KEY:-sk-1234}"
       APP_CA_CERT_PATH: "${APP_CA_CERT_PATH:-}"

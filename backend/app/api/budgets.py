@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.db.models.custom_user import CustomUser
-from app.db.session import get_db
+from app.db.session import get_litellm_db
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 
@@ -19,7 +19,7 @@ async def list_budgets(
     search_amount: float | None = None,
     orphans_only: bool = False,
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List all budgets with pagination and linked entity counts."""
     # Build WHERE conditions
@@ -46,7 +46,7 @@ async def list_budgets(
 
     # Count total
     count_query = f'SELECT COUNT(*) FROM "LiteLLM_BudgetTable" b {where_clause}'
-    total = (await db.execute(text(count_query), search_params)).scalar() or 0
+    total = (await litellm_db.execute(text(count_query), search_params)).scalar() or 0
 
     # Fetch budgets with linked counts via subqueries
     offset = (page - 1) * page_size
@@ -78,7 +78,7 @@ async def list_budgets(
 
     params = {**search_params, "offset": offset, "limit": min(page_size, 1000)}
 
-    result = await db.execute(query, params)
+    result = await litellm_db.execute(query, params)
     budgets = [
         {
             "budget_id": r["budget_id"],
@@ -110,11 +110,11 @@ async def list_budgets(
 async def get_budget_details(
     budget_id: str,
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Get detailed linked entities for a specific budget."""
     # Team memberships
-    tm_result = await db.execute(
+    tm_result = await litellm_db.execute(
         text(
             'SELECT tm.user_id, tm.team_id, tm.spend, t.team_alias '
             'FROM "LiteLLM_TeamMembership" tm '
@@ -134,7 +134,7 @@ async def get_budget_details(
     ]
 
     # Keys
-    key_result = await db.execute(
+    key_result = await litellm_db.execute(
         text(
             'SELECT token, key_alias, key_name, user_id, team_id, spend '
             'FROM "LiteLLM_VerificationToken" '
@@ -156,7 +156,7 @@ async def get_budget_details(
     ]
 
     # Organizations
-    org_result = await db.execute(
+    org_result = await litellm_db.execute(
         text(
             'SELECT organization_id, organization_alias '
             'FROM "LiteLLM_OrganizationTable" '
@@ -170,28 +170,28 @@ async def get_budget_details(
     ]
 
     # Projects
-    prj_result = await db.execute(
+    prj_result = await litellm_db.execute(
         text('SELECT project_id, project_name FROM "LiteLLM_ProjectTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
     projects = [{"project_id": r["project_id"], "project_name": r["project_name"]} for r in prj_result.mappings()]
 
     # End users
-    eu_result = await db.execute(
+    eu_result = await litellm_db.execute(
         text('SELECT user_id, alias, spend FROM "LiteLLM_EndUserTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
     end_users = [{"user_id": r["user_id"], "alias": r["alias"], "spend": float(r["spend"])} for r in eu_result.mappings()]
 
     # Tags
-    tag_result = await db.execute(
+    tag_result = await litellm_db.execute(
         text('SELECT tag_name FROM "LiteLLM_TagTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
     tags = [r["tag_name"] for r in tag_result.mappings()]
 
     # Organization memberships
-    om_result = await db.execute(
+    om_result = await litellm_db.execute(
         text(
             'SELECT om.user_id, om.organization_id, om.spend '
             'FROM "LiteLLM_OrganizationMembership" om '
@@ -218,10 +218,10 @@ async def get_budget_details(
 @router.get("/orphans")
 async def list_orphan_budgets(
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List budgets not linked to any entity."""
-    result = await db.execute(text("""
+    result = await litellm_db.execute(text("""
         SELECT b.budget_id, b.max_budget, b.created_at
         FROM "LiteLLM_BudgetTable" b
         WHERE NOT EXISTS (SELECT 1 FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = b.budget_id)
@@ -248,7 +248,7 @@ async def list_orphan_budgets(
 async def delete_orphan_budgets(
     batch_size: int = 10000,
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Delete orphan budgets in batches to avoid long locks."""
     orphan_condition = """
@@ -264,7 +264,7 @@ async def delete_orphan_budgets(
     total_deleted = 0
 
     while True:
-        result = await db.execute(text(f"""
+        result = await litellm_db.execute(text(f"""
             DELETE FROM "LiteLLM_BudgetTable"
             WHERE budget_id IN (
                 SELECT b.budget_id FROM "LiteLLM_BudgetTable" b
@@ -272,7 +272,7 @@ async def delete_orphan_budgets(
                 LIMIT :batch_size
             )
         """), {"batch_size": safe_batch})
-        await db.commit()
+        await litellm_db.commit()
 
         deleted = result.rowcount
         total_deleted += deleted
@@ -287,7 +287,7 @@ async def delete_orphan_budgets(
 async def delete_budgets_batch(
     budget_ids: list[str],
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Delete multiple budgets by IDs. Skips any that have linked entities."""
     if not budget_ids or len(budget_ids) > 1000:
@@ -296,7 +296,7 @@ async def delete_budgets_batch(
     deleted = 0
     skipped = 0
     for bid in budget_ids:
-        linked_result = await db.execute(text("""
+        linked_result = await litellm_db.execute(text("""
             SELECT
                 (SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = :bid) +
                 (SELECT COUNT(*) FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = :bid) +
@@ -311,12 +311,12 @@ async def delete_budgets_batch(
         if total_linked > 0:
             skipped += 1
             continue
-        result = await db.execute(
+        result = await litellm_db.execute(
             text('DELETE FROM "LiteLLM_BudgetTable" WHERE budget_id = :budget_id'),
             {"budget_id": bid},
         )
         deleted += result.rowcount
-    await db.commit()
+    await litellm_db.commit()
     return {"deleted": deleted, "skipped": skipped}
 
 
@@ -325,13 +325,13 @@ async def delete_budget(
     budget_id: str,
     force: bool = False,
     user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Delete a single budget by ID. Rejects if linked unless force=true."""
     from fastapi import HTTPException
 
     # Check linked entities
-    linked_result = await db.execute(text("""
+    linked_result = await litellm_db.execute(text("""
         SELECT
             (SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.budget_id = :bid) +
             (SELECT COUNT(*) FROM "LiteLLM_VerificationToken" vt WHERE vt.budget_id = :bid) +
@@ -350,11 +350,11 @@ async def delete_budget(
             detail=f"이 예산에 {total_linked}개의 연결된 항목이 있습니다. 연결을 먼저 해제하세요.",
         )
 
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('DELETE FROM "LiteLLM_BudgetTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
-    await db.commit()
+    await litellm_db.commit()
     if result.rowcount == 0:
         raise HTTPException(status_code=404, detail="Budget not found")
     return {"deleted": True, "budget_id": budget_id}

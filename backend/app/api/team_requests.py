@@ -12,7 +12,7 @@ from app.auth.permissions import require_team_admin
 from app.clients.slack import send_slack_notification
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest, JoinRequestStatus
 from app.db.models.custom_user import CustomUser, GlobalRole
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
 
 router = APIRouter(prefix="/api/team-requests", tags=["team-requests"])
 
@@ -54,6 +54,7 @@ async def create_join_request(
     body: CreateJoinRequest,
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Request to join a team. Prevents duplicate pending requests."""
     existing = await db.execute(
@@ -70,7 +71,7 @@ async def create_join_request(
         )
 
     # Check team exists and get alias + membership check via DB
-    team_result = await db.execute(
+    team_result = await litellm_db.execute(
         text('SELECT team_alias, members FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": body.team_id},
     )
@@ -108,6 +109,7 @@ async def create_budget_request(
     body: CreateBudgetRequest,
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Request a budget increase for the user's keys in a team."""
     if body.requested_budget <= 0:
@@ -128,7 +130,7 @@ async def create_budget_request(
         )
 
     # Get team alias
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT team_alias FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": body.team_id},
     )
@@ -158,6 +160,7 @@ async def list_requests(
     request_type: str | None = None,
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List requests. Regular users see their own; admins see team requests."""
     query = select(CustomTeamJoinRequest).order_by(CustomTeamJoinRequest.created_at.desc())
@@ -167,7 +170,7 @@ async def list_requests(
             query = query.where(CustomTeamJoinRequest.team_id == team_id)
     else:
         if team_id:
-            await require_team_admin(user, team_id, db)
+            await require_team_admin(user, team_id, litellm_db)
             query = query.where(CustomTeamJoinRequest.team_id == team_id)
         else:
             query = query.where(CustomTeamJoinRequest.requester_id == user.user_id)
@@ -190,6 +193,7 @@ async def approve_request(
     body: ReviewRequest = ReviewRequest(),
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Approve a request. Must be team admin or super user."""
     result = await db.execute(select(CustomTeamJoinRequest).where(CustomTeamJoinRequest.id == uuid.UUID(request_id)))
@@ -201,11 +205,11 @@ async def approve_request(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Request already {req.status.value}"
         )
 
-    await require_team_admin(user, req.team_id, db)
+    await require_team_admin(user, req.team_id, litellm_db)
 
     if req.request_type == "join":
         # 1. Add to TeamTable.members array
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_TeamTable" '
                 "SET members = array_append(members, :user_id) "
@@ -214,7 +218,7 @@ async def approve_request(
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
         # 2. Create TeamMembership row (upsert)
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
                 "VALUES (:user_id, :team_id, 0) "
@@ -223,7 +227,7 @@ async def approve_request(
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
         # 3. Add team_id to UserTable.teams array
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_UserTable" '
                 "SET teams = array_append(teams, :team_id) "
@@ -233,7 +237,7 @@ async def approve_request(
         )
     elif req.request_type == "budget":
         # Find an existing budget with the exact requested max_budget
-        existing_budget = await db.execute(
+        existing_budget = await litellm_db.execute(
             text(
                 'SELECT budget_id FROM "LiteLLM_BudgetTable" '
                 "WHERE max_budget = :max_budget LIMIT 1"
@@ -248,7 +252,7 @@ async def approve_request(
             # Create new budget entry
             import uuid as _uuid
             target_budget_id = str(_uuid.uuid4())
-            await db.execute(
+            await litellm_db.execute(
                 text(
                     'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
                     "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
@@ -262,7 +266,7 @@ async def approve_request(
             )
 
         # Point the user's membership to the target budget
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id '
                 "WHERE user_id = :user_id AND team_id = :team_id"
@@ -284,6 +288,7 @@ async def reject_request(
     body: ReviewRequest = ReviewRequest(),
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Reject a request. Must be team admin or super user."""
     result = await db.execute(select(CustomTeamJoinRequest).where(CustomTeamJoinRequest.id == uuid.UUID(request_id)))
@@ -295,7 +300,7 @@ async def reject_request(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Request already {req.status.value}"
         )
 
-    await require_team_admin(user, req.team_id, db)
+    await require_team_admin(user, req.team_id, litellm_db)
 
     req.status = JoinRequestStatus.REJECTED
     req.reviewed_by = user.user_id
