@@ -17,7 +17,7 @@ from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
 from app.db.models.custom_user import CustomUser
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
 
@@ -123,7 +123,7 @@ async def create_key(
 async def list_my_keys(
     team_id: str | None = None,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List current user's API keys, optionally filtered by team."""
     query = (
@@ -139,7 +139,7 @@ async def list_my_keys(
         params["team_id"] = team_id
     query += "ORDER BY created_at DESC"
 
-    result = await db.execute(text(query), params)
+    result = await litellm_db.execute(text(query), params)
     keys = [
         {
             "token": k["token"],
@@ -164,10 +164,10 @@ async def list_my_keys(
 async def reveal_key(
     key_hash: str,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Reconstruct and return the sk-JWT key for the user to copy."""
-    result = await db.execute(
+    result = await litellm_db.execute(
         text(
             'SELECT user_id, team_id, metadata '
             'FROM "LiteLLM_VerificationToken" WHERE token = :token'
@@ -197,12 +197,12 @@ async def delete_key(
     key_hash: str,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Delete an API key (user can only delete their own keys)."""
     from fastapi import HTTPException, status as http_status
 
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT user_id FROM "LiteLLM_VerificationToken" WHERE token = :token'),
         {"token": key_hash},
     )

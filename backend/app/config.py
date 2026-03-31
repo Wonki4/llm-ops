@@ -3,6 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://llmproxy:dbpassword9090@localhost:5432/litellm"
+    litellm_database_url: str = ""
 
     litellm_base_url: str = "http://localhost:4000"
     litellm_admin_api_key: str = "sk-1234"

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.db.models.custom_user import CustomUser
-from app.db.session import get_db
+from app.db.session import get_litellm_db
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -14,10 +14,10 @@ router = APIRouter(prefix="/api/me", tags=["me"])
 @router.get("")
 async def get_me(
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Get current user profile."""
-    result = await db.execute(
+    result = await litellm_db.execute(
         text(
             "SELECT spend, max_budget "
             'FROM "LiteLLM_UserTable" '

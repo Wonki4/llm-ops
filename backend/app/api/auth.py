@@ -23,7 +23,7 @@ from app.auth.session import (
     set_session_cookie,
 )
 from app.config import settings
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +86,10 @@ async def login(return_to: str = "/teams") -> Response:
     return response
 
 
-async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> None:
+async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:
     """Create user in LiteLLM_UserTable and add to default team if not exists."""
     # Check if user already exists
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT user_id FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
         {"user_id": user_id},
     )
@@ -104,7 +104,7 @@ async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> No
 
     # Create user
     teams_array = [default_team_id] if default_team_id else []
-    await db.execute(
+    await litellm_db.execute(
         text(
             'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
             "VALUES (:user_id, :email, :teams, 0, NULL) "
@@ -117,7 +117,7 @@ async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> No
     # Add to default team if configured
     if default_team_id:
         # Add to TeamTable.members
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_TeamTable" '
                 "SET members = array_append(members, :user_id) "
@@ -126,7 +126,7 @@ async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> No
             {"user_id": user_id, "team_id": default_team_id},
         )
         # Create TeamMembership
-        await db.execute(
+        await litellm_db.execute(
             text(
                 'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
                 "VALUES (:user_id, :team_id, 0) "
@@ -136,11 +136,17 @@ async def _auto_provision_user(db: AsyncSession, user_id: str, email: str) -> No
         )
         logger.info("Added user %s to default team %s", user_id, default_team_id)
 
-    await db.commit()
+    await litellm_db.commit()
 
 
 @router.get("/callback")
-async def callback(request: Request, code: str, state: str, db: AsyncSession = Depends(get_db)) -> Response:
+async def callback(
+    request: Request,
+    code: str,
+    state: str,
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> Response:
     temp_cookie = request.cookies.get("_oauth_temp")
     if not temp_cookie:
         raise HTTPException(status_code=400, detail="Missing auth state cookie")
@@ -189,7 +195,7 @@ async def callback(request: Request, code: str, state: str, db: AsyncSession = D
 
     # Auto-provision user in LiteLLM if not exists
     try:
-        await _auto_provision_user(db, user_id, email)
+        await _auto_provision_user(db, litellm_db, user_id, email)
     except Exception:
         logger.exception("Auto-provision failed for user %s", user_id)
 

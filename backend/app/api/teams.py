@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser, GlobalRole
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
 
 MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
@@ -45,10 +45,10 @@ def _row_to_team(row: Mapping[str, Any], preview_limit: int = MEMBER_PREVIEW_LIM
 @router.get("")
 async def list_my_teams(
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List teams the current user belongs to (direct DB query)."""
-    result = await db.execute(
+    result = await litellm_db.execute(
         text(
             f"SELECT {_TEAM_COLUMNS} "
             'FROM "LiteLLM_TeamTable" t '
@@ -68,14 +68,15 @@ async def list_my_teams(
 async def discover_teams(
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List all available teams for discovery (direct DB query)."""
     # Fetch all teams
-    all_result = await db.execute(
+    all_result = await litellm_db.execute(
         text(f'SELECT {_TEAM_COLUMNS} FROM "LiteLLM_TeamTable" t ORDER BY t.team_alias'),
     )
     # Fetch user's current team memberships
-    membership_result = await db.execute(
+    membership_result = await litellm_db.execute(
         text(
             'SELECT team_id FROM "LiteLLM_TeamMembership" WHERE user_id = :user_id '
             "UNION "
@@ -118,7 +119,7 @@ async def get_team_detail(
     team_id: str,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),  # noqa: ARG001 — kept for consistency
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Get detailed team info including budget, keys, models.
 
@@ -129,7 +130,7 @@ async def get_team_detail(
       are returned separately.
     """
     # Direct DB read for team row (single row, fast even with 30K member IDs)
-    result = await db.execute(
+    result = await litellm_db.execute(
         text(
             "SELECT team_id, team_alias, max_budget, spend, budget_duration, "
             "       budget_reset_at, models, members, admins "
@@ -145,7 +146,7 @@ async def get_team_detail(
     all_admins: list[str] = list(row["admins"] or [])
 
     # Fetch ONLY the current user's keys directly from DB (indexed on user_id + team_id)
-    keys_result = await db.execute(
+    keys_result = await litellm_db.execute(
         text(
             "SELECT token, key_name, key_alias, team_id, user_id, "
             "       spend, max_budget, budget_duration, budget_reset_at, "
@@ -175,7 +176,7 @@ async def get_team_detail(
     ]
 
     # Fetch user's team membership budget (spend + max_budget/duration/reset from BudgetTable)
-    membership_result = await db.execute(
+    membership_result = await litellm_db.execute(
         text(
             "SELECT m.spend, b.max_budget, b.budget_duration, b.budget_reset_at "
             'FROM "LiteLLM_TeamMembership" m '
@@ -218,11 +219,11 @@ async def list_team_members(
     page_size: int = 50,
     search: str | None = None,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List team members with their key/budget info (admin only, paginated)."""
     # 1. Get team admins for role check
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
@@ -243,7 +244,7 @@ async def list_team_members(
         search_condition = "AND tm.user_id ILIKE :search"
         search_params["search"] = f"%{search}%"
 
-    count_result = await db.execute(
+    count_result = await litellm_db.execute(
         text(f'SELECT COUNT(*) FROM "LiteLLM_TeamMembership" tm WHERE tm.team_id = :team_id {search_condition}'),
         search_params,
     )
@@ -251,7 +252,7 @@ async def list_team_members(
 
     # 3. Paginate via DB
     offset = (page - 1) * page_size
-    membership_result = await db.execute(
+    membership_result = await litellm_db.execute(
         text(f"""
             SELECT tm.user_id
             FROM "LiteLLM_TeamMembership" tm
@@ -267,7 +268,7 @@ async def list_team_members(
         return {"members": [], "total": total, "page": page, "page_size": page_size}
 
     # 4. Get keys for paginated members
-    keys_result = await db.execute(
+    keys_result = await litellm_db.execute(
         text(
             "SELECT user_id, token, key_alias, key_name, spend, max_budget, "
             "       budget_duration, budget_reset_at, models, created_at "
@@ -328,14 +329,14 @@ async def change_member_role(
     team_id: str,
     body: ChangeRoleRequest,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Change a team member's role (admin <-> member). Requires team admin or super user."""
     if body.role not in ("admin", "member"):
         raise HTTPException(status_code=400, detail="Role must be 'admin' or 'member'")
 
     # Get team
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT members, admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
@@ -369,14 +370,14 @@ async def change_member_role(
         if body.user_id not in all_members:
             all_members.append(body.user_id)
 
-    await db.execute(
+    await litellm_db.execute(
         text(
             'UPDATE "LiteLLM_TeamTable" SET admins = :admins, members = :members '
             "WHERE team_id = :team_id"
         ),
         {"admins": all_admins, "members": all_members, "team_id": team_id},
     )
-    await db.commit()
+    await litellm_db.commit()
 
     return {"status": "changed", "user_id": body.user_id, "new_role": body.role}
 
@@ -386,11 +387,11 @@ async def remove_team_member(
     team_id: str,
     member_id: str,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Remove a member from the team. Requires team admin or super user."""
     # Get team
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT members, admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
@@ -420,7 +421,7 @@ async def remove_team_member(
         all_admins.remove(member_id)
 
     # Update TeamTable
-    await db.execute(
+    await litellm_db.execute(
         text(
             'UPDATE "LiteLLM_TeamTable" SET admins = :admins, members = :members '
             "WHERE team_id = :team_id"
@@ -429,25 +430,25 @@ async def remove_team_member(
     )
 
     # Remove from TeamMembership
-    await db.execute(
+    await litellm_db.execute(
         text('DELETE FROM "LiteLLM_TeamMembership" WHERE team_id = :team_id AND user_id = :user_id'),
         {"team_id": team_id, "user_id": member_id},
     )
 
     # Remove team from user's teams array
-    user_result = await db.execute(
+    user_result = await litellm_db.execute(
         text('SELECT teams FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
         {"user_id": member_id},
     )
     user_row = user_result.mappings().first()
     if user_row and user_row["teams"]:
         user_teams = [t for t in user_row["teams"] if t != team_id]
-        await db.execute(
+        await litellm_db.execute(
             text('UPDATE "LiteLLM_UserTable" SET teams = :teams WHERE user_id = :user_id'),
             {"teams": user_teams, "user_id": member_id},
         )
 
-    await db.commit()
+    await litellm_db.commit()
     return {"status": "removed", "user_id": member_id, "team_id": team_id}
 
 
@@ -463,10 +464,10 @@ async def update_team_settings(
     team_id: str,
     body: UpdateTeamSettingsRequest,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Update team budget/rate limit settings. Requires team admin or super user."""
-    result = await db.execute(
+    result = await litellm_db.execute(
         text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
@@ -487,10 +488,10 @@ async def update_team_settings(
         set_clauses.append(f"{field} = :{field}")
         params[field] = value
 
-    await db.execute(
+    await litellm_db.execute(
         text(f'UPDATE "LiteLLM_TeamTable" SET {", ".join(set_clauses)} WHERE team_id = :team_id'),
         params,
     )
-    await db.commit()
+    await litellm_db.commit()
 
     return {"status": "updated", "team_id": team_id, **updates}
