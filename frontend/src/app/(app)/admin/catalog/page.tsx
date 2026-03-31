@@ -13,6 +13,7 @@ import {
   useDeleteRedisCatalogEntry,
   useSyncCatalogToPg,
   useSyncCatalogFromPg,
+  useModels,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,12 @@ const INITIAL_FORM: FormState = {
 };
 
 export default function CatalogManagementPage() {
+  const { data: modelsData } = useModels();
+  const modelNames = useMemo(() => {
+    if (!modelsData) return [];
+    return [...new Set(modelsData.map((m) => m.model_name))].sort();
+  }, [modelsData]);
+
   const { data: catalogListData } = useCatalogList();
   const catalogs = catalogListData?.catalogs ?? [];
   const [activeCatalog, setActiveCatalog] = useState("");
@@ -344,7 +351,23 @@ export default function CatalogManagementPage() {
             </div>
             <div className="space-y-2">
               <Label>Model (LiteLLM Model Name)</Label>
-              <Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="예: gpt-4o" />
+              {modelNames.length > 0 ? (
+                <Select value={form.model} onValueChange={(v) => setForm({ ...form, model: v })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="모델 선택..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {form.model && !modelNames.includes(form.model) && (
+                      <SelectItem value={form.model}>{form.model} (직접 입력)</SelectItem>
+                    )}
+                    {modelNames.map((name) => (
+                      <SelectItem key={name} value={name}>{name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} placeholder="예: gpt-4o" />
+              )}
             </div>
             <div className="space-y-2">
               <Label>API Base</Label>
