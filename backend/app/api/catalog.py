@@ -63,9 +63,9 @@ async def _pg_upsert(db: AsyncSession, catalog: str, display_name: str, data: di
     await db.execute(
         text("""
             INSERT INTO custom_redis_catalog (display_name, data, updated_at)
-            VALUES (:name, :data, NOW())
+            VALUES (:name, CAST(:data AS jsonb), NOW())
             ON CONFLICT (display_name) DO UPDATE
-            SET data = :data, updated_at = NOW()
+            SET data = CAST(:data AS jsonb), updated_at = NOW()
         """),
         {"name": f"{catalog}:{display_name}", "data": json.dumps(data, ensure_ascii=False)},
     )
