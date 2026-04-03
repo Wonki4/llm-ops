@@ -953,7 +953,6 @@ export default function TeamDetailPage({
               </Badge>
             )}
           </div>
-          <p className="mt-1 font-mono text-sm text-muted-foreground">{team.team_id}</p>
         </div>
       </div>
 
