@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useModels, useChangeMemberRole, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +47,8 @@ import {
   Globe,
   ChevronRight,
   Save,
+  Copy,
+  Check,
 } from "lucide-react";
 import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
 
@@ -875,10 +877,12 @@ export default function TeamDetailPage({
   const { teamId } = use(params);
   const [activeTab, setActiveTab] = useState("overview");
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [detailModel, setDetailModel] = useState<ModelWithCatalog | null>(null);
   const { data, isLoading, isError, error, refetch } = useTeamDetail(teamId);
   const { data: allModels } = useModels();
   const deleteKeyMutation = useDeleteKey();
+  const revealKeyMutation = useRevealKey();
   const modelsByName = useMemo(
     () => new Map(allModels?.map((m) => [m.model_name, m]) ?? []),
     [allModels],
@@ -1022,8 +1026,40 @@ export default function TeamDetailPage({
                         <TableCell className="font-medium">
                           {key.key_alias || key.key_name || "-"}
                         </TableCell>
-                        <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
-                          {maskKey(key.token)}
+                        <TableCell className="hidden md:table-cell">
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-xs text-muted-foreground">{maskKey(key.token)}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              title="키 복사"
+                              disabled={revealKeyMutation.isPending}
+                              onClick={() => {
+                                revealKeyMutation.mutate(key.token, {
+                                  onSuccess: async (res) => {
+                                    try {
+                                      await navigator.clipboard.writeText(res.key);
+                                    } catch {
+                                      const ta = document.createElement("textarea");
+                                      ta.value = res.key;
+                                      ta.style.position = "fixed";
+                                      ta.style.opacity = "0";
+                                      document.body.appendChild(ta);
+                                      ta.select();
+                                      document.execCommand("copy");
+                                      document.body.removeChild(ta);
+                                    }
+                                    setCopiedKeyId(key.token);
+                                    toast.success("키가 클립보드에 복사되었습니다.");
+                                    setTimeout(() => setCopiedKeyId(null), 2000);
+                                  },
+                                  onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                                });
+                              }}
+                            >
+                              {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+                            </Button>
+                          </div>
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                           {key.expires ? formatDate(key.expires) : "-"}
