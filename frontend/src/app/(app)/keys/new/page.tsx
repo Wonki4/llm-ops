@@ -34,56 +34,10 @@ import {
   Copy,
   Check,
   Loader2,
-  AlertTriangle,
   Key,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { CreateKeyRequest, Team } from "@/types";
-
-const BUDGET_DURATION_OPTIONS = [
-  { value: "none", label: "없음" },
-  { value: "1h", label: "1시간" },
-  { value: "24h", label: "1일" },
-  { value: "7d", label: "7일" },
-  { value: "30d", label: "30일" },
-];
-
-function ModelSelector({
-  models,
-  selectedModels,
-  onToggle,
-}: {
-  models: string[];
-  selectedModels: Set<string>;
-  onToggle: (model: string) => void;
-}) {
-  if (models.length === 0) {
-    return (
-      <p className="text-sm text-muted-foreground">
-        선택한 팀에 배정된 모델이 없습니다.
-      </p>
-    );
-  }
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {models.map((model) => {
-        const isSelected = selectedModels.has(model);
-        return (
-          <Badge
-            key={model}
-            variant={isSelected ? "default" : "outline"}
-            className="cursor-pointer select-none"
-            onClick={() => onToggle(model)}
-          >
-            {isSelected && <Check className="size-3" />}
-            {model}
-          </Badge>
-        );
-      })}
-    </div>
-  );
-}
 
 function SuccessKeyDialog({
   token,
@@ -97,7 +51,19 @@ function SuccessKeyDialog({
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(token);
+    try {
+      await navigator.clipboard.writeText(token);
+    } catch {
+      // Fallback for non-HTTPS environments
+      const textarea = document.createElement("textarea");
+      textarea.value = token;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+    }
     setCopied(true);
     toast.success("키가 클립보드에 복사되었습니다.");
     setTimeout(() => setCopied(false), 2000);
@@ -112,10 +78,7 @@ function SuccessKeyDialog({
             API 키가 생성되었습니다
           </DialogTitle>
           <DialogDescription>
-            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 mt-2">
-              <AlertTriangle className="size-4 shrink-0" />
-              이 키는 다시 볼 수 없습니다. 안전한 곳에 저장하세요.
-            </span>
+            내 전체키 탭에서 언제든지 키를 확인하고 복사할 수 있습니다.
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-3">
