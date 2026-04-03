@@ -1009,7 +1009,6 @@ export default function TeamDetailPage({
                   <TableRow>
                     <TableHead>별칭</TableHead>
                     <TableHead className="hidden md:table-cell">키</TableHead>
-                    <TableHead>예산</TableHead>
                     <TableHead className="hidden md:table-cell">만료</TableHead>
                     <TableHead>모델</TableHead>
                     <TableHead className="hidden md:table-cell">생성일</TableHead>
@@ -1018,8 +1017,6 @@ export default function TeamDetailPage({
                 </TableHeader>
                 <TableBody>
                   {my_keys.map((key) => {
-                    const keyPct = budgetPercent(key.spend, key.max_budget);
-
                     return (
                       <TableRow key={key.token}>
                         <TableCell className="font-medium">
@@ -1027,26 +1024,6 @@ export default function TeamDetailPage({
                         </TableCell>
                         <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
                           {maskKey(key.token)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="space-y-1.5">
-                            <span className="text-sm">{formatBudget(key.spend, key.max_budget)}</span>
-                            <div className="h-1.5 w-full rounded-full bg-muted">
-                              <div
-                                className="h-full rounded-full bg-primary transition-all"
-                                style={{ width: `${key.max_budget === null ? 0 : keyPct}%` }}
-                              />
-                            </div>
-                            {(key.budget_duration || key.budget_reset_at) && (
-                              <p className="text-xs text-muted-foreground flex items-center gap-1">
-                                <RefreshCw className="size-3" />
-                                {[
-                                  key.budget_duration ? `${formatBudgetDuration(key.budget_duration)} 주기` : null,
-                                  key.budget_reset_at ? `다음: ${formatResetDate(key.budget_reset_at)}` : null,
-                                ].filter(Boolean).join(" · ")}
-                              </p>
-                            )}
-                          </div>
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                           {key.expires ? formatDate(key.expires) : "-"}
