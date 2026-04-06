@@ -95,6 +95,10 @@ services:
       APP_JWT_AUDIENCE: "litellm-portal"
       APP_SESSION_SECRET_KEY: "${APP_SESSION_SECRET_KEY:-change-me-in-production-must-be-32-bytes}"
       APP_FRONTEND_URL: "http://localhost:3002"
+      APP_REDIS_URL: "${APP_REDIS_URL:-redis://redis:6379/0}"
+      APP_REDIS_PASSWORD: "${APP_REDIS_PASSWORD:-}"
+      APP_REDIS_CLUSTER: "${APP_REDIS_CLUSTER:-false}"
+      APP_REDIS_CATALOG_PREFIX: "${APP_REDIS_CATALOG_PREFIX:-GENERATIVE:AI:}"
     env_file:
       - .env
     depends_on:
