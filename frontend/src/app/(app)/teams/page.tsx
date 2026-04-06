@@ -175,10 +175,6 @@ export default function MyTeamsPage() {
                         <Boxes className="size-3" />
                         {team.models.length}개 모델
                       </Badge>
-                      <Badge variant="outline" className="gap-1">
-                        <Users className="size-3" />
-                        {(team.member_count ?? team.members.length).toLocaleString()}명
-                      </Badge>
                     </div>
                   </CardContent>
                 </Card>
