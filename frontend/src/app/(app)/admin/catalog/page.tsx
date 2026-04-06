@@ -11,8 +11,7 @@ import {
   useCreateRedisCatalogEntry,
   useUpdateRedisCatalogEntry,
   useDeleteRedisCatalogEntry,
-  useSyncCatalogToPg,
-  useSyncCatalogFromPg,
+  useSyncCatalogToRedis,
   useModels,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -75,8 +74,7 @@ export default function CatalogManagementPage() {
   const createEntry = useCreateRedisCatalogEntry();
   const updateEntry = useUpdateRedisCatalogEntry();
   const deleteEntryMutation = useDeleteRedisCatalogEntry();
-  const syncToPg = useSyncCatalogToPg();
-  const syncFromPg = useSyncCatalogFromPg();
+  const syncToRedis = useSyncCatalogToRedis();
   const updateCatalogList = useUpdateCatalogList();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -210,37 +208,17 @@ export default function CatalogManagementPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">카탈로그 관리</h1>
-          <p className="text-muted-foreground mt-1">Redis 기반 모델 카탈로그를 관리합니다</p>
+          <p className="text-muted-foreground mt-1">모델 카탈로그를 관리합니다</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={syncToPg.isPending}
-            onClick={() => syncToPg.mutate({ catalog: currentCatalog }, {
-              onSuccess: (res) => toast.success(`Redis → PG 동기화 완료 (${res.synced}건)`),
-              onError: (err) => toast.error(err instanceof Error ? err.message : "동기화 실패"),
+          <Button variant="outline" size="sm" disabled={syncToRedis.isPending}
+            onClick={() => syncToRedis.mutate({ catalog: currentCatalog }, {
+              onSuccess: (res: { synced: number }) => toast.success(`Redis 캐시 동기화 완료 (${res.synced}건)`),
+              onError: (err: Error) => toast.error(err.message || "동기화 실패"),
             })}
           >
-            <RefreshCw className={`size-3.5 ${syncToPg.isPending ? "animate-spin" : ""}`} />
-            Redis → PG
-          </Button>
-          <Button variant="outline" size="sm" disabled={syncFromPg.isPending}
-            onClick={() => {
-              syncFromPg.mutate({ catalog: currentCatalog, dryRun: true }, {
-                onSuccess: (res) => {
-                  const msg = `복원 대상: ${res.restored}건, 건너뜀(기존 존재): ${res.skipped}건`;
-                  if (res.restored === 0) { toast.info(msg); return; }
-                  if (confirm(`${msg}\n\n실제로 복원하시겠습니까? (기존 데이터는 건너뜁니다)`)) {
-                    syncFromPg.mutate({ catalog: currentCatalog }, {
-                      onSuccess: (r) => toast.success(`PG → Redis 복원 완료 (${r.restored}건, ${r.skipped}건 건너뜀)`),
-                      onError: (e) => toast.error(e instanceof Error ? e.message : "복원 실패"),
-                    });
-                  }
-                },
-                onError: (err) => toast.error(err instanceof Error ? err.message : "미리보기 실패"),
-              });
-            }}
-          >
-            <RefreshCw className={`size-3.5 ${syncFromPg.isPending ? "animate-spin" : ""}`} />
-            PG → Redis
+            <RefreshCw className={`size-3.5 ${syncToRedis.isPending ? "animate-spin" : ""}`} />
+            Redis 캐시 동기화
           </Button>
           <Button onClick={openCreateDialog}>
             <Plus className="size-4" />
@@ -251,7 +229,7 @@ export default function CatalogManagementPage() {
 
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          카탈로그를 불러오는 중 오류가 발생했습니다. Redis 연결을 확인하세요.
+          카탈로그를 불러오는 중 오류가 발생했습니다.
         </div>
       )}
 

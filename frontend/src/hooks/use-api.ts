@@ -558,29 +558,11 @@ export function useDeleteRedisCatalogEntry() {
   });
 }
 
-export function useSyncCatalogToPg() {
+export function useSyncCatalogToRedis() {
   return useMutation({
-    mutationFn: ({ catalog, dryRun = false }: { catalog: string; dryRun?: boolean }) => {
+    mutationFn: ({ catalog }: { catalog: string }) => {
       const params = new URLSearchParams({ catalog });
-      if (dryRun) params.set("dry_run", "true");
-      return apiFetch<{ synced: number; dry_run: boolean }>(`/api/catalog/sync-to-pg?${params}`, { method: "POST" });
-    },
-  });
-}
-
-export function useSyncCatalogFromPg() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, force = false, dryRun = false }: { catalog: string; force?: boolean; dryRun?: boolean }) => {
-      const params = new URLSearchParams({ catalog });
-      if (force) params.set("force", "true");
-      if (dryRun) params.set("dry_run", "true");
-      return apiFetch<{ restored: number; skipped: number; dry_run: boolean }>(`/api/catalog/sync-from-pg?${params}`, { method: "POST" });
-    },
-    onSuccess: (_data, variables) => {
-      if (!variables.dryRun) {
-        qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-      }
+      return apiFetch<{ synced: number }>(`/api/catalog/sync-to-redis?${params}`, { method: "POST" });
     },
   });
 }
