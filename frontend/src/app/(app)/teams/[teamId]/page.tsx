@@ -476,7 +476,7 @@ function OverviewTab({
               ) : (
                 topKeys.map((key) => (
                     <div key={key.token} className="rounded-lg border p-3">
-                      <p className="text-sm font-medium">{key.key_alias || key.key_name || maskKey(key.token)}</p>
+                      <p className="text-sm font-medium">{key.key_alias || "-"}</p>
                     </div>
                   ))
               )}
@@ -794,7 +794,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                   >
                                     <div className="min-w-0 space-y-0.5">
                                       <p className="text-sm font-medium">
-                                        {key.key_alias || key.key_name || maskKey(key.token)}
+                                        {key.key_alias || "-"}
                                       </p>
                                       <p className="font-mono text-xs text-muted-foreground">
                                         {maskKey(key.token)}
@@ -1023,7 +1023,7 @@ export default function TeamDetailPage({
                     return (
                       <TableRow key={key.token}>
                         <TableCell className="font-medium">
-                          {key.key_alias || key.key_name || "-"}
+                          {key.key_alias || "-"}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div className="flex items-center gap-1">

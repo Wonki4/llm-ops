@@ -56,7 +56,7 @@ def _generate_sk_jwt(key_id: int, team_id: str, user_id: str, iat: int | None = 
 
 class CreateKeyRequest(BaseModel):
     team_id: str
-    key_alias: str | None = None
+    key_alias: str
     models: list[str] | None = None
     max_budget: float | None = None
     budget_duration: str | None = Field(None, description="e.g. '30d', '7d', '1h'")
@@ -97,7 +97,7 @@ async def create_key(
                 key=sk_key,
                 tpm_limit=tpm_limit,
                 rpm_limit=rpm_limit,
-                metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias or ""},
+                metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias},
             )
             return result
         except HTTPStatusError as e:
@@ -144,7 +144,7 @@ async def list_my_keys(
         {
             "token": k["token"],
             "key_name": k["key_name"],
-            "key_alias": (k["metadata"] or {}).get("display_alias") or k["key_alias"],
+            "key_alias": (k["metadata"] or {}).get("display_alias", ""),
             "team_id": k["team_id"],
             "user_id": k["user_id"],
             "spend": float(k["spend"]),

@@ -129,13 +129,15 @@ export default function CreateKeyPage({
       return;
     }
 
+    if (!keyAlias.trim()) {
+      toast.error("키 별칭을 입력해주세요.");
+      return;
+    }
+
     const body: CreateKeyRequest = {
       team_id: selectedTeamId,
+      key_alias: keyAlias.trim(),
     };
-
-    if (keyAlias.trim()) {
-      body.key_alias = keyAlias.trim();
-    }
 
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
