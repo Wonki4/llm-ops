@@ -9,7 +9,7 @@ from sqlalchemy import select, func as sa_func, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
-from app.api.catalog import _pg_upsert as catalog_pg_upsert, _pg_delete as catalog_pg_delete, _push_to_redis, _remove_from_redis, DEFAULT_CATALOG
+from app.api.catalog import _pg_get as catalog_pg_get, _pg_upsert as catalog_pg_upsert, _pg_delete as catalog_pg_delete, _push_to_redis, _remove_from_redis, DEFAULT_CATALOG
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
@@ -323,8 +323,9 @@ async def create_catalog_entry(
     )
     db.add(history)
 
-    # Sync to catalog cache (custom_redis_catalog + Redis)
-    cache_data = {"model": entry.model_name}
+    # Sync to catalog cache (custom_redis_catalog + Redis) — merge with existing
+    existing_cache = await catalog_pg_get(db, DEFAULT_CATALOG, entry.display_name)
+    cache_data = {**(existing_cache or {}), "model": entry.model_name}
     await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
     await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
 
@@ -373,8 +374,9 @@ async def update_catalog_entry(
 
     await db.refresh(entry)
 
-    # Sync to catalog cache (custom_redis_catalog + Redis)
-    cache_data = {"model": entry.model_name}
+    # Sync to catalog cache (custom_redis_catalog + Redis) — merge with existing
+    existing_cache = await catalog_pg_get(db, DEFAULT_CATALOG, entry.display_name)
+    cache_data = {**(existing_cache or {}), "model": entry.model_name}
     await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
     await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
 
@@ -412,7 +414,8 @@ async def sync_model_catalog_to_cache(
     entries = result.scalars().all()
     synced = 0
     for entry in entries:
-        cache_data = {"model": entry.model_name}
+        existing_cache = await catalog_pg_get(db, DEFAULT_CATALOG, entry.display_name)
+        cache_data = {**(existing_cache or {}), "model": entry.model_name}
         await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
         await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
         synced += 1

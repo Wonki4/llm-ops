@@ -311,13 +311,18 @@ async def sync_to_redis(
     """
     await _validate_catalog(catalog, db)
 
-    # Step 1: Backfill from custom_model_catalog → custom_redis_catalog
+    # Step 1: Backfill from custom_model_catalog → custom_redis_catalog (merge, not overwrite)
     model_result = await db.execute(
         text("SELECT model_name, display_name FROM custom_model_catalog")
     )
     backfilled = 0
     for row in model_result.mappings():
-        cache_data = {"model": row["model_name"]}
+        existing = await _pg_get(db, catalog, row["display_name"])
+        if existing is not None:
+            existing["model"] = row["model_name"]
+            cache_data = existing
+        else:
+            cache_data = {"model": row["model_name"]}
         await _pg_upsert(db, catalog, row["display_name"], cache_data)
         backfilled += 1
 
