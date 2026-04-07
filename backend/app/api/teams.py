@@ -351,9 +351,15 @@ async def change_member_role(
     if user.global_role != GlobalRole.SUPER_USER and user.user_id not in all_admins:
         raise HTTPException(status_code=403, detail="Admin access required")
 
-    # Target must be a member of the team
-    if body.user_id not in all_members and body.user_id not in all_admins:
-        raise HTTPException(status_code=404, detail="User is not a member of this team")
+    # Target must be a member of the team (check TeamMembership table too)
+    is_team_member = body.user_id in all_members or body.user_id in all_admins
+    if not is_team_member:
+        membership_check = await litellm_db.execute(
+            text('SELECT 1 FROM "LiteLLM_TeamMembership" WHERE user_id = :user_id AND team_id = :team_id'),
+            {"user_id": body.user_id, "team_id": team_id},
+        )
+        if membership_check.scalar() is None:
+            raise HTTPException(status_code=404, detail="User is not a member of this team")
 
     if body.role == "admin":
         if body.user_id in all_admins:
