@@ -189,10 +189,11 @@ export function useDeleteKey() {
 
 // ─── Team Join Requests ──────────────────────────────────────
 
-export function useJoinRequests(teamId?: string, status?: string) {
+export function useJoinRequests(teamId?: string, status?: string, mineOnly?: boolean) {
   const params = new URLSearchParams();
   if (teamId) params.set("team_id", teamId);
   if (status) params.set("status_filter", status);
+  if (mineOnly) params.set("mine_only", "true");
   const qs = params.toString() ? `?${params.toString()}` : "";
 
   return useQuery({

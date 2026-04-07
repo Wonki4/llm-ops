@@ -158,14 +158,17 @@ async def list_requests(
     team_id: str | None = None,
     status_filter: str | None = None,
     request_type: str | None = None,
+    mine_only: bool = False,
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """List requests. Regular users see their own; admins see team requests."""
+    """List requests. mine_only=true shows only own requests regardless of role."""
     query = select(CustomTeamJoinRequest).order_by(CustomTeamJoinRequest.created_at.desc())
 
-    if user.global_role == GlobalRole.SUPER_USER:
+    if mine_only:
+        query = query.where(CustomTeamJoinRequest.requester_id == user.user_id)
+    elif user.global_role == GlobalRole.SUPER_USER:
         if team_id:
             query = query.where(CustomTeamJoinRequest.team_id == team_id)
     else:
