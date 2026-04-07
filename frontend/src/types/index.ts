@@ -164,7 +164,7 @@ export interface TeamJoinRequest {
 // Request body types
 export interface CreateKeyRequest {
   team_id: string;
-  key_alias?: string;
+  key_alias: string;
   models?: string[];
   max_budget?: number;
   budget_duration?: string;

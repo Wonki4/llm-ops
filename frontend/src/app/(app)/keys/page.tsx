@@ -295,7 +295,7 @@ export default function AllKeysPage() {
               {filteredKeys.map((key) => (
                 <TableRow key={key.token}>
                   <TableCell className="font-medium">
-                    {key.key_alias || key.key_name || "-"}
+                    {key.key_alias || "-"}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-1">

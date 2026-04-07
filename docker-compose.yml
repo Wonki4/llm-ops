@@ -89,7 +89,7 @@ services:
       APP_KEYCLOAK_REALM: "litellm"
       APP_KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:-litellm-portal}"
       APP_KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:-change-me-in-keycloak}"
-      APP_KEYCLOAK_REDIRECT_URI: "http://localhost:3002/api/auth/callback"
+      APP_KEYCLOAK_REDIRECT_URI: "http://localhost:3003/api/auth/callback"
       APP_KEYCLOAK_IDP_HINT: "${APP_KEYCLOAK_IDP_HINT:-}"
       APP_KEYCLOAK_SSL_VERIFY: "${APP_KEYCLOAK_SSL_VERIFY:-}"
       APP_JWT_AUDIENCE: "litellm-portal"
@@ -144,7 +144,7 @@ services:
         NEXT_PUBLIC_API_URL: http://localhost:8002
     container_name: litellm_frontend
     ports:
-      - "3002:3000"
+      - "3003:3000"
     environment:
       NEXT_PUBLIC_API_URL: "http://localhost:8002"
       BACKEND_INTERNAL_URL: "http://backend:8000"

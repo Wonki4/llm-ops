@@ -442,7 +442,7 @@ function OverviewTab({
               ) : (
                 topKeys.map((key) => (
                     <div key={key.token} className="rounded-lg border p-3">
-                      <p className="text-sm font-medium">{key.key_alias || key.key_name || maskKey(key.token)}</p>
+                      <p className="text-sm font-medium">{key.key_alias || "-"}</p>
                     </div>
                   ))
               )}
@@ -760,7 +760,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                   >
                                     <div className="min-w-0 space-y-0.5">
                                       <p className="text-sm font-medium">
-                                        {key.key_alias || key.key_name || maskKey(key.token)}
+                                        {key.key_alias || "-"}
                                       </p>
                                       <p className="font-mono text-xs text-muted-foreground">
                                         {maskKey(key.token)}
@@ -983,58 +983,73 @@ export default function TeamDetailPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {my_keys.map((key) => (
-                    <TableRow key={key.token}>
-                      <TableCell className="font-medium">
-                        {key.key_alias || key.key_name || "-"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1">
-                          <span className="font-mono text-xs text-muted-foreground">{maskKey(key.token)}</span>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            title="키 복사"
-                            disabled={revealKeyMutation.isPending}
-                            onClick={() => {
-                              revealKeyMutation.mutate(key.token, {
-                                onSuccess: async (res) => {
-                                  try {
-                                    await navigator.clipboard.writeText(res.key);
-                                  } catch {
-                                    const ta = document.createElement("textarea");
-                                    ta.value = res.key;
-                                    ta.style.position = "fixed";
-                                    ta.style.opacity = "0";
-                                    document.body.appendChild(ta);
-                                    ta.select();
-                                    document.execCommand("copy");
-                                    document.body.removeChild(ta);
-                                  }
-                                  setCopiedKeyId(key.token);
-                                  toast.success("키가 클립보드에 복사되었습니다.");
-                                  setTimeout(() => setCopiedKeyId(null), 2000);
-                                },
-                                onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
-                              });
-                            }}
-                          >
-                            {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
-                          </Button>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(key.created_at)}
-                      </TableCell>
-                      <TableCell>
-                        <DeleteKeyDialog
-                          keyItem={key}
-                          onDelete={handleDeleteKey}
-                          isDeleting={deletingKeyId === key.token}
-                        />
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {my_keys.map((key) => {
+                    return (
+                      <TableRow key={key.token}>
+                        <TableCell className="font-medium">
+                          {key.key_alias || "-"}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-xs text-muted-foreground">{maskKey(key.token)}</span>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              title="키 복사"
+                              disabled={revealKeyMutation.isPending}
+                              onClick={() => {
+                                revealKeyMutation.mutate(key.token, {
+                                  onSuccess: async (res) => {
+                                    try {
+                                      await navigator.clipboard.writeText(res.key);
+                                    } catch {
+                                      const ta = document.createElement("textarea");
+                                      ta.value = res.key;
+                                      ta.style.position = "fixed";
+                                      ta.style.opacity = "0";
+                                      document.body.appendChild(ta);
+                                      ta.select();
+                                      document.execCommand("copy");
+                                      document.body.removeChild(ta);
+                                    }
+                                    setCopiedKeyId(key.token);
+                                    toast.success("키가 클립보드에 복사되었습니다.");
+                                    setTimeout(() => setCopiedKeyId(null), 2000);
+                                  },
+                                  onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                                });
+                              }}
+                            >
+                              {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                          {key.expires ? formatDate(key.expires) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          {key.models.length > 0 ? (
+                            <Badge variant="secondary" className="gap-1">
+                              <Boxes className="size-3" />
+                              {key.models.length}개
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">전체</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
+                          {formatDate(key.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <DeleteKeyDialog
+                            keyItem={key}
+                            onDelete={handleDeleteKey}
+                            isDeleting={deletingKeyId === key.token}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>

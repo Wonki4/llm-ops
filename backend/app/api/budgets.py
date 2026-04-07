@@ -128,7 +128,7 @@ async def get_budget_details(
             "user_id": r["user_id"],
             "team_id": r["team_id"],
             "team_alias": r["team_alias"],
-            "spend": float(r["spend"]),
+            "spend": float(r["spend"] or 0),
         }
         for r in tm_result.mappings()
     ]
@@ -150,7 +150,7 @@ async def get_budget_details(
             "key_name": r["key_name"],
             "user_id": r["user_id"],
             "team_id": r["team_id"],
-            "spend": float(r["spend"]),
+            "spend": float(r["spend"] or 0),
         }
         for r in key_result.mappings()
     ]
@@ -181,7 +181,7 @@ async def get_budget_details(
         text('SELECT user_id, alias, spend FROM "LiteLLM_EndUserTable" WHERE budget_id = :budget_id'),
         {"budget_id": budget_id},
     )
-    end_users = [{"user_id": r["user_id"], "alias": r["alias"], "spend": float(r["spend"])} for r in eu_result.mappings()]
+    end_users = [{"user_id": r["user_id"], "alias": r["alias"], "spend": float(r["spend"] or 0)} for r in eu_result.mappings()]
 
     # Tags
     tag_result = await litellm_db.execute(
