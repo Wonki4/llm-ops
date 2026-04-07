@@ -40,7 +40,7 @@ export function AppSidebar() {
         {navigation
           .filter((item) => item.roles.includes(userRole))
           .map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/admin/models" && item.href !== "/keys" && pathname.startsWith(item.href + "/"));
+            const isActive = pathname === item.href || (item.href !== "/admin/models" && item.href !== "/keys" && pathname.startsWith(item.href + "/") && !navigation.some((other) => other.href !== item.href && other.href.startsWith(item.href + "/") && pathname.startsWith(other.href)));
             return (
               <Link
                 key={item.href}
