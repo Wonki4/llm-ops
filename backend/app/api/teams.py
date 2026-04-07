@@ -362,8 +362,9 @@ async def change_member_role(
     else:
         if body.user_id not in all_admins:
             return {"status": "unchanged", "message": "User is already a member"}
-        # Prevent removing the last admin
-        if len(all_admins) <= 1:
+        # Prevent removing the last admin (super_user can override)
+        remaining_admins = [a for a in all_admins if a != body.user_id]
+        if len(remaining_admins) == 0 and user.global_role != GlobalRole.SUPER_USER:
             raise HTTPException(status_code=400, detail="Cannot remove the last admin")
         all_admins.remove(body.user_id)
         # Ensure user stays in members
