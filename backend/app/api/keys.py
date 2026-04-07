@@ -90,14 +90,14 @@ async def create_key(
             result = await litellm.generate_key(
                 user_id=user.user_id,
                 team_id=body.team_id,
-                key_alias=f"{user.user_id}-{body.key_alias}" if body.key_alias else f"{user.user_id}-{body.team_id}",
+                key_alias=f"{user.user_id}-{key_id}",
                 models=body.models,
                 max_budget=body.max_budget,
                 budget_duration=body.budget_duration,
                 key=sk_key,
                 tpm_limit=tpm_limit,
                 rpm_limit=rpm_limit,
-                metadata={"sk_key_id": key_id, "sk_iat": iat},
+                metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias or ""},
             )
             return result
         except HTTPStatusError as e:
@@ -129,7 +129,7 @@ async def list_my_keys(
     query = (
         "SELECT token, key_name, key_alias, team_id, user_id, "
         "       spend, max_budget, budget_duration, budget_reset_at, "
-        "       models, expires, created_at "
+        "       models, expires, created_at, metadata "
         'FROM "LiteLLM_VerificationToken" '
         "WHERE user_id = :user_id "
     )
@@ -144,7 +144,7 @@ async def list_my_keys(
         {
             "token": k["token"],
             "key_name": k["key_name"],
-            "key_alias": k["key_alias"],
+            "key_alias": (k["metadata"] or {}).get("display_alias") or k["key_alias"],
             "team_id": k["team_id"],
             "user_id": k["user_id"],
             "spend": float(k["spend"]),
