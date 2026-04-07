@@ -187,7 +187,7 @@ async def callback(
 
     access_claims = jose_jwt.get_unverified_claims(token_data["access_token"])
 
-    user_id = access_claims.get("preferred_username") or access_claims.get("sub", "")
+    user_id = (access_claims.get("preferred_username") or access_claims.get("sub", "")).lower()
     email = access_claims.get("email", "")
     realm_roles = access_claims.get("realm_access", {}).get("roles", [])
     client_roles = access_claims.get("resource_access", {}).get(settings.jwt_audience, {}).get("roles", [])
