@@ -47,6 +47,7 @@ export interface TeamDetail {
 
 export interface ApiKey {
   token: string;
+  key?: string;
   key_name: string | null;
   key_alias: string | null;
   team_id: string | null;
