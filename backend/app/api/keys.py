@@ -40,16 +40,18 @@ async def _next_key_id(db: AsyncSession) -> int:
 
 
 def _generate_sk_jwt(key_id: int, team_id: str, user_id: str, iat: int | None = None) -> str:
-    """Generate sk- prefixed JWT key."""
+    """Generate sk- prefixed JWT key with sub containing stringified payload."""
+    import json as _json
     if iat is None:
         iat = int(time.time())
-    payload = {
+    inner = {
         "keyId": key_id,
         "prjId": team_id,
         "keyType": "PRJ",
         "regUserId": user_id,
         "iat": iat,
     }
+    payload = {"sub": _json.dumps(inner, separators=(",", ":"))}
     token = jwt.encode(payload, _KEY_JWT_SECRET, algorithm="HS256")
     return f"sk-{token}"
 
