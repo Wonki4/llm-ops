@@ -90,7 +90,7 @@ async def create_key(
             result = await litellm.generate_key(
                 user_id=user.user_id,
                 team_id=body.team_id,
-                key_alias=body.key_alias or f"{user.user_id}-{body.team_id}",
+                key_alias=f"{user.user_id}-{body.key_alias}" if body.key_alias else f"{user.user_id}-{body.team_id}",
                 models=body.models,
                 max_budget=body.max_budget,
                 budget_duration=body.budget_duration,

@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
-import { useMyTeams, useCreateKey, usePortalSettings } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings, useMe } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
@@ -105,9 +105,11 @@ export default function CreateKeyPage({
   searchParams: Promise<{ team_id?: string }>;
 }) {
   const params = use(searchParams);
+  const { data: me } = useMe();
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
+  const aliasPrefix = me?.user_id ? `${me.user_id}-` : "";
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(
     params.team_id ?? ""
@@ -219,12 +221,20 @@ export default function CreateKeyPage({
             {/* Key Alias */}
             <div className="space-y-2">
               <Label htmlFor="key-alias">키 별칭</Label>
-              <Input
-                id="key-alias"
-                placeholder="예: my-project-key"
-                value={keyAlias}
-                onChange={(e) => setKeyAlias(e.target.value)}
-              />
+              <div className="flex items-center gap-0">
+                {aliasPrefix && (
+                  <span className="inline-flex items-center rounded-l-md border border-r-0 bg-muted px-3 text-sm text-muted-foreground h-9">
+                    {aliasPrefix}
+                  </span>
+                )}
+                <Input
+                  id="key-alias"
+                  className={aliasPrefix ? "rounded-l-none" : ""}
+                  placeholder="예: my-project-key"
+                  value={keyAlias}
+                  onChange={(e) => setKeyAlias(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* Models (read-only) */}
