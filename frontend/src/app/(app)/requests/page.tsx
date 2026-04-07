@@ -55,7 +55,7 @@ function formatDate(dateStr: string) {
 }
 
 export default function MyRequestsPage() {
-  const { data: requests, isLoading, isError } = useJoinRequests();
+  const { data: requests, isLoading, isError } = useJoinRequests(undefined, undefined, true);
   const [statusTab, setStatusTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
 
