@@ -1,6 +1,7 @@
-"""Redis-backed model catalog management endpoints with PostgreSQL sync."""
+"""PostgreSQL-backed model catalog management with Redis cache."""
 
 import json
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,9 +10,12 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
-from app.clients.redis import catalog_delete, catalog_get, catalog_get_all, catalog_set
+from app.clients.redis import catalog_delete as redis_delete
+from app.clients.redis import catalog_set as redis_set
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/catalog", tags=["catalog"])
 
@@ -58,8 +62,37 @@ class CatalogUpdateRequest(BaseModel):
     new_display_name: str | None = None
 
 
+# ─── PG helpers ───────────────────────────────────────────────
+
+async def _pg_get_all(db: AsyncSession, catalog: str) -> dict[str, dict]:
+    """Get all catalog entries from PostgreSQL."""
+    prefix = f"{catalog}:"
+    result = await db.execute(
+        text("SELECT display_name, data FROM custom_redis_catalog WHERE display_name LIKE :prefix ORDER BY display_name"),
+        {"prefix": f"{prefix}%"},
+    )
+    entries = {}
+    for row in result.mappings():
+        name = row["display_name"].removeprefix(prefix)
+        data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
+        entries[name] = data
+    return entries
+
+
+async def _pg_get(db: AsyncSession, catalog: str, display_name: str) -> dict | None:
+    """Get a single catalog entry from PostgreSQL."""
+    result = await db.execute(
+        text("SELECT data FROM custom_redis_catalog WHERE display_name = :name"),
+        {"name": f"{catalog}:{display_name}"},
+    )
+    raw = result.scalar()
+    if raw is None:
+        return None
+    return raw if isinstance(raw, dict) else json.loads(raw)
+
+
 async def _pg_upsert(db: AsyncSession, catalog: str, display_name: str, data: dict) -> None:
-    """Upsert catalog entry to PostgreSQL for backup."""
+    """Upsert catalog entry to PostgreSQL."""
     await db.execute(
         text("""
             INSERT INTO custom_redis_catalog (display_name, data, updated_at)
@@ -71,12 +104,29 @@ async def _pg_upsert(db: AsyncSession, catalog: str, display_name: str, data: di
     )
 
 
-async def _pg_delete(db: AsyncSession, catalog: str, display_name: str) -> None:
-    """Delete catalog entry from PostgreSQL."""
-    await db.execute(
+async def _pg_delete(db: AsyncSession, catalog: str, display_name: str) -> bool:
+    """Delete catalog entry from PostgreSQL. Returns True if deleted."""
+    result = await db.execute(
         text("DELETE FROM custom_redis_catalog WHERE display_name = :name"),
         {"name": f"{catalog}:{display_name}"},
     )
+    return result.rowcount > 0
+
+
+async def _push_to_redis(catalog: str, display_name: str, data: dict) -> None:
+    """Push catalog entry to Redis cache. Logs errors but doesn't raise."""
+    try:
+        await redis_set(catalog, display_name, data)
+    except Exception:
+        logger.warning("Failed to push %s:%s to Redis cache", catalog, display_name, exc_info=True)
+
+
+async def _remove_from_redis(catalog: str, display_name: str) -> None:
+    """Remove catalog entry from Redis cache. Logs errors but doesn't raise."""
+    try:
+        await redis_delete(catalog, display_name)
+    except Exception:
+        logger.warning("Failed to remove %s:%s from Redis cache", catalog, display_name, exc_info=True)
 
 
 # ─── Catalog suffix management ──────────────────────────────────
@@ -123,9 +173,9 @@ async def list_catalog(
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """List all catalog entries from Redis."""
+    """List all catalog entries from PostgreSQL."""
     await _validate_catalog(catalog, db)
-    entries = await catalog_get_all(catalog)
+    entries = await _pg_get_all(db, catalog)
     return {
         "catalog": catalog,
         "entries": [
@@ -143,9 +193,9 @@ async def get_catalog_entry(
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get a single catalog entry."""
+    """Get a single catalog entry from PostgreSQL."""
     await _validate_catalog(catalog, db)
-    data = await catalog_get(catalog, display_name)
+    data = await _pg_get(db, catalog, display_name)
     if data is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
     return {"display_name": display_name, "catalog": catalog, **data}
@@ -163,13 +213,13 @@ async def create_catalog_entry(
     if not body.display_name.strip():
         raise HTTPException(status_code=400, detail="Display name is required")
 
-    existing = await catalog_get(catalog, body.display_name)
+    existing = await _pg_get(db, catalog, body.display_name)
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"'{body.display_name}' already exists")
 
     data = body.entry.model_dump()
-    await catalog_set(catalog, body.display_name, data)
     await _pg_upsert(db, catalog, body.display_name, data)
+    await _push_to_redis(catalog, body.display_name, data)
     return {"display_name": body.display_name, "catalog": catalog, **data}
 
 
@@ -183,7 +233,7 @@ async def update_catalog_entry(
 ) -> dict:
     """Update a catalog entry (Super User only)."""
     await _validate_catalog(catalog, db)
-    existing = await catalog_get(catalog, display_name)
+    existing = await _pg_get(db, catalog, display_name)
     if existing is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
 
@@ -194,15 +244,15 @@ async def update_catalog_entry(
 
     target_name = display_name
     if body.new_display_name and body.new_display_name != display_name:
-        conflict = await catalog_get(catalog, body.new_display_name)
+        conflict = await _pg_get(db, catalog, body.new_display_name)
         if conflict is not None:
             raise HTTPException(status_code=409, detail=f"'{body.new_display_name}' already exists")
-        await catalog_delete(catalog, display_name)
         await _pg_delete(db, catalog, display_name)
+        await _remove_from_redis(catalog, display_name)
         target_name = body.new_display_name
 
-    await catalog_set(catalog, target_name, data)
     await _pg_upsert(db, catalog, target_name, data)
+    await _push_to_redis(catalog, target_name, data)
     return {"display_name": target_name, "catalog": catalog, **data}
 
 
@@ -215,10 +265,10 @@ async def delete_catalog_entry(
 ) -> dict:
     """Delete a catalog entry (Super User only)."""
     await _validate_catalog(catalog, db)
-    deleted = await catalog_delete(catalog, display_name)
+    deleted = await _pg_delete(db, catalog, display_name)
     if not deleted:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
-    await _pg_delete(db, catalog, display_name)
+    await _remove_from_redis(catalog, display_name)
     return {"deleted": True, "display_name": display_name, "catalog": catalog}
 
 
@@ -232,7 +282,7 @@ async def update_user_api_key(
 ) -> dict:
     """Allow a user to set their own apiKey for a catalog entry."""
     await _validate_catalog(catalog, db)
-    existing = await catalog_get(catalog, display_name)
+    existing = await _pg_get(db, catalog, display_name)
     if existing is None:
         raise HTTPException(status_code=404, detail="Catalog entry not found")
 
@@ -240,58 +290,41 @@ async def update_user_api_key(
     user_keys: dict = existing.get("userApiKeys", {})
     user_keys[user.user_id] = api_key
     existing["userApiKeys"] = user_keys
-    await catalog_set(catalog, display_name, existing)
     await _pg_upsert(db, catalog, display_name, existing)
+    await _push_to_redis(catalog, display_name, existing)
 
     return {"display_name": display_name, "apiKey": api_key}
 
 
 # ─── Sync ──────────────────────────────────────────────────────
 
-@router.post("/sync-from-pg")
-async def sync_from_pg(
+@router.post("/sync-to-redis")
+async def sync_to_redis(
     catalog: str = Query(DEFAULT_CATALOG),
-    force: bool = Query(False, description="Overwrite existing Redis fields"),
-    dry_run: bool = Query(False, description="Preview without writing"),
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Restore Redis catalog from PostgreSQL backup (Super User only)."""
+    """Sync model catalog → redis catalog cache → Redis (Super User only).
+
+    1. Pull custom_model_catalog entries into custom_redis_catalog (backfill)
+    2. Push all custom_redis_catalog entries to Redis
+    """
     await _validate_catalog(catalog, db)
-    prefix = f"{catalog}:"
-    result = await db.execute(
-        text("SELECT display_name, data FROM custom_redis_catalog WHERE display_name LIKE :prefix"),
-        {"prefix": f"{prefix}%"},
+
+    # Step 1: Backfill from custom_model_catalog → custom_redis_catalog
+    model_result = await db.execute(
+        text("SELECT model_name, display_name FROM custom_model_catalog")
     )
-    rows = result.mappings().all()
-    restored = 0
-    skipped = 0
-    for row in rows:
-        name = row["display_name"].removeprefix(prefix)
-        existing = await catalog_get(catalog, name)
-        if existing is not None and not force:
-            skipped += 1
-            continue
-        if not dry_run:
-            data = row["data"] if isinstance(row["data"], dict) else json.loads(row["data"])
-            await catalog_set(catalog, name, data)
-        restored += 1
-    return {"restored": restored, "skipped": skipped, "dry_run": dry_run, "catalog": catalog}
+    backfilled = 0
+    for row in model_result.mappings():
+        cache_data = {"model": row["model_name"]}
+        await _pg_upsert(db, catalog, row["display_name"], cache_data)
+        backfilled += 1
 
-
-@router.post("/sync-to-pg")
-async def sync_to_pg(
-    catalog: str = Query(DEFAULT_CATALOG),
-    dry_run: bool = Query(False, description="Preview without writing"),
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Sync Redis catalog to PostgreSQL (Super User only)."""
-    await _validate_catalog(catalog, db)
-    redis_entries = await catalog_get_all(catalog)
+    # Step 2: Push all custom_redis_catalog → Redis
+    entries = await _pg_get_all(db, catalog)
     synced = 0
-    for display_name, data in redis_entries.items():
-        if not dry_run:
-            await _pg_upsert(db, catalog, display_name, data)
+    for display_name, data in entries.items():
+        await redis_set(catalog, display_name, data)
         synced += 1
-    return {"synced": synced, "dry_run": dry_run, "catalog": catalog}
+    return {"synced": synced, "backfilled": backfilled, "catalog": catalog}

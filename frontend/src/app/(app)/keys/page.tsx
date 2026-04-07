@@ -297,8 +297,40 @@ export default function AllKeysPage() {
                   <TableCell className="font-medium">
                     {key.key_alias || "-"}
                   </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {maskKey(key.token)}
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      <span className="font-mono text-xs text-muted-foreground">{maskKey(key.token)}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        title="키 복사"
+                        disabled={revealKeyMutation.isPending}
+                        onClick={() => {
+                          revealKeyMutation.mutate(key.token, {
+                            onSuccess: async (res) => {
+                              try {
+                                await navigator.clipboard.writeText(res.key);
+                              } catch {
+                                const ta = document.createElement("textarea");
+                                ta.value = res.key;
+                                ta.style.position = "fixed";
+                                ta.style.opacity = "0";
+                                document.body.appendChild(ta);
+                                ta.select();
+                                document.execCommand("copy");
+                                document.body.removeChild(ta);
+                              }
+                              setCopiedKeyId(key.token);
+                              toast.success("키가 클립보드에 복사되었습니다.");
+                              setTimeout(() => setCopiedKeyId(null), 2000);
+                            },
+                            onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                          });
+                        }}
+                      >
+                        {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+                      </Button>
+                    </div>
                   </TableCell>
                   <TableCell>
                     {key.team_id ? (
@@ -316,32 +348,11 @@ export default function AllKeysPage() {
                     {formatDate(key.created_at)}
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        title="키 복사"
-                        disabled={revealKeyMutation.isPending}
-                        onClick={() => {
-                          revealKeyMutation.mutate(key.token, {
-                            onSuccess: (res) => {
-                              navigator.clipboard.writeText(res.key);
-                              setCopiedKeyId(key.token);
-                              toast.success("키가 클립보드에 복사되었습니다.");
-                              setTimeout(() => setCopiedKeyId(null), 2000);
-                            },
-                            onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
-                          });
-                        }}
-                      >
-                        {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
-                      </Button>
-                      <DeleteKeyDialog
-                        keyItem={key}
-                        onDelete={handleDeleteKey}
-                        isDeleting={deletingKeyId === key.token}
-                      />
-                    </div>
+                    <DeleteKeyDialog
+                      keyItem={key}
+                      onDelete={handleDeleteKey}
+                      isDeleting={deletingKeyId === key.token}
+                    />
                   </TableCell>
                 </TableRow>
               ))}
