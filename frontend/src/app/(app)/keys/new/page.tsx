@@ -143,8 +143,7 @@ export default function CreateKeyPage({
 
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
-        const rawKey = data.key || data.token || "";
-        setCreatedToken(rawKey.replace(/^sk-/, ""));
+        setCreatedToken(data.key || "");
         toast.success("API 키가 성공적으로 생성되었습니다.");
       },
       onError: (err) => {
