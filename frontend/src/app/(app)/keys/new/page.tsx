@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMyTeams, useCreateKey, usePortalSettings } from "@/hooks/use-api";
 import {
@@ -105,6 +106,7 @@ export default function CreateKeyPage({
   searchParams: Promise<{ team_id?: string }>;
 }) {
   const params = use(searchParams);
+  const router = useRouter();
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
@@ -127,13 +129,15 @@ export default function CreateKeyPage({
       return;
     }
 
+    if (!keyAlias.trim()) {
+      toast.error("키 별칭을 입력해주세요.");
+      return;
+    }
+
     const body: CreateKeyRequest = {
       team_id: selectedTeamId,
+      key_alias: keyAlias.trim(),
     };
-
-    if (keyAlias.trim()) {
-      body.key_alias = keyAlias.trim();
-    }
 
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
@@ -153,6 +157,7 @@ export default function CreateKeyPage({
   const handleDialogClose = () => {
     setCreatedToken(null);
     setKeyAlias("");
+    router.back();
   };
 
   const handleTeamChange = (teamId: string) => {
@@ -182,7 +187,7 @@ export default function CreateKeyPage({
         <CardHeader>
           <CardTitle className="text-base">키 설정</CardTitle>
           <CardDescription>
-            필수 항목은 팀 선택뿐이며, 나머지는 선택사항입니다.
+            팀과 키 별칭은 필수 항목입니다.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -218,7 +223,7 @@ export default function CreateKeyPage({
 
             {/* Key Alias */}
             <div className="space-y-2">
-              <Label htmlFor="key-alias">키 별칭</Label>
+              <Label htmlFor="key-alias">키 별칭 <span className="text-destructive">*</span></Label>
               <Input
                 id="key-alias"
                 placeholder="예: my-project-key"
@@ -269,7 +274,7 @@ export default function CreateKeyPage({
             <Button
               type="submit"
               className="w-full"
-              disabled={!selectedTeamId || createKeyMutation.isPending}
+              disabled={!selectedTeamId || !keyAlias.trim() || createKeyMutation.isPending}
             >
               {createKeyMutation.isPending && (
                 <Loader2 className="size-4 animate-spin" />
