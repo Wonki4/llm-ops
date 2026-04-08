@@ -12,7 +12,7 @@ from app.auth.deps import get_current_user, require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
-from app.db.models.custom_user import CustomUser
+from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -133,6 +133,11 @@ async def list_all_history(
 ) -> dict:
     """List all status change history across all catalog entries."""
     query = select(CustomModelStatusHistory)
+
+    # Non-admin: exclude history for hidden models
+    if user.global_role != GlobalRole.SUPER_USER:
+        visible_models_q = select(CustomModelCatalog.model_name).where(CustomModelCatalog.visible == True)  # noqa: E712
+        query = query.where(CustomModelStatusHistory.model_name.in_(visible_models_q))
 
     if model_name:
         query = query.where(CustomModelStatusHistory.model_name.ilike(f"%{model_name}%"))
