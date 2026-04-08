@@ -19,26 +19,6 @@ import {
   ArrowRight,
 } from "lucide-react";
 
-function formatBudget(spend: number, maxBudget: number | null): string {
-  const spendStr = `$${spend.toFixed(2)}`;
-  if (maxBudget === null) return `${spendStr} / 무제한`;
-  return `${spendStr} / $${maxBudget.toFixed(2)}`;
-}
-
-function budgetPercent(spend: number, maxBudget: number | null): number {
-  if (maxBudget === null || maxBudget === 0) return 0;
-  return Math.min((spend / maxBudget) * 100, 100);
-}
-
-function formatResetDate(dateStr: string): string {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("ko-KR", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function SkeletonCards() {
   return (
@@ -133,7 +113,6 @@ export default function MyTeamsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {teams.map((team) => {
-            const pct = budgetPercent(team.spend, team.max_budget);
             return (
               <Link key={team.team_id} href={`/teams/${team.team_id}`}>
                 <Card className="h-full cursor-pointer transition-shadow hover:shadow-md">
@@ -143,32 +122,6 @@ export default function MyTeamsPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {/* Budget bar */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>예산</span>
-                        <span>{formatBudget(team.spend, team.max_budget)}</span>
-                      </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{
-                            width:
-                              team.max_budget === null
-                                ? "0%"
-                                : `${pct}%`,
-                          }}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Budget reset */}
-                    {team.budget_reset_at && (
-                      <p className="text-xs text-muted-foreground">
-                        예산 초기화: {formatResetDate(team.budget_reset_at)}
-                      </p>
-                    )}
-
                     {/* Badges */}
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
