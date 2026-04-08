@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Inbox, Search, X } from "lucide-react";
+import { Inbox, Search, X, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -105,6 +105,8 @@ export default function AdminRequestsPage() {
   const [selectedRequest, setSelectedRequest] =
     useState<TeamJoinRequest | null>(null);
   const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
   const [comment, setComment] = useState("");
 
   const filteredRequests = useMemo(() => {
@@ -122,6 +124,10 @@ export default function AdminRequestsPage() {
       return true;
     });
   }, [requests, statusTab, typeTab, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+  const safePageValue = Math.min(page, totalPages);
+  const pageRequests = filteredRequests.slice((safePageValue - 1) * pageSize, safePageValue * pageSize);
 
   function openActionDialog(
     request: TeamJoinRequest,
@@ -213,7 +219,7 @@ export default function AdminRequestsPage() {
       </div>
 
       {/* Status tabs + Table */}
-      <Tabs value={statusTab} onValueChange={setStatusTab}>
+      <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
         <TabsList>
           <TabsTrigger value="all">전체</TabsTrigger>
           <TabsTrigger value="pending">대기중</TabsTrigger>
@@ -225,6 +231,7 @@ export default function AdminRequestsPage() {
           {isLoading ? (
             <TableSkeleton />
           ) : filteredRequests.length > 0 ? (
+            <>
             <div className="rounded-lg border">
               <Table>
                 <TableHeader>
@@ -239,7 +246,7 @@ export default function AdminRequestsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRequests.map((req) => (
+                  {pageRequests.map((req) => (
                     <TableRow key={req.id}>
                       <TableCell>
                         <TypeBadge type={(req.request_type ?? "join") as RequestType} />
@@ -303,7 +310,25 @@ export default function AdminRequestsPage() {
                 </TableBody>
               </Table>
             </div>
-          ) : (
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-muted-foreground">
+                  총 {filteredRequests.length}건 중 {(safePageValue - 1) * pageSize + 1}–{Math.min(safePageValue * pageSize, filteredRequests.length)}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={safePageValue <= 1} onClick={() => setPage((p) => p - 1)}>
+                    <ArrowLeft className="size-4" />
+                    이전
+                  </Button>
+                  <span className="text-sm text-muted-foreground">{safePageValue} / {totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={safePageValue >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    다음
+                    <ArrowRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>) : (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Inbox className="size-10 text-muted-foreground mb-3" />
               <p className="text-muted-foreground">

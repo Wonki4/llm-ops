@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Inbox, Search, X } from "lucide-react";
+import { Inbox, Search, X, ArrowLeft, ArrowRight } from "lucide-react";
 
 import { useJoinRequests } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -65,6 +65,8 @@ export default function MyRequestsPage() {
   const [statusTab, setStatusTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   const filteredRequests = useMemo(() => {
     if (!requests) return [];
@@ -78,6 +80,11 @@ export default function MyRequestsPage() {
       return true;
     });
   }, [requests, statusTab, searchQuery]);
+
+  // Reset page when filters change
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
+  const safePageValue = Math.min(page, totalPages);
+  const pageRequests = filteredRequests.slice((safePageValue - 1) * pageSize, safePageValue * pageSize);
 
   return (
     <div className="space-y-6">
@@ -117,7 +124,7 @@ export default function MyRequestsPage() {
         )}
       </div>
 
-      <Tabs value={statusTab} onValueChange={setStatusTab}>
+      <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
         <TabsList>
           <TabsTrigger value="all">전체</TabsTrigger>
           <TabsTrigger value="pending">대기중</TabsTrigger>
@@ -137,6 +144,7 @@ export default function MyRequestsPage() {
               ))}
             </div>
           ) : filteredRequests.length > 0 ? (
+            <>
             <div className="rounded-lg border">
               <Table>
                 <TableHeader>
@@ -150,7 +158,7 @@ export default function MyRequestsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredRequests.map((req) => (
+                  {pageRequests.map((req) => (
                     <TableRow key={req.id}>
                       <TableCell>
                         <TypeBadge type={(req.request_type ?? "join") as RequestType} />
@@ -194,6 +202,25 @@ export default function MyRequestsPage() {
                 </TableBody>
               </Table>
             </div>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4">
+                <p className="text-sm text-muted-foreground">
+                  총 {filteredRequests.length}건 중 {(safePageValue - 1) * pageSize + 1}–{Math.min(safePageValue * pageSize, filteredRequests.length)}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" disabled={safePageValue <= 1} onClick={() => setPage((p) => p - 1)}>
+                    <ArrowLeft className="size-4" />
+                    이전
+                  </Button>
+                  <span className="text-sm text-muted-foreground">{safePageValue} / {totalPages}</span>
+                  <Button variant="outline" size="sm" disabled={safePageValue >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                    다음
+                    <ArrowRight className="size-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Inbox className="size-10 text-muted-foreground mb-3" />
