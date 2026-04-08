@@ -87,10 +87,20 @@ async def login(return_to: str = "/teams") -> Response:
 
 
 async def _resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
-    """Resolve default teams for a user based on prefix rules + fallback."""
+    """Resolve default teams: base team (all users) + prefix-matched teams."""
     import json as _json
 
-    # Check prefix-based rules first
+    team_ids: list[str] = []
+
+    # 1. Base team — assigned to ALL new users
+    base_result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
+    )
+    base_team = base_result.scalar()
+    if base_team:
+        team_ids.append(base_team)
+
+    # 2. Prefix rules — additional teams based on user ID prefix
     rules_result = await db.execute(
         text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'")
     )
@@ -100,14 +110,12 @@ async def _resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
         upper_id = user_id.upper()
         for rule in rules:
             if upper_id.startswith(rule.get("prefix", "").upper()):
-                return rule.get("teams", [])
+                for t in rule.get("teams", []):
+                    if t not in team_ids:
+                        team_ids.append(t)
+                break  # first matching rule only
 
-    # Fallback to single default_team_id
-    fallback_result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
-    )
-    fallback = fallback_result.scalar()
-    return [fallback] if fallback else []
+    return team_ids
 
 
 async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:
