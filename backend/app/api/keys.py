@@ -102,6 +102,8 @@ async def create_key(
                 rpm_limit=rpm_limit,
                 metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias},
             )
+            # Ensure the generated key is always in the response
+            result["key"] = sk_key
             return result
         except HTTPStatusError as e:
             if e.response.status_code >= 500:
