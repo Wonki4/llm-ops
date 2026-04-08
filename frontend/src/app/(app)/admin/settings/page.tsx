@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Loader2, Settings, Save } from "lucide-react";
+import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { usePortalSettings, useUpdatePortalSettings } from "@/hooks/use-api";
+import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams } from "@/hooks/use-api";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,10 +20,13 @@ import {
 export default function PortalSettingsPage() {
   const { data: settings, isLoading } = usePortalSettings();
   const updateMutation = useUpdatePortalSettings();
+  const { data: hiddenTeams } = useHiddenTeams();
+  const updateHiddenTeams = useUpdateHiddenTeams();
 
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
   const [defaultTeamId, setDefaultTeamId] = useState("");
+  const [newHiddenTeamId, setNewHiddenTeamId] = useState("");
 
   useEffect(() => {
     if (settings) {
@@ -123,6 +127,84 @@ export default function PortalSettingsPage() {
               신규 유저가 자동으로 추가될 팀의 ID입니다
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <EyeOff className="size-4" />
+            팀 숨기기
+          </CardTitle>
+          <CardDescription>
+            일반 유저에게 보이지 않는 팀을 관리합니다. 관리자에게는 항상 표시됩니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="숨길 팀 ID 입력"
+              value={newHiddenTeamId}
+              onChange={(e) => setNewHiddenTeamId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (!newHiddenTeamId.trim()) return;
+                  const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
+                  updateHiddenTeams.mutate(updated, {
+                    onSuccess: () => {
+                      toast.success("팀이 숨김 목록에 추가되었습니다.");
+                      setNewHiddenTeamId("");
+                    },
+                    onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                  });
+                }
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!newHiddenTeamId.trim() || updateHiddenTeams.isPending}
+              onClick={() => {
+                if (!newHiddenTeamId.trim()) return;
+                const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
+                updateHiddenTeams.mutate(updated, {
+                  onSuccess: () => {
+                    toast.success("팀이 숨김 목록에 추가되었습니다.");
+                    setNewHiddenTeamId("");
+                  },
+                  onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                });
+              }}
+            >
+              <Plus className="size-4" />
+              추가
+            </Button>
+          </div>
+          {hiddenTeams && hiddenTeams.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {hiddenTeams.map((teamId) => (
+                <Badge key={teamId} variant="secondary" className="gap-1 pr-1">
+                  {teamId}
+                  <button
+                    type="button"
+                    className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                    onClick={() => {
+                      const updated = hiddenTeams.filter((id) => id !== teamId);
+                      updateHiddenTeams.mutate(updated, {
+                        onSuccess: () => toast.success("팀이 숨김 목록에서 제거되었습니다."),
+                        onError: (err) => toast.error(err instanceof Error ? err.message : "제거 실패"),
+                      });
+                    }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">숨겨진 팀이 없습니다.</p>
+          )}
         </CardContent>
       </Card>
 

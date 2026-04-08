@@ -14,9 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from app.auth.deps import get_current_user
+from app.api.teams import _get_hidden_teams
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
-from app.db.models.custom_user import CustomUser
+from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
@@ -123,6 +124,7 @@ async def create_key(
 async def list_my_keys(
     team_id: str | None = None,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List current user's API keys, optionally filtered by team."""
@@ -157,6 +159,12 @@ async def list_my_keys(
         }
         for k in result.mappings()
     ]
+
+    # Hide keys belonging to hidden teams for non-super users
+    if user.global_role != GlobalRole.SUPER_USER:
+        hidden = await _get_hidden_teams(db)
+        keys = [k for k in keys if k["team_id"] not in hidden]
+
     return {"keys": keys}
 
 

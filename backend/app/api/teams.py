@@ -13,8 +13,19 @@ from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
 
+import json
+
 MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
+
+
+async def _get_hidden_teams(db: AsyncSession) -> set[str]:
+    """Get hidden team IDs from portal settings."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'hidden_teams'")
+    )
+    raw = result.scalar()
+    return set(json.loads(raw)) if raw else set()
 
 _TEAM_COLUMNS = (
     "t.team_id, t.team_alias, t.max_budget, t.spend, "
@@ -45,6 +56,7 @@ def _row_to_team(row: Mapping[str, Any], preview_limit: int = MEMBER_PREVIEW_LIM
 @router.get("")
 async def list_my_teams(
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List teams the current user belongs to (direct DB query)."""
@@ -61,6 +73,12 @@ async def list_my_teams(
         {"user_id": user.user_id},
     )
     teams = [_row_to_team(r) for r in result.mappings()]
+
+    # Hide teams for non-super users
+    if user.global_role != GlobalRole.SUPER_USER:
+        hidden = await _get_hidden_teams(db)
+        teams = [t for t in teams if t["team_id"] not in hidden]
+
     return {"teams": teams}
 
 
@@ -97,9 +115,16 @@ async def discover_teams(
     )
     pending_team_ids = {r["team_id"] for r in pending_result.mappings()}
 
+    # Get hidden teams for non-super users
+    hidden = set()
+    if user.global_role != GlobalRole.SUPER_USER:
+        hidden = await _get_hidden_teams(db)
+
     teams = []
     for row in all_result.mappings():
         team_data = _row_to_team(row)
+        if team_data["team_id"] in hidden:
+            continue
         is_member = (
             team_data["team_id"] in user_team_ids
             or user.user_id in (row["members"] or [])
