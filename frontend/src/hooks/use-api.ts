@@ -34,8 +34,8 @@ export const queryKeys = {
   teamDetail: (teamId: string) => ["teams", teamId] as const,
   discoverTeams: ["teams", "discover"] as const,
   myKeys: (teamId?: string) => ["keys", { teamId }] as const,
-  joinRequests: (teamId?: string, status?: string) =>
-    ["join-requests", { teamId, status }] as const,
+  joinRequests: (teamId?: string, status?: string, mineOnly?: boolean) =>
+    ["join-requests", { teamId, status, mineOnly }] as const,
   models: ["models"] as const,
   modelCatalog: ["models", "catalog"] as const,
   modelStatusHistory: (catalogId: string) => ["models", "catalog", catalogId, "history"] as const,
@@ -197,7 +197,7 @@ export function useJoinRequests(teamId?: string, status?: string, mineOnly?: boo
   const qs = params.toString() ? `?${params.toString()}` : "";
 
   return useQuery({
-    queryKey: queryKeys.joinRequests(teamId, status),
+    queryKey: queryKeys.joinRequests(teamId, status, mineOnly),
     queryFn: () =>
       apiFetch<{ requests: TeamJoinRequest[] }>(`/api/team-requests${qs}`).then(
         (r) => r.requests,
