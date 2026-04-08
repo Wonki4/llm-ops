@@ -175,7 +175,7 @@ async def get_team_detail(
         text(
             "SELECT token, key_name, key_alias, team_id, user_id, "
             "       spend, max_budget, budget_duration, budget_reset_at, "
-            "       models, expires, created_at "
+            "       models, expires, created_at, metadata "
             'FROM "LiteLLM_VerificationToken" '
             "WHERE user_id = :user_id AND team_id = :team_id "
             "ORDER BY created_at DESC"
@@ -186,7 +186,7 @@ async def get_team_detail(
         {
             "token": k["token"],
             "key_name": k["key_name"],
-            "key_alias": k["key_alias"],
+            "key_alias": (k["metadata"] or {}).get("display_alias", ""),
             "team_id": k["team_id"],
             "user_id": k["user_id"],
             "spend": float(k["spend"]),
