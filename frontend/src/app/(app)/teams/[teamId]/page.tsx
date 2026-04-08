@@ -158,7 +158,7 @@ function DeleteKeyDialog({
   );
 }
 
-function BudgetRequestDialog({ teamId }: { teamId: string }) {
+function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; currentBudget: number | null }) {
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
@@ -169,19 +169,31 @@ function BudgetRequestDialog({ teamId }: { teamId: string }) {
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="w-full mt-2">
           <DollarSign className="size-3.5 mr-1" />
-          예산 증액 요청
+          예산 변경 요청
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>예산 증액 요청</DialogTitle>
+          <DialogTitle>예산 변경 요청</DialogTitle>
           <DialogDescription>
-            팀 관리자에게 예산 증액을 요청합니다.
+            팀 관리자에게 예산 변경을 요청합니다.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
+          <div className="rounded-md bg-muted p-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">현재 예산</span>
+              <span className="font-medium">{currentBudget === null ? "무제한" : `$${currentBudget.toFixed(2)}`}</span>
+            </div>
+            {amount && Number(amount) > 0 && (
+              <div className="flex justify-between mt-1 pt-1 border-t border-border">
+                <span className="text-muted-foreground">변경 후 예산</span>
+                <span className="font-medium text-primary">${Number(amount).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
           <div>
-            <label className="text-sm font-medium">요청 금액 ($)</label>
+            <label className="text-sm font-medium">변경 금액 ($)</label>
             <Input
               type="number"
               step="0.01"
@@ -194,7 +206,7 @@ function BudgetRequestDialog({ teamId }: { teamId: string }) {
           <div>
             <label className="text-sm font-medium">사유 (선택)</label>
             <Input
-              placeholder="증액이 필요한 이유를 입력하세요"
+              placeholder="변경이 필요한 이유를 입력하세요"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
             />
@@ -211,7 +223,7 @@ function BudgetRequestDialog({ teamId }: { teamId: string }) {
                 { team_id: teamId, requested_budget: Number(amount), message: message || undefined },
                 {
                   onSuccess: () => {
-                    toast.success("예산 증액 요청이 제출되었습니다.");
+                    toast.success("예산 변경 요청이 제출되었습니다.");
                     setOpen(false);
                     setAmount("");
                     setMessage("");
@@ -380,7 +392,7 @@ function OverviewTab({
                 <p>예산 주기: {myMembership.budget_duration ? `${formatBudgetDuration(myMembership.budget_duration)} 주기` : "-"}</p>
                 <p>예산 초기화: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at) : "-"}</p>
               </div>
-              <BudgetRequestDialog teamId={team.team_id} />
+              <BudgetRequestDialog teamId={team.team_id} currentBudget={myMaxBudget} />
             </CardContent>
           </Card>
 

@@ -32,7 +32,7 @@ const STATUS_LABELS: Record<JoinRequestStatus, string> = {
 
 const TYPE_LABELS: Record<RequestType, string> = {
   join: "팀 가입",
-  budget: "예산 증액",
+  budget: "예산 변경",
 };
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
@@ -84,7 +84,7 @@ export default function MyRequestsPage() {
       <div>
         <h1 className="text-2xl font-bold">내 요청</h1>
         <p className="text-muted-foreground mt-1">
-          내가 보낸 팀 가입 및 예산 증액 요청 현황입니다
+          내가 보낸 팀 가입 및 예산 변경 요청 현황입니다
         </p>
       </div>
 
@@ -224,7 +224,7 @@ export default function MyRequestsPage() {
                 <span>{formatDate(detailRequest.created_at)}</span>
                 {(detailRequest.request_type ?? "join") === "budget" && (
                   <>
-                    <span className="text-muted-foreground">요청 금액</span>
+                    <span className="text-muted-foreground">변경 금액</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
                     </span>

@@ -41,7 +41,7 @@ const STATUS_LABELS: Record<JoinRequestStatus, string> = {
 
 const TYPE_LABELS: Record<RequestType, string> = {
   join: "팀 가입",
-  budget: "예산 증액",
+  budget: "예산 변경",
 };
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
@@ -170,7 +170,7 @@ export default function AdminRequestsPage() {
       <div>
         <h1 className="text-2xl font-bold">요청 관리</h1>
         <p className="text-muted-foreground mt-1">
-          팀 가입 및 예산 증액 요청을 검토하세요
+          팀 가입 및 예산 변경 요청을 검토하세요
         </p>
       </div>
 
@@ -196,7 +196,7 @@ export default function AdminRequestsPage() {
           <TabsList>
             <TabsTrigger value="all">전체 유형</TabsTrigger>
             <TabsTrigger value="join">팀 가입</TabsTrigger>
-            <TabsTrigger value="budget">예산 증액</TabsTrigger>
+            <TabsTrigger value="budget">예산 변경</TabsTrigger>
           </TabsList>
         </Tabs>
         {(searchQuery || typeTab !== "all") && (
@@ -335,7 +335,7 @@ export default function AdminRequestsPage() {
                 <span>{formatDate(detailRequest.created_at)}</span>
                 {(detailRequest.request_type ?? "join") === "budget" && (
                   <>
-                    <span className="text-muted-foreground">요청 금액</span>
+                    <span className="text-muted-foreground">변경 금액</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
                     </span>
@@ -380,7 +380,7 @@ export default function AdminRequestsPage() {
               {dialogAction === "approve" ? "승인" : "거절"}합니다.
               {reqType === "budget" && selectedRequest?.requested_budget != null && (
                 <span className="block mt-1 font-semibold text-purple-700 dark:text-purple-400">
-                  요청 금액: ${selectedRequest.requested_budget.toFixed(2)}
+                  변경 금액: ${selectedRequest.requested_budget.toFixed(2)}
                 </span>
               )}
             </DialogDescription>
