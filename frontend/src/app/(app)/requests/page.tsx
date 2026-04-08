@@ -16,7 +16,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { JoinRequestStatus, RequestType } from "@/types";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { JoinRequestStatus, RequestType, TeamJoinRequest } from "@/types";
 
 const STATUS_LABELS: Record<JoinRequestStatus, string> = {
   pending: "대기중",
@@ -58,6 +64,7 @@ export default function MyRequestsPage() {
   const { data: requests, isLoading, isError } = useJoinRequests(undefined, undefined, true);
   const [statusTab, setStatusTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
 
   const filteredRequests = useMemo(() => {
     if (!requests) return [];
@@ -152,15 +159,20 @@ export default function MyRequestsPage() {
                         {req.team_alias || req.team_id}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
-                        {(req.request_type ?? "join") === "budget" ? (
-                          <span className="font-medium text-purple-700 dark:text-purple-400">
-                            ${req.requested_budget?.toFixed(2)}
-                          </span>
-                        ) : (
-                          <span className="truncate text-sm text-muted-foreground" title={req.message ?? undefined}>
-                            {req.message || "-"}
-                          </span>
-                        )}
+                        <button
+                          type="button"
+                          className="block w-full text-left truncate text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                          onClick={() => setDetailRequest(req)}
+                        >
+                          {(req.request_type ?? "join") === "budget" ? (
+                            <span className="font-medium text-purple-700 dark:text-purple-400">
+                              ${req.requested_budget?.toFixed(2)}
+                              {req.message && ` - ${req.message}`}
+                            </span>
+                          ) : (
+                            req.message || "-"
+                          )}
+                        </button>
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={req.status} />
@@ -168,8 +180,14 @@ export default function MyRequestsPage() {
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(req.created_at)}
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground max-w-[200px] truncate" title={req.review_comment ?? undefined}>
-                        {req.review_comment || "-"}
+                      <TableCell className="max-w-[200px]">
+                        <button
+                          type="button"
+                          className="block w-full text-left truncate text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                          onClick={() => setDetailRequest(req)}
+                        >
+                          {req.review_comment || "-"}
+                        </button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -186,6 +204,51 @@ export default function MyRequestsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Detail Modal */}
+      <Dialog open={!!detailRequest} onOpenChange={(open) => !open && setDetailRequest(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>요청 상세</DialogTitle>
+          </DialogHeader>
+          {detailRequest && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-[80px_1fr] gap-2">
+                <span className="text-muted-foreground">유형</span>
+                <span><TypeBadge type={(detailRequest.request_type ?? "join") as RequestType} /></span>
+                <span className="text-muted-foreground">팀</span>
+                <span className="font-medium">{detailRequest.team_alias || detailRequest.team_id}</span>
+                <span className="text-muted-foreground">상태</span>
+                <span><StatusBadge status={detailRequest.status} /></span>
+                <span className="text-muted-foreground">요청일</span>
+                <span>{formatDate(detailRequest.created_at)}</span>
+                {(detailRequest.request_type ?? "join") === "budget" && (
+                  <>
+                    <span className="text-muted-foreground">요청 금액</span>
+                    <span className="font-medium text-purple-700 dark:text-purple-400">
+                      ${detailRequest.requested_budget?.toFixed(2)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground mb-1">요청 내용</p>
+                <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                  {detailRequest.message || "-"}
+                </p>
+              </div>
+              {detailRequest.review_comment && (
+                <div>
+                  <p className="text-muted-foreground mb-1">처리 코멘트</p>
+                  <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                    {detailRequest.review_comment}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -104,6 +104,7 @@ export default function AdminRequestsPage() {
   );
   const [selectedRequest, setSelectedRequest] =
     useState<TeamJoinRequest | null>(null);
+  const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
   const [comment, setComment] = useState("");
 
   const filteredRequests = useMemo(() => {
@@ -250,22 +251,20 @@ export default function AdminRequestsPage() {
                         {req.team_alias || req.team_id}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
-                        {(req.request_type ?? "join") === "budget" ? (
-                          <div>
+                        <button
+                          type="button"
+                          className="block w-full text-left truncate text-sm text-muted-foreground hover:text-foreground cursor-pointer"
+                          onClick={() => setDetailRequest(req)}
+                        >
+                          {(req.request_type ?? "join") === "budget" ? (
                             <span className="font-medium text-purple-700 dark:text-purple-400">
                               ${req.requested_budget?.toFixed(2)}
+                              {req.message && ` - ${req.message}`}
                             </span>
-                            {req.message && (
-                              <p className="text-xs text-muted-foreground truncate mt-0.5" title={req.message}>
-                                {req.message}
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="truncate" title={req.message ?? undefined}>
-                            {req.message || <span className="text-muted-foreground">-</span>}
-                          </span>
-                        )}
+                          ) : (
+                            req.message || "-"
+                          )}
+                        </button>
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={req.status} />
@@ -314,6 +313,53 @@ export default function AdminRequestsPage() {
           )}
         </TabsContent>
       </Tabs>
+
+      {/* Detail Modal */}
+      <Dialog open={!!detailRequest} onOpenChange={(open) => !open && setDetailRequest(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>요청 상세</DialogTitle>
+          </DialogHeader>
+          {detailRequest && (
+            <div className="space-y-3 text-sm">
+              <div className="grid grid-cols-[80px_1fr] gap-2">
+                <span className="text-muted-foreground">유형</span>
+                <span><TypeBadge type={(detailRequest.request_type ?? "join") as RequestType} /></span>
+                <span className="text-muted-foreground">요청자</span>
+                <span className="font-medium">{detailRequest.requester_id}</span>
+                <span className="text-muted-foreground">팀</span>
+                <span className="font-medium">{detailRequest.team_alias || detailRequest.team_id}</span>
+                <span className="text-muted-foreground">상태</span>
+                <span><StatusBadge status={detailRequest.status} /></span>
+                <span className="text-muted-foreground">요청일</span>
+                <span>{formatDate(detailRequest.created_at)}</span>
+                {(detailRequest.request_type ?? "join") === "budget" && (
+                  <>
+                    <span className="text-muted-foreground">요청 금액</span>
+                    <span className="font-medium text-purple-700 dark:text-purple-400">
+                      ${detailRequest.requested_budget?.toFixed(2)}
+                    </span>
+                  </>
+                )}
+              </div>
+              <div>
+                <p className="text-muted-foreground mb-1">요청 내용</p>
+                <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                  {detailRequest.message || "-"}
+                </p>
+              </div>
+              {detailRequest.review_comment && (
+                <div>
+                  <p className="text-muted-foreground mb-1">처리 코멘트</p>
+                  <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                    {detailRequest.review_comment}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Approve / Reject Confirmation Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
