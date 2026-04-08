@@ -604,6 +604,7 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const changeRoleMutation = useChangeMemberRole();
   const removeMemberMutation = useRemoveTeamMember();
+  const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; currentIsAdmin: boolean } | null>(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -699,11 +700,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                               disabled={changeRoleMutation.isPending}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                changeRoleMutation.mutate({
-                                  teamId,
-                                  userId: member.user_id,
-                                  role: member.is_admin ? "member" : "admin",
-                                });
+                                setRoleChangeTarget({ userId: member.user_id, currentIsAdmin: member.is_admin });
                               }}
                             >
                               {member.is_admin ? "멤버로 변경" : "관리자로 변경"}
@@ -831,6 +828,52 @@ function MembersTab({ teamId }: { teamId: string }) {
           </div>
         </>
       )}
+
+      {/* Role Change Confirmation Dialog */}
+      <Dialog open={!!roleChangeTarget} onOpenChange={(open) => !open && setRoleChangeTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>역할 변경</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold text-foreground">{roleChangeTarget?.userId}</span>
+              님의 역할을{" "}
+              <span className="font-semibold text-foreground">
+                {roleChangeTarget?.currentIsAdmin ? "멤버" : "관리자"}
+              </span>
+              로 변경하시겠습니까?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleChangeTarget(null)}>
+              취소
+            </Button>
+            <Button
+              disabled={changeRoleMutation.isPending}
+              onClick={() => {
+                if (!roleChangeTarget) return;
+                changeRoleMutation.mutate(
+                  {
+                    teamId,
+                    userId: roleChangeTarget.userId,
+                    role: roleChangeTarget.currentIsAdmin ? "member" : "admin",
+                  },
+                  {
+                    onSuccess: () => {
+                      toast.success("역할이 변경되었습니다.");
+                      setRoleChangeTarget(null);
+                    },
+                    onError: (err) => {
+                      toast.error(err instanceof Error ? err.message : "역할 변경 실패");
+                    },
+                  },
+                );
+              }}
+            >
+              {changeRoleMutation.isPending ? "변경 중..." : "확인"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
