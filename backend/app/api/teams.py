@@ -279,15 +279,25 @@ async def list_team_members(
     offset = (page - 1) * page_size
     membership_result = await litellm_db.execute(
         text(f"""
-            SELECT tm.user_id
+            SELECT tm.user_id, tm.spend AS membership_spend,
+                   b.max_budget AS membership_max_budget
             FROM "LiteLLM_TeamMembership" tm
+            LEFT JOIN "LiteLLM_BudgetTable" b ON tm.budget_id = b.budget_id
             WHERE tm.team_id = :team_id {search_condition}
             ORDER BY tm.user_id
             OFFSET :offset LIMIT :limit
         """),
         {**search_params, "offset": offset, "limit": page_size},
     )
-    paged_ids = [r["user_id"] for r in membership_result.mappings()]
+    paged_rows = list(membership_result.mappings())
+    paged_ids = [r["user_id"] for r in paged_rows]
+    membership_budget = {
+        r["user_id"]: {
+            "spend": float(r["membership_spend"] or 0),
+            "max_budget": float(r["membership_max_budget"]) if r["membership_max_budget"] is not None else None,
+        }
+        for r in paged_rows
+    }
 
     if not paged_ids:
         return {"members": [], "total": total, "page": page, "page_size": page_size}
@@ -325,18 +335,14 @@ async def list_team_members(
     members = []
     for uid in paged_ids:
         user_keys = keys_by_user.get(uid, [])
-        total_spend = sum(k["spend"] for k in user_keys)
-        has_unlimited = any(k["max_budget"] is None for k in user_keys)
-        total_max_budget: float | None = (
-            None if has_unlimited else (sum(k["max_budget"] for k in user_keys) if user_keys else None)  # type: ignore[arg-type]
-        )
+        budget = membership_budget.get(uid, {"spend": 0, "max_budget": None})
         members.append(
             {
                 "user_id": uid,
                 "is_admin": uid in all_admins_set,
                 "key_count": len(user_keys),
-                "total_spend": total_spend,
-                "total_max_budget": total_max_budget,
+                "total_spend": budget["spend"],
+                "total_max_budget": budget["max_budget"],
                 "keys": user_keys,
             }
         )
