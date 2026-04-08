@@ -328,7 +328,7 @@ function OverviewTab({
             <Boxes className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{team.models.length}개</div>
+            <div className="text-2xl font-bold">{team.models.includes("all-proxy-models") ? "전체" : `${team.models.length}개`}</div>
             <p className="text-xs text-muted-foreground">사용 가능한 모델</p>
           </CardContent>
         </Card>
@@ -1031,7 +1031,7 @@ export default function TeamDetailPage({
                           {key.models.length > 0 ? (
                             <Badge variant="secondary" className="gap-1">
                               <Boxes className="size-3" />
-                              {key.models.length}개
+                              {key.models.includes("all-proxy-models") ? "모든 모델" : `${key.models.length}개`}
                             </Badge>
                           ) : (
                             <span className="text-xs text-muted-foreground">전체</span>
