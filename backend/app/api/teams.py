@@ -122,18 +122,23 @@ async def discover_teams(
 
     teams = []
     for row in all_result.mappings():
-        team_data = _row_to_team(row)
-        if team_data["team_id"] in hidden:
+        team_id = row["team_id"]
+        if team_id in hidden:
             continue
+        all_members: list[str] = list(row["members"] or [])
+        all_admins: list[str] = list(row["admins"] or [])
         is_member = (
-            team_data["team_id"] in user_team_ids
-            or user.user_id in (row["members"] or [])
-            or user.user_id in (row["admins"] or [])
+            team_id in user_team_ids
+            or user.user_id in all_members
+            or user.user_id in all_admins
         )
         teams.append({
-            **team_data,
+            "team_id": team_id,
+            "team_alias": row["team_alias"],
+            "models": list(row["models"] or []),
+            "admins": all_admins,
             "is_member": is_member,
-            "has_pending_request": team_data["team_id"] in pending_team_ids,
+            "has_pending_request": team_id in pending_team_ids,
         })
 
     return {"teams": teams}
