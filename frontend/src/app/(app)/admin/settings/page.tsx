@@ -126,10 +126,10 @@ export default function PortalSettingsPage() {
               id="default-team-id"
               value={defaultTeamId}
               onChange={(e) => setDefaultTeamId(e.target.value)}
-              placeholder="비어있으면 팀 없이 유저만 생성됩니다"
+              placeholder="쉼표로 여러 팀 입력 가능 (예: team-a, team-b)"
             />
             <p className="text-xs text-muted-foreground">
-              신규 유저가 자동으로 추가될 팀의 ID입니다 (규칙에 매칭되지 않을 때 사용)
+              모든 신규 유저가 자동으로 추가될 팀입니다. 쉼표(,)로 여러 팀을 지정할 수 있습니다.
             </p>
           </div>
         </CardContent>
