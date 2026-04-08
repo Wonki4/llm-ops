@@ -9,7 +9,6 @@ from sqlalchemy import select, func as sa_func, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
-from app.api.catalog import _pg_upsert as catalog_pg_upsert, _pg_delete as catalog_pg_delete, _push_to_redis, _remove_from_redis, DEFAULT_CATALOG
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
@@ -323,11 +322,6 @@ async def create_catalog_entry(
     )
     db.add(history)
 
-    # Sync to catalog cache (custom_redis_catalog + Redis)
-    cache_data = {"model": entry.model_name}
-    await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
-    await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
-
     return _serialize_model(entry)
 
 
@@ -373,11 +367,6 @@ async def update_catalog_entry(
 
     await db.refresh(entry)
 
-    # Sync to catalog cache (custom_redis_catalog + Redis)
-    cache_data = {"model": entry.model_name}
-    await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
-    await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
-
     return _serialize_model(entry)
 
 
@@ -395,28 +384,7 @@ async def delete_catalog_entry(
 
     await db.delete(entry)
 
-    # Remove from catalog cache (custom_redis_catalog + Redis)
-    await catalog_pg_delete(db, DEFAULT_CATALOG, entry.display_name)
-    await _remove_from_redis(DEFAULT_CATALOG, entry.display_name)
-
     return {"deleted": True, "model_name": entry.model_name}
-
-
-@router.post("/catalog/sync-to-catalog-cache")
-async def sync_model_catalog_to_cache(
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Sync all custom_model_catalog entries to custom_redis_catalog + Redis cache."""
-    result = await db.execute(select(CustomModelCatalog))
-    entries = result.scalars().all()
-    synced = 0
-    for entry in entries:
-        cache_data = {"model": entry.model_name}
-        await catalog_pg_upsert(db, DEFAULT_CATALOG, entry.display_name, cache_data)
-        await _push_to_redis(DEFAULT_CATALOG, entry.display_name, cache_data)
-        synced += 1
-    return {"synced": synced}
 
 
 @router.get("/catalog/{catalog_id}/history")
