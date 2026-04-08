@@ -212,8 +212,8 @@ export default function MyRequestsPage() {
             <DialogTitle>요청 상세</DialogTitle>
           </DialogHeader>
           {detailRequest && (
-            <div className="space-y-3 text-sm">
-              <div className="grid grid-cols-[80px_1fr] gap-2">
+            <div className="space-y-3 text-sm overflow-hidden">
+              <div className="grid grid-cols-[80px_1fr] gap-2 min-w-0">
                 <span className="text-muted-foreground">유형</span>
                 <span><TypeBadge type={(detailRequest.request_type ?? "join") as RequestType} /></span>
                 <span className="text-muted-foreground">팀</span>
