@@ -12,7 +12,7 @@ from app.auth.deps import get_current_user, require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
-from app.db.models.custom_user import CustomUser
+from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -83,11 +83,19 @@ async def list_models(
     except Exception:
         litellm_models = []
 
+    is_admin = user.global_role == GlobalRole.SUPER_USER
+
     # Merge: catalog entry + LiteLLM runtime info
     models = []
     for lm in litellm_models:
         model_name = lm.get("model_name", "")
         catalog_entry = catalog_map.pop(model_name, None)
+        # Non-admin: skip models without catalog or hidden models
+        if not is_admin:
+            if not catalog_entry:
+                continue
+            if catalog_entry.get("visible") is False:
+                continue
         models.append(
             {
                 "model_name": model_name,
@@ -98,6 +106,8 @@ async def list_models(
 
     # Add catalog-only entries (not yet in LiteLLM)
     for name, entry in catalog_map.items():
+        if not is_admin and entry.get("visible") is False:
+            continue
         models.append(
             {
                 "model_name": name,
