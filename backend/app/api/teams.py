@@ -420,6 +420,62 @@ async def change_member_role(
     return {"status": "changed", "user_id": body.user_id, "new_role": body.role}
 
 
+class ChangeBudgetRequest(BaseModel):
+    max_budget: float
+
+
+@router.put("/{team_id}/members/{member_id}/budget")
+async def change_member_budget(
+    team_id: str,
+    member_id: str,
+    body: ChangeBudgetRequest,
+    user: CustomUser = Depends(get_current_user),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Change a team member's budget. Requires team admin or super user."""
+    await require_team_admin(user, team_id, litellm_db)
+
+    # Find or create budget with the target max_budget
+    existing_budget = await litellm_db.execute(
+        text(
+            'SELECT budget_id FROM "LiteLLM_BudgetTable" '
+            "WHERE max_budget = :max_budget LIMIT 1"
+        ),
+        {"max_budget": body.max_budget},
+    )
+    existing_row = existing_budget.mappings().first()
+
+    if existing_row:
+        target_budget_id = existing_row["budget_id"]
+    else:
+        import uuid as _uuid
+        target_budget_id = str(_uuid.uuid4())
+        await litellm_db.execute(
+            text(
+                'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
+                "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
+            ),
+            {
+                "budget_id": target_budget_id,
+                "max_budget": body.max_budget,
+                "created_by": user.user_id,
+                "updated_by": user.user_id,
+            },
+        )
+
+    # Point the member's membership to the target budget
+    await litellm_db.execute(
+        text(
+            'UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id '
+            "WHERE user_id = :user_id AND team_id = :team_id"
+        ),
+        {"budget_id": target_budget_id, "user_id": member_id, "team_id": team_id},
+    )
+    await litellm_db.commit()
+
+    return {"status": "changed", "user_id": member_id, "max_budget": body.max_budget}
+
+
 @router.delete("/{team_id}/members/{member_id}")
 async def remove_team_member(
     team_id: str,
