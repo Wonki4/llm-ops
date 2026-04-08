@@ -207,8 +207,8 @@ export default function CatalogManagementPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">카탈로그 관리</h1>
-          <p className="text-muted-foreground mt-1">모델 카탈로그를 관리합니다</p>
+          <h1 className="text-2xl font-bold">모델 캐시 관리</h1>
+          <p className="text-muted-foreground mt-1">모델 캐시를 관리합니다</p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" disabled={syncToRedis.isPending}
