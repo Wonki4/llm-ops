@@ -681,7 +681,7 @@ export default function ModelManagementPage() {
 
         {/* Create / Edit Dialog */}
         <Dialog open={formOpen} onOpenChange={setFormOpen}>
-          <DialogContent className="sm:max-w-lg">
+          <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingId ? "카탈로그 수정" : "카탈로그 등록"}
