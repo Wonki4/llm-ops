@@ -488,6 +488,37 @@ export function useUpdatePortalSettings() {
   });
 }
 
+// ─── Default Team Rules ──────────────────────────────────────────
+
+export interface DefaultTeamRule {
+  prefix: string;
+  teams: string[];
+}
+
+export function useDefaultTeamRules() {
+  return useQuery({
+    queryKey: ["default-team-rules"],
+    queryFn: () =>
+      apiFetch<{ rules: DefaultTeamRule[] }>("/api/settings/default-team-rules").then(
+        (r) => r.rules,
+      ),
+  });
+}
+
+export function useUpdateDefaultTeamRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rules: DefaultTeamRule[]) =>
+      apiFetch<{ rules: DefaultTeamRule[] }>("/api/settings/default-team-rules", {
+        method: "PUT",
+        body: JSON.stringify(rules),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["default-team-rules"] });
+    },
+  });
+}
+
 // ─── Hidden Teams ──────────────────────────────────────────────
 
 export function useHiddenTeams() {
