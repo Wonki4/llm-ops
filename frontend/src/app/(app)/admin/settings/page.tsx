@@ -116,12 +116,13 @@ export default function PortalSettingsPage() {
             신규 유저 자동 등록
           </CardTitle>
           <CardDescription>
-            SSO 로그인 시 신규 유저를 자동으로 LiteLLM에 등록하고 기본 팀에 추가합니다
+            SSO 로그인 시 신규 유저를 자동으로 등록합니다. 기본 팀은 모든 유저에게 부여되고, 사번 규칙에 해당하면 추가 팀이 배정됩니다.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
+          {/* Base team */}
           <div className="space-y-2">
-            <Label htmlFor="default-team-id">기본 팀 ID</Label>
+            <Label htmlFor="default-team-id">기본 팀 ID (모든 유저)</Label>
             <Input
               id="default-team-id"
               value={defaultTeamId}
@@ -129,90 +130,85 @@ export default function PortalSettingsPage() {
               placeholder="비어있으면 팀 없이 유저만 생성됩니다"
             />
             <p className="text-xs text-muted-foreground">
-              신규 유저가 자동으로 추가될 팀의 ID입니다 (규칙에 매칭되지 않을 때 사용)
+              모든 신규 유저가 자동으로 추가되는 팀입니다
             </p>
           </div>
-        </CardContent>
-      </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="size-4" />
-            사번 기반 기본 팀 규칙
-          </CardTitle>
-          <CardDescription>
-            사번 prefix에 따라 신규 유저를 다른 팀에 자동 배정합니다. 매칭 순서대로 첫 번째 규칙이 적용됩니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder="Prefix (예: X)"
-              value={newRulePrefix}
-              onChange={(e) => setNewRulePrefix(e.target.value)}
-              className="w-32"
-            />
-            <Input
-              placeholder="팀 ID (쉼표 구분)"
-              value={newRuleTeams}
-              onChange={(e) => setNewRuleTeams(e.target.value)}
-              className="flex-1"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
-              onClick={() => {
-                const teams = newRuleTeams.split(",").map((t) => t.trim()).filter(Boolean);
-                if (teams.length === 0) return;
-                const updated: DefaultTeamRule[] = [
-                  ...(teamRules || []),
-                  { prefix: newRulePrefix.trim().toUpperCase(), teams },
-                ];
-                updateTeamRules.mutate(updated, {
-                  onSuccess: () => {
-                    toast.success("규칙이 추가되었습니다.");
-                    setNewRulePrefix("");
-                    setNewRuleTeams("");
-                  },
-                  onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
-                });
-              }}
-            >
-              <Plus className="size-4" />
-              추가
-            </Button>
-          </div>
-          {teamRules && teamRules.length > 0 ? (
-            <div className="space-y-2">
-              {teamRules.map((rule, idx) => (
-                <div key={idx} className="flex items-center gap-2 rounded-md border p-2">
-                  <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
-                  <div className="flex flex-wrap gap-1 flex-1">
-                    {rule.teams.map((teamId) => (
-                      <Badge key={teamId} variant="secondary">{teamId}</Badge>
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    className="rounded-full p-1 hover:bg-muted"
-                    onClick={() => {
-                      const updated = teamRules.filter((_, i) => i !== idx);
-                      updateTeamRules.mutate(updated, {
-                        onSuccess: () => toast.success("규칙이 삭제되었습니다."),
-                        onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
-                      });
-                    }}
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              ))}
+          <div className="border-t pt-4 space-y-3">
+            <div>
+              <Label>추가 팀 규칙 (사번 prefix 기반)</Label>
+              <p className="text-xs text-muted-foreground mt-1">
+                사번이 해당 prefix로 시작하면 위 기본 팀에 더해 추가 팀이 배정됩니다
+              </p>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">등록된 규칙이 없습니다. 기본 팀 ID가 사용됩니다.</p>
-          )}
+            <div className="flex items-center gap-2">
+              <Input
+                placeholder="Prefix (예: X)"
+                value={newRulePrefix}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRulePrefix(e.target.value)}
+                className="w-32"
+              />
+              <Input
+                placeholder="팀 ID (쉼표 구분)"
+                value={newRuleTeams}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRuleTeams(e.target.value)}
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
+                onClick={() => {
+                  const teams = newRuleTeams.split(",").map((t: string) => t.trim()).filter(Boolean);
+                  if (teams.length === 0) return;
+                  const updated: DefaultTeamRule[] = [
+                    ...(teamRules || []),
+                    { prefix: newRulePrefix.trim().toUpperCase(), teams },
+                  ];
+                  updateTeamRules.mutate(updated, {
+                    onSuccess: () => {
+                      toast.success("규칙이 추가되었습니다.");
+                      setNewRulePrefix("");
+                      setNewRuleTeams("");
+                    },
+                    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                  });
+                }}
+              >
+                <Plus className="size-4" />
+                추가
+              </Button>
+            </div>
+            {teamRules && teamRules.length > 0 ? (
+              <div className="space-y-2">
+                {teamRules.map((rule: DefaultTeamRule, idx: number) => (
+                  <div key={idx} className="flex items-center gap-2 rounded-md border p-2">
+                    <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
+                    <div className="flex flex-wrap gap-1 flex-1">
+                      {rule.teams.map((teamId: string) => (
+                        <Badge key={teamId} variant="secondary">{teamId}</Badge>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-full p-1 hover:bg-muted"
+                      onClick={() => {
+                        const updated = teamRules.filter((_: DefaultTeamRule, i: number) => i !== idx);
+                        updateTeamRules.mutate(updated, {
+                          onSuccess: () => toast.success("규칙이 삭제되었습니다."),
+                          onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                        });
+                      }}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">등록된 추가 규칙이 없습니다.</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
