@@ -112,10 +112,10 @@ async def list_models(
 
 @router.get("/catalog")
 async def list_catalog(
-    user: CustomUser = Depends(require_super_user),
+    user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """List all catalog entries (Super User only)."""
+    """List all catalog entries."""
     result = await db.execute(select(CustomModelCatalog).order_by(CustomModelCatalog.display_name))
     return {"catalog": [_serialize_model(m) for m in result.scalars().all()]}
 
