@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams } from "@/hooks/use-api";
+import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules } from "@/hooks/use-api";
+import type { DefaultTeamRule } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,10 @@ export default function PortalSettingsPage() {
   const [rpmLimit, setRpmLimit] = useState("");
   const [defaultTeamId, setDefaultTeamId] = useState("");
   const [newHiddenTeamId, setNewHiddenTeamId] = useState("");
+  const { data: teamRules } = useDefaultTeamRules();
+  const updateTeamRules = useUpdateDefaultTeamRules();
+  const [newRulePrefix, setNewRulePrefix] = useState("");
+  const [newRuleTeams, setNewRuleTeams] = useState("");
 
   useEffect(() => {
     if (settings) {
@@ -124,9 +129,90 @@ export default function PortalSettingsPage() {
               placeholder="비어있으면 팀 없이 유저만 생성됩니다"
             />
             <p className="text-xs text-muted-foreground">
-              신규 유저가 자동으로 추가될 팀의 ID입니다
+              신규 유저가 자동으로 추가될 팀의 ID입니다 (규칙에 매칭되지 않을 때 사용)
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Settings className="size-4" />
+            사번 기반 기본 팀 규칙
+          </CardTitle>
+          <CardDescription>
+            사번 prefix에 따라 신규 유저를 다른 팀에 자동 배정합니다. 매칭 순서대로 첫 번째 규칙이 적용됩니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Input
+              placeholder="Prefix (예: X)"
+              value={newRulePrefix}
+              onChange={(e) => setNewRulePrefix(e.target.value)}
+              className="w-32"
+            />
+            <Input
+              placeholder="팀 ID (쉼표 구분)"
+              value={newRuleTeams}
+              onChange={(e) => setNewRuleTeams(e.target.value)}
+              className="flex-1"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
+              onClick={() => {
+                const teams = newRuleTeams.split(",").map((t) => t.trim()).filter(Boolean);
+                if (teams.length === 0) return;
+                const updated: DefaultTeamRule[] = [
+                  ...(teamRules || []),
+                  { prefix: newRulePrefix.trim().toUpperCase(), teams },
+                ];
+                updateTeamRules.mutate(updated, {
+                  onSuccess: () => {
+                    toast.success("규칙이 추가되었습니다.");
+                    setNewRulePrefix("");
+                    setNewRuleTeams("");
+                  },
+                  onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                });
+              }}
+            >
+              <Plus className="size-4" />
+              추가
+            </Button>
+          </div>
+          {teamRules && teamRules.length > 0 ? (
+            <div className="space-y-2">
+              {teamRules.map((rule, idx) => (
+                <div key={idx} className="flex items-center gap-2 rounded-md border p-2">
+                  <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
+                  <div className="flex flex-wrap gap-1 flex-1">
+                    {rule.teams.map((teamId) => (
+                      <Badge key={teamId} variant="secondary">{teamId}</Badge>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-full p-1 hover:bg-muted"
+                    onClick={() => {
+                      const updated = teamRules.filter((_, i) => i !== idx);
+                      updateTeamRules.mutate(updated, {
+                        onSuccess: () => toast.success("규칙이 삭제되었습니다."),
+                        onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                      });
+                    }}
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">등록된 규칙이 없습니다. 기본 팀 ID가 사용됩니다.</p>
+          )}
         </CardContent>
       </Card>
 

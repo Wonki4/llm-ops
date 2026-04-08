@@ -86,8 +86,32 @@ async def login(return_to: str = "/teams") -> Response:
     return response
 
 
+async def _resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
+    """Resolve default teams for a user based on prefix rules + fallback."""
+    import json as _json
+
+    # Check prefix-based rules first
+    rules_result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'")
+    )
+    rules_raw = rules_result.scalar()
+    if rules_raw:
+        rules: list[dict] = _json.loads(rules_raw)
+        upper_id = user_id.upper()
+        for rule in rules:
+            if upper_id.startswith(rule.get("prefix", "").upper()):
+                return rule.get("teams", [])
+
+    # Fallback to single default_team_id
+    fallback_result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
+    )
+    fallback = fallback_result.scalar()
+    return [fallback] if fallback else []
+
+
 async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:
-    """Create user in LiteLLM_UserTable and add to default team if not exists."""
+    """Create user in LiteLLM_UserTable and add to default teams if not exists."""
     # Check if user already exists
     result = await litellm_db.execute(
         text('SELECT user_id FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
@@ -96,45 +120,39 @@ async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_
     if result.scalar_one_or_none() is not None:
         return  # Already exists
 
-    # Get default team from portal settings
-    default_team_result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
-    )
-    default_team_id = default_team_result.scalar()
+    # Resolve teams for this user
+    team_ids = await _resolve_default_teams(db, user_id)
 
     # Create user
-    teams_array = [default_team_id] if default_team_id else []
     await litellm_db.execute(
         text(
             'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
             "VALUES (:user_id, :email, :teams, 0, NULL) "
             "ON CONFLICT (user_id) DO NOTHING"
         ),
-        {"user_id": user_id, "email": email, "teams": teams_array},
+        {"user_id": user_id, "email": email, "teams": team_ids},
     )
     logger.info("Auto-provisioned user: %s", user_id)
 
-    # Add to default team if configured
-    if default_team_id:
-        # Add to TeamTable.members
+    # Add to each team
+    for team_id in team_ids:
         await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_TeamTable" '
                 "SET members = array_append(members, :user_id) "
                 "WHERE team_id = :team_id AND NOT (:user_id = ANY(COALESCE(members, ARRAY[]::text[])))"
             ),
-            {"user_id": user_id, "team_id": default_team_id},
+            {"user_id": user_id, "team_id": team_id},
         )
-        # Create TeamMembership
         await litellm_db.execute(
             text(
                 'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
                 "VALUES (:user_id, :team_id, 0) "
                 "ON CONFLICT DO NOTHING"
             ),
-            {"user_id": user_id, "team_id": default_team_id},
+            {"user_id": user_id, "team_id": team_id},
         )
-        logger.info("Added user %s to default team %s", user_id, default_team_id)
+        logger.info("Added user %s to team %s", user_id, team_id)
 
     await litellm_db.commit()
 

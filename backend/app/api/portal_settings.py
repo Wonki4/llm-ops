@@ -58,6 +58,41 @@ async def update_settings(
     return await get_settings(user=user, db=db)
 
 
+@router.get("/default-team-rules")
+async def get_default_team_rules(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get prefix-based default team rules (Super User only)."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'")
+    )
+    raw = result.scalar()
+    return {"rules": json.loads(raw) if raw else []}
+
+
+@router.put("/default-team-rules")
+async def update_default_team_rules(
+    body: list[dict],
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update prefix-based default team rules (Super User only).
+
+    Body format: [{"prefix": "X", "teams": ["team-a", "team-b"]}, ...]
+    """
+    await db.execute(
+        text(
+            "INSERT INTO custom_portal_settings (key, value, updated_by) "
+            "VALUES ('default_team_rules', :value, :updated_by) "
+            "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+        ),
+        {"value": json.dumps(body), "updated_by": user.user_id},
+    )
+    await db.commit()
+    return {"rules": body}
+
+
 @router.get("/hidden-teams")
 async def get_hidden_teams(
     user: CustomUser = Depends(require_super_user),
