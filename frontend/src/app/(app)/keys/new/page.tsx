@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMyTeams, useCreateKey, usePortalSettings, useMe } from "@/hooks/use-api";
 import {
@@ -105,7 +106,7 @@ export default function CreateKeyPage({
   searchParams: Promise<{ team_id?: string }>;
 }) {
   const params = use(searchParams);
-  const { data: me } = useMe();
+  const router = useRouter();
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
@@ -158,6 +159,7 @@ export default function CreateKeyPage({
   const handleDialogClose = () => {
     setCreatedToken(null);
     setKeyAlias("");
+    router.back();
   };
 
   const handleTeamChange = (teamId: string) => {
@@ -187,7 +189,7 @@ export default function CreateKeyPage({
         <CardHeader>
           <CardTitle className="text-base">키 설정</CardTitle>
           <CardDescription>
-            필수 항목은 팀 선택뿐이며, 나머지는 선택사항입니다.
+            팀과 키 별칭은 필수 항목입니다.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -223,21 +225,13 @@ export default function CreateKeyPage({
 
             {/* Key Alias */}
             <div className="space-y-2">
-              <Label htmlFor="key-alias">키 별칭</Label>
-              <div className="flex items-center gap-0">
-                {aliasPrefix && (
-                  <span className="inline-flex items-center rounded-l-md border border-r-0 bg-muted px-3 text-sm text-muted-foreground h-9">
-                    {aliasPrefix}
-                  </span>
-                )}
-                <Input
-                  id="key-alias"
-                  className={aliasPrefix ? "rounded-l-none" : ""}
-                  placeholder="예: my-project-key"
-                  value={keyAlias}
-                  onChange={(e) => setKeyAlias(e.target.value)}
-                />
-              </div>
+              <Label htmlFor="key-alias">키 별칭 <span className="text-destructive">*</span></Label>
+              <Input
+                id="key-alias"
+                placeholder="예: my-project-key"
+                value={keyAlias}
+                onChange={(e) => setKeyAlias(e.target.value)}
+              />
             </div>
 
             {/* Models (read-only) */}
@@ -282,7 +276,7 @@ export default function CreateKeyPage({
             <Button
               type="submit"
               className="w-full"
-              disabled={!selectedTeamId || createKeyMutation.isPending}
+              disabled={!selectedTeamId || !keyAlias.trim() || createKeyMutation.isPending}
             >
               {createKeyMutation.isPending && (
                 <Loader2 className="size-4 animate-spin" />
