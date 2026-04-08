@@ -158,7 +158,7 @@ export default function TeamDiscoveryPage() {
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Box className="size-4" />
-                      <span>{team.models.length}개 모델 사용 가능</span>
+                      <span>{team.models.includes("all-proxy-models") ? "모든 모델 사용 가능" : `${team.models.length}개 모델 사용 가능`}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Shield className="size-4" />

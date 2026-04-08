@@ -173,7 +173,7 @@ export default function MyTeamsPage() {
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
                         <Boxes className="size-3" />
-                        {team.models.length}개 모델
+                        {team.models.includes("all-proxy-models") ? "모든 모델" : `${team.models.length}개 모델`}
                       </Badge>
                     </div>
                   </CardContent>
