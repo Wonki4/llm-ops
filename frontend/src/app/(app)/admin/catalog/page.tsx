@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Pencil, Trash2, Search, X, Loader2, Database, RefreshCw, Settings } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X, Loader2, Database, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -11,7 +11,6 @@ import {
   useCreateRedisCatalogEntry,
   useUpdateRedisCatalogEntry,
   useDeleteRedisCatalogEntry,
-  useSyncCatalogToRedis,
   useModels,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -74,7 +73,6 @@ export default function CatalogManagementPage() {
   const createEntry = useCreateRedisCatalogEntry();
   const updateEntry = useUpdateRedisCatalogEntry();
   const deleteEntryMutation = useDeleteRedisCatalogEntry();
-  const syncToRedis = useSyncCatalogToRedis();
   const updateCatalogList = useUpdateCatalogList();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -211,15 +209,6 @@ export default function CatalogManagementPage() {
           <p className="text-muted-foreground mt-1">모델 캐시를 관리합니다</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled={syncToRedis.isPending}
-            onClick={() => syncToRedis.mutate({ catalog: currentCatalog }, {
-              onSuccess: (res: { synced: number }) => toast.success(`Redis 캐시 동기화 완료 (${res.synced}건)`),
-              onError: (err: Error) => toast.error(err.message || "동기화 실패"),
-            })}
-          >
-            <RefreshCw className={`size-3.5 ${syncToRedis.isPending ? "animate-spin" : ""}`} />
-            Redis 캐시 동기화
-          </Button>
           <Button onClick={openCreateDialog}>
             <Plus className="size-4" />
             등록
