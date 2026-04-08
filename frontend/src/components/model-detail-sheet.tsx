@@ -88,8 +88,6 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
     catalog?.id,
   );
 
-  const source = litellmInfo && catalog ? "배포 + 카탈로그" : litellmInfo ? "배포" : "카탈로그";
-
   const limitRows: { label: string; value: string | number }[] = [];
   if (litellmInfo?.model_info.max_tokens != null) {
     limitRows.push({ label: "Max Tokens", value: litellmInfo.model_info.max_tokens });
@@ -135,36 +133,6 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-          <section>
-            <h4 className="text-sm font-semibold mb-2">기본 정보</h4>
-            <Card>
-              <CardContent className="pt-4 space-y-2">
-                <div className="flex justify-between text-sm gap-3">
-                  <span className="text-muted-foreground">모델 ID</span>
-                  <span className="text-right font-mono break-all">{model?.model_name ?? "-"}</span>
-                </div>
-                <div className="flex justify-between text-sm gap-3">
-                  <span className="text-muted-foreground">실제 모델</span>
-                  <span className="text-right font-mono break-all">
-                    {litellmInfo?.litellm_params.model ?? "-"}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Provider</span>
-                  <span>{provider}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">소스</span>
-                  <span>{source}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">모드</span>
-                  <span>{litellmInfo?.model_info.mode ?? "-"}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </section>
-
           {litellmInfo && (
             <>
               <Separator />
