@@ -953,10 +953,12 @@ export default function TeamDetailPage({
   if (!data) return null;
 
   const { team, my_keys, is_admin, my_membership } = data;
-  const enrichedTeamModels = team.models.map((modelName) => ({
-    modelName,
-    model: modelsByName.get(modelName) ?? null,
-  }));
+  const enrichedTeamModels = team.models
+    .map((modelName) => ({
+      modelName,
+      model: modelsByName.get(modelName) ?? null,
+    }))
+    .filter(({ model }) => model?.catalog);
 
   return (
     <div className="space-y-6">
@@ -1131,17 +1133,7 @@ export default function TeamDetailPage({
                 </TableHeader>
                 <TableBody>
                   {enrichedTeamModels.map(({ modelName, model }) => {
-                    if (!model) {
-                      return (
-                        <TableRow key={modelName}>
-                          <TableCell className="font-mono text-sm">{modelName}</TableCell>
-                          <TableCell className="hidden md:table-cell">-</TableCell>
-                          <TableCell>-</TableCell>
-                          <TableCell className="hidden lg:table-cell">-</TableCell>
-                          <TableCell>-</TableCell>
-                        </TableRow>
-                      );
-                    }
+                    if (!model) return null;
 
                     const displayName = model.catalog?.display_name || model.model_name || modelName;
                     const provider = model.litellm_info?.model_info?.litellm_provider || "-";
