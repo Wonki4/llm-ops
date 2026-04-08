@@ -1,5 +1,7 @@
 """Portal settings endpoints (Super User only)."""
 
+import json
+
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -30,6 +32,7 @@ async def get_settings(
         "default_tpm_limit": int(settings.get("default_tpm_limit", "100000")),
         "default_rpm_limit": int(settings.get("default_rpm_limit", "1000")),
         "default_team_id": settings.get("default_team_id", ""),
+        "hidden_teams": json.loads(settings.get("hidden_teams", "[]")),
     }
 
 
@@ -53,3 +56,35 @@ async def update_settings(
             )
     await db.commit()
     return await get_settings(user=user, db=db)
+
+
+@router.get("/hidden-teams")
+async def get_hidden_teams(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Get hidden team IDs (Super User only)."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'hidden_teams'")
+    )
+    raw = result.scalar()
+    return {"hidden_teams": json.loads(raw) if raw else []}
+
+
+@router.put("/hidden-teams")
+async def update_hidden_teams(
+    body: list[str],
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update hidden team IDs (Super User only)."""
+    await db.execute(
+        text(
+            "INSERT INTO custom_portal_settings (key, value, updated_by) "
+            "VALUES ('hidden_teams', :value, :updated_by) "
+            "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+        ),
+        {"value": json.dumps(body), "updated_by": user.user_id},
+    )
+    await db.commit()
+    return {"hidden_teams": body}

@@ -464,6 +464,7 @@ export interface PortalSettings {
   default_tpm_limit: number;
   default_rpm_limit: number;
   default_team_id: string;
+  hidden_teams: string[];
 }
 
 export function usePortalSettings() {
@@ -482,6 +483,33 @@ export function useUpdatePortalSettings() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["portal-settings"] });
+    },
+  });
+}
+
+// ─── Hidden Teams ──────────────────────────────────────────────
+
+export function useHiddenTeams() {
+  return useQuery({
+    queryKey: ["hidden-teams"],
+    queryFn: () =>
+      apiFetch<{ hidden_teams: string[] }>("/api/settings/hidden-teams").then(
+        (r) => r.hidden_teams,
+      ),
+  });
+}
+
+export function useUpdateHiddenTeams() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (teamIds: string[]) =>
+      apiFetch<{ hidden_teams: string[] }>("/api/settings/hidden-teams", {
+        method: "PUT",
+        body: JSON.stringify(teamIds),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hidden-teams"] });
       qc.invalidateQueries({ queryKey: ["portal-settings"] });
     },
   });
