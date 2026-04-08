@@ -511,8 +511,17 @@ export default function ModelDashboardPage() {
 
   const hasActiveFilters = !!(nameFilter || statusFilter);
 
-  // ── Recent history ──
-  const recentHistory = recentData?.history ?? [];
+  // ── Recent history (exclude hidden models) ──
+  const visibleModelNames = useMemo(() => {
+    const all = models ?? [];
+    return new Set(
+      all.filter((m) => !m.catalog || m.catalog.visible !== false).map((m) => m.model_name),
+    );
+  }, [models]);
+  const recentHistory = useMemo(
+    () => (recentData?.history ?? []).filter((h) => visibleModelNames.has(h.model_name)),
+    [recentData, visibleModelNames],
+  );
 
   return (
     <div className="space-y-6">
