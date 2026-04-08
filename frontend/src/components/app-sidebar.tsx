@@ -15,7 +15,7 @@ const navigation: { name: string; href: string; icon: typeof Users; roles: UserR
   { name: "내 전체 키", href: "/keys", icon: Key, roles: ["user", "team_admin", "super_user"] },
   { name: "내 요청", href: "/requests", icon: Inbox, roles: ["user", "team_admin", "super_user"] },
   { name: "요청 관리", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
-  { name: "모델 대시보드 (관리)", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
+  { name: "관리자 대시보드", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
   { name: "모델 관리", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
   { name: "모델 캐시 관리", href: "/admin/catalog", icon: Database, roles: ["super_user"] },
   { name: "예산 관리", href: "/admin/budgets", icon: DollarSign, roles: ["super_user"] },
