@@ -41,7 +41,8 @@ async def get_current_user(
     token: TokenPayload = Depends(get_current_token),
     db: AsyncSession = Depends(get_db),
 ) -> CustomUser:
-    result = await db.execute(select(CustomUser).where(CustomUser.user_id == token.preferred_username))
+    uid = token.preferred_username.upper() if token.preferred_username else ""
+    result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
     user = result.scalar_one_or_none()
 
     if not user:
@@ -53,7 +54,7 @@ async def get_current_user(
         )
 
         user = CustomUser(
-            user_id=token.preferred_username,
+            user_id=uid,
             email=token.email,
             display_name=token.name,
             global_role=GlobalRole.SUPER_USER if is_super else GlobalRole.USER,

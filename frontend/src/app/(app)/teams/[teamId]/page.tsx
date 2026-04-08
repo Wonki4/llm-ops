@@ -279,7 +279,7 @@ function OverviewTab({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">팀 예산</CardTitle>
@@ -330,16 +330,6 @@ function OverviewTab({
           <CardContent>
             <div className="text-2xl font-bold">{team.models.length}개</div>
             <p className="text-xs text-muted-foreground">사용 가능한 모델</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">멤버</CardTitle>
-            <Users className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalMembers.toLocaleString()}명</div>
-            <p className="text-xs text-muted-foreground">팀 멤버</p>
           </CardContent>
         </Card>
       </div>
@@ -427,30 +417,6 @@ function OverviewTab({
                   )}
               </div>
             </div>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">멤버</p>
-                  <span className="text-xs text-muted-foreground">{(totalMembers - totalAdmins).toLocaleString()}명</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {memberOnly.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">관리자 외 멤버가 없습니다.</p>
-                  ) : (
-                    <>
-                      {memberOnly.map((member) => (
-                        <Badge key={member} variant="outline">
-                          {member}
-                        </Badge>
-                      ))}
-                      {remainingMembers > 0 && (
-                        <Badge variant="outline" className="text-muted-foreground">
-                          외 {remainingMembers.toLocaleString()}명
-                        </Badge>
-                      )}
-                    </>
-                  )}
-              </div>
-            </div>
               {isAdmin && <p className="text-xs text-muted-foreground">팀 관리 권한이 활성화되어 있습니다.</p>}
             </CardContent>
           </Card>
@@ -476,7 +442,7 @@ function OverviewTab({
               ) : (
                 topKeys.map((key) => (
                     <div key={key.token} className="rounded-lg border p-3">
-                      <p className="text-sm font-medium">{key.key_alias || key.key_name || maskKey(key.token)}</p>
+                      <p className="text-sm font-medium">{key.key_alias || "-"}</p>
                     </div>
                   ))
               )}
@@ -794,7 +760,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                   >
                                     <div className="min-w-0 space-y-0.5">
                                       <p className="text-sm font-medium">
-                                        {key.key_alias || key.key_name || maskKey(key.token)}
+                                        {key.key_alias || "-"}
                                       </p>
                                       <p className="font-mono text-xs text-muted-foreground">
                                         {maskKey(key.token)}
@@ -1011,10 +977,8 @@ export default function TeamDetailPage({
                 <TableHeader>
                   <TableRow>
                     <TableHead>별칭</TableHead>
-                    <TableHead className="hidden md:table-cell">키</TableHead>
-                    <TableHead className="hidden md:table-cell">만료</TableHead>
-                    <TableHead>모델</TableHead>
-                    <TableHead className="hidden md:table-cell">생성일</TableHead>
+                    <TableHead>키</TableHead>
+                    <TableHead>생성일</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
@@ -1023,7 +987,7 @@ export default function TeamDetailPage({
                     return (
                       <TableRow key={key.token}>
                         <TableCell className="font-medium">
-                          {key.key_alias || key.key_name || "-"}
+                          {key.key_alias || "-"}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div className="flex items-center gap-1">

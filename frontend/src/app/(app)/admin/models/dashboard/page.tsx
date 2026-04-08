@@ -719,8 +719,8 @@ export default function ModelDashboardPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pageModels.map((m) => (
-                    <TableRow key={m.model_name}>
+                  {pageModels.map((m, idx) => (
+                    <TableRow key={`${m.model_name}-${idx}`}>
                       <TableCell>
                         <button
                           type="button"

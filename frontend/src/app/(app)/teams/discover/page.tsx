@@ -53,10 +53,12 @@ export default function TeamDiscoveryPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<DiscoverTeam | null>(null);
   const [message, setMessage] = useState("");
-  const [hideJoined, setHideJoined] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "joined" | "not_joined" | "pending">("all");
 
   const filteredTeams = teams?.filter((team) => {
-    if (hideJoined && team.is_member) return false;
+    if (statusFilter === "joined" && !team.is_member) return false;
+    if (statusFilter === "not_joined" && (team.is_member || team.has_pending_request)) return false;
+    if (statusFilter === "pending" && !team.has_pending_request) return false;
     return team.team_alias.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
@@ -108,14 +110,23 @@ export default function TeamDiscoveryPage() {
             className="pl-9"
           />
         </div>
-        <Button
-          variant={hideJoined ? "default" : "outline"}
-          size="sm"
-          onClick={() => setHideJoined((v) => !v)}
-          className="shrink-0"
-        >
-          {hideJoined ? "미가입만" : "전체"}
-        </Button>
+        <div className="flex items-center gap-1 shrink-0">
+          {([
+            ["all", "전체"],
+            ["joined", "가입됨"],
+            ["not_joined", "미가입"],
+            ["pending", "요청중"],
+          ] as const).map(([value, label]) => (
+            <Button
+              key={value}
+              variant={statusFilter === value ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatusFilter(value)}
+            >
+              {label}
+            </Button>
+          ))}
+        </div>
       </div>
 
       {/* Error state */}

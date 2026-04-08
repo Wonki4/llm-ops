@@ -122,7 +122,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
                 {data.keys.map((k, i) => (
                   <TableRow key={i}>
                     <TableCell className="font-mono text-xs">{k.token}</TableCell>
-                    <TableCell>{k.key_alias || k.key_name || "-"}</TableCell>
+                    <TableCell>{k.key_alias || "-"}</TableCell>
                     <TableCell className="font-mono text-sm">{k.user_id || "-"}</TableCell>
                     <TableCell>{k.team_id || "-"}</TableCell>
                     <TableCell>${k.spend.toFixed(2)}</TableCell>

@@ -40,23 +40,25 @@ async def _next_key_id(db: AsyncSession) -> int:
 
 
 def _generate_sk_jwt(key_id: int, team_id: str, user_id: str, iat: int | None = None) -> str:
-    """Generate sk- prefixed JWT key."""
+    """Generate sk- prefixed JWT key with sub containing stringified payload."""
+    import json as _json
     if iat is None:
         iat = int(time.time())
-    payload = {
+    inner = {
         "keyId": key_id,
         "prjId": team_id,
         "keyType": "PRJ",
         "regUserId": user_id,
         "iat": iat,
     }
+    payload = {"sub": _json.dumps(inner, separators=(",", ":"))}
     token = jwt.encode(payload, _KEY_JWT_SECRET, algorithm="HS256")
     return f"sk-{token}"
 
 
 class CreateKeyRequest(BaseModel):
     team_id: str
-    key_alias: str | None = None
+    key_alias: str
     models: list[str] | None = None
     max_budget: float | None = None
     budget_duration: str | None = Field(None, description="e.g. '30d', '7d', '1h'")
@@ -90,14 +92,14 @@ async def create_key(
             result = await litellm.generate_key(
                 user_id=user.user_id,
                 team_id=body.team_id,
-                key_alias=body.key_alias or f"{user.user_id}-{body.team_id}",
+                key_alias=f"{user.user_id}-{key_id}",
                 models=body.models,
                 max_budget=body.max_budget,
                 budget_duration=body.budget_duration,
                 key=sk_key,
                 tpm_limit=tpm_limit,
                 rpm_limit=rpm_limit,
-                metadata={"sk_key_id": key_id, "sk_iat": iat},
+                metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias},
             )
             return result
         except HTTPStatusError as e:
@@ -129,7 +131,7 @@ async def list_my_keys(
     query = (
         "SELECT token, key_name, key_alias, team_id, user_id, "
         "       spend, max_budget, budget_duration, budget_reset_at, "
-        "       models, expires, created_at "
+        "       models, expires, created_at, metadata "
         'FROM "LiteLLM_VerificationToken" '
         "WHERE user_id = :user_id "
     )
@@ -144,7 +146,7 @@ async def list_my_keys(
         {
             "token": k["token"],
             "key_name": k["key_name"],
-            "key_alias": k["key_alias"],
+            "key_alias": (k["metadata"] or {}).get("display_alias", ""),
             "team_id": k["team_id"],
             "user_id": k["user_id"],
             "spend": float(k["spend"]),

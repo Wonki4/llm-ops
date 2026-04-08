@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMyTeams, useCreateKey, usePortalSettings } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings, useMe } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
@@ -110,6 +110,7 @@ export default function CreateKeyPage({
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
+  const aliasPrefix = me?.user_id ? `${me.user_id}-` : "";
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(
     params.team_id ?? ""
@@ -141,7 +142,8 @@ export default function CreateKeyPage({
 
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
-        setCreatedToken(data.token);
+        const rawKey = data.key || data.token || "";
+        setCreatedToken(rawKey.replace(/^sk-/, ""));
         toast.success("API 키가 성공적으로 생성되었습니다.");
       },
       onError: (err) => {
