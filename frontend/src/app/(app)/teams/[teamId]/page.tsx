@@ -1145,18 +1145,13 @@ export default function TeamDetailPage({
                     return (
                       <TableRow key={modelName}>
                         <TableCell>
-                          <div className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => setDetailModel(model)}
-                              className="cursor-pointer text-left font-medium hover:underline"
-                            >
-                              {displayName}
-                            </button>
-                            {displayName !== modelName && (
-                              <p className="font-mono text-xs text-muted-foreground">{modelName}</p>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDetailModel(model)}
+                            className="cursor-pointer text-left font-medium hover:underline"
+                          >
+                            {displayName}
+                          </button>
                         </TableCell>
                         <TableCell>{model.catalog ? <StatusBadge status={model.catalog.status} /> : "-"}</TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
