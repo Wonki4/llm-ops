@@ -345,10 +345,12 @@ function RecentChanges({
   history,
   isLoading,
   onModelClick,
+  modelDisplayNames,
 }: {
   history: ModelStatusHistory[];
   isLoading: boolean;
   onModelClick: (modelName: string) => void;
+  modelDisplayNames: Map<string, string>;
 }) {
   if (isLoading) {
     return (
@@ -379,9 +381,9 @@ function RecentChanges({
               <button
                 type="button"
                 onClick={() => onModelClick(h.model_name)}
-                className="font-mono text-sm truncate max-w-[180px] hover:underline cursor-pointer text-left"
+                className="text-sm truncate max-w-[180px] hover:underline cursor-pointer text-left font-medium"
               >
-                {h.model_name}
+                {modelDisplayNames.get(h.model_name) || h.model_name}
               </button>
               <div className="flex items-center gap-1">
                 {h.previous_status ? (
@@ -522,6 +524,13 @@ export default function ModelDashboardPage() {
     () => (recentData?.history ?? []).filter((h) => visibleModelNames.has(h.model_name)),
     [recentData, visibleModelNames],
   );
+  const modelDisplayNames = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of models ?? []) {
+      if (m.catalog?.display_name) map.set(m.model_name, m.catalog.display_name);
+    }
+    return map;
+  }, [models]);
 
   return (
     <div className="space-y-6">
@@ -577,6 +586,7 @@ export default function ModelDashboardPage() {
             <RecentChanges
               history={recentHistory}
               isLoading={recentLoading}
+              modelDisplayNames={modelDisplayNames}
               onModelClick={(modelName) => {
                 const fullModel = models?.find((m) => m.model_name === modelName);
                 if (fullModel) setDetailModel(fullModel);
@@ -693,16 +703,8 @@ export default function ModelDashboardPage() {
                           onClick={() => setDetailModel(m)}
                           className="text-left hover:underline cursor-pointer"
                         >
-                          <div className="space-y-0.5">
-                            <div className="font-medium text-sm truncate max-w-[280px]">
-                              {m.catalog?.display_name ?? m.model_name}
-                            </div>
-                            {m.catalog?.display_name &&
-                              m.catalog.display_name !== m.model_name && (
-                                <div className="text-[11px] font-mono text-muted-foreground truncate max-w-[280px]">
-                                  {m.model_name}
-                                </div>
-                              )}
+                          <div className="font-medium text-sm truncate max-w-[280px]">
+                            {m.catalog?.display_name ?? m.model_name}
                           </div>
                         </button>
                       </TableCell>
