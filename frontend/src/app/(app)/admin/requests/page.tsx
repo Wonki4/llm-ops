@@ -344,14 +344,14 @@ export default function AdminRequestsPage() {
               </div>
               <div>
                 <p className="text-muted-foreground mb-1">요청 내용</p>
-                <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                   {detailRequest.message || "-"}
                 </p>
               </div>
               {detailRequest.review_comment && (
                 <div>
                   <p className="text-muted-foreground mb-1">처리 코멘트</p>
-                  <p className="whitespace-pre-wrap rounded-md bg-muted p-3">
+                  <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                     {detailRequest.review_comment}
                   </p>
                 </div>
