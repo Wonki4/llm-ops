@@ -51,7 +51,9 @@ function SuccessKeyDialog({
 }) {
   const [copied, setCopied] = useState(false);
 
-  const handleCopy = async () => {
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     try {
       await navigator.clipboard.writeText(token);
     } catch {
@@ -84,7 +86,7 @@ function SuccessKeyDialog({
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-3">
           <code className="flex-1 break-all text-sm font-mono">{token}</code>
-          <Button variant="ghost" size="icon-xs" onClick={handleCopy}>
+          <Button type="button" variant="ghost" size="icon-xs" onClick={handleCopy}>
             {copied ? (
               <Check className="size-4 text-green-600" />
             ) : (
@@ -141,8 +143,7 @@ export default function CreateKeyPage({
 
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
-        const rawKey = data.key || data.token || "";
-        setCreatedToken(rawKey.replace(/^sk-/, ""));
+        setCreatedToken(data.key || "");
         toast.success("API 키가 성공적으로 생성되었습니다.");
       },
       onError: (err) => {

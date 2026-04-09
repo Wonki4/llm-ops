@@ -1158,7 +1158,6 @@ export default function TeamDetailPage({
                     <TableHead>모델명</TableHead>
                     <TableHead>상태</TableHead>
                     <TableHead className="hidden lg:table-cell">비용</TableHead>
-                    <TableHead>기능</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -1166,41 +1165,23 @@ export default function TeamDetailPage({
                     if (!model) return null;
 
                     const displayName = model.catalog?.display_name || model.model_name || modelName;
-                    const provider = model.litellm_info?.model_info?.litellm_provider || "-";
                     const inputCost = model.litellm_info?.model_info?.input_cost_per_token ?? null;
                     const outputCost = model.litellm_info?.model_info?.output_cost_per_token ?? null;
-                    const supportsVision = model.litellm_info?.model_info?.supports_vision;
-                    const supportsFunctionCalling = model.litellm_info?.model_info?.supports_function_calling;
 
                     return (
                       <TableRow key={modelName}>
                         <TableCell>
-                          <div className="space-y-1">
-                            <button
-                              type="button"
-                              onClick={() => setDetailModel(model)}
-                              className="cursor-pointer text-left font-medium hover:underline"
-                            >
-                              {displayName}
-                            </button>
-                            {displayName !== modelName && (
-                              <p className="font-mono text-xs text-muted-foreground">{modelName}</p>
-                            )}
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDetailModel(model)}
+                            className="cursor-pointer text-left font-medium hover:underline"
+                          >
+                            {displayName}
+                          </button>
                         </TableCell>
                         <TableCell>{model.catalog ? <StatusBadge status={model.catalog.status} /> : "-"}</TableCell>
                         <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
                           I: {formatTokenCost(inputCost)} / O: {formatTokenCost(outputCost)} per 1M tokens
-                        </TableCell>
-                        <TableCell>
-                          {supportsVision || supportsFunctionCalling ? (
-                            <div className="flex items-center gap-2">
-                              {supportsVision ? <Eye className="size-4 text-muted-foreground" /> : null}
-                              {supportsFunctionCalling ? <Zap className="size-4 text-muted-foreground" /> : null}
-                            </div>
-                          ) : (
-                            "-"
-                          )}
                         </TableCell>
                       </TableRow>
                     );

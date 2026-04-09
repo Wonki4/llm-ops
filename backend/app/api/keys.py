@@ -102,6 +102,8 @@ async def create_key(
                 rpm_limit=rpm_limit,
                 metadata={"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias},
             )
+            # Return key without sk- prefix (sensitive prefix must not be exposed)
+            result["key"] = sk_key.removeprefix("sk-")
             return result
         except HTTPStatusError as e:
             if e.response.status_code >= 500:

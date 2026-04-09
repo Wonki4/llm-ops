@@ -137,18 +137,23 @@ async def discover_teams(
 
     teams = []
     for row in all_result.mappings():
-        team_data = _row_to_team(row)
-        if team_data["team_id"] in hidden:
+        team_id = row["team_id"]
+        if team_id in hidden:
             continue
+        all_members: list[str] = list(row["members"] or [])
+        all_admins: list[str] = list(row["admins"] or [])
         is_member = (
-            team_data["team_id"] in user_team_ids
-            or user.user_id in (row["members"] or [])
-            or user.user_id in (row["admins"] or [])
+            team_id in user_team_ids
+            or user.user_id in all_members
+            or user.user_id in all_admins
         )
         teams.append({
-            **team_data,
+            "team_id": team_id,
+            "team_alias": row["team_alias"],
+            "models": list(row["models"] or []),
+            "admins": all_admins,
             "is_member": is_member,
-            "has_pending_request": team_data["team_id"] in pending_team_ids,
+            "has_pending_request": team_id in pending_team_ids,
         })
 
     return {"teams": teams}
@@ -191,7 +196,7 @@ async def get_team_detail(
         text(
             "SELECT token, key_name, key_alias, team_id, user_id, "
             "       spend, max_budget, budget_duration, budget_reset_at, "
-            "       models, expires, created_at "
+            "       models, expires, created_at, metadata "
             'FROM "LiteLLM_VerificationToken" '
             "WHERE user_id = :user_id AND team_id = :team_id "
             "ORDER BY created_at DESC"
@@ -202,7 +207,7 @@ async def get_team_detail(
         {
             "token": k["token"],
             "key_name": k["key_name"],
-            "key_alias": k["key_alias"],
+            "key_alias": (k["metadata"] or {}).get("display_alias", ""),
             "team_id": k["team_id"],
             "user_id": k["user_id"],
             "spend": float(k["spend"]),
