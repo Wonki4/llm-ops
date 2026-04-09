@@ -19,6 +19,21 @@ MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
+async def _get_default_member_budget(db: AsyncSession, team_id: str) -> float | None:
+    """Get default member budget for a team from portal settings."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = :key"),
+        {"key": f"team:{team_id}:default_member_budget"},
+    )
+    raw = result.scalar()
+    if raw:
+        try:
+            return float(raw)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 async def _get_hidden_teams(db: AsyncSession) -> set[str]:
     """Get hidden team IDs from portal settings."""
     result = await db.execute(
@@ -143,6 +158,7 @@ async def discover_teams(
 async def get_team_detail(
     team_id: str,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm: LiteLLMClient = Depends(get_litellm_client),  # noqa: ARG001 — kept for consistency
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
@@ -227,6 +243,7 @@ async def get_team_detail(
             "admin_count": len(all_admins),
         },
         "my_keys": my_keys,
+        "default_member_budget": await _get_default_member_budget(db, team_id),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -547,10 +564,7 @@ async def remove_team_member(
 
 
 class UpdateTeamSettingsRequest(BaseModel):
-    max_budget: float | None = None
-    budget_duration: str | None = None
-    tpm_limit: int | None = None
-    rpm_limit: int | None = None
+    default_member_budget: float | None = None
 
 
 @router.put("/{team_id}/settings")
@@ -558,34 +572,33 @@ async def update_team_settings(
     team_id: str,
     body: UpdateTeamSettingsRequest,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """Update team budget/rate limit settings. Requires team admin or super user."""
-    result = await litellm_db.execute(
-        text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
-        {"team_id": team_id},
-    )
-    row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    if user.global_role != GlobalRole.SUPER_USER and user.user_id not in (row["admins"] or []):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Update team settings. Requires team admin or super user."""
+    await require_team_admin(user, team_id, litellm_db)
 
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return {"status": "unchanged"}
 
-    set_clauses = []
-    params: dict = {"team_id": team_id}
-    for field, value in updates.items():
-        set_clauses.append(f"{field} = :{field}")
-        params[field] = value
-
-    await litellm_db.execute(
-        text(f'UPDATE "LiteLLM_TeamTable" SET {", ".join(set_clauses)} WHERE team_id = :team_id'),
-        params,
-    )
-    await litellm_db.commit()
+    # Store default_member_budget in portal settings
+    if "default_member_budget" in updates:
+        key = f"team:{team_id}:default_member_budget"
+        value = str(updates["default_member_budget"]) if updates["default_member_budget"] is not None else ""
+        if value:
+            await db.execute(
+                text(
+                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                    "VALUES (:key, :value, :updated_by) "
+                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+                ),
+                {"key": key, "value": value, "updated_by": user.user_id},
+            )
+        else:
+            await db.execute(
+                text("DELETE FROM custom_portal_settings WHERE key = :key"),
+                {"key": key},
+            )
 
     return {"status": "updated", "team_id": team_id, **updates}

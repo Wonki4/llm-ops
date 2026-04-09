@@ -138,7 +138,7 @@ export function useChangeMemberBudget() {
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { max_budget?: number | null; budget_duration?: string | null; tpm_limit?: number | null; rpm_limit?: number | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),

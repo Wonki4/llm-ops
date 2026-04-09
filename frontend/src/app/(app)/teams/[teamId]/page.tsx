@@ -506,26 +506,18 @@ function OverviewTab({
   );
 }
 
-function TeamSettingsTab({ teamId, team }: { teamId: string; team: import("@/types").Team }) {
+function TeamSettingsTab({ teamId, defaultMemberBudget }: { teamId: string; defaultMemberBudget: number | null }) {
   const updateSettings = useUpdateTeamSettings();
-  const [maxBudget, setMaxBudget] = useState(team.max_budget != null ? String(team.max_budget) : "");
-  const [budgetDuration, setBudgetDuration] = useState(team.budget_duration || "");
-  const [tpmLimit, setTpmLimit] = useState("");
-  const [rpmLimit, setRpmLimit] = useState("");
-
-  // Load tpm/rpm from DB (not in team detail yet, so use empty as default)
-  // These are already on the TeamTable but not returned in team detail
-  // TODO: include in team detail response
+  const [defaultBudget, setDefaultBudget] = useState(
+    defaultMemberBudget != null ? String(defaultMemberBudget) : ""
+  );
 
   const handleSave = () => {
     updateSettings.mutate(
       {
         teamId,
         body: {
-          max_budget: maxBudget ? Number(maxBudget) : null,
-          budget_duration: budgetDuration || null,
-          tpm_limit: tpmLimit ? Number(tpmLimit) : null,
-          rpm_limit: rpmLimit ? Number(rpmLimit) : null,
+          default_member_budget: defaultBudget ? Number(defaultBudget) : null,
         },
       },
       {
@@ -541,61 +533,22 @@ function TeamSettingsTab({ teamId, team }: { teamId: string; team: import("@/typ
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">예산 설정</CardTitle>
+          <CardTitle className="text-base">멤버 기본 예산</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">최대 예산 ($)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={maxBudget}
-                onChange={(e) => setMaxBudget(e.target.value)}
-                placeholder="무제한"
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">예산 주기</label>
-              <input
-                type="text"
-                value={budgetDuration}
-                onChange={(e) => setBudgetDuration(e.target.value)}
-                placeholder="예: 30d, 7d, 1h"
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">속도 제한</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">TPM (Tokens Per Minute)</label>
-              <input
-                type="number"
-                value={tpmLimit}
-                onChange={(e) => setTpmLimit(e.target.value)}
-                placeholder="미설정"
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">RPM (Requests Per Minute)</label>
-              <input
-                type="number"
-                value={rpmLimit}
-                onChange={(e) => setRpmLimit(e.target.value)}
-                placeholder="미설정"
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">기본 예산 ($)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={defaultBudget}
+              onChange={(e) => setDefaultBudget(e.target.value)}
+              placeholder="미설정 시 예산 제한 없음"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              신규 멤버가 팀에 추가될 때 자동으로 할당되는 예산입니다
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -1266,7 +1219,7 @@ export default function TeamDetailPage({
 
         {is_admin && (
           <TabsContent value="settings" className="mt-6">
-            <TeamSettingsTab teamId={teamId} team={team} />
+            <TeamSettingsTab teamId={teamId} defaultMemberBudget={data.default_member_budget ?? null} />
           </TabsContent>
         )}
       </Tabs>
