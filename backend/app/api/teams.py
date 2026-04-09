@@ -19,6 +19,21 @@ MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
+async def _get_default_member_budget(db: AsyncSession, team_id: str) -> float | None:
+    """Get default member budget for a team from portal settings."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = :key"),
+        {"key": f"team:{team_id}:default_member_budget"},
+    )
+    raw = result.scalar()
+    if raw:
+        try:
+            return float(raw)
+        except (ValueError, TypeError):
+            return None
+    return None
+
+
 async def _get_hidden_teams(db: AsyncSession) -> set[str]:
     """Get hidden team IDs from portal settings."""
     result = await db.execute(
@@ -148,6 +163,7 @@ async def discover_teams(
 async def get_team_detail(
     team_id: str,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm: LiteLLMClient = Depends(get_litellm_client),  # noqa: ARG001 — kept for consistency
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
@@ -232,6 +248,7 @@ async def get_team_detail(
             "admin_count": len(all_admins),
         },
         "my_keys": my_keys,
+        "default_member_budget": await _get_default_member_budget(db, team_id),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -284,15 +301,25 @@ async def list_team_members(
     offset = (page - 1) * page_size
     membership_result = await litellm_db.execute(
         text(f"""
-            SELECT tm.user_id
+            SELECT tm.user_id, tm.spend AS membership_spend,
+                   b.max_budget AS membership_max_budget
             FROM "LiteLLM_TeamMembership" tm
+            LEFT JOIN "LiteLLM_BudgetTable" b ON tm.budget_id = b.budget_id
             WHERE tm.team_id = :team_id {search_condition}
             ORDER BY tm.user_id
             OFFSET :offset LIMIT :limit
         """),
         {**search_params, "offset": offset, "limit": page_size},
     )
-    paged_ids = [r["user_id"] for r in membership_result.mappings()]
+    paged_rows = list(membership_result.mappings())
+    paged_ids = [r["user_id"] for r in paged_rows]
+    membership_budget = {
+        r["user_id"]: {
+            "spend": float(r["membership_spend"] or 0),
+            "max_budget": float(r["membership_max_budget"]) if r["membership_max_budget"] is not None else None,
+        }
+        for r in paged_rows
+    }
 
     if not paged_ids:
         return {"members": [], "total": total, "page": page, "page_size": page_size}
@@ -330,18 +357,14 @@ async def list_team_members(
     members = []
     for uid in paged_ids:
         user_keys = keys_by_user.get(uid, [])
-        total_spend = sum(k["spend"] for k in user_keys)
-        has_unlimited = any(k["max_budget"] is None for k in user_keys)
-        total_max_budget: float | None = (
-            None if has_unlimited else (sum(k["max_budget"] for k in user_keys) if user_keys else None)  # type: ignore[arg-type]
-        )
+        budget = membership_budget.get(uid, {"spend": 0, "max_budget": None})
         members.append(
             {
                 "user_id": uid,
                 "is_admin": uid in all_admins_set,
                 "key_count": len(user_keys),
-                "total_spend": total_spend,
-                "total_max_budget": total_max_budget,
+                "total_spend": budget["spend"],
+                "total_max_budget": budget["max_budget"],
                 "keys": user_keys,
             }
         )
@@ -419,6 +442,62 @@ async def change_member_role(
     return {"status": "changed", "user_id": body.user_id, "new_role": body.role}
 
 
+class ChangeBudgetRequest(BaseModel):
+    max_budget: float
+
+
+@router.put("/{team_id}/members/{member_id}/budget")
+async def change_member_budget(
+    team_id: str,
+    member_id: str,
+    body: ChangeBudgetRequest,
+    user: CustomUser = Depends(get_current_user),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Change a team member's budget. Requires team admin or super user."""
+    await require_team_admin(user, team_id, litellm_db)
+
+    # Find or create budget with the target max_budget
+    existing_budget = await litellm_db.execute(
+        text(
+            'SELECT budget_id FROM "LiteLLM_BudgetTable" '
+            "WHERE max_budget = :max_budget LIMIT 1"
+        ),
+        {"max_budget": body.max_budget},
+    )
+    existing_row = existing_budget.mappings().first()
+
+    if existing_row:
+        target_budget_id = existing_row["budget_id"]
+    else:
+        import uuid as _uuid
+        target_budget_id = str(_uuid.uuid4())
+        await litellm_db.execute(
+            text(
+                'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
+                "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
+            ),
+            {
+                "budget_id": target_budget_id,
+                "max_budget": body.max_budget,
+                "created_by": user.user_id,
+                "updated_by": user.user_id,
+            },
+        )
+
+    # Point the member's membership to the target budget
+    await litellm_db.execute(
+        text(
+            'UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id '
+            "WHERE user_id = :user_id AND team_id = :team_id"
+        ),
+        {"budget_id": target_budget_id, "user_id": member_id, "team_id": team_id},
+    )
+    await litellm_db.commit()
+
+    return {"status": "changed", "user_id": member_id, "max_budget": body.max_budget}
+
+
 @router.delete("/{team_id}/members/{member_id}")
 async def remove_team_member(
     team_id: str,
@@ -490,10 +569,7 @@ async def remove_team_member(
 
 
 class UpdateTeamSettingsRequest(BaseModel):
-    max_budget: float | None = None
-    budget_duration: str | None = None
-    tpm_limit: int | None = None
-    rpm_limit: int | None = None
+    default_member_budget: float | None = None
 
 
 @router.put("/{team_id}/settings")
@@ -501,34 +577,33 @@ async def update_team_settings(
     team_id: str,
     body: UpdateTeamSettingsRequest,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """Update team budget/rate limit settings. Requires team admin or super user."""
-    result = await litellm_db.execute(
-        text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
-        {"team_id": team_id},
-    )
-    row = result.mappings().first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Team not found")
-
-    if user.global_role != GlobalRole.SUPER_USER and user.user_id not in (row["admins"] or []):
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Update team settings. Requires team admin or super user."""
+    await require_team_admin(user, team_id, litellm_db)
 
     updates = body.model_dump(exclude_unset=True)
     if not updates:
         return {"status": "unchanged"}
 
-    set_clauses = []
-    params: dict = {"team_id": team_id}
-    for field, value in updates.items():
-        set_clauses.append(f"{field} = :{field}")
-        params[field] = value
-
-    await litellm_db.execute(
-        text(f'UPDATE "LiteLLM_TeamTable" SET {", ".join(set_clauses)} WHERE team_id = :team_id'),
-        params,
-    )
-    await litellm_db.commit()
+    # Store default_member_budget in portal settings
+    if "default_member_budget" in updates:
+        key = f"team:{team_id}:default_member_budget"
+        value = str(updates["default_member_budget"]) if updates["default_member_budget"] is not None else ""
+        if value:
+            await db.execute(
+                text(
+                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                    "VALUES (:key, :value, :updated_by) "
+                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+                ),
+                {"key": key, "value": value, "updated_by": user.user_id},
+            )
+        else:
+            await db.execute(
+                text("DELETE FROM custom_portal_settings WHERE key = :key"),
+                {"key": key},
+            )
 
     return {"status": "updated", "team_id": team_id, **updates}

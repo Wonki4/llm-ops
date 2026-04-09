@@ -120,10 +120,25 @@ export function useChangeMemberRole() {
   });
 }
 
+export function useChangeMemberBudget() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId, maxBudget }: { teamId: string; userId: string; maxBudget: number }) =>
+      apiFetch<{ status: string }>(`/api/teams/${teamId}/members/${userId}/budget`, {
+        method: "PUT",
+        body: JSON.stringify({ max_budget: maxBudget }),
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
+      qc.invalidateQueries({ queryKey: ["teams", variables.teamId, "members"] });
+    },
+  });
+}
+
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { max_budget?: number | null; budget_duration?: string | null; tpm_limit?: number | null; rpm_limit?: number | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),

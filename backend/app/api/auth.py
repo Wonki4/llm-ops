@@ -115,7 +115,14 @@ async def _resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
                         team_ids.append(t)
                 break  # first matching rule only
 
-    return team_ids
+    # Fallback to default_team_id (supports comma-separated multiple IDs)
+    fallback_result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
+    )
+    fallback = fallback_result.scalar()
+    if fallback:
+        return [t.strip() for t in fallback.split(",") if t.strip()]
+    return []
 
 
 async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:

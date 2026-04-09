@@ -144,6 +144,11 @@ async def list_all_history(
     """List all status change history across all catalog entries."""
     query = select(CustomModelStatusHistory)
 
+    # Non-admin: exclude history for hidden models
+    if user.global_role != GlobalRole.SUPER_USER:
+        visible_models_q = select(CustomModelCatalog.model_name).where(CustomModelCatalog.visible == True)  # noqa: E712
+        query = query.where(CustomModelStatusHistory.model_name.in_(visible_models_q))
+
     if model_name:
         query = query.where(CustomModelStatusHistory.model_name.ilike(f"%{model_name}%"))
     if status_filter:
