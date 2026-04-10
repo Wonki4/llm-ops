@@ -108,7 +108,7 @@ async def create_key(
         except HTTPStatusError as e:
             if e.response.status_code >= 500:
                 last_error = e
-                logger.warning("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
+                logger.error("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e, exc_info=True)
                 if attempt < max_retries - 1:
                     await asyncio.sleep(1 * (attempt + 1))
                 continue
