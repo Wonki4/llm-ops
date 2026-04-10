@@ -1,7 +1,10 @@
 """Model catalog CRUD endpoints (Super User only) + public model list."""
 
+import logging
 import uuid
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -81,6 +84,7 @@ async def list_models(
     try:
         litellm_models = await litellm.get_model_info()
     except Exception:
+        logger.error("Failed to fetch LiteLLM model info", exc_info=True)
         litellm_models = []
 
     is_admin = user.global_role == GlobalRole.SUPER_USER
