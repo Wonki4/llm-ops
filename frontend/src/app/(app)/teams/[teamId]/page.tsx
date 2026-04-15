@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -592,10 +592,13 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const changeRoleMutation = useChangeMemberRole();
   const changeBudgetMutation = useChangeMemberBudget();
+  const setExpiryMutation = useSetMemberExpiry();
   const removeMemberMutation = useRemoveTeamMember();
   const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; currentIsAdmin: boolean } | null>(null);
   const [budgetChangeTarget, setBudgetChangeTarget] = useState<{ userId: string; currentBudget: number | null } | null>(null);
   const [budgetAmount, setBudgetAmount] = useState("");
+  const [expiryTarget, setExpiryTarget] = useState<{ userId: string; currentExpiry: string | null } | null>(null);
+  const [expiryDate, setExpiryDate] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -654,6 +657,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                   <TableHead>역할</TableHead>
                   <TableHead className="hidden sm:table-cell">키 수</TableHead>
                   <TableHead>예산 사용</TableHead>
+                  <TableHead className="hidden md:table-cell">만료일</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -744,10 +748,31 @@ function MembersTab({ teamId }: { teamId: string }) {
                             </Button>
                           </div>
                         </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted-foreground">
+                              {member.expires_at
+                                ? new Date(member.expires_at).toLocaleDateString("ko-KR")
+                                : "무기한"}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-xs text-muted-foreground"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpiryTarget({ userId: member.user_id, currentExpiry: member.expires_at ?? null });
+                                setExpiryDate(member.expires_at ? member.expires_at.split("T")[0] : "");
+                              }}
+                            >
+                              설정
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
                       {isExpanded && member.keys.length > 0 && (
                         <TableRow>
-                          <TableCell colSpan={5} className="bg-muted/30 p-0">
+                          <TableCell colSpan={6} className="bg-muted/30 p-0">
                             <div className="space-y-2 px-8 py-3">
                               {member.keys.map((key) => {
                                 const keyPct = budgetPercent(key.spend, key.max_budget);
@@ -935,6 +960,85 @@ function MembersTab({ teamId }: { teamId: string }) {
               }}
             >
               {changeBudgetMutation.isPending ? "변경 중..." : "확인"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expiry Setting Dialog */}
+      <Dialog open={!!expiryTarget} onOpenChange={(open) => { if (!open) { setExpiryTarget(null); setExpiryDate(""); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>멤버십 만료일 설정</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold text-foreground">{expiryTarget?.userId}</span>
+              님의 멤버십 만료일을 설정합니다. 만료 시 팀에서 자동 탈퇴되고 키가 삭제됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            {expiryTarget?.currentExpiry && (
+              <div className="rounded-md bg-muted p-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">현재 만료일</span>
+                  <span className="font-medium">{new Date(expiryTarget.currentExpiry).toLocaleDateString("ko-KR")}</span>
+                </div>
+              </div>
+            )}
+            <div>
+              <label className="text-sm font-medium">만료일</label>
+              <input
+                type="date"
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            {expiryTarget?.currentExpiry && (
+              <Button
+                variant="outline"
+                className="text-destructive"
+                disabled={setExpiryMutation.isPending}
+                onClick={() => {
+                  if (!expiryTarget) return;
+                  setExpiryMutation.mutate(
+                    { teamId, userId: expiryTarget.userId, expiresAt: null },
+                    {
+                      onSuccess: () => {
+                        toast.success("만료일이 해제되었습니다.");
+                        setExpiryTarget(null);
+                        setExpiryDate("");
+                      },
+                      onError: (err) => toast.error(err instanceof Error ? err.message : "만료일 해제 실패"),
+                    },
+                  );
+                }}
+              >
+                만료일 해제
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => { setExpiryTarget(null); setExpiryDate(""); }}>
+              취소
+            </Button>
+            <Button
+              disabled={!expiryDate || setExpiryMutation.isPending}
+              onClick={() => {
+                if (!expiryTarget || !expiryDate) return;
+                setExpiryMutation.mutate(
+                  { teamId, userId: expiryTarget.userId, expiresAt: `${expiryDate}T23:59:59` },
+                  {
+                    onSuccess: () => {
+                      toast.success("만료일이 설정되었습니다.");
+                      setExpiryTarget(null);
+                      setExpiryDate("");
+                    },
+                    onError: (err) => toast.error(err instanceof Error ? err.message : "만료일 설정 실패"),
+                  },
+                );
+              }}
+            >
+              {setExpiryMutation.isPending ? "설정 중..." : "확인"}
             </Button>
           </DialogFooter>
         </DialogContent>
