@@ -42,6 +42,7 @@ export interface TeamDetail {
   team: Team;
   my_keys: ApiKey[];
   default_member_budget: number | null;
+  membership_duration: string | null;
   is_admin: boolean;
   my_membership: TeamMembership;
 }

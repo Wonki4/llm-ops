@@ -506,11 +506,12 @@ function OverviewTab({
   );
 }
 
-function TeamSettingsTab({ teamId, defaultMemberBudget }: { teamId: string; defaultMemberBudget: number | null }) {
+function TeamSettingsTab({ teamId, defaultMemberBudget, membershipDuration }: { teamId: string; defaultMemberBudget: number | null; membershipDuration: string | null }) {
   const updateSettings = useUpdateTeamSettings();
   const [defaultBudget, setDefaultBudget] = useState(
     defaultMemberBudget != null ? String(defaultMemberBudget) : ""
   );
+  const [duration, setDuration] = useState(membershipDuration || "");
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -518,6 +519,7 @@ function TeamSettingsTab({ teamId, defaultMemberBudget }: { teamId: string; defa
         teamId,
         body: {
           default_member_budget: defaultBudget ? Number(defaultBudget) : null,
+          membership_duration: duration || null,
         },
       },
       {
@@ -548,6 +550,27 @@ function TeamSettingsTab({ teamId, defaultMemberBudget }: { teamId: string; defa
             />
             <p className="text-xs text-muted-foreground">
               신규 멤버가 팀에 추가될 때 자동으로 할당되는 예산입니다
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">멤버십 유효 기간</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">유효 기간</label>
+            <input
+              type="text"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              placeholder="예: 90d, 180d, 365d (미설정 시 무기한)"
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+            <p className="text-xs text-muted-foreground">
+              설정 시 가입 승인일로부터 해당 기간 후 자동으로 팀에서 탈퇴되고 키가 삭제됩니다 (d=일, m=월)
             </p>
           </div>
         </CardContent>
@@ -1200,7 +1223,7 @@ export default function TeamDetailPage({
 
         {is_admin && (
           <TabsContent value="settings" className="mt-6">
-            <TeamSettingsTab teamId={teamId} defaultMemberBudget={data.default_member_budget ?? null} />
+            <TeamSettingsTab teamId={teamId} defaultMemberBudget={data.default_member_budget ?? null} membershipDuration={data.membership_duration ?? null} />
           </TabsContent>
         )}
       </Tabs>
