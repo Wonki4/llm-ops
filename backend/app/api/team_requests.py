@@ -176,7 +176,19 @@ async def list_requests(
             await require_team_admin(user, team_id, litellm_db)
             query = query.where(CustomTeamJoinRequest.team_id == team_id)
         else:
-            query = query.where(CustomTeamJoinRequest.requester_id == user.user_id)
+            # Team admin: show requests for all teams they admin
+            admin_teams_result = await litellm_db.execute(
+                text(
+                    'SELECT team_id FROM "LiteLLM_TeamTable" '
+                    "WHERE :user_id = ANY(COALESCE(admins, ARRAY[]::text[]))"
+                ),
+                {"user_id": user.user_id},
+            )
+            admin_team_ids = [r["team_id"] for r in admin_teams_result.mappings()]
+            if admin_team_ids:
+                query = query.where(CustomTeamJoinRequest.team_id.in_(admin_team_ids))
+            else:
+                query = query.where(CustomTeamJoinRequest.requester_id == user.user_id)
 
     if status_filter:
         query = query.where(CustomTeamJoinRequest.status == JoinRequestStatus(status_filter))

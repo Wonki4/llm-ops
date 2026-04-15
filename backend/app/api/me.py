@@ -27,11 +27,24 @@ async def get_me(
     )
     row = result.mappings().first()
 
+    # Determine effective role: super_user > team_admin > user
+    role = user.global_role.value
+    if role != "super_user":
+        admin_check = await litellm_db.execute(
+            text(
+                'SELECT 1 FROM "LiteLLM_TeamTable" '
+                "WHERE :user_id = ANY(COALESCE(admins, ARRAY[]::text[])) LIMIT 1"
+            ),
+            {"user_id": user.user_id},
+        )
+        if admin_check.scalar_one_or_none() is not None:
+            role = "team_admin"
+
     return {
         "user_id": user.user_id,
         "email": user.email,
         "display_name": user.display_name,
-        "role": user.global_role.value,
+        "role": role,
         "spend": float(row["spend"]) if row else 0,
         "max_budget": row["max_budget"] if row else None,
     }
