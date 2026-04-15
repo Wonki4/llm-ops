@@ -267,7 +267,27 @@ async def approve_request(
                 text('UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id WHERE user_id = :user_id AND team_id = :team_id'),
                 {"budget_id": team_metadata["team_member_budget_id"], "user_id": req.requester_id, "team_id": req.team_id},
             )
-        # 5. Add team_id to UserTable.teams array
+        # 5. Create membership expiry if duration is configured
+        duration_result = await db.execute(
+            text("SELECT value FROM custom_portal_settings WHERE key = :key"),
+            {"key": f"team:{req.team_id}:membership_duration"},
+        )
+        duration_val = duration_result.scalar()
+        if duration_val:
+            from app.api.teams import _parse_duration
+            delta = _parse_duration(duration_val)
+            if delta:
+                from datetime import datetime as _dt
+                expires_at = _dt.now() + delta
+                await db.execute(
+                    text(
+                        "INSERT INTO custom_team_membership (id, user_id, team_id, expires_at, status) "
+                        "VALUES (gen_random_uuid(), :user_id, :team_id, :expires_at, 'active') "
+                        "ON CONFLICT (user_id, team_id) DO UPDATE SET expires_at = :expires_at, status = 'active'"
+                    ),
+                    {"user_id": req.requester_id, "team_id": req.team_id, "expires_at": expires_at},
+                )
+        # 6. Add team_id to UserTable.teams array
         await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_UserTable" '

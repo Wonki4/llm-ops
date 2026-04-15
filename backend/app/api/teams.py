@@ -20,6 +20,32 @@ MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
+async def _get_membership_duration(db: AsyncSession, team_id: str) -> str | None:
+    """Get membership duration setting for a team."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = :key"),
+        {"key": f"team:{team_id}:membership_duration"},
+    )
+    return result.scalar() or None
+
+
+def _parse_duration(duration_str: str) -> "timedelta | None":
+    """Parse duration string like '30d', '90d', '365d' to timedelta."""
+    from datetime import timedelta
+    import re
+    match = re.match(r"^(\d+)([dhm])$", duration_str.strip().lower())
+    if not match:
+        return None
+    value, unit = int(match.group(1)), match.group(2)
+    if unit == "d":
+        return timedelta(days=value)
+    elif unit == "h":
+        return timedelta(hours=value)
+    elif unit == "m":
+        return timedelta(days=value * 30)
+    return None
+
+
 async def _get_default_member_budget(litellm_db: AsyncSession, team_id: str) -> float | None:
     """Get default member budget from TeamTable metadata -> BudgetTable."""
     result = await litellm_db.execute(
@@ -254,6 +280,7 @@ async def get_team_detail(
         },
         "my_keys": my_keys,
         "default_member_budget": await _get_default_member_budget(litellm_db, team_id),
+        "membership_duration": await _get_membership_duration(db, team_id),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -575,6 +602,7 @@ async def remove_team_member(
 
 class UpdateTeamSettingsRequest(BaseModel):
     default_member_budget: float | None = None
+    membership_duration: str | None = None  # e.g. "90d", "180d", "365d"
 
 
 @router.put("/{team_id}/settings")
@@ -582,6 +610,7 @@ async def update_team_settings(
     team_id: str,
     body: UpdateTeamSettingsRequest,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
@@ -595,5 +624,24 @@ async def update_team_settings(
     # Set team_member_budget via LiteLLM API
     if "default_member_budget" in updates:
         await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
+
+    # Store membership_duration in portal settings
+    if "membership_duration" in updates:
+        key = f"team:{team_id}:membership_duration"
+        value = updates["membership_duration"] or ""
+        if value:
+            await db.execute(
+                text(
+                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                    "VALUES (:key, :value, :updated_by) "
+                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+                ),
+                {"key": key, "value": value, "updated_by": user.user_id},
+            )
+        else:
+            await db.execute(
+                text("DELETE FROM custom_portal_settings WHERE key = :key"),
+                {"key": key},
+            )
 
     return {"status": "updated", "team_id": team_id, **updates}
