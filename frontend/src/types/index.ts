@@ -61,6 +61,8 @@ export interface ApiKey {
   models: string[];
   expires: string | null;
   created_at: string;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
 }
 
 export type StatusSchedule = Partial<Record<ModelStatus, string>>;
