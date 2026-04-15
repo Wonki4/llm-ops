@@ -1,6 +1,6 @@
 """Cron job to expire team memberships and remove members + their keys."""
 
-import json
+import asyncio
 import logging
 from datetime import datetime
 
@@ -123,3 +123,16 @@ async def expire_memberships() -> dict:
         await db.commit()
 
     return {"processed": processed, "errors": errors}
+
+
+async def membership_expiry_loop(interval_seconds: int = 3600) -> None:
+    """Run the membership expiry check in a loop."""
+    logger.info("Starting membership expiry worker (interval=%ds)", interval_seconds)
+    while True:
+        try:
+            result = await expire_memberships()
+            if result["processed"] > 0:
+                logger.info("Expired %d membership(s), %d error(s)", result["processed"], result["errors"])
+        except Exception:
+            logger.exception("Error in membership expiry loop")
+        await asyncio.sleep(interval_seconds)
