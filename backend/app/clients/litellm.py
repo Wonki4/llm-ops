@@ -111,6 +111,10 @@ class LiteLLMClient:
         payload = {"key": key, **kwargs}
         return await self._request("POST", "/key/update", json=payload)
 
+    async def update_team(self, team_id: str, **kwargs: Any) -> dict:
+        payload = {"team_id": team_id, **kwargs}
+        return await self._request("POST", "/team/update", json=payload)
+
     # ──── User endpoints ────
     async def get_user_info(self, user_id: str) -> dict:
         return await self._request("GET", "/user/info", params={"user_id": user_id})

@@ -256,38 +256,17 @@ async def approve_request(
             ),
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
-        # 4. Apply default member budget if configured
-        default_budget = await db.execute(
-            text("SELECT value FROM custom_portal_settings WHERE key = :key"),
-            {"key": f"team:{req.team_id}:default_member_budget"},
+        # 4. Apply default member budget from team metadata (team_member_budget_id)
+        team_meta_result = await litellm_db.execute(
+            text('SELECT metadata FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+            {"team_id": req.team_id},
         )
-        budget_val = default_budget.scalar()
-        if budget_val:
-            try:
-                budget_amount = float(budget_val)
-                # Find or create budget entry
-                existing_budget = await litellm_db.execute(
-                    text('SELECT budget_id FROM "LiteLLM_BudgetTable" WHERE max_budget = :max_budget LIMIT 1'),
-                    {"max_budget": budget_amount},
-                )
-                existing_row = existing_budget.mappings().first()
-                if existing_row:
-                    target_budget_id = existing_row["budget_id"]
-                else:
-                    target_budget_id = str(uuid.uuid4())
-                    await litellm_db.execute(
-                        text(
-                            'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
-                            "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
-                        ),
-                        {"budget_id": target_budget_id, "max_budget": budget_amount, "created_by": user.user_id, "updated_by": user.user_id},
-                    )
-                await litellm_db.execute(
-                    text('UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id WHERE user_id = :user_id AND team_id = :team_id'),
-                    {"budget_id": target_budget_id, "user_id": req.requester_id, "team_id": req.team_id},
-                )
-            except (ValueError, TypeError):
-                pass
+        team_metadata = team_meta_result.scalar()
+        if isinstance(team_metadata, dict) and team_metadata.get("team_member_budget_id"):
+            await litellm_db.execute(
+                text('UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id WHERE user_id = :user_id AND team_id = :team_id'),
+                {"budget_id": team_metadata["team_member_budget_id"], "user_id": req.requester_id, "team_id": req.team_id},
+            )
         # 5. Add team_id to UserTable.teams array
         await litellm_db.execute(
             text(

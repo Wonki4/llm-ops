@@ -20,19 +20,23 @@ MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
 
 
-async def _get_default_member_budget(db: AsyncSession, team_id: str) -> float | None:
-    """Get default member budget for a team from portal settings."""
-    result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = :key"),
-        {"key": f"team:{team_id}:default_member_budget"},
+async def _get_default_member_budget(litellm_db: AsyncSession, team_id: str) -> float | None:
+    """Get default member budget from TeamTable metadata -> BudgetTable."""
+    result = await litellm_db.execute(
+        text("SELECT metadata FROM \"LiteLLM_TeamTable\" WHERE team_id = :team_id"),
+        {"team_id": team_id},
     )
-    raw = result.scalar()
-    if raw:
-        try:
-            return float(raw)
-        except (ValueError, TypeError):
-            return None
-    return None
+    metadata = result.scalar()
+    if not metadata or not isinstance(metadata, dict):
+        return None
+    budget_id = metadata.get("team_member_budget_id")
+    if not budget_id:
+        return None
+    budget_result = await litellm_db.execute(
+        text("SELECT max_budget FROM \"LiteLLM_BudgetTable\" WHERE budget_id = :budget_id"),
+        {"budget_id": budget_id},
+    )
+    return budget_result.scalar()
 
 
 async def _get_hidden_teams(db: AsyncSession) -> set[str]:
@@ -249,7 +253,7 @@ async def get_team_detail(
             "admin_count": len(all_admins),
         },
         "my_keys": my_keys,
-        "default_member_budget": await _get_default_member_budget(db, team_id),
+        "default_member_budget": await _get_default_member_budget(litellm_db, team_id),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -578,7 +582,7 @@ async def update_team_settings(
     team_id: str,
     body: UpdateTeamSettingsRequest,
     user: CustomUser = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Update team settings. Requires team admin or super user."""
@@ -588,23 +592,8 @@ async def update_team_settings(
     if not updates:
         return {"status": "unchanged"}
 
-    # Store default_member_budget in portal settings
+    # Set team_member_budget via LiteLLM API
     if "default_member_budget" in updates:
-        key = f"team:{team_id}:default_member_budget"
-        value = str(updates["default_member_budget"]) if updates["default_member_budget"] is not None else ""
-        if value:
-            await db.execute(
-                text(
-                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
-                    "VALUES (:key, :value, :updated_by) "
-                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
-                ),
-                {"key": key, "value": value, "updated_by": user.user_id},
-            )
-        else:
-            await db.execute(
-                text("DELETE FROM custom_portal_settings WHERE key = :key"),
-                {"key": key},
-            )
+        await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
 
     return {"status": "updated", "team_id": team_id, **updates}
