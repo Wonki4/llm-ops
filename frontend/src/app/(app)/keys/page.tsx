@@ -287,6 +287,8 @@ export default function AllKeysPage() {
                 <TableHead>별칭</TableHead>
                 <TableHead>키</TableHead>
                 <TableHead>팀</TableHead>
+                <TableHead className="hidden lg:table-cell">TPM</TableHead>
+                <TableHead className="hidden lg:table-cell">RPM</TableHead>
                 <TableHead>생성일</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
@@ -343,6 +345,12 @@ export default function AllKeysPage() {
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                    {key.tpm_limit?.toLocaleString() ?? "-"}
+                  </TableCell>
+                  <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                    {key.rpm_limit?.toLocaleString() ?? "-"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatDate(key.created_at)}

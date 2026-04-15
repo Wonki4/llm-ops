@@ -135,7 +135,7 @@ async def list_my_keys(
     query = (
         "SELECT token, key_name, key_alias, team_id, user_id, "
         "       spend, max_budget, budget_duration, budget_reset_at, "
-        "       models, expires, created_at, metadata "
+        "       models, expires, created_at, metadata, tpm_limit, rpm_limit "
         'FROM "LiteLLM_VerificationToken" '
         "WHERE user_id = :user_id "
     )
@@ -160,6 +160,8 @@ async def list_my_keys(
             "models": list(k["models"] or []),
             "expires": k["expires"].isoformat() if k["expires"] else None,
             "created_at": k["created_at"].isoformat() if k["created_at"] else None,
+            "tpm_limit": k["tpm_limit"],
+            "rpm_limit": k["rpm_limit"],
         }
         for k in result.mappings()
     ]

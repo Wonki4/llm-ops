@@ -1192,7 +1192,11 @@ export default function TeamDetailPage({
                   <TableRow>
                     <TableHead>별칭</TableHead>
                     <TableHead>키</TableHead>
-                    <TableHead>생성일</TableHead>
+                    <TableHead className="hidden lg:table-cell">TPM</TableHead>
+                    <TableHead className="hidden lg:table-cell">RPM</TableHead>
+                    <TableHead className="hidden md:table-cell">만료일</TableHead>
+                    <TableHead>모델</TableHead>
+                    <TableHead className="hidden md:table-cell">생성일</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
@@ -1237,6 +1241,12 @@ export default function TeamDetailPage({
                               {copiedKeyId === key.token ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
                             </Button>
                           </div>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                          {key.tpm_limit?.toLocaleString() ?? "-"}
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
+                          {key.rpm_limit?.toLocaleString() ?? "-"}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
                           {key.expires ? formatDate(key.expires) : "-"}
