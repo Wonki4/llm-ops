@@ -232,7 +232,22 @@ async def approve_request(
             ),
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
-        # 2. Create TeamMembership row (upsert)
+        # 2. Add to members_with_roles JSONB
+        import json as _json
+        await litellm_db.execute(
+            text(
+                'UPDATE "LiteLLM_TeamTable" '
+                "SET members_with_roles = members_with_roles || :new_member::jsonb "
+                "WHERE team_id = :team_id "
+                "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(members_with_roles) elem WHERE elem->>'user_id' = :user_id)"
+            ),
+            {
+                "new_member": _json.dumps([{"role": "user", "user_id": req.requester_id, "user_email": None}]),
+                "team_id": req.team_id,
+                "user_id": req.requester_id,
+            },
+        )
+        # 3. Create TeamMembership row (upsert)
         await litellm_db.execute(
             text(
                 'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
@@ -241,7 +256,39 @@ async def approve_request(
             ),
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
-        # 3. Add team_id to UserTable.teams array
+        # 4. Apply default member budget if configured
+        default_budget = await db.execute(
+            text("SELECT value FROM custom_portal_settings WHERE key = :key"),
+            {"key": f"team:{req.team_id}:default_member_budget"},
+        )
+        budget_val = default_budget.scalar()
+        if budget_val:
+            try:
+                budget_amount = float(budget_val)
+                # Find or create budget entry
+                existing_budget = await litellm_db.execute(
+                    text('SELECT budget_id FROM "LiteLLM_BudgetTable" WHERE max_budget = :max_budget LIMIT 1'),
+                    {"max_budget": budget_amount},
+                )
+                existing_row = existing_budget.mappings().first()
+                if existing_row:
+                    target_budget_id = existing_row["budget_id"]
+                else:
+                    target_budget_id = str(uuid.uuid4())
+                    await litellm_db.execute(
+                        text(
+                            'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
+                            "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
+                        ),
+                        {"budget_id": target_budget_id, "max_budget": budget_amount, "created_by": user.user_id, "updated_by": user.user_id},
+                    )
+                await litellm_db.execute(
+                    text('UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id WHERE user_id = :user_id AND team_id = :team_id'),
+                    {"budget_id": target_budget_id, "user_id": req.requester_id, "team_id": req.team_id},
+                )
+            except (ValueError, TypeError):
+                pass
+        # 5. Add team_id to UserTable.teams array
         await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_UserTable" '
