@@ -269,6 +269,8 @@ export interface TeamMember {
   key_count: number;
   total_spend: number;
   total_max_budget: number | null;
+  expires_at: string | null;
+  expiry_status: string | null;
   keys: MemberKey[];
 }
 

@@ -135,6 +135,21 @@ export function useChangeMemberBudget() {
   });
 }
 
+export function useSetMemberExpiry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId, expiresAt }: { teamId: string; userId: string; expiresAt: string | null }) =>
+      apiFetch<{ status: string }>(`/api/teams/${teamId}/members/${userId}/expiry`, {
+        method: "PUT",
+        body: JSON.stringify({ expires_at: expiresAt }),
+      }),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
+      qc.invalidateQueries({ queryKey: ["teams", variables.teamId, "members"] });
+    },
+  });
+}
+
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({

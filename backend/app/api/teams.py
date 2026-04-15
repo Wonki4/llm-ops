@@ -385,11 +385,28 @@ async def list_team_members(
             }
         )
 
-    # 6. Build member objects
+    # 6. Get membership expiry info from portal DB
+    expiry_result = await db.execute(
+        text(
+            "SELECT user_id, expires_at, status FROM custom_team_membership "
+            "WHERE team_id = :team_id AND user_id = ANY(:member_ids)"
+        ),
+        {"team_id": team_id, "member_ids": paged_ids},
+    )
+    expiry_map = {
+        r["user_id"]: {
+            "expires_at": r["expires_at"].isoformat() if r["expires_at"] else None,
+            "status": r["status"],
+        }
+        for r in expiry_result.mappings()
+    }
+
+    # 7. Build member objects
     members = []
     for uid in paged_ids:
         user_keys = keys_by_user.get(uid, [])
         budget = membership_budget.get(uid, {"spend": 0, "max_budget": None})
+        expiry = expiry_map.get(uid)
         members.append(
             {
                 "user_id": uid,
@@ -397,6 +414,8 @@ async def list_team_members(
                 "key_count": len(user_keys),
                 "total_spend": budget["spend"],
                 "total_max_budget": budget["max_budget"],
+                "expires_at": expiry["expires_at"] if expiry else None,
+                "expiry_status": expiry["status"] if expiry else None,
                 "keys": user_keys,
             }
         )
@@ -528,6 +547,42 @@ async def change_member_budget(
     await litellm_db.commit()
 
     return {"status": "changed", "user_id": member_id, "max_budget": body.max_budget}
+
+
+class SetMemberExpiryRequest(BaseModel):
+    expires_at: str | None = None  # ISO datetime string, null to remove
+
+
+@router.put("/{team_id}/members/{member_id}/expiry")
+async def set_member_expiry(
+    team_id: str,
+    member_id: str,
+    body: SetMemberExpiryRequest,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Set or remove membership expiry for a team member. Requires team admin."""
+    await require_team_admin(user, team_id, litellm_db)
+
+    if body.expires_at:
+        from datetime import datetime as _dt
+        expires_at = _dt.fromisoformat(body.expires_at)
+        await db.execute(
+            text(
+                "INSERT INTO custom_team_membership (id, user_id, team_id, expires_at, status) "
+                "VALUES (gen_random_uuid(), :user_id, :team_id, :expires_at, 'active') "
+                "ON CONFLICT (user_id, team_id) DO UPDATE SET expires_at = :expires_at, status = 'active'"
+            ),
+            {"user_id": member_id, "team_id": team_id, "expires_at": expires_at},
+        )
+        return {"status": "set", "user_id": member_id, "expires_at": expires_at.isoformat()}
+    else:
+        await db.execute(
+            text("DELETE FROM custom_team_membership WHERE user_id = :user_id AND team_id = :team_id"),
+            {"user_id": member_id, "team_id": team_id},
+        )
+        return {"status": "removed", "user_id": member_id, "expires_at": None}
 
 
 @router.delete("/{team_id}/members/{member_id}")
