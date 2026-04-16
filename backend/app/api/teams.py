@@ -300,6 +300,7 @@ async def list_team_members(
     page_size: int = 50,
     search: str | None = None,
     user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """List team members with their key/budget info (admin only, paginated)."""
