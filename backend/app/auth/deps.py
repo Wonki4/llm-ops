@@ -53,14 +53,21 @@ async def get_current_user(
             or bool(settings.admin_groups and set(user_groups) & set(settings.admin_groups))
         )
 
-        user = CustomUser(
+        from sqlalchemy import text as _text
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from app.db.models.custom_user import CustomUser as _CU
+        stmt = pg_insert(_CU).values(
             user_id=uid,
             email=token.email,
             display_name=token.name,
             global_role=GlobalRole.SUPER_USER if is_super else GlobalRole.USER,
-        )
-        db.add(user)
+        ).on_conflict_do_nothing(index_elements=["user_id"])
+        await db.execute(stmt)
         await db.flush()
+
+        # Re-fetch to get the ORM object
+        result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
+        user = result.scalar_one()
     else:
         all_roles = (token.realm_roles or []) + (token.client_roles or [])
         user_groups = token.groups or []
