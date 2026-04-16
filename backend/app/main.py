@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, budgets, catalog, inference, keys, me, models_catalog, portal_settings, team_requests, teams
+from app.api import auth, budgets, catalog, external, inference, keys, me, models_catalog, portal_settings, team_requests, teams
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ app.include_router(inference.router)
 app.include_router(budgets.router)
 app.include_router(portal_settings.router)
 app.include_router(catalog.router)
+app.include_router(external.router)
 
 
 @app.exception_handler(Exception)

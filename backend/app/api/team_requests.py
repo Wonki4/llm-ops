@@ -237,9 +237,9 @@ async def approve_request(
         await litellm_db.execute(
             text(
                 'UPDATE "LiteLLM_TeamTable" '
-                "SET members_with_roles = members_with_roles || :new_member::jsonb "
+                "SET members_with_roles = COALESCE(members_with_roles, CAST('[]' AS jsonb)) || CAST(:new_member AS jsonb) "
                 "WHERE team_id = :team_id "
-                "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(members_with_roles) elem WHERE elem->>'user_id' = :user_id)"
+                "AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(members_with_roles, CAST('[]' AS jsonb))) elem WHERE elem->>'user_id' = :user_id)"
             ),
             {
                 "new_member": _json.dumps([{"role": "user", "user_id": req.requester_id, "user_email": None}]),

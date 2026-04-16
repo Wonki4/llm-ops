@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     redis_cluster: bool = False
     redis_catalog_prefix: str = "GENERATIVE:AI:"
 
+    external_api_key: str = ""
+
     slack_webhook_url: str = ""
     cors_origins: list[str] = ["http://localhost:3002"]
     debug: bool = False
