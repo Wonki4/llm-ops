@@ -76,8 +76,8 @@ async def expire_memberships() -> dict:
                     await litellm_db.execute(
                         text(
                             'UPDATE "LiteLLM_TeamTable" SET members_with_roles = ('
-                            "SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) "
-                            "FROM jsonb_array_elements(members_with_roles) elem "
+                            "SELECT COALESCE(jsonb_agg(elem), CAST('[]' AS jsonb)) "
+                            "FROM jsonb_array_elements(COALESCE(members_with_roles, CAST('[]' AS jsonb))) elem "
                             "WHERE elem->>'user_id' != :user_id"
                             ") WHERE team_id = :team_id"
                         ),
