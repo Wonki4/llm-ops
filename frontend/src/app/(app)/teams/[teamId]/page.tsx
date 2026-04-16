@@ -599,6 +599,8 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [budgetAmount, setBudgetAmount] = useState("");
   const [expiryTarget, setExpiryTarget] = useState<{ userId: string; currentExpiry: string | null } | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
+  const [sortField, setSortField] = useState<"spend" | "budget" | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -620,6 +622,24 @@ function MembersTab({ teamId }: { teamId: string }) {
   };
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
+
+  const toggleSort = (field: "spend" | "budget") => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
+
+  const sortedMembers = useMemo(() => {
+    if (!data?.members || !sortField) return data?.members ?? [];
+    return [...data.members].sort((a, b) => {
+      const va = sortField === "spend" ? a.total_spend : (a.total_max_budget ?? -1);
+      const vb = sortField === "spend" ? b.total_spend : (b.total_max_budget ?? -1);
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+  }, [data?.members, sortField, sortDir]);
 
   return (
     <div className="space-y-4">
@@ -656,12 +676,21 @@ function MembersTab({ teamId }: { teamId: string }) {
                   <TableHead>사번</TableHead>
                   <TableHead>역할</TableHead>
                   <TableHead className="hidden sm:table-cell">키 수</TableHead>
-                  <TableHead>예산 사용</TableHead>
+                  <TableHead>
+                    <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("spend")}>
+                      사용량 {sortField === "spend" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </button>
+                  </TableHead>
+                  <TableHead className="hidden sm:table-cell">
+                    <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("budget")}>
+                      예산 {sortField === "budget" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </button>
+                  </TableHead>
                   <TableHead className="hidden md:table-cell">만료일</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {data.members.map((member: TeamMember) => {
+                {sortedMembers.map((member: TeamMember) => {
                   const isExpanded = expanded.has(member.user_id);
                   const pct = budgetPercent(member.total_spend, member.total_max_budget);
                   return (
@@ -748,6 +777,11 @@ function MembersTab({ teamId }: { teamId: string }) {
                             </Button>
                           </div>
                         </TableCell>
+                        <TableCell className="hidden sm:table-cell">
+                          <span className="text-sm text-muted-foreground">
+                            {member.total_max_budget === null ? "무제한" : `$${member.total_max_budget.toFixed(2)}`}
+                          </span>
+                        </TableCell>
                         <TableCell className="hidden md:table-cell">
                           <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">
@@ -772,7 +806,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                       </TableRow>
                       {isExpanded && member.keys.length > 0 && (
                         <TableRow>
-                          <TableCell colSpan={6} className="bg-muted/30 p-0">
+                          <TableCell colSpan={7} className="bg-muted/30 p-0">
                             <div className="space-y-2 px-8 py-3">
                               {member.keys.map((key) => {
                                 const keyPct = budgetPercent(key.spend, key.max_budget);
