@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, Calendar, BarChart3, Key, DollarSign, Settings, Database, Inbox, UserCog } from "lucide-react";
+import { Users, Globe, ShieldCheck, Boxes, LayoutDashboard, LogOut, Calendar, BarChart3, Key, DollarSign, Settings, Database, Inbox, UserCog, Megaphone } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
 import type { UserRole } from "@/types";
 
 const navigation: { name: string; href: string; icon: typeof Users; roles: UserRole[] }[] = [
+  { name: "공지사항", href: "/announcements", icon: Megaphone, roles: ["user", "team_admin", "super_user"] },
   { name: "모델 캘린더", href: "/models/calendar", icon: Calendar, roles: ["user", "team_admin", "super_user"] },
   { name: "모델 대시보드", href: "/models/dashboard", icon: BarChart3, roles: ["user", "team_admin", "super_user"] },
   { name: "내 팀", href: "/teams", icon: Users, roles: ["user", "team_admin", "super_user"] },

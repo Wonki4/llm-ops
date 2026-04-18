@@ -368,3 +368,33 @@ export interface AdminUserDetail {
   keys: AdminUserKey[];
   teams: AdminUserTeam[];
 }
+
+// ─── Announcements ──────────────────────────────────────────────
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  is_published: boolean;
+  is_pinned: boolean;
+  is_featured: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateAnnouncementRequest {
+  title: string;
+  content: string;
+  is_published?: boolean;
+  is_pinned?: boolean;
+  is_featured?: boolean;
+}
+
+export interface UpdateAnnouncementRequest {
+  title?: string;
+  content?: string;
+  is_published?: boolean;
+  is_pinned?: boolean;
+  is_featured?: boolean;
+}

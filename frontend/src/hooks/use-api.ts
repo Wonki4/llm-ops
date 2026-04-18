@@ -26,6 +26,9 @@ import type {
   RedisCatalogListResponse,
   AdminUserListResponse,
   AdminUserDetail,
+  Announcement,
+  CreateAnnouncementRequest,
+  UpdateAnnouncementRequest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -752,5 +755,51 @@ export function useAdminAssignUserToTeam() {
       qc.invalidateQueries({ queryKey: ["admin-users", variables.userId, "detail"] });
       qc.invalidateQueries({ queryKey: ["admin-users"] });
     },
+  });
+}
+
+// ─── Announcements ──────────────────────────────────────────────
+
+export function useAnnouncements(includeUnpublished: boolean = false) {
+  const qs = includeUnpublished ? "?include_unpublished=true" : "";
+  return useQuery({
+    queryKey: ["announcements", { includeUnpublished }],
+    queryFn: () =>
+      apiFetch<{ announcements: Announcement[] }>(`/api/announcements${qs}`).then(
+        (r) => r.announcements,
+      ),
+  });
+}
+
+export function useCreateAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateAnnouncementRequest) =>
+      apiFetch<Announcement>("/api/announcements", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
+export function useUpdateAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateAnnouncementRequest }) =>
+      apiFetch<Announcement>(`/api/announcements/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
+export function useDeleteAnnouncement() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ status: string }>(`/api/announcements/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
   });
 }
