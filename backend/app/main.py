@@ -2,14 +2,27 @@
 
 import logging
 import traceback
-from contextlib import asynccontextmanager
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import auth, budgets, catalog, external, inference, keys, me, models_catalog, portal_settings, team_requests, teams
+from app.api import (
+    admin_users,
+    auth,
+    budgets,
+    catalog,
+    external,
+    inference,
+    keys,
+    me,
+    models_catalog,
+    portal_settings,
+    team_requests,
+    teams,
+)
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -50,6 +63,7 @@ app.include_router(budgets.router)
 app.include_router(portal_settings.router)
 app.include_router(catalog.router)
 app.include_router(external.router)
+app.include_router(admin_users.router)
 
 
 @app.exception_handler(Exception)

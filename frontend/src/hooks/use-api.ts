@@ -24,6 +24,8 @@ import type {
   BudgetDetails,
   RedisCatalogEntry,
   RedisCatalogListResponse,
+  AdminUserListResponse,
+  AdminUserDetail,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -653,6 +655,102 @@ export function useSyncCatalogToRedis() {
     mutationFn: ({ catalog }: { catalog: string }) => {
       const params = new URLSearchParams({ catalog });
       return apiFetch<{ synced: number }>(`/api/catalog/sync-to-redis?${params}`, { method: "POST" });
+    },
+  });
+}
+
+// ─── Admin Users ────────────────────────────────────────────────
+
+export function useAdminUsers(
+  page: number,
+  pageSize: number,
+  search: string,
+  role: string,
+) {
+  const params = new URLSearchParams();
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+  if (search) params.set("search", search);
+  if (role) params.set("role", role);
+
+  return useQuery({
+    queryKey: ["admin-users", { page, pageSize, search, role }],
+    queryFn: () => apiFetch<AdminUserListResponse>(`/api/admin/users?${params.toString()}`),
+  });
+}
+
+export function useAdminUserDetail(userId: string) {
+  return useQuery({
+    queryKey: ["admin-users", userId, "detail"],
+    queryFn: () => apiFetch<AdminUserDetail>(`/api/admin/users/${encodeURIComponent(userId)}`),
+    enabled: !!userId,
+  });
+}
+
+export function useAdminUpdateKeyLimits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      token,
+      tpmLimit,
+      rpmLimit,
+    }: {
+      userId: string;
+      token: string;
+      tpmLimit: number | null;
+      rpmLimit: number | null;
+    }) =>
+      apiFetch<{ status: string }>(
+        `/api/admin/users/${encodeURIComponent(userId)}/keys/${encodeURIComponent(token)}/limits`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ tpm_limit: tpmLimit, rpm_limit: rpmLimit }),
+        },
+      ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["admin-users", variables.userId, "detail"] });
+    },
+  });
+}
+
+export function useAdminRemoveUserFromTeam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, teamId }: { userId: string; teamId: string }) =>
+      apiFetch<{ status: string }>(
+        `/api/admin/users/${encodeURIComponent(userId)}/teams/${encodeURIComponent(teamId)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["admin-users", variables.userId, "detail"] });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+  });
+}
+
+export function useAdminAssignUserToTeam() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      teamId,
+      role,
+    }: {
+      userId: string;
+      teamId: string;
+      role: "user" | "admin";
+    }) =>
+      apiFetch<{ status: string }>(
+        `/api/admin/users/${encodeURIComponent(userId)}/teams`,
+        {
+          method: "POST",
+          body: JSON.stringify({ team_id: teamId, role }),
+        },
+      ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["admin-users", variables.userId, "detail"] });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
     },
   });
 }
