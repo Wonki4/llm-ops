@@ -298,3 +298,73 @@ export interface RedisCatalogListResponse {
   entries: RedisCatalogEntry[];
   total: number;
 }
+
+// ─── Admin Users ──────────────────────────────────────────────
+
+export type GlobalRole = "user" | "super_user";
+
+export interface AdminUserSummary {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  global_role: GlobalRole;
+  key_count: number;
+  team_count: number;
+  spend: number;
+  max_budget: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AdminUserListResponse {
+  users: AdminUserSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AdminUserDetailProfile {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  global_role: GlobalRole;
+  litellm_user_id: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  spend: number;
+  max_budget: number | null;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
+}
+
+export interface AdminUserKey {
+  token: string;
+  key_alias: string | null;
+  key_name: string | null;
+  team_id: string | null;
+  spend: number;
+  max_budget: number | null;
+  budget_duration: string | null;
+  budget_reset_at: string | null;
+  models: string[];
+  tpm_limit: number | null;
+  rpm_limit: number | null;
+  expires: string | null;
+  created_at: string | null;
+}
+
+export interface AdminUserTeam {
+  team_id: string;
+  team_alias: string | null;
+  is_admin: boolean;
+  spend: number;
+  max_budget: number | null;
+  expires_at: string | null;
+  expiry_status: string | null;
+}
+
+export interface AdminUserDetail {
+  user: AdminUserDetailProfile;
+  keys: AdminUserKey[];
+  teams: AdminUserTeam[];
+}
