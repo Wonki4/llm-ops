@@ -37,11 +37,24 @@ export function AppSidebar() {
           LLM Ops
         </Link>
       </div>
-      <nav className="flex-1 space-y-1 p-3">
-        {navigation
-          .filter((item) => item.roles.includes(userRole))
-          .map((item) => {
-            const isActive = pathname === item.href || (item.href !== "/admin/models" && item.href !== "/keys" && pathname.startsWith(item.href + "/") && !navigation.some((other) => other.href !== item.href && other.href.startsWith(item.href + "/") && pathname.startsWith(other.href)));
+      <nav className="flex-1 overflow-y-auto p-3">
+        {(() => {
+          const visible = navigation.filter((item) => item.roles.includes(userRole));
+          const regular = visible.filter((item) => item.roles.includes("user"));
+          const admin = visible.filter((item) => !item.roles.includes("user"));
+
+          const renderLink = (item: (typeof navigation)[number]) => {
+            const isActive =
+              pathname === item.href ||
+              (item.href !== "/admin/models" &&
+                item.href !== "/keys" &&
+                pathname.startsWith(item.href + "/") &&
+                !navigation.some(
+                  (other) =>
+                    other.href !== item.href &&
+                    other.href.startsWith(item.href + "/") &&
+                    pathname.startsWith(other.href),
+                ));
             return (
               <Link
                 key={item.href}
@@ -50,14 +63,32 @@ export function AppSidebar() {
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   isActive
                     ? "bg-gray-100 text-gray-900"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
                 )}
               >
                 <item.icon className="h-4 w-4" />
                 {item.name}
               </Link>
             );
-          })}
+          };
+
+          return (
+            <>
+              <div className="space-y-1">{regular.map(renderLink)}</div>
+              {admin.length > 0 && (
+                <>
+                  <div className="mt-5 mb-2 flex items-center gap-2 px-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                      관리자
+                    </span>
+                    <div className="h-px flex-1 bg-gray-200" />
+                  </div>
+                  <div className="space-y-1">{admin.map(renderLink)}</div>
+                </>
+              )}
+            </>
+          );
+        })()}
       </nav>
       <div className="border-t p-3 space-y-2">
         <p className="text-xs text-gray-500 truncate px-1">
