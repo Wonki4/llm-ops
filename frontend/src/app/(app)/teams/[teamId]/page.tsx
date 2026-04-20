@@ -599,8 +599,8 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [budgetAmount, setBudgetAmount] = useState("");
   const [expiryTarget, setExpiryTarget] = useState<{ userId: string; currentExpiry: string | null } | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
-  const [sortField, setSortField] = useState<"spend" | "budget" | null>(null);
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortField, setSortField] = useState<"user_id" | "spend" | "budget">("user_id");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -610,7 +610,7 @@ function MembersTab({ teamId }: { teamId: string }) {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const { data, isLoading } = useTeamMembers(teamId, page, pageSize, search);
+  const { data, isLoading } = useTeamMembers(teamId, page, pageSize, search, sortField, sortDir);
 
   const toggleExpand = (userId: string) => {
     setExpanded((prev) => {
@@ -630,16 +630,8 @@ function MembersTab({ teamId }: { teamId: string }) {
       setSortField(field);
       setSortDir("desc");
     }
+    setPage(1);
   };
-
-  const sortedMembers = useMemo(() => {
-    if (!data?.members || !sortField) return data?.members ?? [];
-    return [...data.members].sort((a, b) => {
-      const va = sortField === "spend" ? a.total_spend : (a.total_max_budget ?? -1);
-      const vb = sortField === "spend" ? b.total_spend : (b.total_max_budget ?? -1);
-      return sortDir === "asc" ? va - vb : vb - va;
-    });
-  }, [data?.members, sortField, sortDir]);
 
   return (
     <div className="space-y-4">
@@ -690,7 +682,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sortedMembers.map((member: TeamMember) => {
+                {data.members.map((member: TeamMember) => {
                   const isExpanded = expanded.has(member.user_id);
                   const pct = budgetPercent(member.total_spend, member.total_max_budget);
                   return (

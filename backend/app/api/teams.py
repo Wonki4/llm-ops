@@ -293,17 +293,37 @@ async def get_team_detail(
     }
 
 
+_MEMBER_SORT_COLUMNS = {
+    "user_id": "tm.user_id",
+    "spend": "tm.spend",
+    "budget": "b.max_budget",
+}
+
+
 @router.get("/{team_id}/members")
 async def list_team_members(
     team_id: str,
     page: int = 1,
     page_size: int = 50,
     search: str | None = None,
+    sort_by: str = "user_id",
+    sort_dir: str = "asc",
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """List team members with their key/budget info (admin only, paginated)."""
+    """List team members with their key/budget info (admin only, paginated).
+
+    sort_by: user_id | spend | budget (default: user_id)
+    sort_dir: asc | desc (default: asc)
+    """
+    if sort_by not in _MEMBER_SORT_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    sort_column = _MEMBER_SORT_COLUMNS[sort_by]
+    # Push NULL budgets last when sorting by budget so "무제한/미설정" doesn't dominate.
+    nulls_clause = " NULLS LAST" if sort_by == "budget" else ""
+
     # 1. Get team admins for role check
     result = await litellm_db.execute(
         text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
@@ -334,6 +354,7 @@ async def list_team_members(
 
     # 3. Paginate via DB
     offset = (page - 1) * page_size
+    order_clause = f"{sort_column} {direction}{nulls_clause}, tm.user_id ASC"
     membership_result = await litellm_db.execute(
         text(f"""
             SELECT tm.user_id, tm.spend AS membership_spend,
@@ -341,7 +362,7 @@ async def list_team_members(
             FROM "LiteLLM_TeamMembership" tm
             LEFT JOIN "LiteLLM_BudgetTable" b ON tm.budget_id = b.budget_id
             WHERE tm.team_id = :team_id {search_condition}
-            ORDER BY tm.user_id
+            ORDER BY {order_clause}
             OFFSET :offset LIMIT :limit
         """),
         {**search_params, "offset": offset, "limit": page_size},
