@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -64,6 +64,14 @@ function formatDateShort(dateStr: string | null): string {
 type PaneMode = { kind: "view" } | { kind: "create" } | { kind: "edit"; id: string };
 
 export default function AnnouncementsPage() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-16"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>}>
+      <AnnouncementsPageInner />
+    </Suspense>
+  );
+}
+
+function AnnouncementsPageInner() {
   const { data: me } = useMe();
   const isAdmin = me?.role === "super_user";
   const { data: announcements, isLoading } = useAnnouncements(isAdmin);
