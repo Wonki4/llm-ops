@@ -43,8 +43,14 @@ export const queryKeys = {
   modelStatusHistory: (catalogId: string) => ["models", "catalog", catalogId, "history"] as const,
   allStatusHistory: (filters?: Record<string, string>) => ["models", "catalog", "all-history", filters ?? {}] as const,
   historySummary: (filters?: Record<string, string>) => ["models", "catalog", "history-summary", filters ?? {}] as const,
-  teamMembers: (teamId: string, page: number, pageSize: number, search: string) =>
-    ["teams", teamId, "members", { page, pageSize, search }] as const,
+  teamMembers: (
+    teamId: string,
+    page: number,
+    pageSize: number,
+    search: string,
+    sortBy: string,
+    sortDir: string,
+  ) => ["teams", teamId, "members", { page, pageSize, search, sortBy, sortDir }] as const,
 };
 
 // ─── User ────────────────────────────────────────────────────
@@ -78,15 +84,19 @@ export function useTeamMembers(
   page: number,
   pageSize: number,
   search: string,
+  sortBy: "user_id" | "spend" | "budget" = "user_id",
+  sortDir: "asc" | "desc" = "asc",
   enabled: boolean = true,
 ) {
   const params = new URLSearchParams();
   params.set("page", String(page));
   params.set("page_size", String(pageSize));
   if (search) params.set("search", search);
+  params.set("sort_by", sortBy);
+  params.set("sort_dir", sortDir);
 
   return useQuery({
-    queryKey: queryKeys.teamMembers(teamId, page, pageSize, search),
+    queryKey: queryKeys.teamMembers(teamId, page, pageSize, search, sortBy, sortDir),
     queryFn: () =>
       apiFetch<TeamMembersResponse>(`/api/teams/${teamId}/members?${params.toString()}`),
     enabled: enabled && !!teamId,
