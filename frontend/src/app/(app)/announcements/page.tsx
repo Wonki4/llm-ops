@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -67,7 +68,22 @@ export default function AnnouncementsPage() {
   const isAdmin = me?.role === "super_user";
   const { data: announcements, isLoading } = useAnnouncements(isAdmin);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const selectedId = searchParams.get("id");
+
+  const selectAnnouncement = (id: string | null, options?: { replace?: boolean }) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (id) params.set("id", id);
+    else params.delete("id");
+    const url = params.toString() ? `?${params.toString()}` : "";
+    if (options?.replace) {
+      router.replace(`/announcements${url}`, { scroll: false });
+    } else {
+      router.push(`/announcements${url}`, { scroll: false });
+    }
+  };
+
   const [mode, setMode] = useState<PaneMode>({ kind: "view" });
 
   const [title, setTitle] = useState("");
@@ -96,8 +112,9 @@ export default function AnnouncementsPage() {
 
   useEffect(() => {
     if (!selectedId && defaultAnnouncement) {
-      setSelectedId(defaultAnnouncement.id);
+      selectAnnouncement(defaultAnnouncement.id, { replace: true });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [defaultAnnouncement, selectedId]);
 
   const startCreate = () => {
@@ -145,7 +162,7 @@ export default function AnnouncementsPage() {
         {
           onSuccess: (created) => {
             toast.success("공지사항이 등록되었습니다.");
-            setSelectedId(created.id);
+            selectAnnouncement(created.id);
             setMode({ kind: "view" });
           },
           onError: (err) =>
@@ -181,7 +198,7 @@ export default function AnnouncementsPage() {
     deleteMutation.mutate(a.id, {
       onSuccess: () => {
         toast.success("삭제되었습니다.");
-        if (selectedId === a.id) setSelectedId(null);
+        if (selectedId === a.id) selectAnnouncement(null, { replace: true });
       },
       onError: (err) =>
         toast.error(err instanceof Error ? err.message : "삭제 실패"),
@@ -192,7 +209,7 @@ export default function AnnouncementsPage() {
     if (mode.kind !== "view") {
       if (!confirm("편집 중인 내용이 있습니다. 무시하고 이동할까요?")) return;
     }
-    setSelectedId(id);
+    selectAnnouncement(id);
     setMode({ kind: "view" });
   };
 
