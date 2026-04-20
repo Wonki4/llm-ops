@@ -2,9 +2,9 @@
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import DateTime, cast, select
 
 from app.clients.litellm import LiteLLMClient
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
@@ -14,19 +14,24 @@ logger = logging.getLogger(__name__)
 
 
 async def run_auto_deprecation() -> int:
-    """Check for models past their auto_deprecate_at date and deprecate them.
-
-    Returns the number of models deprecated.
+    """Check for models whose status_schedule['deprecated'] is past due and
+    deprecate them. Returns the number of models deprecated.
     """
     count = 0
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     litellm = LiteLLMClient()
+
+    scheduled_deprecated_at = cast(
+        CustomModelCatalog.status_schedule["deprecated"].astext,
+        DateTime(timezone=True),
+    )
 
     async with async_session_factory() as session:
         result = await session.execute(
             select(CustomModelCatalog).where(
-                CustomModelCatalog.auto_deprecate_at <= now,
-                CustomModelCatalog.status.notin_([ModelStatus.DEPRECATED]),
+                CustomModelCatalog.status != ModelStatus.DEPRECATED,
+                scheduled_deprecated_at.isnot(None),
+                scheduled_deprecated_at <= now,
             )
         )
         models_to_deprecate = result.scalars().all()
