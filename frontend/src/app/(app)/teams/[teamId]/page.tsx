@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -648,6 +648,16 @@ function MembersTab({ teamId }: { teamId: string }) {
   const changeBudgetMutation = useChangeMemberBudget();
   const setExpiryMutation = useSetMemberExpiry();
   const removeMemberMutation = useRemoveTeamMember();
+  const updateKeyLimitsMutation = useUpdateMemberKeyLimits();
+  const [keyLimitsTarget, setKeyLimitsTarget] = useState<{
+    userId: string;
+    token: string;
+    keyAlias: string | null;
+    currentTpm: number | null;
+    currentRpm: number | null;
+  } | null>(null);
+  const [tpmInput, setTpmInput] = useState("");
+  const [rpmInput, setRpmInput] = useState("");
   const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; currentIsAdmin: boolean } | null>(null);
   const [budgetChangeTarget, setBudgetChangeTarget] = useState<{ userId: string; currentBudget: number | null } | null>(null);
   const [budgetAmount, setBudgetAmount] = useState("");
@@ -854,48 +864,56 @@ function MembersTab({ teamId }: { teamId: string }) {
                         <TableRow>
                           <TableCell colSpan={7} className="bg-muted/30 p-0">
                             <div className="space-y-2 px-8 py-3">
-                              {member.keys.map((key) => {
-                                const keyPct = budgetPercent(key.spend, key.max_budget);
-                                return (
-                                  <div
-                                    key={key.token}
-                                    className="flex items-center justify-between gap-4 rounded-lg border bg-background p-3"
-                                  >
-                                    <div className="min-w-0 space-y-0.5">
-                                      <p className="text-sm font-medium">
-                                        {key.key_alias || "-"}
-                                      </p>
-                                      <p className="font-mono text-xs text-muted-foreground">
-                                        {maskKey(key.token)}
-                                      </p>
-                                    </div>
-                                    <div className="w-48 space-y-1 text-right">
-                                      <span className="text-xs">{formatBudget(key.spend, key.max_budget)}</span>
-                                      <div className="h-1.5 w-full rounded-full bg-muted">
-                                        <div
-                                          className="h-full rounded-full bg-primary transition-all"
-                                          style={{ width: `${key.max_budget === null ? 0 : keyPct}%` }}
-                                        />
-                                      </div>
-                                      {(key.budget_duration || key.budget_reset_at) && (
-                                        <p className="flex items-center justify-end gap-1 text-[11px] text-muted-foreground">
-                                          <RefreshCw className="size-2.5" />
-                                          {[
-                                            key.budget_duration
-                                              ? `${formatBudgetDuration(key.budget_duration)} 주기`
-                                              : null,
-                                            key.budget_reset_at
-                                              ? `다음: ${formatResetDate(key.budget_reset_at)}`
-                                              : null,
-                                          ]
-                                            .filter(Boolean)
-                                            .join(" · ")}
-                                        </p>
-                                      )}
-                                    </div>
+                              {member.keys.map((key) => (
+                                <div
+                                  key={key.token}
+                                  className="flex items-center justify-between gap-4 rounded-lg border bg-background p-3"
+                                >
+                                  <div className="min-w-0 space-y-0.5">
+                                    <p className="text-sm font-medium">
+                                      {key.key_alias || "-"}
+                                    </p>
+                                    <p className="font-mono text-xs text-muted-foreground">
+                                      {maskKey(key.token)}
+                                    </p>
                                   </div>
-                                );
-                              })}
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex gap-3 text-right text-xs">
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">TPM</div>
+                                        <div className="font-medium tabular-nums">
+                                          {key.tpm_limit != null ? key.tpm_limit.toLocaleString() : "무제한"}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">RPM</div>
+                                        <div className="font-medium tabular-nums">
+                                          {key.rpm_limit != null ? key.rpm_limit.toLocaleString() : "무제한"}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs text-muted-foreground"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setKeyLimitsTarget({
+                                          userId: member.user_id,
+                                          token: key.token,
+                                          keyAlias: key.key_alias,
+                                          currentTpm: key.tpm_limit,
+                                          currentRpm: key.rpm_limit,
+                                        });
+                                        setTpmInput(key.tpm_limit != null ? String(key.tpm_limit) : "");
+                                        setRpmInput(key.rpm_limit != null ? String(key.rpm_limit) : "");
+                                      }}
+                                    >
+                                      수정
+                                    </Button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -1119,6 +1137,106 @@ function MembersTab({ teamId }: { teamId: string }) {
               }}
             >
               {setExpiryMutation.isPending ? "설정 중..." : "확인"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Key Limits Edit Dialog */}
+      <Dialog
+        open={!!keyLimitsTarget}
+        onOpenChange={(open) => {
+          if (!open) {
+            setKeyLimitsTarget(null);
+            setTpmInput("");
+            setRpmInput("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>키 TPM / RPM 수정</DialogTitle>
+            <DialogDescription>
+              <span className="font-semibold text-foreground">{keyLimitsTarget?.userId}</span>
+              님의 키{keyLimitsTarget?.keyAlias ? ` (${keyLimitsTarget.keyAlias})` : ""}의 분당 토큰/요청 제한을 변경합니다. 빈 값으로 저장하면 무제한이 됩니다.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md bg-muted p-3 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">현재 TPM</span>
+                <span className="font-medium tabular-nums">
+                  {keyLimitsTarget?.currentTpm != null ? keyLimitsTarget.currentTpm.toLocaleString() : "무제한"}
+                </span>
+              </div>
+              <div className="flex justify-between mt-1">
+                <span className="text-muted-foreground">현재 RPM</span>
+                <span className="font-medium tabular-nums">
+                  {keyLimitsTarget?.currentRpm != null ? keyLimitsTarget.currentRpm.toLocaleString() : "무제한"}
+                </span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium">TPM (tokens/min)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="무제한"
+                  value={tpmInput}
+                  onChange={(e) => setTpmInput(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">RPM (requests/min)</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="1"
+                  placeholder="무제한"
+                  value={rpmInput}
+                  onChange={(e) => setRpmInput(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setKeyLimitsTarget(null);
+                setTpmInput("");
+                setRpmInput("");
+              }}
+            >
+              취소
+            </Button>
+            <Button
+              disabled={updateKeyLimitsMutation.isPending}
+              onClick={() => {
+                if (!keyLimitsTarget) return;
+                updateKeyLimitsMutation.mutate(
+                  {
+                    teamId,
+                    userId: keyLimitsTarget.userId,
+                    token: keyLimitsTarget.token,
+                    tpmLimit: tpmInput === "" ? null : Number(tpmInput),
+                    rpmLimit: rpmInput === "" ? null : Number(rpmInput),
+                  },
+                  {
+                    onSuccess: () => {
+                      toast.success("키 제한이 변경되었습니다.");
+                      setKeyLimitsTarget(null);
+                      setTpmInput("");
+                      setRpmInput("");
+                    },
+                    onError: (err) => toast.error(err instanceof Error ? err.message : "키 제한 변경 실패"),
+                  },
+                );
+              }}
+            >
+              {updateKeyLimitsMutation.isPending ? "변경 중..." : "확인"}
             </Button>
           </DialogFooter>
         </DialogContent>

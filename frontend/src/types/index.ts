@@ -265,6 +265,8 @@ export interface MemberKey {
   budget_reset_at: string | null;
   models: string[];
   created_at: string;
+  tpm_limit: number | null;
+  rpm_limit: number | null;
 }
 
 export interface TeamMember {
