@@ -168,7 +168,7 @@ export function useSetMemberExpiry() {
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; membership_duration?: string | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),
