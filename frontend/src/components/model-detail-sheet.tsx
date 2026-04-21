@@ -88,21 +88,22 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
     catalog?.id,
   );
 
-  const limitRows: { label: string; value: string | number }[] = [];
+  const formatTokens = (n: number): string => n.toLocaleString();
+  const limitRows: { label: string; value: string }[] = [];
   if (litellmInfo?.model_info.max_tokens != null) {
-    limitRows.push({ label: "Max Tokens", value: litellmInfo.model_info.max_tokens });
+    limitRows.push({ label: "Max Tokens", value: formatTokens(litellmInfo.model_info.max_tokens) });
   }
   if (litellmInfo?.model_info.max_input_tokens != null) {
-    limitRows.push({ label: "Max Input Tokens", value: litellmInfo.model_info.max_input_tokens });
+    limitRows.push({ label: "Max Input Tokens", value: formatTokens(litellmInfo.model_info.max_input_tokens) });
   }
   if (litellmInfo?.model_info.max_output_tokens != null) {
-    limitRows.push({ label: "Max Output Tokens", value: litellmInfo.model_info.max_output_tokens });
+    limitRows.push({ label: "Max Output Tokens", value: formatTokens(litellmInfo.model_info.max_output_tokens) });
   }
   if (litellmInfo?.litellm_params.rpm != null) {
-    limitRows.push({ label: "RPM", value: litellmInfo.litellm_params.rpm });
+    limitRows.push({ label: "RPM", value: formatTokens(litellmInfo.litellm_params.rpm) });
   }
   if (litellmInfo?.litellm_params.tpm != null) {
-    limitRows.push({ label: "TPM", value: litellmInfo.litellm_params.tpm });
+    limitRows.push({ label: "TPM", value: formatTokens(litellmInfo.litellm_params.tpm) });
   }
 
   const featureRows: { label: string; value: string }[] = [];

@@ -85,6 +85,19 @@ function formatCost(cost: number | null | undefined): string {
   return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
+function formatContextLength(tokens: number | null | undefined): string {
+  if (tokens == null) return "-";
+  if (tokens >= 1_000_000) {
+    const m = tokens / 1_000_000;
+    return `${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    const k = tokens / 1_000;
+    return `${k % 1 === 0 ? k.toFixed(0) : k.toFixed(1)}K`;
+  }
+  return tokens.toLocaleString();
+}
+
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "-";
   return new Date(dateStr).toLocaleDateString("ko-KR", {
@@ -514,6 +527,7 @@ export default function ModelManagementPage() {
                   <TableHead>Provider</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>노출</TableHead>
+                  <TableHead>컨텍스트</TableHead>
                   <TableHead>Input Cost</TableHead>
                   <TableHead>Output Cost</TableHead>
                   <TableHead>다음 전환</TableHead>
@@ -591,6 +605,14 @@ export default function ModelManagementPage() {
                         </Button>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+
+                    {/* Context length */}
+                    <TableCell className="text-sm tabular-nums">
+                      {formatContextLength(
+                        model.litellm_info?.model_info.max_input_tokens ??
+                          model.litellm_info?.model_info.max_tokens,
                       )}
                     </TableCell>
 
