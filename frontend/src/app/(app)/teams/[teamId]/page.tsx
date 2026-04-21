@@ -2,7 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -521,6 +521,7 @@ function TeamSettingsTab({
   defaultRpmLimit: number | null;
 }) {
   const updateSettings = useUpdateTeamSettings();
+  const { data: portalSettings } = usePortalSettings();
   const [defaultBudget, setDefaultBudget] = useState(
     defaultMemberBudget != null ? String(defaultMemberBudget) : ""
   );
@@ -604,7 +605,11 @@ function TeamSettingsTab({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            이 팀에서 새로 발급되는 키에 적용되는 기본 제한값입니다. 미설정 시 전역 기본값(TPM 100,000 / RPM 1,000)이 적용됩니다.
+            이 팀에서 새로 발급되는 키에 적용되는 기본 제한값입니다. 미설정 시 관리자 설정의 전역 기본값
+            {portalSettings
+              ? ` (TPM ${portalSettings.default_tpm_limit?.toLocaleString() ?? "-"} / RPM ${portalSettings.default_rpm_limit?.toLocaleString() ?? "-"})`
+              : ""}
+            이 적용됩니다.
           </p>
         </CardContent>
       </Card>
