@@ -281,10 +281,11 @@ function OverviewTab({
   const myMaxBudget = myMembership.max_budget;
   const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
-  const scopedModels = team.models.slice(0, 5).map((modelName) => ({
-    modelName,
-    model: modelsByName.get(modelName) ?? null,
-  }));
+  const hasAllProxyModels = team.models.includes("all-proxy-models");
+  const catalogTeamModels = team.models
+    .map((modelName) => ({ modelName, model: modelsByName.get(modelName) ?? null }))
+    .filter(({ model }) => model?.catalog);
+  const scopedModels = catalogTeamModels.slice(0, 5);
   const memberOnly = team.members.filter((member) => !team.admins.includes(member));
   const remainingAdmins = totalAdmins - team.admins.length;
   const remainingMembers = (totalMembers - totalAdmins) - memberOnly.length;
@@ -340,7 +341,7 @@ function OverviewTab({
             <Boxes className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{team.models.includes("all-proxy-models") ? "전체" : `${team.models.length}개`}</div>
+            <div className="text-2xl font-bold">{hasAllProxyModels ? "전체" : `${catalogTeamModels.length}개`}</div>
             <p className="text-xs text-muted-foreground">사용 가능한 모델</p>
           </CardContent>
         </Card>
