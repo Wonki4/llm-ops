@@ -599,7 +599,7 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [budgetAmount, setBudgetAmount] = useState("");
   const [expiryTarget, setExpiryTarget] = useState<{ userId: string; currentExpiry: string | null } | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
-  const [sortField, setSortField] = useState<"user_id" | "spend" | "budget">("user_id");
+  const [sortField, setSortField] = useState<"user_id" | "spend" | "budget" | "key_count">("user_id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
@@ -623,7 +623,7 @@ function MembersTab({ teamId }: { teamId: string }) {
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
 
-  const toggleSort = (field: "spend" | "budget") => {
+  const toggleSort = (field: "spend" | "budget" | "key_count") => {
     if (sortField === field) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
@@ -667,7 +667,11 @@ function MembersTab({ teamId }: { teamId: string }) {
                   <TableHead className="w-10" />
                   <TableHead>사번</TableHead>
                   <TableHead>역할</TableHead>
-                  <TableHead className="hidden sm:table-cell">키 수</TableHead>
+                  <TableHead className="hidden sm:table-cell">
+                    <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("key_count")}>
+                      키 수 {sortField === "key_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                    </button>
+                  </TableHead>
                   <TableHead>
                     <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("spend")}>
                       사용량 {sortField === "spend" ? (sortDir === "asc" ? "↑" : "↓") : ""}

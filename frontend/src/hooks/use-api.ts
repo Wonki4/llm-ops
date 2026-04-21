@@ -87,7 +87,7 @@ export function useTeamMembers(
   page: number,
   pageSize: number,
   search: string,
-  sortBy: "user_id" | "spend" | "budget" = "user_id",
+  sortBy: "user_id" | "spend" | "budget" | "key_count" = "user_id",
   sortDir: "asc" | "desc" = "asc",
   enabled: boolean = true,
 ) {

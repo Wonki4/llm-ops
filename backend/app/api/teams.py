@@ -297,6 +297,7 @@ _MEMBER_SORT_COLUMNS = {
     "user_id": "tm.user_id",
     "spend": "tm.spend",
     "budget": "b.max_budget",
+    "key_count": "key_count",
 }
 
 
@@ -314,7 +315,7 @@ async def list_team_members(
 ) -> dict:
     """List team members with their key/budget info (admin only, paginated).
 
-    sort_by: user_id | spend | budget (default: user_id)
+    sort_by: user_id | spend | budget | key_count (default: user_id)
     sort_dir: asc | desc (default: asc)
     """
     if sort_by not in _MEMBER_SORT_COLUMNS:
@@ -358,9 +359,16 @@ async def list_team_members(
     membership_result = await litellm_db.execute(
         text(f"""
             SELECT tm.user_id, tm.spend AS membership_spend,
-                   b.max_budget AS membership_max_budget
+                   b.max_budget AS membership_max_budget,
+                   COALESCE(kc.key_count, 0) AS key_count
             FROM "LiteLLM_TeamMembership" tm
             LEFT JOIN "LiteLLM_BudgetTable" b ON tm.budget_id = b.budget_id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*)::int AS key_count
+                FROM "LiteLLM_VerificationToken"
+                WHERE team_id = :team_id
+                GROUP BY user_id
+            ) kc ON kc.user_id = tm.user_id
             WHERE tm.team_id = :team_id {search_condition}
             ORDER BY {order_clause}
             OFFSET :offset LIMIT :limit
