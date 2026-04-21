@@ -73,13 +73,19 @@ async def create_key(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Create a new API key with sk- JWT format. Retries on 500 errors."""
-    # Read default TPM/RPM from portal settings
+    # Read default TPM/RPM: prefer team-scoped values, fall back to global defaults.
+    team_tpm_key = f"team:{body.team_id}:default_tpm_limit"
+    team_rpm_key = f"team:{body.team_id}:default_rpm_limit"
     settings_result = await db.execute(
-        text("SELECT key, value FROM custom_portal_settings WHERE key IN ('default_tpm_limit', 'default_rpm_limit')")
+        text(
+            "SELECT key, value FROM custom_portal_settings "
+            "WHERE key IN ('default_tpm_limit', 'default_rpm_limit', :team_tpm, :team_rpm)"
+        ),
+        {"team_tpm": team_tpm_key, "team_rpm": team_rpm_key},
     )
     portal_settings = {r["key"]: int(r["value"]) for r in settings_result.mappings()}
-    tpm_limit = portal_settings.get("default_tpm_limit", 100000)
-    rpm_limit = portal_settings.get("default_rpm_limit", 1000)
+    tpm_limit = portal_settings.get(team_tpm_key, portal_settings.get("default_tpm_limit", 100000))
+    rpm_limit = portal_settings.get(team_rpm_key, portal_settings.get("default_rpm_limit", 1000))
 
     max_retries = 3
     last_error = None

@@ -506,12 +506,26 @@ function OverviewTab({
   );
 }
 
-function TeamSettingsTab({ teamId, defaultMemberBudget, membershipDuration }: { teamId: string; defaultMemberBudget: number | null; membershipDuration: string | null }) {
+function TeamSettingsTab({
+  teamId,
+  defaultMemberBudget,
+  membershipDuration,
+  defaultTpmLimit,
+  defaultRpmLimit,
+}: {
+  teamId: string;
+  defaultMemberBudget: number | null;
+  membershipDuration: string | null;
+  defaultTpmLimit: number | null;
+  defaultRpmLimit: number | null;
+}) {
   const updateSettings = useUpdateTeamSettings();
   const [defaultBudget, setDefaultBudget] = useState(
     defaultMemberBudget != null ? String(defaultMemberBudget) : ""
   );
   const [duration, setDuration] = useState(membershipDuration || "");
+  const [tpmLimit, setTpmLimit] = useState(defaultTpmLimit != null ? String(defaultTpmLimit) : "");
+  const [rpmLimit, setRpmLimit] = useState(defaultRpmLimit != null ? String(defaultRpmLimit) : "");
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -520,6 +534,8 @@ function TeamSettingsTab({ teamId, defaultMemberBudget, membershipDuration }: { 
         body: {
           default_member_budget: defaultBudget ? Number(defaultBudget) : null,
           membership_duration: duration || null,
+          default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
+          default_rpm_limit: rpmLimit ? Number(rpmLimit) : null,
         },
       },
       {
@@ -552,6 +568,43 @@ function TeamSettingsTab({ teamId, defaultMemberBudget, membershipDuration }: { 
               신규 멤버가 팀에 추가될 때 자동으로 할당되는 예산입니다
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">키 기본 TPM / RPM</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">TPM (tokens/min)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={tpmLimit}
+                onChange={(e) => setTpmLimit(e.target.value)}
+                placeholder="미설정 시 전역 기본값"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">RPM (requests/min)</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={rpmLimit}
+                onChange={(e) => setRpmLimit(e.target.value)}
+                placeholder="미설정 시 전역 기본값"
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            이 팀에서 새로 발급되는 키에 적용되는 기본 제한값입니다. 미설정 시 전역 기본값(TPM 100,000 / RPM 1,000)이 적용됩니다.
+          </p>
         </CardContent>
       </Card>
 
@@ -1363,7 +1416,13 @@ export default function TeamDetailPage({
 
         {is_admin && (
           <TabsContent value="settings" className="mt-6">
-            <TeamSettingsTab teamId={teamId} defaultMemberBudget={data.default_member_budget ?? null} membershipDuration={data.membership_duration ?? null} />
+            <TeamSettingsTab
+              teamId={teamId}
+              defaultMemberBudget={data.default_member_budget ?? null}
+              membershipDuration={data.membership_duration ?? null}
+              defaultTpmLimit={data.default_tpm_limit ?? null}
+              defaultRpmLimit={data.default_rpm_limit ?? null}
+            />
           </TabsContent>
         )}
       </Tabs>

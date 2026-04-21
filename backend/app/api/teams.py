@@ -29,6 +29,27 @@ async def _get_membership_duration(db: AsyncSession, team_id: str) -> str | None
     return result.scalar() or None
 
 
+async def _get_team_default_limits(db: AsyncSession, team_id: str) -> dict[str, int | None]:
+    """Get team-scoped default TPM/RPM limits from portal settings. None when unset."""
+    result = await db.execute(
+        text(
+            "SELECT key, value FROM custom_portal_settings "
+            "WHERE key IN (:tpm_key, :rpm_key)"
+        ),
+        {
+            "tpm_key": f"team:{team_id}:default_tpm_limit",
+            "rpm_key": f"team:{team_id}:default_rpm_limit",
+        },
+    )
+    rows = {r["key"]: r["value"] for r in result.mappings()}
+    tpm_raw = rows.get(f"team:{team_id}:default_tpm_limit")
+    rpm_raw = rows.get(f"team:{team_id}:default_rpm_limit")
+    return {
+        "default_tpm_limit": int(tpm_raw) if tpm_raw else None,
+        "default_rpm_limit": int(rpm_raw) if rpm_raw else None,
+    }
+
+
 def _parse_duration(duration_str: str) -> "timedelta | None":
     """Parse duration string like '30d', '90d', '365d' to timedelta."""
     from datetime import timedelta
@@ -283,6 +304,7 @@ async def get_team_detail(
         "my_keys": my_keys,
         "default_member_budget": await _get_default_member_budget(litellm_db, team_id),
         "membership_duration": await _get_membership_duration(db, team_id),
+        **(await _get_team_default_limits(db, team_id)),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -682,6 +704,8 @@ async def remove_team_member(
 class UpdateTeamSettingsRequest(BaseModel):
     default_member_budget: float | None = None
     membership_duration: str | None = None  # e.g. "90d", "180d", "365d"
+    default_tpm_limit: int | None = None
+    default_rpm_limit: int | None = None
 
 
 @router.put("/{team_id}/settings")
@@ -704,10 +728,17 @@ async def update_team_settings(
     if "default_member_budget" in updates:
         await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
 
-    # Store membership_duration in portal settings
-    if "membership_duration" in updates:
-        key = f"team:{team_id}:membership_duration"
-        value = updates["membership_duration"] or ""
+    # Store team-scoped portal settings (membership_duration, default TPM/RPM).
+    portal_setting_keys = {
+        "membership_duration": f"team:{team_id}:membership_duration",
+        "default_tpm_limit": f"team:{team_id}:default_tpm_limit",
+        "default_rpm_limit": f"team:{team_id}:default_rpm_limit",
+    }
+    for field, key in portal_setting_keys.items():
+        if field not in updates:
+            continue
+        raw = updates[field]
+        value = "" if raw is None or raw == "" else str(raw)
         if value:
             await db.execute(
                 text(
