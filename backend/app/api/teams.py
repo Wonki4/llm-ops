@@ -414,7 +414,8 @@ async def list_team_members(
     keys_result = await litellm_db.execute(
         text(
             "SELECT user_id, token, key_alias, key_name, spend, max_budget, "
-            "       budget_duration, budget_reset_at, models, created_at "
+            "       budget_duration, budget_reset_at, models, created_at, "
+            "       tpm_limit, rpm_limit "
             'FROM "LiteLLM_VerificationToken" '
             "WHERE team_id = :team_id AND user_id = ANY(:member_ids) "
             "ORDER BY user_id, created_at DESC"
@@ -436,6 +437,8 @@ async def list_team_members(
                 "budget_reset_at": (k["budget_reset_at"].isoformat() if k["budget_reset_at"] else None),
                 "models": list(k["models"] or []),
                 "created_at": k["created_at"].isoformat() if k["created_at"] else None,
+                "tpm_limit": k["tpm_limit"],
+                "rpm_limit": k["rpm_limit"],
             }
         )
 
@@ -601,6 +604,44 @@ async def change_member_budget(
     await litellm_db.commit()
 
     return {"status": "changed", "user_id": member_id, "max_budget": body.max_budget}
+
+
+class UpdateMemberKeyLimitsRequest(BaseModel):
+    tpm_limit: int | None = None
+    rpm_limit: int | None = None
+
+
+@router.patch("/{team_id}/members/{member_id}/keys/{token}/limits")
+async def update_member_key_limits(
+    team_id: str,
+    member_id: str,
+    token: str,
+    body: UpdateMemberKeyLimitsRequest,
+    user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Update TPM/RPM on a team member's key. Requires team admin or super user.
+
+    Propagates the change to LiteLLM's VerificationToken via /key/update so the
+    proxy's in-memory cache and DB stay in sync.
+    """
+    await require_team_admin(user, team_id, litellm_db)
+
+    owner_result = await litellm_db.execute(
+        text(
+            'SELECT user_id, team_id FROM "LiteLLM_VerificationToken" WHERE token = :token'
+        ),
+        {"token": token},
+    )
+    owner_row = owner_result.mappings().first()
+    if not owner_row:
+        raise HTTPException(status_code=404, detail="Key not found")
+    if owner_row["user_id"] != member_id or owner_row["team_id"] != team_id:
+        raise HTTPException(status_code=400, detail="Key does not belong to this team/member")
+
+    await litellm.update_key(token, tpm_limit=body.tpm_limit, rpm_limit=body.rpm_limit)
+    return {"status": "updated", "tpm_limit": body.tpm_limit, "rpm_limit": body.rpm_limit}
 
 
 class SetMemberExpiryRequest(BaseModel):

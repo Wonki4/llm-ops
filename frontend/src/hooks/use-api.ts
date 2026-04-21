@@ -165,6 +165,35 @@ export function useSetMemberExpiry() {
   });
 }
 
+export function useUpdateMemberKeyLimits() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      teamId,
+      userId,
+      token,
+      tpmLimit,
+      rpmLimit,
+    }: {
+      teamId: string;
+      userId: string;
+      token: string;
+      tpmLimit: number | null;
+      rpmLimit: number | null;
+    }) =>
+      apiFetch<{ status: string }>(
+        `/api/teams/${teamId}/members/${userId}/keys/${token}/limits`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({ tpm_limit: tpmLimit, rpm_limit: rpmLimit }),
+        },
+      ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["teams", variables.teamId, "members"] });
+    },
+  });
+}
+
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
