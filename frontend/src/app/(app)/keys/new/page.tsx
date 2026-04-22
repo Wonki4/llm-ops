@@ -3,7 +3,7 @@
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMyTeams, useCreateKey, usePortalSettings } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
@@ -122,6 +122,16 @@ export default function CreateKeyPage({
   const selectedTeam: Team | undefined = teams?.find(
     (t) => t.team_id === selectedTeamId
   );
+
+  const { data: teamDetail } = useTeamDetail(selectedTeamId);
+
+  // Effective TPM/RPM for the to-be-created key: team override first, then global portal default.
+  const teamTpm = teamDetail?.default_tpm_limit ?? null;
+  const teamRpm = teamDetail?.default_rpm_limit ?? null;
+  const effectiveTpm = teamTpm ?? portalSettings?.default_tpm_limit ?? null;
+  const effectiveRpm = teamRpm ?? portalSettings?.default_rpm_limit ?? null;
+  const tpmSource = teamTpm != null ? "팀 설정" : "전역 기본값";
+  const rpmSource = teamRpm != null ? "팀 설정" : "전역 기본값";
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -252,20 +262,30 @@ export default function CreateKeyPage({
               </div>
             )}
 
-            {/* TPM / RPM (read-only from portal settings) */}
-            {portalSettings && (
+            {/* TPM / RPM (read-only, team default overrides global portal default) */}
+            {(effectiveTpm != null || effectiveRpm != null) && (
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label>TPM (Tokens Per Minute)</Label>
+                  <Label>
+                    TPM (Tokens Per Minute){" "}
+                    {selectedTeamId && (
+                      <span className="text-xs text-muted-foreground font-normal">({tpmSource})</span>
+                    )}
+                  </Label>
                   <Input
-                    value={portalSettings.default_tpm_limit.toLocaleString()}
+                    value={effectiveTpm != null ? effectiveTpm.toLocaleString() : "-"}
                     disabled
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>RPM (Requests Per Minute)</Label>
+                  <Label>
+                    RPM (Requests Per Minute){" "}
+                    {selectedTeamId && (
+                      <span className="text-xs text-muted-foreground font-normal">({rpmSource})</span>
+                    )}
+                  </Label>
                   <Input
-                    value={portalSettings.default_rpm_limit.toLocaleString()}
+                    value={effectiveRpm != null ? effectiveRpm.toLocaleString() : "-"}
                     disabled
                   />
                 </div>
