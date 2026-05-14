@@ -21,8 +21,55 @@ from app.db.session import litellm_session_factory
 logger = logging.getLogger(__name__)
 
 
+CHUNK_SIZE = 5000  # rows per UPDATE batch
+CHUNK_SLEEP_SECONDS = 0.1  # breather between chunks so other writers can progress
+
+
+async def _reset_one_budget(litellm_db, budget_id: str, now: datetime, delta) -> int:
+    """Chunk-update memberships for a single budget and roll its reset_at forward.
+
+    Uses ctid-based pagination so each UPDATE touches at most CHUNK_SIZE rows,
+    committing between chunks to release row locks. Returns total rows reset.
+    """
+    total = 0
+    while True:
+        chunk_result = await litellm_db.execute(
+            text(
+                'UPDATE "LiteLLM_TeamMembership" SET spend = 0 '
+                "WHERE ctid IN ("
+                '  SELECT ctid FROM "LiteLLM_TeamMembership" '
+                "  WHERE budget_id = :budget_id AND spend <> 0 "
+                "  LIMIT :limit"
+                ")"
+            ),
+            {"budget_id": budget_id, "limit": CHUNK_SIZE},
+        )
+        affected = chunk_result.rowcount or 0
+        await litellm_db.commit()  # release locks immediately
+        total += affected
+        if affected < CHUNK_SIZE:
+            break
+        # let other writers in before the next pass
+        await asyncio.sleep(CHUNK_SLEEP_SECONDS)
+
+    await litellm_db.execute(
+        text(
+            'UPDATE "LiteLLM_BudgetTable" '
+            "SET budget_reset_at = :next_reset, updated_at = :now "
+            "WHERE budget_id = :budget_id"
+        ),
+        {"next_reset": now + delta, "now": now, "budget_id": budget_id},
+    )
+    await litellm_db.commit()
+    return total
+
+
 async def reset_team_membership_budgets() -> dict:
-    """Reset spend on TeamMembership rows whose budget reset time has passed."""
+    """Reset spend on TeamMembership rows whose budget reset time has passed.
+
+    Each budget is processed in its own short-lived transaction; UPDATEs are
+    chunked to CHUNK_SIZE rows to avoid long lock holds on the membership table.
+    """
     now = datetime.now()
     processed = 0
     errors = 0
@@ -63,40 +110,23 @@ async def reset_team_membership_budgets() -> dict:
                     )
                     continue
 
-                reset_result = await litellm_db.execute(
-                    text(
-                        'UPDATE "LiteLLM_TeamMembership" SET spend = 0 '
-                        "WHERE budget_id = :budget_id"
-                    ),
-                    {"budget_id": budget_id},
-                )
-                memberships_reset += reset_result.rowcount or 0
-
-                await litellm_db.execute(
-                    text(
-                        'UPDATE "LiteLLM_BudgetTable" '
-                        "SET budget_reset_at = :next_reset, updated_at = :now "
-                        "WHERE budget_id = :budget_id"
-                    ),
-                    {
-                        "next_reset": now + delta,
-                        "now": now,
-                        "budget_id": budget_id,
-                    },
-                )
-
+                count = await _reset_one_budget(litellm_db, budget_id, now, delta)
+                memberships_reset += count
                 processed += 1
                 logger.info(
                     "Reset budget %s (%d memberships), next reset at %s",
                     budget_id,
-                    reset_result.rowcount or 0,
+                    count,
                     (now + delta).isoformat(),
                 )
             except Exception:
                 errors += 1
                 logger.error("Failed to reset budget %s", budget_id, exc_info=True)
-
-        await litellm_db.commit()
+                # transaction state may be aborted from the failure; ensure rollback
+                try:
+                    await litellm_db.rollback()
+                except Exception:
+                    logger.exception("Rollback failed after reset error")
 
     return {
         "processed": processed,
