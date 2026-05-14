@@ -137,6 +137,13 @@ class LiteLLMClient:
     async def delete_model(self, model_id: str) -> dict:
         return await self._request("POST", "/model/delete", json={"id": model_id})
 
+    async def update_model(self, model_id: str, *, litellm_params: dict | None = None) -> dict:
+        """Update a deployment's litellm_params (e.g. input/output_cost_per_token)."""
+        payload: dict[str, Any] = {"model_info": {"id": model_id}}
+        if litellm_params is not None:
+            payload["litellm_params"] = litellm_params
+        return await self._request("POST", "/model/update", json=payload)
+
 
 def get_litellm_client() -> LiteLLMClient:
     """FastAPI dependency for LiteLLM client."""
