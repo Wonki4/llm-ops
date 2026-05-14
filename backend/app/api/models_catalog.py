@@ -22,12 +22,13 @@ router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 class CreateModelCatalogEntry(BaseModel):
-    model_name: str = ""
+    model_name: str
     display_name: str
     description: str | None = None
     status: ModelStatus = ModelStatus.TESTING
     status_schedule: dict | None = None  # {"testing": "2026-01-15", "lts": "2026-03-01", ...}
     visible: bool = True
+    is_external: bool = False  # True: catalog-only (skip LiteLLM existence check)
 
 
 class UpdateModelCatalogEntry(BaseModel):
@@ -305,18 +306,49 @@ async def create_catalog_entry(
     body: CreateModelCatalogEntry,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
-    """Create a new model catalog entry (Super User only)."""
+    """Create a new model catalog entry (Super User only).
+
+    For LiteLLM-typed entries (is_external=False), model_name must match a
+    deployment registered in LiteLLM so catalog and routing stay aligned by
+    name. External entries skip this check (catalog-only docs for non-routed
+    models such as offline tools or upcoming releases).
+    """
+    model_name = body.model_name.strip()
+    if not model_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="model_name is required",
+        )
+
+    if not body.is_external:
+        try:
+            litellm_models = await litellm.get_model_info()
+        except Exception:
+            logger.exception("Failed to fetch LiteLLM models for catalog validation")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="LiteLLM model list unavailable; cannot validate model_name",
+            )
+        litellm_names = {m.get("model_name") for m in litellm_models if m.get("model_name")}
+        if model_name not in litellm_names:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Model '{model_name}' is not registered in LiteLLM. "
+                "Register it in LiteLLM first, or mark this entry as 외부.",
+            )
+
     # Check uniqueness
-    existing = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.model_name == body.model_name))
+    existing = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name))
     if existing.scalar_one_or_none():
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=f"Model '{body.model_name}' already exists in catalog"
+            status_code=status.HTTP_409_CONFLICT, detail=f"Model '{model_name}' already exists in catalog"
         )
 
     entry = CustomModelCatalog(
         id=uuid.uuid4(),
-        model_name=body.model_name or body.display_name,
+        model_name=model_name,
         display_name=body.display_name,
         description=body.description,
         status=body.status,
