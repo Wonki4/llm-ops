@@ -124,35 +124,18 @@ function StatusBadge({ status }: { status: ModelStatus }) {
 
 /** Badge showing whether a model is LiteLLM-deployed, catalog-only, or both */
 function SourceBadge({ model }: { model: ModelWithCatalog }) {
-  const hasLiteLLM = !!model.litellm_info;
-  const hasCatalog = !!model.catalog;
-
-  if (hasLiteLLM && hasCatalog) {
-    return (
-      <div className="flex gap-1">
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
-          <Server className="size-2.5" />
-          배포
-        </Badge>
-        <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400">
-          <BookOpen className="size-2.5" />
-          카탈로그
-        </Badge>
-      </div>
-    );
-  }
-  if (hasLiteLLM) {
+  if (model.litellm_info) {
     return (
       <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
         <Server className="size-2.5" />
-        배포만
+        LiteLLM
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-400">
       <BookOpen className="size-2.5" />
-      카탈로그만
+      외부
     </Badge>
   );
 }
@@ -183,6 +166,7 @@ interface ModelFormState {
   description: string;
   status: ModelStatus;
   status_schedule: Record<string, string>;
+  is_external: boolean;
 }
 
 const INITIAL_FORM: ModelFormState = {
@@ -191,6 +175,7 @@ const INITIAL_FORM: ModelFormState = {
   description: "",
   status: "testing",
   status_schedule: {},
+  is_external: false,
 };
 
 function catalogToForm(catalog: ModelCatalog): ModelFormState {
@@ -200,6 +185,7 @@ function catalogToForm(catalog: ModelCatalog): ModelFormState {
     description: catalog.description ?? "",
     status: catalog.status,
     status_schedule: catalog.status_schedule ? { ...catalog.status_schedule } : {},
+    is_external: false,
   };
 }
 
@@ -229,9 +215,7 @@ export default function ModelManagementPage() {
         if (!m.catalog || m.catalog.status !== statusFilter) return false;
       }
       if (sourceFilter === "litellm" && !m.litellm_info) return false;
-      if (sourceFilter === "catalog" && !m.catalog) return false;
-      if (sourceFilter === "both" && (!m.litellm_info || !m.catalog)) return false;
-      if (sourceFilter === "unregistered" && m.catalog) return false;
+      if (sourceFilter === "external" && m.litellm_info) return false;
       return true;
     });
   }, [models, nameFilter, statusFilter, sourceFilter]);
@@ -311,8 +295,9 @@ export default function ModelManagementPage() {
   }
 
   function handleFormSubmit() {
-    if (!form.display_name.trim()) {
-      toast.error("표시 이름은 필수입니다.");
+    const trimmedName = form.model_name.trim();
+    if (!trimmedName) {
+      toast.error("모델명은 필수입니다.");
       return;
     }
 
@@ -323,7 +308,7 @@ export default function ModelManagementPage() {
         {
           catalogId: editingId,
           body: {
-            display_name: form.display_name.trim(),
+            display_name: trimmedName,
             description: form.description.trim() || undefined,
             status: form.status,
             status_schedule: statusSchedule,
@@ -348,11 +333,12 @@ export default function ModelManagementPage() {
       const statusSchedule = buildStatusSchedule(form.status_schedule);
       createEntry.mutate(
         {
-          model_name: form.model_name.trim(),
-          display_name: form.display_name.trim(),
+          model_name: trimmedName,
+          display_name: trimmedName,
           description: form.description.trim() || undefined,
           status: form.status,
           status_schedule: statusSchedule,
+          is_external: form.is_external,
         },
         {
           onSuccess: () => {
@@ -495,10 +481,8 @@ export default function ModelManagementPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체 소스</SelectItem>
-              <SelectItem value="both">LiteLLM + 카탈로그</SelectItem>
-              <SelectItem value="litellm">LiteLLM만</SelectItem>
-              <SelectItem value="catalog">카탈로그만</SelectItem>
-              <SelectItem value="unregistered">미등록</SelectItem>
+              <SelectItem value="litellm">LiteLLM</SelectItem>
+              <SelectItem value="external">외부</SelectItem>
             </SelectContent>
           </Select>
           {(nameFilter || statusFilter !== "all" || sourceFilter !== "all") && (
@@ -716,10 +700,46 @@ export default function ModelManagementPage() {
             </DialogHeader>
 
             <div className="grid gap-4 py-2">
+              {/* type selector (create only) */}
+              {!editingId && (
+                <div className="grid gap-2">
+                  <Label>등록 유형 <span className="text-destructive">*</span></Label>
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      variant={form.is_external ? "outline" : "default"}
+                      size="sm"
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, is_external: false, model_name: "", display_name: "" }));
+                      }}
+                    >
+                      <Server className="size-3.5 mr-1" />
+                      LiteLLM 모델
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={form.is_external ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, is_external: true, model_name: "", display_name: "" }));
+                      }}
+                    >
+                      <BookOpen className="size-3.5 mr-1" />
+                      외부 모델
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {form.is_external
+                      ? "LiteLLM에 배포되지 않은 모델을 카탈로그에만 기록합니다."
+                      : "LiteLLM에 등록된 모델 중 선택해 카탈로그를 추가합니다."}
+                  </p>
+                </div>
+              )}
+
               {/* model_name */}
               <div className="grid gap-2">
                 <Label htmlFor="model-name">
-                  모델명
+                  모델명 <span className="text-destructive">*</span>
                 </Label>
                 {editingId ? (
                   <Input
@@ -727,50 +747,40 @@ export default function ModelManagementPage() {
                     value={form.model_name}
                     disabled
                   />
-                ) : (
+                ) : form.is_external ? (
                   <Input
                     id="model-name"
                     value={form.model_name}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      handleFormChange("model_name", value);
-                      if (!form.display_name || form.display_name === form.model_name) {
-                        handleFormChange("display_name", value);
-                      }
-                    }}
-                    placeholder="모델명을 입력하세요"
-                    list="model-name-suggestions"
+                    onChange={(e) => handleFormChange("model_name", e.target.value)}
+                    placeholder="외부 모델명을 입력하세요 (예: gpt-5-preview)"
                   />
+                ) : (
+                  <Select
+                    value={form.model_name}
+                    onValueChange={(value) => handleFormChange("model_name", value)}
+                  >
+                    <SelectTrigger id="model-name">
+                      <SelectValue placeholder="LiteLLM 등록 모델 중 선택하세요" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(() => {
+                        const candidates = models?.filter((m) => m.litellm_info && !m.catalog) ?? [];
+                        if (candidates.length === 0) {
+                          return (
+                            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                              카탈로그에 등록할 LiteLLM 모델이 없습니다.
+                            </div>
+                          );
+                        }
+                        return candidates.map((m) => (
+                          <SelectItem key={m.model_name} value={m.model_name}>
+                            {m.model_name}
+                          </SelectItem>
+                        ));
+                      })()}
+                    </SelectContent>
+                  </Select>
                 )}
-                {!editingId && (
-                  <datalist id="model-name-suggestions">
-                    {models
-                      ?.filter((m) => m.litellm_info && !m.catalog)
-                      .map((m) => (
-                        <option key={m.model_name} value={m.model_name} />
-                      ))}
-                  </datalist>
-                )}
-                {!editingId && (
-                  <p className="text-xs text-muted-foreground">
-                    직접 입력하거나, LiteLLM 배포 모델 중 선택할 수 있습니다.
-                  </p>
-                )}
-              </div>
-
-              {/* display_name */}
-              <div className="grid gap-2">
-                <Label htmlFor="display-name">
-                  표시 이름 <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="display-name"
-                  value={form.display_name}
-                  onChange={(e) =>
-                    handleFormChange("display_name", e.target.value)
-                  }
-                  placeholder="GPT-4o Mini"
-                />
               </div>
 
               {/* description */}

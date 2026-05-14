@@ -197,6 +197,7 @@ export interface CreateModelCatalogRequest {
   description?: string;
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
+  is_external?: boolean;
 }
 
 export interface UpdateModelCatalogRequest {
