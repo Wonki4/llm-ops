@@ -19,6 +19,7 @@ from app.clients.redis import (
     catalog_set as redis_set,
 )
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
+from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
@@ -42,6 +43,8 @@ class UpdateModelCatalogEntry(BaseModel):
     status: ModelStatus | None = None
     status_schedule: dict | None = None
     visible: bool | None = None
+    default_input_cost_per_token: float | None = None
+    default_output_cost_per_token: float | None = None
 
 
 def _serialize_model(m: CustomModelCatalog) -> dict:
@@ -53,6 +56,8 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "status": m.status.value,
         "status_schedule": m.status_schedule,
         "visible": m.visible,
+        "default_input_cost_per_token": m.default_input_cost_per_token,
+        "default_output_cost_per_token": m.default_output_cost_per_token,
         "status_change_date": m.status_change_date.isoformat() if m.status_change_date else None,
         "created_by": m.created_by,
         "updated_by": m.updated_by,
@@ -557,3 +562,131 @@ async def delete_model_cache_entry(
     if not deleted:
         raise HTTPException(status_code=404, detail="Cache entry not found")
     return {"deleted": True, "model_name": model_name, "suffix": suffix}
+
+
+# ─── Per-model cost schedule (time-of-day pricing) ──────────────
+
+
+def _serialize_cost_schedule(r: CustomModelCostSchedule) -> dict:
+    return {
+        "id": str(r.id),
+        "model_name": r.model_name,
+        "days_of_week": list(r.days_of_week),
+        "hour_start_utc": r.hour_start_utc,
+        "hour_end_utc": r.hour_end_utc,
+        "input_cost_per_token": r.input_cost_per_token,
+        "output_cost_per_token": r.output_cost_per_token,
+        "priority": r.priority,
+        "enabled": r.enabled,
+        "created_by": r.created_by,
+        "updated_by": r.updated_by,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+    }
+
+
+class CostScheduleRequest(BaseModel):
+    days_of_week: list[int]  # 1..7 ISO weekdays
+    hour_start_utc: int  # 0..23
+    hour_end_utc: int  # 1..24; <= start means day-spanning
+    input_cost_per_token: float
+    output_cost_per_token: float
+    priority: int = 0
+    enabled: bool = True
+
+
+def _validate_cost_schedule(body: CostScheduleRequest) -> None:
+    if not body.days_of_week or any(d < 1 or d > 7 for d in body.days_of_week):
+        raise HTTPException(status_code=400, detail="days_of_week must be non-empty ints in 1..7")
+    if body.hour_start_utc < 0 or body.hour_start_utc > 23:
+        raise HTTPException(status_code=400, detail="hour_start_utc must be in 0..23")
+    if body.hour_end_utc < 1 or body.hour_end_utc > 24:
+        raise HTTPException(status_code=400, detail="hour_end_utc must be in 1..24")
+    if body.hour_start_utc == body.hour_end_utc:
+        raise HTTPException(status_code=400, detail="hour_start_utc and hour_end_utc must differ")
+    if body.input_cost_per_token < 0 or body.output_cost_per_token < 0:
+        raise HTTPException(status_code=400, detail="costs must be non-negative")
+
+
+@router.get("/{model_name}/cost-schedule")
+async def list_cost_schedule(
+    model_name: str,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """List time-of-day cost rules for a model."""
+    result = await db.execute(
+        select(CustomModelCostSchedule)
+        .where(CustomModelCostSchedule.model_name == model_name)
+        .order_by(CustomModelCostSchedule.priority.desc(), CustomModelCostSchedule.created_at)
+    )
+    return {"model_name": model_name, "rules": [_serialize_cost_schedule(r) for r in result.scalars().all()]}
+
+
+@router.post("/{model_name}/cost-schedule", status_code=status.HTTP_201_CREATED)
+async def create_cost_schedule(
+    model_name: str,
+    body: CostScheduleRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Create a cost schedule rule for a model (Super User only)."""
+    _validate_cost_schedule(body)
+    rule = CustomModelCostSchedule(
+        id=uuid.uuid4(),
+        model_name=model_name,
+        days_of_week=sorted(set(body.days_of_week)),
+        hour_start_utc=body.hour_start_utc,
+        hour_end_utc=body.hour_end_utc,
+        input_cost_per_token=body.input_cost_per_token,
+        output_cost_per_token=body.output_cost_per_token,
+        priority=body.priority,
+        enabled=body.enabled,
+        created_by=user.user_id,
+        updated_by=user.user_id,
+    )
+    db.add(rule)
+    await db.flush()
+    await db.refresh(rule)
+    return _serialize_cost_schedule(rule)
+
+
+@router.put("/cost-schedule/{rule_id}")
+async def update_cost_schedule(
+    rule_id: str,
+    body: CostScheduleRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Update a cost schedule rule (Super User only)."""
+    _validate_cost_schedule(body)
+    result = await db.execute(select(CustomModelCostSchedule).where(CustomModelCostSchedule.id == uuid.UUID(rule_id)))
+    rule = result.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    rule.days_of_week = sorted(set(body.days_of_week))
+    rule.hour_start_utc = body.hour_start_utc
+    rule.hour_end_utc = body.hour_end_utc
+    rule.input_cost_per_token = body.input_cost_per_token
+    rule.output_cost_per_token = body.output_cost_per_token
+    rule.priority = body.priority
+    rule.enabled = body.enabled
+    rule.updated_by = user.user_id
+    await db.flush()
+    await db.refresh(rule)
+    return _serialize_cost_schedule(rule)
+
+
+@router.delete("/cost-schedule/{rule_id}")
+async def delete_cost_schedule(
+    rule_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a cost schedule rule (Super User only)."""
+    result = await db.execute(select(CustomModelCostSchedule).where(CustomModelCostSchedule.id == uuid.UUID(rule_id)))
+    rule = result.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    await db.delete(rule)
+    return {"deleted": True, "id": rule_id}

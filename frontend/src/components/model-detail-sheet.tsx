@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 
 import { useModelStatusHistory } from "@/hooks/use-api";
 import { ModelCacheSection } from "@/components/model-cache-section";
+import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import {
   Sheet,
   SheetContent,
@@ -139,6 +140,13 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
             <section>
               <h4 className="text-sm font-semibold mb-2">캐시 설정 (suffix별)</h4>
               <ModelCacheSection modelName={model.model_name} />
+            </section>
+          )}
+
+          {model && (
+            <section>
+              <h4 className="text-sm font-semibold mb-2">시간대 요금</h4>
+              <ModelCostScheduleSection modelName={model.model_name} />
             </section>
           )}
 
