@@ -701,6 +701,67 @@ export function useSyncCatalogToRedis() {
   });
 }
 
+// ─── Per-model Redis cache (split-pane right panel) ─────────────
+
+export interface ModelCacheEntry {
+  model: string;
+  apiBase: string;
+  apiKey: string;
+  options?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface ModelCacheResponse {
+  model_name: string;
+  suffixes: string[];
+  entries: Record<string, ModelCacheEntry | null>;
+}
+
+export function useModelCache(modelName: string | null) {
+  return useQuery({
+    queryKey: ["model-cache", modelName],
+    queryFn: () =>
+      apiFetch<ModelCacheResponse>(`/api/models/${encodeURIComponent(modelName!)}/cache`),
+    enabled: !!modelName,
+  });
+}
+
+export function useSetModelCacheEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      modelName,
+      suffix,
+      entry,
+    }: {
+      modelName: string;
+      suffix: string;
+      entry: ModelCacheEntry;
+    }) =>
+      apiFetch<ModelCacheEntry>(
+        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
+        { method: "PUT", body: JSON.stringify(entry) },
+      ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
+    },
+  });
+}
+
+export function useDeleteModelCacheEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ modelName, suffix }: { modelName: string; suffix: string }) =>
+      apiFetch<{ deleted: boolean }>(
+        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
+        { method: "DELETE" },
+      ),
+    onSuccess: (_data, vars) => {
+      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
+    },
+  });
+}
+
 // ─── Admin Users ────────────────────────────────────────────────
 
 export function useAdminUsers(

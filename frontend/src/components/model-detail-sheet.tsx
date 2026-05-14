@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 
 import { useModelStatusHistory } from "@/hooks/use-api";
+import { ModelCacheSection } from "@/components/model-cache-section";
 import {
   Sheet,
   SheetContent,
@@ -134,6 +135,13 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
+          {model && (
+            <section>
+              <h4 className="text-sm font-semibold mb-2">캐시 설정 (suffix별)</h4>
+              <ModelCacheSection modelName={model.model_name} />
+            </section>
+          )}
+
           {litellmInfo && (
             <>
               <Separator />

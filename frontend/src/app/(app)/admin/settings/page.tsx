@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules } from "@/hooks/use-api";
+import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules, useCatalogList, useUpdateCatalogList } from "@/hooks/use-api";
 import type { DefaultTeamRule } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,37 @@ export default function PortalSettingsPage() {
   const updateMutation = useUpdatePortalSettings();
   const { data: hiddenTeams } = useHiddenTeams();
   const updateHiddenTeams = useUpdateHiddenTeams();
+  const { data: catalogListData } = useCatalogList();
+  const updateCatalogList = useUpdateCatalogList();
+  const catalogs: string[] = catalogListData?.catalogs ?? [];
+  const [suffixInput, setSuffixInput] = useState("");
+
+  function handleAddSuffix() {
+    const name = suffixInput.trim();
+    if (!name) return;
+    if (catalogs.includes(name)) {
+      toast.error("이미 존재하는 suffix입니다.");
+      return;
+    }
+    updateCatalogList.mutate([...catalogs, name], {
+      onSuccess: () => {
+        toast.success(`'${name}' suffix가 추가되었습니다.`);
+        setSuffixInput("");
+      },
+      onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+    });
+  }
+
+  function handleRemoveSuffix(name: string) {
+    if (catalogs.length <= 1) {
+      toast.error("최소 1개의 suffix가 필요합니다.");
+      return;
+    }
+    updateCatalogList.mutate(catalogs.filter((c) => c !== name), {
+      onSuccess: () => toast.success(`'${name}' suffix가 제거되었습니다.`),
+      onError: (err) => toast.error(err instanceof Error ? err.message : "제거 실패"),
+    });
+  }
 
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
@@ -287,6 +318,58 @@ export default function PortalSettingsPage() {
           ) : (
             <p className="text-sm text-muted-foreground">숨겨진 팀이 없습니다.</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Settings className="size-4" />
+            캐시 카탈로그 (suffix)
+          </CardTitle>
+          <CardDescription>
+            모델 캐시가 저장되는 Redis hash key suffix를 관리합니다 (예: chat → GENERATIVE:AI:chat). 모델 디테일 시트의 캐시 설정 섹션에서 각 suffix별로 엔트리를 추가할 수 있습니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-2">
+            <Input
+              value={suffixInput}
+              onChange={(e) => setSuffixInput(e.target.value)}
+              placeholder="새 suffix... (예: chat, hcp, common)"
+              className="h-9"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleAddSuffix();
+                }
+              }}
+            />
+            <Button size="sm" onClick={handleAddSuffix} disabled={updateCatalogList.isPending}>
+              <Plus className="size-3.5" />
+              추가
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {catalogs.length > 0 ? (
+              catalogs.map((c) => (
+                <div key={c} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <span className="text-sm font-mono">{c}</span>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-destructive hover:text-destructive"
+                    disabled={catalogs.length <= 1}
+                    onClick={() => handleRemoveSuffix(c)}
+                  >
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground">등록된 suffix가 없습니다.</p>
+            )}
+          </div>
         </CardContent>
       </Card>
 

@@ -13,6 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
+from app.clients.redis import (
+    catalog_delete as redis_delete,
+    catalog_get as redis_get,
+    catalog_set as redis_set,
+)
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
@@ -473,3 +478,82 @@ async def get_catalog_history(
             for h in history
         ]
     }
+
+
+# ─── Per-model Redis cache entries ──────────────────────────────
+#
+# Each model can have a Redis-backed cache entry per allowed suffix
+# (chat, hcp, common, ...). The Redis hash key uses model_name directly,
+# so a model is uniquely keyed by (suffix, model_name). Same model in
+# the same suffix is one entry — saving overwrites.
+
+
+DEFAULT_CATALOG = "chat"
+
+
+async def _get_allowed_suffixes(db: AsyncSession) -> list[str]:
+    """Read configured catalog suffixes from portal settings."""
+    result = await db.execute(
+        sa_text("SELECT value FROM custom_portal_settings WHERE key = 'catalog_suffixes'")
+    )
+    raw = result.scalar()
+    import json as _json
+    return _json.loads(raw) if raw else [DEFAULT_CATALOG]
+
+
+class ModelCacheEntry(BaseModel):
+    model: str = ""
+    apiBase: str = ""
+    apiKey: str = ""
+    options: dict = {}
+
+    class Config:
+        extra = "allow"
+
+
+@router.get("/{model_name}/cache")
+async def get_model_cache(
+    model_name: str,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Return per-suffix cache entries for a model. Missing suffixes return null."""
+    suffixes = await _get_allowed_suffixes(db)
+    entries: dict[str, dict | None] = {}
+    for suffix in suffixes:
+        entries[suffix] = await redis_get(suffix, model_name)
+    return {"model_name": model_name, "suffixes": suffixes, "entries": entries}
+
+
+@router.put("/{model_name}/cache/{suffix}")
+async def set_model_cache_entry(
+    model_name: str,
+    suffix: str,
+    body: ModelCacheEntry,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Set a model's cache entry for a specific suffix (Super User only)."""
+    suffixes = await _get_allowed_suffixes(db)
+    if suffix not in suffixes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"허용되지 않은 suffix입니다: '{suffix}'. 허용 목록: {suffixes}",
+        )
+    data = body.model_dump()
+    await redis_set(suffix, model_name, data)
+    return {"model_name": model_name, "suffix": suffix, **data}
+
+
+@router.delete("/{model_name}/cache/{suffix}")
+async def delete_model_cache_entry(
+    model_name: str,
+    suffix: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Delete a model's cache entry for a specific suffix (Super User only)."""
+    deleted = await redis_delete(suffix, model_name)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Cache entry not found")
+    return {"deleted": True, "model_name": model_name, "suffix": suffix}
