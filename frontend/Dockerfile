@@ -4,7 +4,10 @@ FROM node:20-bookworm-slim AS base
 FROM base AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci --ignore-scripts
+# Keep postinstall scripts: Next.js + Turbopack rely on platform-specific
+# native bindings (@next/swc-*, @turbo/*) that are installed via postinstall.
+# Skipping them silently falls back to WASM and breaks `next build`.
+RUN npm ci
 
 # --- Builder ---
 FROM base AS builder
