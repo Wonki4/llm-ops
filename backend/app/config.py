@@ -37,6 +37,10 @@ class Settings(BaseSettings):
 
     external_api_key: str = ""
 
+    # Model deployment / Kubernetes
+    kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
+    k8s_default_namespace: str = "default"
+
     slack_webhook_url: str = ""
     cors_origins: list[str] = ["http://localhost:3002"]
     debug: bool = False

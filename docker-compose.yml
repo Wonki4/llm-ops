@@ -99,8 +99,14 @@ services:
       APP_REDIS_PASSWORD: "${APP_REDIS_PASSWORD:-}"
       APP_REDIS_CLUSTER: "${APP_REDIS_CLUSTER:-false}"
       APP_REDIS_CATALOG_PREFIX: "${APP_REDIS_CATALOG_PREFIX:-GENERATIVE:AI:}"
+      APP_KUBECONFIG_PATH: "${APP_KUBECONFIG_PATH:-}"
+      APP_K8S_DEFAULT_NAMESPACE: "${APP_K8S_DEFAULT_NAMESPACE:-default}"
     env_file:
       - .env
+    volumes:
+      # Mount host kubeconfig when APP_KUBECONFIG_PATH points inside /etc/kube.
+      # Override KUBECONFIG_HOST_PATH in .env to point at your real config file.
+      - "${KUBECONFIG_HOST_PATH:-/dev/null}:/etc/kube/config:ro"
     depends_on:
       db:
         condition: service_healthy

@@ -19,6 +19,7 @@ from app.api import (
     inference,
     keys,
     me,
+    model_deployments,
     models_catalog,
     portal_settings,
     team_requests,
@@ -66,6 +67,7 @@ app.include_router(catalog.router)
 app.include_router(external.router)
 app.include_router(admin_users.router)
 app.include_router(announcements.router)
+app.include_router(model_deployments.router)
 
 
 @app.exception_handler(Exception)
