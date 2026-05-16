@@ -33,6 +33,9 @@ import type {
   ModelDeploymentEvent,
   CreateModelDeploymentRequest,
   UpdateModelDeploymentRequest,
+  K8sCluster,
+  CreateK8sClusterRequest,
+  UpdateK8sClusterRequest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -983,5 +986,66 @@ export function useAckDeploymentEvent() {
       ),
     onSuccess: (_data, vars) =>
       qc.invalidateQueries({ queryKey: ["model-deployments", vars.deploymentId, "events"] }),
+  });
+}
+
+// ─── K8s Clusters ─────────────────────────────────────────────
+
+export function useK8sClusters() {
+  return useQuery({
+    queryKey: ["k8s-clusters"],
+    queryFn: () =>
+      apiFetch<{ clusters: K8sCluster[] }>("/api/k8s-clusters").then(r => r.clusters),
+  });
+}
+
+export function useK8sCluster(id: string | null) {
+  return useQuery({
+    queryKey: ["k8s-clusters", id],
+    queryFn: () => apiFetch<K8sCluster>(`/api/k8s-clusters/${id}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateK8sClusterRequest) =>
+      apiFetch<K8sCluster>("/api/k8s-clusters", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+export function useUpdateK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateK8sClusterRequest }) =>
+      apiFetch<K8sCluster>(`/api/k8s-clusters/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+export function useDeleteK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/k8s-clusters/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+export function usePingK8sCluster() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean; git_version?: string; platform?: string; error?: string }>(
+        `/api/k8s-clusters/${id}/ping`,
+        { method: "POST" },
+      ),
   });
 }

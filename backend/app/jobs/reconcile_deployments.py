@@ -27,6 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.clients.litellm import LiteLLMClient
 from app.clients.slack import send_deployment_event_notification
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
@@ -149,8 +150,24 @@ async def reconcile_once() -> dict:
     transitions = 0
     registered = 0
 
-    k8s = K8sClient()
     litellm = LiteLLMClient()
+    cluster_clients: dict[uuid.UUID, K8sClient] = {}
+
+    async def _client_for(db: AsyncSession, cluster_id: uuid.UUID | None) -> K8sClient | None:
+        """Cache K8sClient per cluster within one reconcile pass."""
+        if cluster_id is None:
+            return None
+        if cluster_id in cluster_clients:
+            return cluster_clients[cluster_id]
+        cresult = await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_id))
+        cluster_row = cresult.scalar_one_or_none()
+        if not cluster_row or not cluster_row.enabled or not cluster_row.kubeconfig_content:
+            cluster_clients[cluster_id] = None  # type: ignore[assignment]
+            return None
+        c = K8sClient(cluster_row.kubeconfig_content)
+        cluster_clients[cluster_id] = c
+        return c
+
     try:
         async with async_session_factory() as db:
             result = await db.execute(select(CustomModelDeployment))
@@ -158,11 +175,15 @@ async def reconcile_once() -> dict:
             for dep in deployments:
                 polled += 1
                 names = k8s_resource_names(dep)
+                k8s = await _client_for(db, dep.cluster_id)
+                if k8s is None:
+                    logger.warning("Skipping %s: no usable cluster", dep.model_name)
+                    continue
                 try:
                     observed = await k8s.read_deployment_status(dep.namespace, names["deployment"])
                 except K8sNotConfigured:
-                    logger.warning("K8s not configured; skipping reconciler pass")
-                    return {"polled": 0, "transitions": 0, "registered": 0, "skipped": True}
+                    logger.warning("Cluster kubeconfig unusable for %s; skipping", dep.model_name)
+                    continue
                 except ApiException as e:
                     if e.status == 404:
                         # Deployment vanished from cluster; mark as missing but keep DB row

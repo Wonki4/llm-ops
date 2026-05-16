@@ -1,45 +1,59 @@
 """Kubernetes client wrapper for model deployment management.
 
-Same code path for local docker-compose (kubeconfig mounted via volume) and
-in-cluster (Secret-mounted kubeconfig). When kubeconfig_path is empty the
-client raises ApiException("not configured") so callers can surface a clean
-error to the admin instead of crashing the request.
+A `K8sClient` instance is bound to a single cluster's kubeconfig content
+(stored in custom_k8s_cluster.kubeconfig_content). Pass the raw kubeconfig
+YAML string in, and the client loads it via kubernetes_asyncio's
+load_kube_config_from_dict (parsing the YAML ourselves so we don't depend on
+the file-path-only variant).
+
+Each operation opens and closes its own ApiClient — kubernetes-asyncio
+shares HTTP state per ApiClient and reusing it across FastAPI requests is
+fragile inside the event loop. Throughput is fine for deployment-management
+cadence (rare admin actions + ~60s reconciler).
 """
 
 import logging
 from typing import Any
 
+import yaml
 from kubernetes_asyncio import client, config
 from kubernetes_asyncio.client.exceptions import ApiException
-
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class K8sNotConfigured(RuntimeError):
-    """Raised when the portal has no kubeconfig wired up."""
-
-
-async def _api_client() -> client.ApiClient:
-    if not settings.kubeconfig_path:
-        raise K8sNotConfigured("APP_KUBECONFIG_PATH is empty; K8s features disabled")
-    await config.load_kube_config(config_file=settings.kubeconfig_path)
-    return client.ApiClient()
+    """Raised when no usable kubeconfig was provided for this cluster."""
 
 
 class K8sClient:
-    """Thin wrapper that opens a fresh ApiClient per call.
+    """Cluster-scoped Kubernetes client. Cheap to construct.
 
-    kubernetes-asyncio shares a session per ApiClient; reusing across requests
-    is fragile inside FastAPI's event loop, so we open and close on each
-    operation. Throughput is fine for the deployment-management cadence
-    (rare admin actions + ~60s reconciler).
+    Pass `kubeconfig_content` from `custom_k8s_cluster.kubeconfig_content`.
+    Constructing the client doesn't touch the network; failures are deferred
+    to the first ApiClient open.
     """
+
+    def __init__(self, kubeconfig_content: str | None) -> None:
+        self._kubeconfig_content = (kubeconfig_content or "").strip()
+
+    async def _api_client(self) -> client.ApiClient:
+        if not self._kubeconfig_content:
+            raise K8sNotConfigured(
+                "Cluster kubeconfig is empty; edit it in 포털 설정 → 클러스터 관리"
+            )
+        try:
+            cfg_dict = yaml.safe_load(self._kubeconfig_content)
+        except yaml.YAMLError as e:
+            raise K8sNotConfigured(f"Invalid kubeconfig YAML: {e}") from e
+        if not isinstance(cfg_dict, dict):
+            raise K8sNotConfigured("kubeconfig content must be a YAML mapping")
+        await config.load_kube_config_from_dict(cfg_dict)
+        return client.ApiClient()
 
     async def create_or_patch(self, namespace: str, manifests: list[dict]) -> None:
         """Apply a list of K8s manifests. Creates new resources, patches existing."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
@@ -76,7 +90,7 @@ class K8sClient:
 
     async def delete(self, namespace: str, names: dict[str, str]) -> None:
         """Delete the per-deployment trio. names = {'deployment': X, 'service': Y, 'ingress': Z}."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
@@ -102,7 +116,7 @@ class K8sClient:
 
         Raises ApiException(404) when the deployment doesn't exist.
         """
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             dep = await apps.read_namespaced_deployment_status(name=name, namespace=namespace)
@@ -116,7 +130,7 @@ class K8sClient:
             await api_client.close()
 
     async def read_service_cluster_ip(self, namespace: str, name: str) -> str | None:
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             core = client.CoreV1Api(api_client)
             try:
@@ -129,6 +143,17 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    async def ping(self) -> dict:
+        """Connectivity check used by the cluster registry UI. Returns API version."""
+        api_client = await self._api_client()
+        try:
+            v = client.VersionApi(api_client)
+            info = await v.get_code()
+            return {"git_version": info.git_version, "platform": info.platform}
+        finally:
+            await api_client.close()
 
-def get_k8s_client() -> K8sClient:
-    return K8sClient()
+
+def get_k8s_client_for(kubeconfig_content: str | None) -> K8sClient:
+    """Build a per-cluster K8sClient from raw kubeconfig YAML."""
+    return K8sClient(kubeconfig_content)

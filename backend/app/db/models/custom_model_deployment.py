@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -21,6 +21,12 @@ class CustomModelDeployment(CustomBase):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     model_name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
+    cluster_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_k8s_cluster.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     namespace: Mapped[str] = mapped_column(String(128), nullable=False, default="default", server_default="default")
     image: Mapped[str] = mapped_column(String(512), nullable=False)
     replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

@@ -418,6 +418,7 @@ export type DeploymentStatus =
 export interface ModelDeployment {
   id: string;
   model_name: string;
+  cluster_id: string | null;
   namespace: string;
   image: string;
   replicas: number;
@@ -464,6 +465,7 @@ export interface ModelDeploymentEvent {
 
 export interface CreateModelDeploymentRequest {
   model_name: string;
+  cluster_id: string;
   namespace?: string;
   image?: string;
   replicas?: number;
@@ -485,4 +487,35 @@ export interface CreateModelDeploymentRequest {
   ingress_class?: string;
 }
 
-export type UpdateModelDeploymentRequest = Partial<Omit<CreateModelDeploymentRequest, "model_name">>;
+export type UpdateModelDeploymentRequest = Partial<Omit<CreateModelDeploymentRequest, "model_name" | "cluster_id">>;
+
+// ─── K8s Cluster Registry ─────────────────────────────────────
+
+export interface K8sCluster {
+  id: string;
+  name: string;
+  default_namespace: string;
+  description: string | null;
+  enabled: boolean;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+  // Only present on detail/create/update responses (omitted from list)
+  kubeconfig_content?: string;
+}
+
+export interface CreateK8sClusterRequest {
+  name: string;
+  kubeconfig_content: string;
+  default_namespace?: string;
+  description?: string | null;
+  enabled?: boolean;
+}
+
+export interface UpdateK8sClusterRequest {
+  kubeconfig_content?: string;
+  default_namespace?: string;
+  description?: string | null;
+  enabled?: boolean;
+}
