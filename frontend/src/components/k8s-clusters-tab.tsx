@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -332,19 +333,17 @@ export function K8sClustersTab() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="text-base">K8s 클러스터</CardTitle>
-            <CardDescription>
-              모델 배포가 사용할 Kubernetes 클러스터의 kubeconfig를 등록합니다. 배포마다 클러스터를
-              선택할 수 있습니다.
-            </CardDescription>
-          </div>
+        <CardTitle className="text-base">K8s 클러스터</CardTitle>
+        <CardDescription>
+          모델 배포가 사용할 Kubernetes 클러스터의 kubeconfig를 등록합니다. 배포마다 클러스터를
+          선택할 수 있습니다.
+        </CardDescription>
+        <CardAction>
           <Button size="sm" onClick={handleCreate}>
             <Plus className="size-4" />
             클러스터 등록
           </Button>
-        </div>
+        </CardAction>
       </CardHeader>
       <CardContent>
         {isLoading ? (
