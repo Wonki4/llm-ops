@@ -22,6 +22,7 @@ import {
   useDeleteModelDeployment,
   useDeploymentEvents,
   useAckDeploymentEvent,
+  useK8sClusters,
 } from "@/hooks/use-api";
 import type {
   ModelDeployment,
@@ -32,6 +33,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Card,
   CardDescription,
@@ -110,6 +118,7 @@ function formatDate(iso: string | null | undefined): string {
 
 interface FormState {
   model_name: string;
+  cluster_id: string;
   namespace: string;
   image: string;
   replicas: string;
@@ -133,6 +142,7 @@ interface FormState {
 
 const EMPTY_FORM: FormState = {
   model_name: "",
+  cluster_id: "",
   namespace: "default",
   image: "vllm/vllm-openai:latest",
   replicas: "1",
@@ -157,6 +167,7 @@ const EMPTY_FORM: FormState = {
 function depToForm(d: ModelDeployment): FormState {
   return {
     model_name: d.model_name,
+    cluster_id: d.cluster_id ?? "",
     namespace: d.namespace,
     image: d.image,
     replicas: String(d.replicas),
@@ -181,6 +192,7 @@ function depToForm(d: ModelDeployment): FormState {
 
 function formToBody(form: FormState): CreateModelDeploymentRequest | string {
   if (!form.model_name.trim()) return "model_name은 필수입니다.";
+  if (!form.cluster_id) return "cluster를 선택하세요.";
   if (!form.model_path.trim()) return "model_path는 필수입니다.";
   if (!form.ingress_host.trim()) return "ingress_host는 필수입니다.";
 
@@ -202,6 +214,7 @@ function formToBody(form: FormState): CreateModelDeploymentRequest | string {
 
   return {
     model_name: form.model_name.trim(),
+    cluster_id: form.cluster_id,
     namespace: form.namespace.trim() || "default",
     image: form.image.trim(),
     replicas: Number(form.replicas) || 0,
@@ -243,6 +256,7 @@ function DeploymentFormDialog({
 }) {
   const createMut = useCreateModelDeployment();
   const updateMut = useUpdateModelDeployment();
+  const { data: clusters } = useK8sClusters();
   const pending = createMut.isPending || updateMut.isPending;
   const [form, setForm] = useState<FormState>(initialForm);
 
@@ -306,9 +320,42 @@ function DeploymentFormDialog({
               />
             </div>
             <div>
-              <Label>네임스페이스</Label>
-              <Input value={form.namespace} onChange={e => set("namespace", e.target.value)} />
+              <Label>클러스터 *</Label>
+              <Select
+                value={form.cluster_id}
+                onValueChange={v => {
+                  set("cluster_id", v);
+                  // Prefill namespace from cluster default if user hasn't customized.
+                  const c = clusters?.find(cc => cc.id === v);
+                  if (c && (!form.namespace || form.namespace === "default")) {
+                    set("namespace", c.default_namespace);
+                  }
+                }}
+                disabled={!!editing}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="배포할 K8s 클러스터 선택" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(clusters ?? [])
+                    .filter(c => c.enabled)
+                    .map(c => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  {(clusters?.filter(c => c.enabled).length ?? 0) === 0 && (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      활성 클러스터가 없습니다. 포털 설정에서 추가하세요.
+                    </div>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
+          </div>
+          <div>
+            <Label>네임스페이스</Label>
+            <Input value={form.namespace} onChange={e => set("namespace", e.target.value)} />
           </div>
           <div>
             <Label>이미지</Label>

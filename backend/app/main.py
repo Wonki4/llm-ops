@@ -17,6 +17,7 @@ from app.api import (
     catalog,
     external,
     inference,
+    k8s_clusters,
     keys,
     me,
     model_deployments,
@@ -68,6 +69,7 @@ app.include_router(external.router)
 app.include_router(admin_users.router)
 app.include_router(announcements.router)
 app.include_router(model_deployments.router)
+app.include_router(k8s_clusters.router)
 
 
 @app.exception_handler(Exception)

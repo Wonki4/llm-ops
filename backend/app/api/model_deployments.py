@@ -14,7 +14,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client
+from app.clients.k8s import K8sClient, K8sNotConfigured
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
@@ -30,6 +31,7 @@ DEFAULT_VLLM_IMAGE = "vllm/vllm-openai:latest"
 
 class CreateDeploymentRequest(BaseModel):
     model_name: str
+    cluster_id: str
     namespace: str = "default"
     image: str = DEFAULT_VLLM_IMAGE
     replicas: int = Field(1, ge=0)
@@ -75,6 +77,7 @@ def _serialize(d: CustomModelDeployment) -> dict:
     return {
         "id": str(d.id),
         "model_name": d.model_name,
+        "cluster_id": str(d.cluster_id) if d.cluster_id else None,
         "namespace": d.namespace,
         "image": d.image,
         "replicas": d.replicas,
@@ -107,6 +110,20 @@ def _serialize(d: CustomModelDeployment) -> dict:
     }
 
 
+async def _resolve_cluster(db: AsyncSession, cluster_id: uuid.UUID | str | None) -> CustomK8sCluster:
+    """Load a cluster row or raise 4xx. cluster_id may be UUID, str, or None."""
+    if cluster_id is None:
+        raise HTTPException(status_code=400, detail="cluster_id is required")
+    cid = uuid.UUID(str(cluster_id))
+    result = await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == cid))
+    c = result.scalar_one_or_none()
+    if not c:
+        raise HTTPException(status_code=404, detail=f"Cluster {cid} not found")
+    if not c.enabled:
+        raise HTTPException(status_code=409, detail=f"Cluster '{c.name}' is disabled")
+    return c
+
+
 @router.get("")
 async def list_deployments(
     user: CustomUser = Depends(require_super_user),
@@ -134,8 +151,10 @@ async def create_deployment(
     body: CreateDeploymentRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
+    cluster = await _resolve_cluster(db, body.cluster_id)
+    k8s = K8sClient(cluster.kubeconfig_content)
+
     # Uniqueness on model_name
     existing = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name))
     if existing.scalar_one_or_none():
@@ -144,6 +163,7 @@ async def create_deployment(
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=body.model_name,
+        cluster_id=cluster.id,
         namespace=body.namespace,
         image=body.image,
         replicas=body.replicas,
@@ -189,7 +209,6 @@ async def update_deployment(
     body: UpdateDeploymentRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     """Update mutable fields and reapply K8s manifests (rolls Deployment).
 
@@ -199,6 +218,9 @@ async def update_deployment(
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    cluster = await _resolve_cluster(db, dep.cluster_id)
+    k8s = K8sClient(cluster.kubeconfig_content)
 
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
@@ -225,12 +247,24 @@ async def delete_deployment(
     deployment_id: str,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
+
+    # Look up cluster for the K8s side delete; skip silently if cluster is gone.
+    k8s = None
+    if dep.cluster_id:
+        cluster_result = await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == dep.cluster_id))
+        cluster_row = cluster_result.scalar_one_or_none()
+        if cluster_row and cluster_row.kubeconfig_content:
+            k8s = K8sClient(cluster_row.kubeconfig_content)
+
+    if k8s is None:
+        logger.warning("Deleting deployment %s with no usable cluster; DB row only", dep.model_name)
+        await db.delete(dep)
+        return {"deleted": True, "id": deployment_id, "k8s_cleanup": "skipped"}
 
     try:
         await k8s.delete(dep.namespace, k8s_resource_names(dep))
