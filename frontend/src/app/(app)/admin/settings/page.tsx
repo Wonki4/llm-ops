@@ -17,6 +17,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { K8sClustersTab } from "@/components/k8s-clusters-tab";
 
 export default function PortalSettingsPage() {
   const { data: settings, isLoading } = usePortalSettings();
@@ -104,6 +106,15 @@ export default function PortalSettingsPage() {
         </p>
       </div>
 
+      <Tabs defaultValue="general">
+        <TabsList>
+          <TabsTrigger value="general">일반</TabsTrigger>
+          <TabsTrigger value="hidden-teams">팀 숨김</TabsTrigger>
+          <TabsTrigger value="cache">캐시 카탈로그</TabsTrigger>
+          <TabsTrigger value="clusters">K8s 클러스터</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="general" className="space-y-6 mt-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -243,6 +254,17 @@ export default function PortalSettingsPage() {
         </CardContent>
       </Card>
 
+      <Button onClick={handleSave} disabled={updateMutation.isPending}>
+        {updateMutation.isPending ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Save className="size-4" />
+        )}
+        저장
+      </Button>
+        </TabsContent>
+
+        <TabsContent value="hidden-teams" className="space-y-6 mt-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -321,6 +343,9 @@ export default function PortalSettingsPage() {
         </CardContent>
       </Card>
 
+        </TabsContent>
+
+        <TabsContent value="cache" className="space-y-6 mt-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -373,17 +398,12 @@ export default function PortalSettingsPage() {
         </CardContent>
       </Card>
 
-      <Button
-        onClick={handleSave}
-        disabled={updateMutation.isPending}
-      >
-        {updateMutation.isPending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Save className="size-4" />
-        )}
-        저장
-      </Button>
+        </TabsContent>
+
+        <TabsContent value="clusters" className="mt-4">
+          <K8sClustersTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

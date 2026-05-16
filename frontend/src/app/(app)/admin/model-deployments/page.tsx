@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -741,9 +742,11 @@ export default function ModelDeploymentsPage() {
             <RefreshCw className="size-4" />
             새로고침
           </Button>
-          <Button onClick={handleCreate} size="sm">
-            <Plus className="size-4" />
-            배포 추가
+          <Button asChild size="sm">
+            <Link href="/admin/model-deployments/new">
+              <Plus className="size-4" />
+              배포 추가
+            </Link>
           </Button>
         </div>
       </div>
