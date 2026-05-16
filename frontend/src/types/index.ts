@@ -403,3 +403,86 @@ export interface UpdateAnnouncementRequest {
   is_pinned?: boolean;
   is_featured?: boolean;
 }
+
+// ─── Model Deployment (K8s-managed) ──────────────────────────────
+
+export type DeploymentStatus =
+  | "Pending"
+  | "Updating"
+  | "Ready"
+  | "Unhealthy"
+  | "Failed"
+  | "Stopped"
+  | "Missing";
+
+export interface ModelDeployment {
+  id: string;
+  model_name: string;
+  namespace: string;
+  image: string;
+  replicas: number;
+  gpu_count: number;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+  node_selector: Record<string, string> | null;
+  tolerations: unknown[] | null;
+  pvc_name: string | null;
+  pvc_mount_path: string | null;
+  model_path: string;
+  vllm_extra_args: string[] | null;
+  env: Record<string, string> | null;
+  ingress_host: string;
+  ingress_path: string;
+  ingress_class: string;
+  status: DeploymentStatus | string;
+  status_message: string | null;
+  ready_replicas: number;
+  service_cluster_ip: string | null;
+  litellm_model_id: string | null;
+  last_synced_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelDeploymentEvent {
+  id: string;
+  deployment_id: string;
+  event_type: string;
+  severity: "info" | "warning" | "error" | string;
+  from_status: string | null;
+  to_status: string | null;
+  message: string | null;
+  seen: boolean;
+  alert_sent: boolean;
+  created_at: string | null;
+}
+
+export interface CreateModelDeploymentRequest {
+  model_name: string;
+  namespace?: string;
+  image?: string;
+  replicas?: number;
+  gpu_count?: number;
+  gpu_resource_key?: string;
+  cpu_request?: string | null;
+  cpu_limit?: string | null;
+  memory_request?: string | null;
+  memory_limit?: string | null;
+  node_selector?: Record<string, string> | null;
+  tolerations?: unknown[] | null;
+  pvc_name?: string | null;
+  pvc_mount_path?: string | null;
+  model_path: string;
+  vllm_extra_args?: string[] | null;
+  env?: Record<string, string> | null;
+  ingress_host: string;
+  ingress_path?: string;
+  ingress_class?: string;
+}
+
+export type UpdateModelDeploymentRequest = Partial<Omit<CreateModelDeploymentRequest, "model_name">>;
