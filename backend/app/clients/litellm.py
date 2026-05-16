@@ -144,6 +144,29 @@ class LiteLLMClient:
             payload["litellm_params"] = litellm_params
         return await self._request("POST", "/model/update", json=payload)
 
+    async def create_model(
+        self,
+        *,
+        model_name: str,
+        litellm_model: str,
+        api_base: str,
+        api_key: str | None = None,
+        extra_params: dict | None = None,
+    ) -> dict:
+        """Register a new model deployment in LiteLLM via /model/new.
+
+        `litellm_model` is the routing identifier (e.g. 'openai/<served-name>');
+        for OpenAI-compatible vLLM endpoints prefix with 'openai/' so LiteLLM
+        routes via the OpenAI client. Returns LiteLLM's deployment record.
+        """
+        litellm_params: dict[str, Any] = {"model": litellm_model, "api_base": api_base}
+        if api_key:
+            litellm_params["api_key"] = api_key
+        if extra_params:
+            litellm_params.update(extra_params)
+        payload = {"model_name": model_name, "litellm_params": litellm_params}
+        return await self._request("POST", "/model/new", json=payload)
+
 
 def get_litellm_client() -> LiteLLMClient:
     """FastAPI dependency for LiteLLM client."""
