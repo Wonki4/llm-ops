@@ -334,16 +334,16 @@ export function K8sClustersTab() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">K8s 클러스터</CardTitle>
-        <CardDescription>
-          모델 배포가 사용할 Kubernetes 클러스터의 kubeconfig를 등록합니다. 배포마다 클러스터를
-          선택할 수 있습니다.
-        </CardDescription>
         <CardAction>
           <Button size="sm" onClick={handleCreate}>
             <Plus className="size-4" />
             클러스터 등록
           </Button>
         </CardAction>
+        <CardDescription className="col-span-2">
+          모델 배포가 사용할 Kubernetes 클러스터의 kubeconfig를 등록합니다. 배포마다 클러스터를
+          선택할 수 있습니다.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
