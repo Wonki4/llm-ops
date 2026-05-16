@@ -29,6 +29,10 @@ import type {
   Announcement,
   CreateAnnouncementRequest,
   UpdateAnnouncementRequest,
+  ModelDeployment,
+  ModelDeploymentEvent,
+  CreateModelDeploymentRequest,
+  UpdateModelDeploymentRequest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -901,5 +905,83 @@ export function useDeleteAnnouncement() {
     mutationFn: (id: string) =>
       apiFetch<{ status: string }>(`/api/announcements/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
+// ─── Model Deployments ────────────────────────────────────────
+
+export function useModelDeployments() {
+  return useQuery({
+    queryKey: ["model-deployments"],
+    queryFn: () =>
+      apiFetch<{ deployments: ModelDeployment[] }>("/api/model-deployments").then(r => r.deployments),
+    refetchInterval: 30_000,
+  });
+}
+
+export function useModelDeployment(id: string | null) {
+  return useQuery({
+    queryKey: ["model-deployments", id],
+    queryFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}`),
+    enabled: !!id,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useCreateModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateModelDeploymentRequest) =>
+      apiFetch<ModelDeployment>("/api/model-deployments", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+export function useUpdateModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateModelDeploymentRequest }) =>
+      apiFetch<ModelDeployment>(`/api/model-deployments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+export function useDeleteModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/model-deployments/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+export function useDeploymentEvents(id: string | null) {
+  return useQuery({
+    queryKey: ["model-deployments", id, "events"],
+    queryFn: () =>
+      apiFetch<{ events: ModelDeploymentEvent[] }>(`/api/model-deployments/${id}/events`).then(
+        r => r.events,
+      ),
+    enabled: !!id,
+    refetchInterval: 15_000,
+  });
+}
+
+export function useAckDeploymentEvent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ deploymentId, eventId }: { deploymentId: string; eventId: string }) =>
+      apiFetch<ModelDeploymentEvent>(
+        `/api/model-deployments/${deploymentId}/events/${eventId}/ack`,
+        { method: "POST" },
+      ),
+    onSuccess: (_data, vars) =>
+      qc.invalidateQueries({ queryKey: ["model-deployments", vars.deploymentId, "events"] }),
   });
 }
