@@ -242,3 +242,61 @@ async def delete_deployment(
 
     await db.delete(dep)
     return {"deleted": True, "id": deployment_id}
+
+
+# ─── Deployment events (status transitions + alerts) ────────────
+
+
+def _serialize_event(e) -> dict:
+    return {
+        "id": str(e.id),
+        "deployment_id": str(e.deployment_id),
+        "event_type": e.event_type,
+        "severity": e.severity,
+        "from_status": e.from_status,
+        "to_status": e.to_status,
+        "message": e.message,
+        "seen": e.seen,
+        "alert_sent": e.alert_sent,
+        "created_at": e.created_at.isoformat() if e.created_at else None,
+    }
+
+
+@router.get("/{deployment_id}/events")
+async def list_deployment_events(
+    deployment_id: str,
+    limit: int = 100,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Most-recent-first list of status events for one deployment."""
+    from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
+
+    result = await db.execute(
+        select(CustomModelDeploymentEvent)
+        .where(CustomModelDeploymentEvent.deployment_id == uuid.UUID(deployment_id))
+        .order_by(CustomModelDeploymentEvent.created_at.desc())
+        .limit(min(limit, 500))
+    )
+    return {"events": [_serialize_event(e) for e in result.scalars().all()]}
+
+
+@router.post("/{deployment_id}/events/{event_id}/ack")
+async def ack_deployment_event(
+    deployment_id: str,
+    event_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Mark a single event as seen so the UI can hide it from unread badges."""
+    from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
+
+    result = await db.execute(
+        select(CustomModelDeploymentEvent).where(CustomModelDeploymentEvent.id == uuid.UUID(event_id))
+    )
+    event = result.scalar_one_or_none()
+    if not event or str(event.deployment_id) != deployment_id:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event.seen = True
+    await db.flush()
+    return _serialize_event(event)
