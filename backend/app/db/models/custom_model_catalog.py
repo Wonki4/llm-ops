@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -47,6 +47,15 @@ class CustomModelCatalog(CustomBase):
     # Fallback token costs applied when no cost schedule rule matches.
     default_input_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_output_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # K8s deployment that serves this catalog entry (1 deployment → N catalog rows).
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_model_deployment.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    # LiteLLM-side model id once the reconciler successfully registers this entry.
+    litellm_model_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     status_change_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

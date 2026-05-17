@@ -76,10 +76,24 @@ def _severity_for(transition: tuple[str, str]) -> str:
     return "info"
 
 
-async def _ensure_catalog(db: AsyncSession, model_name: str, user_id: str) -> None:
-    """Create a catalog row if none exists for this model_name."""
-    existing = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name))
-    if existing.scalar_one_or_none():
+async def _ensure_catalog(
+    db: AsyncSession,
+    model_name: str,
+    user_id: str,
+    deployment_id: uuid.UUID | None = None,
+) -> None:
+    """Make sure a catalog row exists for this name, optionally linked to a deployment.
+
+    If the row exists and `deployment_id` is given, attach the deployment when
+    the row has no current attachment (don't steal from another deployment).
+    """
+    existing = await db.execute(
+        select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name)
+    )
+    row = existing.scalar_one_or_none()
+    if row is not None:
+        if deployment_id is not None and row.deployment_id is None:
+            row.deployment_id = deployment_id
         return
     db.add(
         CustomModelCatalog(
@@ -88,19 +102,19 @@ async def _ensure_catalog(db: AsyncSession, model_name: str, user_id: str) -> No
             display_name=model_name,
             status=ModelStatus.TESTING,
             visible=True,
+            deployment_id=deployment_id,
             created_by=user_id,
             updated_by=user_id,
         )
     )
 
 
-async def _register_with_litellm(
-    litellm: LiteLLMClient, dep: CustomModelDeployment
+async def _register_catalog_with_litellm(
+    litellm: LiteLLMClient,
+    dep: CustomModelDeployment,
+    catalog_model_name: str,
 ) -> str | None:
-    """Call LiteLLM /model/new using the deployment's ingress URL as api_base.
-
-    Returns the LiteLLM-assigned deployment id, or None if the call failed.
-    """
+    """Register one LiteLLM model alias backed by `dep`. Returns LiteLLM id."""
     api_base = f"https://{dep.ingress_host}".rstrip("/")
     if dep.ingress_path and dep.ingress_path != "/":
         api_base = f"{api_base}{dep.ingress_path.rstrip('/')}"
@@ -108,16 +122,15 @@ async def _register_with_litellm(
     served_name = dep.model_path.split("/")[-1] or dep.model_name
     try:
         result = await litellm.create_model(
-            model_name=dep.model_name,
+            model_name=catalog_model_name,
             litellm_model=f"openai/{served_name}",
             api_base=api_base,
-            # vLLM ignores the key; LiteLLM still wants one set.
             api_key="EMPTY",
         )
         info = result.get("model_info") or {}
         return info.get("id") or result.get("id")
     except Exception:
-        logger.exception("LiteLLM /model/new failed for %s", dep.model_name)
+        logger.exception("LiteLLM /model/new failed for %s", catalog_model_name)
         return None
 
 
@@ -230,23 +243,47 @@ async def reconcile_once() -> dict:
                     # Slack fan-out for warning/error
                     await _maybe_alert(db, ev, dep)
 
-                    # First-time Ready: register with LiteLLM + auto-create catalog
-                    if new_status == "Ready" and not dep.litellm_model_id:
-                        model_id = await _register_with_litellm(litellm, dep)
-                        if model_id:
-                            dep.litellm_model_id = model_id
-                            await _ensure_catalog(db, dep.model_name, dep.updated_by or "system")
-                            await _record_event(
-                                db, dep, "LitellmRegistered", "info", None, None,
-                                f"Registered as LiteLLM model id={model_id}"
+                    # First-time Ready: register every catalog row attached to
+                    # this deployment that hasn't been registered yet. Auto-create
+                    # a catalog row matching the deployment's model_name when
+                    # none are attached, so the simple 1-deployment-1-model
+                    # case still works out of the box.
+                    if new_status == "Ready":
+                        attached = (
+                            await db.execute(
+                                select(CustomModelCatalog).where(
+                                    CustomModelCatalog.deployment_id == dep.id
+                                )
                             )
-                            registered += 1
-                        else:
-                            ev2 = await _record_event(
-                                db, dep, "LitellmRegisterFailed", "error", None, None,
-                                "LiteLLM /model/new failed; see logs"
+                        ).scalars().all()
+                        if not attached:
+                            await _ensure_catalog(db, dep.model_name, dep.updated_by or "system", deployment_id=dep.id)
+                            attached = (
+                                await db.execute(
+                                    select(CustomModelCatalog).where(
+                                        CustomModelCatalog.deployment_id == dep.id
+                                    )
+                                )
+                            ).scalars().all()
+                        for catalog_row in attached:
+                            if catalog_row.litellm_model_id:
+                                continue
+                            model_id = await _register_catalog_with_litellm(
+                                litellm, dep, catalog_row.model_name
                             )
-                            await _maybe_alert(db, ev2, dep)
+                            if model_id:
+                                catalog_row.litellm_model_id = model_id
+                                await _record_event(
+                                    db, dep, "LitellmRegistered", "info", None, None,
+                                    f"Registered {catalog_row.model_name} as LiteLLM id={model_id}",
+                                )
+                                registered += 1
+                            else:
+                                ev2 = await _record_event(
+                                    db, dep, "LitellmRegisterFailed", "error", None, None,
+                                    f"LiteLLM /model/new failed for {catalog_row.model_name}",
+                                )
+                                await _maybe_alert(db, ev2, dep)
 
                 if changed:
                     dep.last_synced_at = datetime.now(UTC)
