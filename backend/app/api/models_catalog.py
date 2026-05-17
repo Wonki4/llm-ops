@@ -35,6 +35,7 @@ class CreateModelCatalogEntry(BaseModel):
     status_schedule: dict | None = None  # {"testing": "2026-01-15", "lts": "2026-03-01", ...}
     visible: bool = True
     is_external: bool = False  # True: catalog-only (skip LiteLLM existence check)
+    deployment_id: str | None = None  # Optional: attach to a K8s deployment
 
 
 class UpdateModelCatalogEntry(BaseModel):
@@ -45,6 +46,7 @@ class UpdateModelCatalogEntry(BaseModel):
     visible: bool | None = None
     default_input_cost_per_token: float | None = None
     default_output_cost_per_token: float | None = None
+    deployment_id: str | None = None  # null detaches from current deployment
 
 
 def _serialize_model(m: CustomModelCatalog) -> dict:
@@ -58,6 +60,8 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "visible": m.visible,
         "default_input_cost_per_token": m.default_input_cost_per_token,
         "default_output_cost_per_token": m.default_output_cost_per_token,
+        "deployment_id": str(m.deployment_id) if m.deployment_id else None,
+        "litellm_model_id": m.litellm_model_id,
         "status_change_date": m.status_change_date.isoformat() if m.status_change_date else None,
         "created_by": m.created_by,
         "updated_by": m.updated_by,
@@ -364,6 +368,7 @@ async def create_catalog_entry(
         status=body.status,
         status_schedule=body.status_schedule,
         visible=body.visible,
+        deployment_id=uuid.UUID(body.deployment_id) if body.deployment_id else None,
         status_change_date=datetime.now() if body.status != ModelStatus.TESTING else None,
         created_by=user.user_id,
         updated_by=user.user_id,
@@ -400,6 +405,10 @@ async def update_catalog_entry(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Catalog entry not found")
 
     update_data = body.model_dump(exclude_unset=True)
+
+    # Coerce deployment_id string → UUID up front so the FK assignment is typed.
+    if "deployment_id" in update_data and update_data["deployment_id"] is not None:
+        update_data["deployment_id"] = uuid.UUID(str(update_data["deployment_id"]))
 
     # Track status changes with history
     previous_status = entry.status

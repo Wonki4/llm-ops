@@ -77,6 +77,12 @@ export interface ModelCatalog {
   status: ModelStatus;
   status_schedule: StatusSchedule | null;
   visible: boolean;
+  default_input_cost_per_token: number | null;
+  default_output_cost_per_token: number | null;
+  // K8s deployment serving this catalog row (1 deployment → N catalog rows).
+  deployment_id: string | null;
+  // LiteLLM-side model id once the reconciler successfully registers this entry.
+  litellm_model_id: string | null;
   status_change_date: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -198,6 +204,7 @@ export interface CreateModelCatalogRequest {
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
   is_external?: boolean;
+  deployment_id?: string | null;
 }
 
 export interface UpdateModelCatalogRequest {
@@ -206,6 +213,9 @@ export interface UpdateModelCatalogRequest {
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
   visible?: boolean;
+  default_input_cost_per_token?: number | null;
+  default_output_cost_per_token?: number | null;
+  deployment_id?: string | null;
 }
 
 // ─── Budgets ──────────────────────────────────────────────────
@@ -442,7 +452,6 @@ export interface ModelDeployment {
   status_message: string | null;
   ready_replicas: number;
   service_cluster_ip: string | null;
-  litellm_model_id: string | null;
   last_synced_at: string | null;
   created_by: string | null;
   updated_by: string | null;
