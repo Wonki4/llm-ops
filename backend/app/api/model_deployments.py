@@ -101,7 +101,6 @@ def _serialize(d: CustomModelDeployment) -> dict:
         "status_message": d.status_message,
         "ready_replicas": d.ready_replicas,
         "service_cluster_ip": d.service_cluster_ip,
-        "litellm_model_id": d.litellm_model_id,
         "last_synced_at": d.last_synced_at.isoformat() if d.last_synced_at else None,
         "created_by": d.created_by,
         "updated_by": d.updated_by,

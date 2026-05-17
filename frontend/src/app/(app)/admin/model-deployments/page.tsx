@@ -641,12 +641,6 @@ function DeploymentDetailSheet({
                   <span className="text-muted-foreground">model_path</span>
                   <span className="font-mono text-xs break-all text-right">{dep.model_path}</span>
                 </div>
-                {dep.litellm_model_id && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">LiteLLM ID</span>
-                    <span className="font-mono text-xs">{dep.litellm_model_id}</span>
-                  </div>
-                )}
                 {dep.last_synced_at && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">마지막 동기화</span>
@@ -776,7 +770,6 @@ export default function ModelDeploymentsPage() {
                 <TableHead>GPU</TableHead>
                 <TableHead>Replicas</TableHead>
                 <TableHead>Ingress</TableHead>
-                <TableHead>LiteLLM</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -798,13 +791,6 @@ export default function ModelDeploymentsPage() {
                   </TableCell>
                   <TableCell className="text-xs font-mono max-w-[180px] truncate">
                     {d.ingress_host}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {d.litellm_model_id ? (
-                      <Badge variant="outline" className="text-[10px]">등록됨</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">대기</span>
-                    )}
                   </TableCell>
                   <TableCell>
                     <Button
