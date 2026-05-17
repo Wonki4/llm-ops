@@ -24,6 +24,8 @@ import {
   useDeploymentEvents,
   useAckDeploymentEvent,
   useK8sClusters,
+  useModelCatalog,
+  useUpdateCatalogEntry,
 } from "@/hooks/use-api";
 import type {
   ModelDeployment,
@@ -514,6 +516,130 @@ function DeploymentFormDialog({
 
 // ─── Detail Sheet ─────────────────────────────────────────────
 
+function ServingModelsSection({
+  deploymentId,
+  deploymentModelName,
+}: {
+  deploymentId: string;
+  deploymentModelName: string;
+}) {
+  const { data: catalog, isLoading } = useModelCatalog();
+  const updateMut = useUpdateCatalogEntry();
+  const [attaching, setAttaching] = useState(false);
+  const [selectedId, setSelectedId] = useState("");
+
+  const attached = (catalog ?? []).filter((c) => c.deployment_id === deploymentId);
+  const unattached = (catalog ?? []).filter((c) => !c.deployment_id);
+
+  function handleAttach() {
+    if (!selectedId) return;
+    updateMut.mutate(
+      { catalogId: selectedId, body: { deployment_id: deploymentId } },
+      {
+        onSuccess: () => {
+          toast.success("모델이 attach되었습니다.");
+          setAttaching(false);
+          setSelectedId("");
+        },
+        onError: (e) => toast.error(e instanceof Error ? e.message : "attach 실패"),
+      },
+    );
+  }
+
+  function handleDetach(catalogId: string) {
+    if (!confirm("이 모델을 deployment에서 detach할까요? LiteLLM 라우팅이 끊깁니다.")) return;
+    updateMut.mutate(
+      { catalogId, body: { deployment_id: null } },
+      {
+        onSuccess: () => toast.success("Detach되었습니다."),
+        onError: (e) => toast.error(e instanceof Error ? e.message : "detach 실패"),
+      },
+    );
+  }
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-semibold flex items-center gap-2">
+          <Server className="size-4" />
+          서빙 모델
+          <span className="text-xs font-normal text-muted-foreground">
+            ({attached.length}개)
+          </span>
+        </h4>
+        {!attaching && (
+          <Button size="sm" variant="outline" onClick={() => setAttaching(true)}>
+            <Plus className="size-3.5" />
+            attach
+          </Button>
+        )}
+      </div>
+
+      {attaching && (
+        <div className="flex gap-2 mb-2">
+          <select
+            value={selectedId}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className="flex-1 rounded-md border border-input bg-transparent px-2 py-1 text-xs"
+          >
+            <option value="">attach할 카탈로그 선택</option>
+            {unattached.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.model_name}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" onClick={handleAttach} disabled={!selectedId || updateMut.isPending}>
+            확인
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => { setAttaching(false); setSelectedId(""); }}>
+            취소
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-3">
+          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        </div>
+      ) : attached.length === 0 ? (
+        <div className="text-xs text-muted-foreground py-2">
+          attach된 모델이 없습니다. 기본적으로 deployment의 model_name(
+          <span className="font-mono">{deploymentModelName}</span>
+          )이 자동으로 attach됩니다.
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {attached.map((c) => (
+            <div
+              key={c.id}
+              className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-xs"
+            >
+              <div className="min-w-0">
+                <div className="font-mono font-medium truncate">{c.model_name}</div>
+                {c.litellm_model_id && (
+                  <div className="text-[10px] text-muted-foreground font-mono">
+                    LiteLLM id: {c.litellm_model_id}
+                  </div>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                onClick={() => handleDetach(c.id)}
+                disabled={updateMut.isPending}
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function EventsList({ deploymentId }: { deploymentId: string }) {
   const { data: events, isLoading } = useDeploymentEvents(deploymentId);
   const ackMut = useAckDeploymentEvent();
@@ -648,6 +774,9 @@ function DeploymentDetailSheet({
                   </div>
                 )}
               </section>
+
+              <Separator />
+              <ServingModelsSection deploymentId={dep.id} deploymentModelName={dep.model_name} />
 
               <Separator />
               <section>

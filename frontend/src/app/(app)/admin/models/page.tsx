@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Package, Server, BookOpen, Cloud, History, ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -10,6 +10,7 @@ import {
   useUpdateCatalogEntry,
   useDeleteCatalogEntry,
   useModelStatusHistory,
+  useModelDeployments,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import type { ModelCatalog, ModelStatus, ModelWithCatalog } from "@/types";
+import { classifyModel } from "@/lib/model-source";
 
 // ─── Constants ────────────────────────────────────────────────
 
@@ -124,18 +126,27 @@ function StatusBadge({ status }: { status: ModelStatus }) {
 
 /** Badge showing whether a model is LiteLLM-deployed, catalog-only, or both */
 function SourceBadge({ model }: { model: ModelWithCatalog }) {
-  if (model.litellm_info) {
+  const { source, label } = classifyModel(model);
+  if (source === "k8s") {
+    return (
+      <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400">
+        <Server className="size-2.5" />
+        {label}
+      </Badge>
+    );
+  }
+  if (source === "external_api") {
     return (
       <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
-        <Server className="size-2.5" />
-        LiteLLM
+        <Cloud className="size-2.5" />
+        {label}
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-400">
       <BookOpen className="size-2.5" />
-      외부
+      {label}
     </Badge>
   );
 }
@@ -160,13 +171,16 @@ function TableSkeleton() {
 
 // ─── Form State ───────────────────────────────────────────────
 
+type SourceType = "k8s" | "external_api" | "catalog_only";
+
 interface ModelFormState {
   model_name: string;
   display_name: string;
   description: string;
   status: ModelStatus;
   status_schedule: Record<string, string>;
-  is_external: boolean;
+  source_type: SourceType;
+  deployment_id: string;
 }
 
 const INITIAL_FORM: ModelFormState = {
@@ -175,7 +189,8 @@ const INITIAL_FORM: ModelFormState = {
   description: "",
   status: "testing",
   status_schedule: {},
-  is_external: false,
+  source_type: "external_api",
+  deployment_id: "",
 };
 
 function catalogToForm(catalog: ModelCatalog): ModelFormState {
@@ -185,7 +200,8 @@ function catalogToForm(catalog: ModelCatalog): ModelFormState {
     description: catalog.description ?? "",
     status: catalog.status,
     status_schedule: catalog.status_schedule ? { ...catalog.status_schedule } : {},
-    is_external: false,
+    source_type: catalog.deployment_id ? "k8s" : "external_api",
+    deployment_id: catalog.deployment_id ?? "",
   };
 }
 
@@ -196,6 +212,7 @@ export default function ModelManagementPage() {
   const createEntry = useCreateCatalogEntry();
   const updateEntry = useUpdateCatalogEntry();
   const deleteEntry = useDeleteCatalogEntry();
+  const { data: deployments } = useModelDeployments();
 
   // Filter state
   const [nameFilter, setNameFilter] = useState("");
@@ -214,8 +231,7 @@ export default function ModelManagementPage() {
       if (statusFilter !== "all") {
         if (!m.catalog || m.catalog.status !== statusFilter) return false;
       }
-      if (sourceFilter === "litellm" && !m.litellm_info) return false;
-      if (sourceFilter === "external" && m.litellm_info) return false;
+      if (sourceFilter !== "all" && classifyModel(m).source !== sourceFilter) return false;
       return true;
     });
   }, [models, nameFilter, statusFilter, sourceFilter]);
@@ -331,6 +347,10 @@ export default function ModelManagementPage() {
     } else {
       // Create
       const statusSchedule = buildStatusSchedule(form.status_schedule);
+      if (form.source_type === "k8s" && !form.deployment_id) {
+        toast.error("자체 배포 모델은 배포를 선택해야 합니다.");
+        return;
+      }
       createEntry.mutate(
         {
           model_name: trimmedName,
@@ -338,7 +358,9 @@ export default function ModelManagementPage() {
           description: form.description.trim() || undefined,
           status: form.status,
           status_schedule: statusSchedule,
-          is_external: form.is_external,
+          // catalog_only routes skip LiteLLM existence validation server-side.
+          is_external: form.source_type === "catalog_only",
+          deployment_id: form.source_type === "k8s" ? form.deployment_id : null,
         },
         {
           onSuccess: () => {
@@ -481,8 +503,9 @@ export default function ModelManagementPage() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">전체 소스</SelectItem>
-              <SelectItem value="litellm">LiteLLM</SelectItem>
-              <SelectItem value="external">외부</SelectItem>
+              <SelectItem value="k8s">자체 배포</SelectItem>
+              <SelectItem value="external_api">외부 API</SelectItem>
+              <SelectItem value="catalog_only">카탈로그</SelectItem>
             </SelectContent>
           </Select>
           {(nameFilter || statusFilter !== "all" || sourceFilter !== "all") && (
@@ -700,39 +723,87 @@ export default function ModelManagementPage() {
             </DialogHeader>
 
             <div className="grid gap-4 py-2">
-              {/* type selector (create only) */}
+              {/* source type selector (create only) */}
               {!editingId && (
                 <div className="grid gap-2">
-                  <Label>등록 유형 <span className="text-destructive">*</span></Label>
-                  <div className="flex gap-2">
+                  <Label>출처 유형 <span className="text-destructive">*</span></Label>
+                  <div className="flex gap-2 flex-wrap">
                     <Button
                       type="button"
-                      variant={form.is_external ? "outline" : "default"}
+                      variant={form.source_type === "k8s" ? "default" : "outline"}
                       size="sm"
                       onClick={() => {
-                        setForm((prev) => ({ ...prev, is_external: false, model_name: "", display_name: "" }));
+                        setForm((prev) => ({ ...prev, source_type: "k8s", model_name: "", deployment_id: "" }));
                       }}
                     >
                       <Server className="size-3.5 mr-1" />
-                      LiteLLM 모델
+                      자체 배포 (K8s)
                     </Button>
                     <Button
                       type="button"
-                      variant={form.is_external ? "default" : "outline"}
+                      variant={form.source_type === "external_api" ? "default" : "outline"}
                       size="sm"
                       onClick={() => {
-                        setForm((prev) => ({ ...prev, is_external: true, model_name: "", display_name: "" }));
+                        setForm((prev) => ({ ...prev, source_type: "external_api", model_name: "", deployment_id: "" }));
+                      }}
+                    >
+                      <Cloud className="size-3.5 mr-1" />
+                      외부 API
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={form.source_type === "catalog_only" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => {
+                        setForm((prev) => ({ ...prev, source_type: "catalog_only", model_name: "", deployment_id: "" }));
                       }}
                     >
                       <BookOpen className="size-3.5 mr-1" />
-                      외부 모델
+                      카탈로그 전용
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {form.is_external
-                      ? "LiteLLM에 배포되지 않은 모델을 카탈로그에만 기록합니다."
-                      : "LiteLLM에 등록된 모델 중 선택해 카탈로그를 추가합니다."}
+                    {form.source_type === "k8s" && "K8s 클러스터에 배포된 vLLM 모델 중 선택합니다."}
+                    {form.source_type === "external_api" && "LiteLLM에 등록된 외부 API 모델 중 선택합니다."}
+                    {form.source_type === "catalog_only" && "라우팅 없이 카탈로그에만 기록합니다."}
                   </p>
+                </div>
+              )}
+
+              {/* deployment select (k8s only) */}
+              {!editingId && form.source_type === "k8s" && (
+                <div className="grid gap-2">
+                  <Label htmlFor="deployment">
+                    배포 <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={form.deployment_id}
+                    onValueChange={(value) => {
+                      // Default model_name to the deployment's model_name; user can override.
+                      const dep = deployments?.find((d) => d.id === value);
+                      setForm((prev) => ({
+                        ...prev,
+                        deployment_id: value,
+                        model_name: prev.model_name || dep?.model_name || "",
+                      }));
+                    }}
+                  >
+                    <SelectTrigger id="deployment">
+                      <SelectValue placeholder="배포된 K8s 모델 중 선택" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(deployments ?? []).map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.model_name} <span className="text-muted-foreground">({d.status})</span>
+                        </SelectItem>
+                      ))}
+                      {(deployments?.length ?? 0) === 0 && (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                          배포된 모델이 없습니다. 먼저 모델 배포에서 추가하세요.
+                        </div>
+                      )}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
 
@@ -742,19 +813,8 @@ export default function ModelManagementPage() {
                   모델명 <span className="text-destructive">*</span>
                 </Label>
                 {editingId ? (
-                  <Input
-                    id="model-name"
-                    value={form.model_name}
-                    disabled
-                  />
-                ) : form.is_external ? (
-                  <Input
-                    id="model-name"
-                    value={form.model_name}
-                    onChange={(e) => handleFormChange("model_name", e.target.value)}
-                    placeholder="외부 모델명을 입력하세요 (예: gpt-5-preview)"
-                  />
-                ) : (
+                  <Input id="model-name" value={form.model_name} disabled />
+                ) : form.source_type === "external_api" ? (
                   <Select
                     value={form.model_name}
                     onValueChange={(value) => handleFormChange("model_name", value)}
@@ -780,6 +840,17 @@ export default function ModelManagementPage() {
                       })()}
                     </SelectContent>
                   </Select>
+                ) : (
+                  <Input
+                    id="model-name"
+                    value={form.model_name}
+                    onChange={(e) => handleFormChange("model_name", e.target.value)}
+                    placeholder={
+                      form.source_type === "k8s"
+                        ? "배포 선택 시 자동 채워짐 (직접 수정 가능)"
+                        : "모델명을 입력하세요 (예: gpt-5-preview)"
+                    }
+                  />
                 )}
               </div>
 
