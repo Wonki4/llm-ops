@@ -256,7 +256,10 @@ export function useDeleteKey() {
     mutationFn: (keyHash: string) =>
       apiFetch<{ deleted: boolean }>(`/api/keys/${keyHash}`, { method: "DELETE" }),
     onSuccess: () => {
+      // /keys 페이지 (useMyKeys → queryKey ["keys", { teamId }])
       qc.invalidateQueries({ queryKey: ["keys"] });
+      // 팀 상세 화면도 my_keys를 들고 있으니 같이 새로고침
+      qc.invalidateQueries({ queryKey: ["teams"] });
     },
   });
 }
