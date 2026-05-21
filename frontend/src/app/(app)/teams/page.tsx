@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { useMyTeams, useMe } from "@/hooks/use-api";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,15 +44,15 @@ function SkeletonCards() {
 export default function MyTeamsPage() {
   const { data: teams, isLoading, isError, error, refetch } = useMyTeams();
   useMe();
+  const t = useTranslations("teams");
+  const tc = useTranslations("common");
 
   if (isLoading) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">내 팀</h1>
-          <p className="text-muted-foreground mt-1">
-            소속된 팀 목록을 확인하세요
-          </p>
+          <h1 className="text-2xl font-bold">{t("title")}</h1>
+          <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
         </div>
         <SkeletonCards />
       </div>
@@ -63,20 +63,17 @@ export default function MyTeamsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold">내 팀</h1>
-          <p className="text-muted-foreground mt-1">
-            소속된 팀 목록을 확인하세요
-          </p>
+          <h1 className="text-2xl font-bold">{t("title")}</h1>
+          <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
         </div>
         <div className="flex flex-col items-center gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-8">
           <AlertCircle className="size-10 text-destructive" />
           <p className="text-sm text-destructive">
-            팀 목록을 불러오는 중 오류가 발생했습니다:{" "}
-            {error?.message ?? "알 수 없는 오류"}
+            {t("loadError")}: {error?.message ?? tc("unknownError")}
           </p>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="size-4" />
-            다시 시도
+            {tc("retry")}
           </Button>
         </div>
       </div>
@@ -88,24 +85,22 @@ export default function MyTeamsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">내 팀</h1>
-        <p className="text-muted-foreground mt-1">
-          소속된 팀 목록을 확인하세요
-        </p>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
+        <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
       </div>
 
       {isEmpty ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed p-12">
           <Users className="size-10 text-muted-foreground" />
           <div className="text-center">
-            <p className="font-medium">소속된 팀이 없습니다.</p>
+            <p className="font-medium">{t("empty")}</p>
             <p className="text-sm text-muted-foreground mt-1">
-              팀 탐색에서 팀에 가입해보세요.
+              {t("emptyHint")}
             </p>
           </div>
           <Button asChild variant="outline">
             <Link href="/teams/discover">
-              팀 탐색하기
+              {t("discover")}
               <ArrowRight className="size-4" />
             </Link>
           </Button>
@@ -122,11 +117,12 @@ export default function MyTeamsPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    {/* Badges */}
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
                         <Boxes className="size-3" />
-                        {team.models.includes("all-proxy-models") ? "모든 모델" : `${team.models.length}개 모델`}
+                        {team.models.includes("all-proxy-models")
+                          ? t("allModels")
+                          : t("modelCount", { count: team.models.length })}
                       </Badge>
                     </div>
                   </CardContent>

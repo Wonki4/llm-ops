@@ -2,11 +2,14 @@ export type UserRole = "user" | "team_admin" | "super_user";
 export type ModelStatus = "testing" | "prerelease" | "lts" | "deprecating" | "deprecated";
 export type JoinRequestStatus = "pending" | "approved" | "rejected";
 
+export type Locale = "ko" | "en";
+
 export interface User {
   user_id: string; // 사번 (employee ID)
   email?: string;
   display_name?: string;
   role: UserRole;
+  locale: Locale;
   teams: Team[];
   spend?: number;
   max_budget?: number | null;
