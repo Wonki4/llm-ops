@@ -1,0 +1,40 @@
+{
+  "common": {
+    "loading": "로딩 중…",
+    "retry": "다시 시도",
+    "error": "오류",
+    "save": "저장",
+    "cancel": "취소",
+    "delete": "삭제",
+    "edit": "수정",
+    "unknownError": "알 수 없는 오류",
+    "language": "언어"
+  },
+  "sidebar": {
+    "announcements": "공지사항",
+    "modelsCalendar": "모델 캘린더",
+    "modelsDashboard": "모델 대시보드",
+    "myTeams": "내 팀",
+    "discoverTeams": "팀 탐색",
+    "myKeys": "내 전체 키",
+    "myRequests": "내 요청",
+    "adminRequests": "요청 관리",
+    "adminDashboard": "관리자 대시보드",
+    "adminModels": "모델 관리",
+    "adminBudgets": "예산 관리",
+    "adminUsers": "사용자 관리",
+    "adminSettings": "포털 설정",
+    "adminSectionLabel": "관리자",
+    "logout": "로그아웃"
+  },
+  "teams": {
+    "title": "내 팀",
+    "subtitle": "소속된 팀 목록을 확인하세요",
+    "loadError": "팀 목록을 불러오는 중 오류가 발생했습니다",
+    "empty": "소속된 팀이 없습니다.",
+    "emptyHint": "팀 탐색에서 팀에 가입해보세요.",
+    "discover": "팀 탐색하기",
+    "allModels": "모든 모델",
+    "modelCount": "{count}개 모델"
+  }
+}

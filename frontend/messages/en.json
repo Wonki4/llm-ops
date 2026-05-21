@@ -1,0 +1,40 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "error": "Error",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "unknownError": "Unknown error",
+    "language": "Language"
+  },
+  "sidebar": {
+    "announcements": "Announcements",
+    "modelsCalendar": "Model Calendar",
+    "modelsDashboard": "Model Dashboard",
+    "myTeams": "My Teams",
+    "discoverTeams": "Discover Teams",
+    "myKeys": "My Keys",
+    "myRequests": "My Requests",
+    "adminRequests": "Request Management",
+    "adminDashboard": "Admin Dashboard",
+    "adminModels": "Model Management",
+    "adminBudgets": "Budget Management",
+    "adminUsers": "User Management",
+    "adminSettings": "Portal Settings",
+    "adminSectionLabel": "Admin",
+    "logout": "Log out"
+  },
+  "teams": {
+    "title": "My Teams",
+    "subtitle": "View the teams you belong to",
+    "loadError": "Failed to load your teams",
+    "empty": "You aren't a member of any team yet.",
+    "emptyHint": "Browse Discover Teams to join one.",
+    "discover": "Discover teams",
+    "allModels": "All models",
+    "modelCount": "{count} models"
+  }
+}
