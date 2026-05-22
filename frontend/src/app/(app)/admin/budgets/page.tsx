@@ -16,6 +16,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 import { useBudgets, useBudgetDetails, useOrphanBudgets, useDeleteOrphanBudgets, useDeleteBudget, useDeleteBudgetsBatch } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -40,8 +41,8 @@ import type { Budget } from "@/types";
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300, 500, 1000] as const;
 const DEFAULT_PAGE_SIZE = 50;
 
-function formatBudget(value: number | null): string {
-  if (value == null) return "무제한";
+function formatBudget(value: number | null, unlimited: string): string {
+  if (value == null) return unlimited;
   return `$${value.toFixed(2)}`;
 }
 
@@ -55,13 +56,14 @@ function formatDate(dateStr: string | null): string {
 }
 
 function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
+  const t = useTranslations("budgets");
   const { data, isLoading } = useBudgetDetails(budgetId);
 
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 py-4 px-8">
         <Loader2 className="size-4 animate-spin" />
-        <span className="text-sm text-muted-foreground">로딩 중...</span>
+        <span className="text-sm text-muted-foreground">{t("loading")}</span>
       </div>
     );
   }
@@ -75,15 +77,15 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Users className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">팀 멤버십 ({data.team_memberships.length})</span>
+            <span className="text-sm font-medium">{t("teamMemberships", { count: data.team_memberships.length })}</span>
           </div>
           <div className="rounded-md border bg-background">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>사번</TableHead>
-                  <TableHead>팀</TableHead>
-                  <TableHead>사용량</TableHead>
+                  <TableHead>{t("colEmployeeId")}</TableHead>
+                  <TableHead>{t("colTeam")}</TableHead>
+                  <TableHead>{t("colUsage")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -105,17 +107,17 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Key className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">API 키 ({data.keys.length})</span>
+            <span className="text-sm font-medium">{t("apiKeys", { count: data.keys.length })}</span>
           </div>
           <div className="rounded-md border bg-background">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>키</TableHead>
-                  <TableHead>별칭</TableHead>
-                  <TableHead>사번</TableHead>
-                  <TableHead>팀</TableHead>
-                  <TableHead>사용량</TableHead>
+                  <TableHead>{t("colKey")}</TableHead>
+                  <TableHead>{t("colAlias")}</TableHead>
+                  <TableHead>{t("colEmployeeId")}</TableHead>
+                  <TableHead>{t("colTeam")}</TableHead>
+                  <TableHead>{t("colUsage")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -139,7 +141,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Building className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">조직 ({data.organizations.length})</span>
+            <span className="text-sm font-medium">{t("organizations", { count: data.organizations.length })}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.organizations.map((o) => (
@@ -156,7 +158,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Building className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">프로젝트 ({data.projects.length})</span>
+            <span className="text-sm font-medium">{t("projects", { count: data.projects.length })}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.projects.map((p) => (
@@ -171,7 +173,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Users className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">엔드유저 ({data.end_users.length})</span>
+            <span className="text-sm font-medium">{t("endUsers", { count: data.end_users.length })}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.end_users.map((eu) => (
@@ -186,7 +188,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Key className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">태그 ({data.tags.length})</span>
+            <span className="text-sm font-medium">{t("tags", { count: data.tags.length })}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.tags.map((tag) => (
@@ -201,7 +203,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <Building className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">조직 멤버십 ({data.org_memberships.length})</span>
+            <span className="text-sm font-medium">{t("orgMemberships", { count: data.org_memberships.length })}</span>
           </div>
           <div className="flex flex-wrap gap-2">
             {data.org_memberships.map((om) => (
@@ -216,13 +218,16 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
       {data.team_memberships.length === 0 && data.keys.length === 0 && data.organizations.length === 0
         && (!data.projects || data.projects.length === 0) && (!data.end_users || data.end_users.length === 0)
         && (!data.tags || data.tags.length === 0) && (!data.org_memberships || data.org_memberships.length === 0) && (
-        <p className="text-sm text-muted-foreground">연결된 항목이 없습니다.</p>
+        <p className="text-sm text-muted-foreground">{t("noLinkedItems")}</p>
       )}
     </div>
   );
 }
 
 export default function BudgetManagementPage() {
+  const t = useTranslations("budgets");
+  const tc = useTranslations("common");
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [idInput, setIdInput] = useState("");
@@ -290,9 +295,9 @@ export default function BudgetManagementPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">예산 관리</h1>
+        <h1 className="text-2xl font-bold">{t("pageTitle")}</h1>
         <p className="text-muted-foreground mt-1">
-          LiteLLM 예산(Budget)을 조회하고 연결된 멤버십/키/조직을 확인합니다
+          {t("pageDescription")}
         </p>
       </div>
 
@@ -301,37 +306,37 @@ export default function BudgetManagementPage() {
         {data && (
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">전체 예산</CardTitle>
+              <CardTitle className="text-sm font-medium text-muted-foreground">{t("totalBudgets")}</CardTitle>
               <DollarSign className="size-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{data.total}개</div>
+              <div className="text-2xl font-bold">{t("countUnit", { count: data.total })}</div>
             </CardContent>
           </Card>
         )}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">미연결 예산</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("orphanBudgets")}</CardTitle>
             <AlertTriangle className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-2">
-            <div className="text-2xl font-bold text-amber-600">{orphanData?.count ?? "-"}개</div>
+            <div className="text-2xl font-bold text-amber-600">{t("countUnit", { count: orphanData?.count ?? 0 })}</div>
             {orphanData && orphanData.count > 0 && (
               <Button
                 variant="destructive"
                 size="sm"
                 disabled={deleteOrphansMutation.isPending}
                 onClick={() => {
-                  if (!confirm(`미연결 예산 ${orphanData.count.toLocaleString()}개를 모두 삭제하시겠습니까?\n대량 데이터의 경우 시간이 걸릴 수 있습니다.`)) return;
-                  toast.info("미연결 예산 삭제를 시작합니다. 잠시 기다려주세요...");
+                  if (!confirm(t("deleteOrphansConfirm", { count: orphanData.count.toLocaleString() }))) return;
+                  toast.info(t("deleteOrphansStarting"));
                   deleteOrphansMutation.mutate(undefined, {
-                    onSuccess: (res) => toast.success(`${res.deleted.toLocaleString()}개의 미연결 예산이 삭제되었습니다.`),
-                    onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                    onSuccess: (res) => toast.success(t("deleteOrphansSuccess", { count: res.deleted.toLocaleString() })),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : tc("unknownError")),
                   });
                 }}
               >
                 <Trash2 className="size-3.5 mr-1" />
-                {deleteOrphansMutation.isPending ? "삭제 중... (시간이 걸릴 수 있습니다)" : `일괄 삭제 (${orphanData.count.toLocaleString()}개)`}
+                {deleteOrphansMutation.isPending ? t("deletingWithWait") : t("batchDelete", { count: orphanData.count.toLocaleString() })}
               </Button>
             )}
           </CardContent>
@@ -343,7 +348,7 @@ export default function BudgetManagementPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
-            placeholder="Budget ID 검색..."
+            placeholder={t("searchIdPlaceholder")}
             value={idInput}
             onChange={(e) => setIdInput(e.target.value)}
             className="pl-8 h-9"
@@ -353,7 +358,7 @@ export default function BudgetManagementPage() {
           <Input
             type="number"
             step="0.01"
-            placeholder="금액 검색..."
+            placeholder={t("searchAmountPlaceholder")}
             value={amountInput}
             onChange={(e) => setAmountInput(e.target.value)}
             className="h-9"
@@ -366,12 +371,12 @@ export default function BudgetManagementPage() {
           onClick={() => { setOrphansOnly(!orphansOnly); setPage(1); }}
         >
           <AlertTriangle className="size-3.5 mr-1" />
-          미연결만
+          {t("orphansOnly")}
         </Button>
         {(searchId || searchAmount || orphansOnly) && (
           <Button variant="ghost" size="sm" onClick={() => { setIdInput(""); setAmountInput(""); setSearchId(""); setSearchAmount(""); setOrphansOnly(false); }}>
             <X className="size-3.5 mr-1" />
-            초기화
+            {t("reset")}
           </Button>
         )}
       </div>
@@ -379,27 +384,27 @@ export default function BudgetManagementPage() {
       {/* Batch delete bar */}
       {selected.size > 0 && (
         <div className="flex items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2">
-          <span className="text-sm font-medium">{selected.size}개 선택됨</span>
+          <span className="text-sm font-medium">{t("selectedCount", { count: selected.size })}</span>
           <Button
             variant="destructive"
             size="sm"
             disabled={deleteBatchMutation.isPending}
             onClick={() => {
-              if (!confirm(`선택한 ${selected.size}개의 예산을 삭제하시겠습니까?\n연결된 항목이 있는 예산은 건너뜁니다.`)) return;
+              if (!confirm(t("deleteBatchConfirm", { count: selected.size }))) return;
               deleteBatchMutation.mutate([...selected], {
                 onSuccess: (res) => {
-                  toast.success(`${res.deleted}개 삭제 완료${res.skipped > 0 ? ` (연결된 ${res.skipped}개 건너뜀)` : ""}`);
+                  toast.success(t("deleteBatchSuccess", { deleted: res.deleted, skipped: res.skipped }));
                   setSelected(new Set());
                 },
-                onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                onError: (err) => toast.error(err instanceof Error ? err.message : tc("unknownError")),
               });
             }}
           >
             <Trash2 className="size-3.5 mr-1" />
-            {deleteBatchMutation.isPending ? "삭제 중..." : "선택 삭제"}
+            {deleteBatchMutation.isPending ? t("deleting") : t("deleteSelected")}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
-            선택 해제
+            {t("deselect")}
           </Button>
         </div>
       )}
@@ -412,7 +417,7 @@ export default function BudgetManagementPage() {
       ) : !data || data.budgets.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
           <DollarSign className="size-10 text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">예산이 없습니다.</p>
+          <p className="text-muted-foreground">{t("noBudgets")}</p>
         </div>
       ) : (
         <>
@@ -430,13 +435,13 @@ export default function BudgetManagementPage() {
                   </TableHead>
                   <TableHead className="w-10" />
                   <TableHead>Budget ID</TableHead>
-                  <TableHead>한도</TableHead>
-                  <TableHead>주기</TableHead>
-                  <TableHead>초기화</TableHead>
-                  <TableHead>멤버십</TableHead>
-                  <TableHead>키</TableHead>
-                  <TableHead>조직</TableHead>
-                  <TableHead>생성일</TableHead>
+                  <TableHead>{t("colLimit")}</TableHead>
+                  <TableHead>{t("colCycle")}</TableHead>
+                  <TableHead>{t("colReset")}</TableHead>
+                  <TableHead>{t("colMembership")}</TableHead>
+                  <TableHead>{t("colKeys")}</TableHead>
+                  <TableHead>{t("colOrgs")}</TableHead>
+                  <TableHead>{t("colCreatedAt")}</TableHead>
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -468,7 +473,7 @@ export default function BudgetManagementPage() {
                         <TableCell className="font-mono text-xs max-w-[200px] truncate" title={b.budget_id}>
                           {b.budget_id}
                         </TableCell>
-                        <TableCell className="font-medium">{formatBudget(b.max_budget)}</TableCell>
+                        <TableCell className="font-medium">{formatBudget(b.max_budget, t("unlimited"))}</TableCell>
                         <TableCell className="text-sm">{b.budget_duration || "-"}</TableCell>
                         <TableCell className="text-sm">{formatDate(b.budget_reset_at)}</TableCell>
                         <TableCell>
@@ -507,13 +512,13 @@ export default function BudgetManagementPage() {
                               const linkedTotal = b.team_membership_count + b.key_count + b.org_count
                                 + b.project_count + b.end_user_count + b.tag_count + b.org_membership_count;
                               if (linkedTotal > 0) {
-                                toast.error(`이 예산에 ${linkedTotal}개의 연결된 항목이 있어 삭제할 수 없습니다.`);
+                                toast.error(t("deleteLinkedError", { count: linkedTotal }));
                                 return;
                               }
-                              if (confirm(`예산 ${b.budget_id.slice(0, 8)}...을 삭제하시겠습니까?`)) {
+                              if (confirm(t("deleteConfirm", { id: b.budget_id.slice(0, 8) }))) {
                                 deleteBudgetMutation.mutate(b.budget_id, {
-                                  onSuccess: () => toast.success("예산이 삭제되었습니다."),
-                                  onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                                  onSuccess: () => toast.success(t("deleteSuccess")),
+                                  onError: (err) => toast.error(err instanceof Error ? err.message : tc("unknownError")),
                                 });
                               }
                             }}
@@ -540,7 +545,7 @@ export default function BudgetManagementPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <p className="text-sm text-muted-foreground">
-                총 {data.total}개 중 {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, data.total)}
+                {t("pagination", { total: data.total, start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, data.total) })}
               </p>
               <select
                 className="h-8 rounded-md border border-input bg-background px-2 text-sm"
@@ -548,20 +553,20 @@ export default function BudgetManagementPage() {
                 onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{size}개씩</option>
+                  <option key={size} value={size}>{t("perPage", { size })}</option>
                 ))}
               </select>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>
                 <ChevronLeft className="size-4" />
-                이전
+                {t("prev")}
               </Button>
               <span className="text-sm text-muted-foreground">
                 {page} / {totalPages || 1}
               </span>
               <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                다음
+                {t("next")}
                 <ChevronRight className="size-4" />
               </Button>
             </div>

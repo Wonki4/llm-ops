@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { CreateKeyRequest, Team } from "@/types";
+import { useTranslations } from "next-intl";
 
 function SuccessKeyDialog({
   token,
@@ -50,6 +51,8 @@ function SuccessKeyDialog({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const t = useTranslations("keys");
+  const tc = useTranslations("common");
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -68,7 +71,7 @@ function SuccessKeyDialog({
       document.body.removeChild(textarea);
     }
     setCopied(true);
-    toast.success("키가 클립보드에 복사되었습니다.");
+    toast.success(t("copySuccess"));
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -78,10 +81,10 @@ function SuccessKeyDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Key className="size-5" />
-            API 키가 생성되었습니다
+            {t("successTitle")}
           </DialogTitle>
           <DialogDescription>
-            내 전체키 탭에서 언제든지 키를 확인하고 복사할 수 있습니다.
+            {t("successDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2 rounded-md border bg-muted/50 p-3">
@@ -95,7 +98,7 @@ function SuccessKeyDialog({
           </Button>
         </div>
         <DialogFooter>
-          <Button onClick={onClose}>확인</Button>
+          <Button onClick={onClose}>{tc("confirm")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -112,6 +115,8 @@ export default function CreateKeyPage({
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
+  const t = useTranslations("keys");
+  const tc = useTranslations("common");
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(
     params.team_id ?? ""
@@ -130,19 +135,19 @@ export default function CreateKeyPage({
   const teamRpm = teamDetail?.default_rpm_limit ?? null;
   const effectiveTpm = teamTpm ?? portalSettings?.default_tpm_limit ?? null;
   const effectiveRpm = teamRpm ?? portalSettings?.default_rpm_limit ?? null;
-  const tpmSource = teamTpm != null ? "팀 설정" : "전역 기본값";
-  const rpmSource = teamRpm != null ? "팀 설정" : "전역 기본값";
+  const tpmSource = teamTpm != null ? t("sourceTeam") : t("sourceGlobal");
+  const rpmSource = teamRpm != null ? t("sourceTeam") : t("sourceGlobal");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!selectedTeamId) {
-      toast.error("팀을 선택해주세요.");
+      toast.error(t("errorSelectTeam"));
       return;
     }
 
     if (!keyAlias.trim()) {
-      toast.error("키 별칭을 입력해주세요.");
+      toast.error(t("errorEnterAlias"));
       return;
     }
 
@@ -154,13 +159,13 @@ export default function CreateKeyPage({
     createKeyMutation.mutate(body, {
       onSuccess: (data) => {
         setCreatedToken(data.key || "");
-        toast.success("API 키가 성공적으로 생성되었습니다.");
+        toast.success(t("createSuccess"));
       },
       onError: (err) => {
         toast.error(
           err instanceof Error
             ? err.message
-            : "키 생성 중 오류가 발생했습니다."
+            : t("createError")
         );
       },
     });
@@ -182,24 +187,24 @@ export default function CreateKeyPage({
       <Button variant="ghost" size="sm" asChild>
         <Link href={selectedTeamId ? `/teams/${selectedTeamId}` : "/teams"}>
           <ArrowLeft className="size-4" />
-          돌아가기
+          {t("back")}
         </Link>
       </Button>
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">API 키 생성</h1>
+        <h1 className="text-2xl font-bold">{t("createTitle")}</h1>
         <p className="text-muted-foreground mt-1">
-          팀에 새로운 API 키를 생성합니다.
+          {t("createSubtitle")}
         </p>
       </div>
 
       {/* Form */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">키 설정</CardTitle>
+          <CardTitle className="text-base">{t("formTitle")}</CardTitle>
           <CardDescription>
-            팀과 키 별칭은 필수 항목입니다.
+            {t("formDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -207,12 +212,12 @@ export default function CreateKeyPage({
             {/* Team Select */}
             <div className="space-y-2">
               <Label htmlFor="team">
-                팀 <span className="text-destructive">*</span>
+                {t("labelTeam")} <span className="text-destructive">*</span>
               </Label>
               {teamsLoading ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Loader2 className="size-4 animate-spin" />
-                  팀 목록 로딩 중...
+                  {t("teamsLoading")}
                 </div>
               ) : (
                 <Select
@@ -220,7 +225,7 @@ export default function CreateKeyPage({
                   onValueChange={handleTeamChange}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="팀을 선택하세요" />
+                    <SelectValue placeholder={t("teamSelectPlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
                     {teams?.map((team) => (
@@ -235,10 +240,10 @@ export default function CreateKeyPage({
 
             {/* Key Alias */}
             <div className="space-y-2">
-              <Label htmlFor="key-alias">키 별칭 <span className="text-destructive">*</span></Label>
+              <Label htmlFor="key-alias">{t("labelAlias")} <span className="text-destructive">*</span></Label>
               <Input
                 id="key-alias"
-                placeholder="예: my-project-key"
+                placeholder={t("aliasPlaceholder")}
                 value={keyAlias}
                 onChange={(e) => setKeyAlias(e.target.value)}
               />
@@ -247,7 +252,7 @@ export default function CreateKeyPage({
             {/* Models (read-only) */}
             {selectedTeam && (
               <div className="space-y-2">
-                <Label>사용 가능한 모델 (팀 설정 기준)</Label>
+                <Label>{t("labelModels")}</Label>
                 <div className="flex flex-wrap gap-2">
                   {selectedTeam.models.length > 0 ? (
                     selectedTeam.models.map((model) => (
@@ -256,7 +261,7 @@ export default function CreateKeyPage({
                       </Badge>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">배정된 모델이 없습니다.</p>
+                    <p className="text-sm text-muted-foreground">{t("noModels")}</p>
                   )}
                 </div>
               </div>
@@ -301,7 +306,7 @@ export default function CreateKeyPage({
               {createKeyMutation.isPending && (
                 <Loader2 className="size-4 animate-spin" />
               )}
-              키 생성
+              {t("createKey")}
             </Button>
           </form>
         </CardContent>

@@ -49,6 +49,7 @@ import {
   Check,
 } from "lucide-react";
 import type { ApiKey } from "@/types";
+import { useTranslations } from "next-intl";
 
 /* ── helpers (same as team detail page) ── */
 
@@ -76,6 +77,9 @@ function DeleteKeyDialog({
   onDelete: (keyHash: string) => void;
   isDeleting: boolean;
 }) {
+  const t = useTranslations("keys");
+  const tc = useTranslations("common");
+
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -85,15 +89,14 @@ function DeleteKeyDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>키 삭제</DialogTitle>
+          <DialogTitle>{t("deleteTitle")}</DialogTitle>
           <DialogDescription>
-            &quot;{keyItem.key_alias || keyItem.token.slice(0, 8)}&quot; 키를 삭제하시겠습니까?
-            이 작업은 되돌릴 수 없습니다.
+            &quot;{keyItem.key_alias || keyItem.token.slice(0, 8)}&quot; {t("deleteDescription")}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">취소</Button>
+            <Button variant="outline">{tc("cancel")}</Button>
           </DialogClose>
           <Button
             variant="destructive"
@@ -101,7 +104,7 @@ function DeleteKeyDialog({
             onClick={() => onDelete(keyItem.token)}
           >
             {isDeleting && <Loader2 className="size-4 animate-spin" />}
-            삭제
+            {tc("delete")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -120,6 +123,8 @@ export default function AllKeysPage() {
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [teamFilter, setTeamFilter] = useState<string>("all");
+  const t = useTranslations("keys");
+  const tc = useTranslations("common");
 
   // Build team name lookup
   const teamNameMap = useMemo(() => {
@@ -176,16 +181,16 @@ export default function AllKeysPage() {
   if (isError) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold">내 전체 키</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <div className="flex flex-col items-center gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-8">
           <AlertCircle className="size-10 text-destructive" />
           <p className="text-sm text-destructive">
-            키 목록을 불러오는 중 오류가 발생했습니다:{" "}
-            {error?.message ?? "알 수 없는 오류"}
+            {t("loadError")}{" "}
+            {error?.message ?? tc("unknownError")}
           </p>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="size-4" />
-            다시 시도
+            {tc("retry")}
           </Button>
         </div>
       </div>
@@ -201,16 +206,16 @@ export default function AllKeysPage() {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Key className="size-6" />
-            내 전체 키
+            {t("title")}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            모든 팀에서 생성한 API 키를 한눈에 확인할 수 있습니다.
+            {t("subtitle")}
           </p>
         </div>
         <Button asChild size="sm">
           <Link href="/keys/new">
             <Plus className="size-4" />
-            키 생성
+            {t("createKey")}
           </Link>
         </Button>
       </div>
@@ -219,7 +224,7 @@ export default function AllKeysPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">전체 키</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("allKeys")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{allKeys.length}</p>
@@ -227,7 +232,7 @@ export default function AllKeysPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">팀 수</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("teamCount")}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{keyTeamIds.length}</p>
@@ -240,7 +245,7 @@ export default function AllKeysPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
           <Input
-            placeholder="키 별칭 또는 이름 검색..."
+            placeholder={t("searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -248,10 +253,10 @@ export default function AllKeysPage() {
         </div>
         <Select value={teamFilter} onValueChange={setTeamFilter}>
           <SelectTrigger className="w-48">
-            <SelectValue placeholder="팀 필터" />
+            <SelectValue placeholder={t("teamFilter")} />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">전체 팀</SelectItem>
+            <SelectItem value="all">{t("allTeams")}</SelectItem>
             {keyTeamIds.map((tid) => (
               <SelectItem key={tid} value={tid}>
                 {teamNameMap.get(tid) || tid.slice(0, 12) + "..."}
@@ -267,14 +272,14 @@ export default function AllKeysPage() {
           <Key className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
             {allKeys.length === 0
-              ? "생성된 키가 없습니다."
-              : "검색 조건에 맞는 키가 없습니다."}
+              ? t("empty")
+              : t("emptySearch")}
           </p>
           {allKeys.length === 0 && (
             <Button asChild variant="outline" size="sm">
               <Link href="/keys/new">
                 <Plus className="size-4" />
-                첫 키 생성하기
+                {t("createFirst")}
               </Link>
             </Button>
           )}
@@ -284,12 +289,12 @@ export default function AllKeysPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>별칭</TableHead>
-                <TableHead>키</TableHead>
-                <TableHead>팀</TableHead>
+                <TableHead>{t("colAlias")}</TableHead>
+                <TableHead>{t("colKey")}</TableHead>
+                <TableHead>{t("colTeam")}</TableHead>
                 <TableHead className="hidden lg:table-cell">TPM</TableHead>
                 <TableHead className="hidden lg:table-cell">RPM</TableHead>
-                <TableHead>생성일</TableHead>
+                <TableHead>{t("colCreatedAt")}</TableHead>
                 <TableHead className="w-12" />
               </TableRow>
             </TableHeader>
@@ -305,7 +310,7 @@ export default function AllKeysPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        title="키 복사"
+                        title={t("copyTitle")}
                         disabled={revealKeyMutation.isPending}
                         onClick={() => {
                           revealKeyMutation.mutate(key.token, {
@@ -323,10 +328,10 @@ export default function AllKeysPage() {
                                 document.body.removeChild(ta);
                               }
                               setCopiedKeyId(key.token);
-                              toast.success("키가 클립보드에 복사되었습니다.");
+                              toast.success(t("copySuccess"));
                               setTimeout(() => setCopiedKeyId(null), 2000);
                             },
-                            onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                            onError: (err) => toast.error(err instanceof Error ? err.message : t("copyError")),
                           });
                         }}
                       >

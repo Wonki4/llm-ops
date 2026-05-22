@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X, Save } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 import {
   useCatalogList,
@@ -65,24 +66,26 @@ function SuffixCacheForm({
   initialEntry: ModelCacheEntry | null;
   onDone: () => void;
 }) {
+  const t = useTranslations("modelCache");
+  const tc = useTranslations("common");
   const [form, setForm] = useState<SuffixFormState>(entryToForm(initialEntry));
   const setMutation = useSetModelCacheEntry();
 
   function handleSave() {
     const entry = formToEntry(form);
     if (!entry) {
-      toast.error("options이 올바른 JSON 형식이 아닙니다.");
+      toast.error(t("form.invalidJson"));
       return;
     }
     setMutation.mutate(
       { modelName, suffix, entry },
       {
         onSuccess: () => {
-          toast.success(`${suffix} 캐시가 저장되었습니다.`);
+          toast.success(t("toast.saveSuccess", { suffix }));
           onDone();
         },
         onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "저장 실패"),
+          toast.error(err instanceof Error ? err.message : t("toast.saveFailed")),
       },
     );
   }
@@ -95,7 +98,7 @@ function SuffixCacheForm({
           <Input
             value={form.model}
             onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
-            placeholder="실제 LiteLLM 모델 식별자"
+            placeholder={t("form.modelPlaceholder")}
             className="h-8 text-sm"
           />
         </div>
@@ -129,11 +132,11 @@ function SuffixCacheForm({
       <div className="flex gap-1">
         <Button size="sm" onClick={handleSave} disabled={setMutation.isPending}>
           {setMutation.isPending ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
-          저장
+          {tc("save")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDone}>
           <X className="size-3" />
-          취소
+          {tc("cancel")}
         </Button>
       </div>
     </div>
@@ -149,6 +152,8 @@ function SuffixCacheRow({
   suffix: string;
   entry: ModelCacheEntry | null;
 }) {
+  const t = useTranslations("modelCache");
+  const tc = useTranslations("common");
   const [editing, setEditing] = useState(false);
   const deleteMutation = useDeleteModelCacheEntry();
 
@@ -158,12 +163,12 @@ function SuffixCacheRow({
   }, [entry, editing]);
 
   function handleDelete() {
-    if (!confirm(`${suffix} 캐시 엔트리를 삭제할까요?`)) return;
+    if (!confirm(t("confirm.delete", { suffix }))) return;
     deleteMutation.mutate(
       { modelName, suffix },
       {
-        onSuccess: () => toast.success(`${suffix} 캐시가 삭제되었습니다.`),
-        onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+        onSuccess: () => toast.success(t("toast.deleteSuccess", { suffix })),
+        onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.deleteFailed")),
       },
     );
   }
@@ -175,9 +180,9 @@ function SuffixCacheRow({
           <div className="flex items-center gap-2">
             <span className="font-mono text-xs font-semibold uppercase">{suffix}</span>
             {entry ? (
-              <span className="text-[10px] text-muted-foreground">등록됨</span>
+              <span className="text-[10px] text-muted-foreground">{t("registered")}</span>
             ) : (
-              <span className="text-[10px] text-muted-foreground">미등록</span>
+              <span className="text-[10px] text-muted-foreground">{t("unregistered")}</span>
             )}
           </div>
           {!editing && (
@@ -186,7 +191,7 @@ function SuffixCacheRow({
                 variant="ghost"
                 size="icon-xs"
                 onClick={() => setEditing(true)}
-                title={entry ? "편집" : "추가"}
+                title={entry ? tc("edit") : t("add")}
               >
                 {entry ? <Pencil className="size-3" /> : <Plus className="size-3" />}
               </Button>
@@ -196,7 +201,7 @@ function SuffixCacheRow({
                   size="icon-xs"
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
-                  title="삭제"
+                  title={tc("delete")}
                 >
                   <Trash2 className="size-3 text-destructive" />
                 </Button>
@@ -242,6 +247,7 @@ function SuffixCacheRow({
 }
 
 export function ModelCacheSection({ modelName }: { modelName: string }) {
+  const t = useTranslations("modelCache");
   const { data: catalogsData } = useCatalogList();
   const { data: cacheData, isLoading } = useModelCache(modelName);
 
@@ -258,7 +264,7 @@ export function ModelCacheSection({ modelName }: { modelName: string }) {
   if (suffixes.length === 0) {
     return (
       <div className="text-xs text-muted-foreground">
-        등록된 catalog suffix가 없습니다. 포털 설정에서 먼저 추가하세요.
+        {t("noSuffixes")}
       </div>
     );
   }

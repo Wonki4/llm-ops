@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2, Pencil, Plus, Trash2, X, Save } from "lucide-react";
 import { toast } from "sonner";
+import { useTranslations } from "next-intl";
 
 import { apiFetch } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -36,8 +37,6 @@ interface CostScheduleResponse {
 
 // ─── KST/UTC conversion helpers ─────────────────────────────────
 // KST is UTC+9, no DST. Convert hour displays only.
-
-const DAY_LABELS_KO = ["월", "화", "수", "목", "금", "토", "일"]; // index = ISO weekday - 1
 
 function utcHourToKst(hourUtc: number): number {
   return (hourUtc + 9) % 24;
@@ -163,17 +162,17 @@ function ruleToForm(rule: CostRule | null): FormState {
   };
 }
 
-function formToBody(form: FormState): RuleBody | string {
-  if (form.daysKst.length === 0) return "요일을 1개 이상 선택하세요.";
+function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): RuleBody | string {
+  if (form.daysKst.length === 0) return t("validation.selectDays");
   const hs = Number(form.hourStartKst);
   const he = Number(form.hourEndKst);
-  if (!Number.isInteger(hs) || hs < 0 || hs > 23) return "시작 시각(KST)은 0-23이어야 합니다.";
-  if (!Number.isInteger(he) || he < 1 || he > 24) return "종료 시각(KST)은 1-24이어야 합니다.";
-  if (hs === he) return "시작과 종료 시각이 같을 수 없습니다.";
+  if (!Number.isInteger(hs) || hs < 0 || hs > 23) return t("validation.invalidStartHour");
+  if (!Number.isInteger(he) || he < 1 || he > 24) return t("validation.invalidEndHour");
+  if (hs === he) return t("validation.sameStartEnd");
   const inCost = Number(form.inputCost);
   const outCost = Number(form.outputCost);
-  if (!Number.isFinite(inCost) || inCost < 0) return "입력 단가는 0 이상이어야 합니다.";
-  if (!Number.isFinite(outCost) || outCost < 0) return "출력 단가는 0 이상이어야 합니다.";
+  if (!Number.isFinite(inCost) || inCost < 0) return t("validation.invalidInputCost");
+  if (!Number.isFinite(outCost) || outCost < 0) return t("validation.invalidOutputCost");
 
   const startConv = kstDayHourToUtc(form.daysKst, hs);
   // end uses 24 to mean "exclusive end of day" — keep that and convert separately.
@@ -192,9 +191,11 @@ function formToBody(form: FormState): RuleBody | string {
 // ─── UI ─────────────────────────────────────────────────────────
 
 function DaySelector({ value, onChange }: { value: number[]; onChange: (days: number[]) => void }) {
+  const t = useTranslations("modelCostSchedule");
+  const dayLabels = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
   return (
     <div className="flex gap-1">
-      {DAY_LABELS_KO.map((label, idx) => {
+      {dayLabels.map((label, idx) => {
         const day = idx + 1; // ISO weekday
         const active = value.includes(day);
         return (
@@ -228,13 +229,15 @@ function RuleForm({
   rule: CostRule | null;
   onDone: () => void;
 }) {
+  const t = useTranslations("modelCostSchedule");
+  const tc = useTranslations("common");
   const [form, setForm] = useState<FormState>(ruleToForm(rule));
   const createMutation = useCreateCostRule(modelName);
   const updateMutation = useUpdateCostRule(modelName);
   const pending = createMutation.isPending || updateMutation.isPending;
 
   function handleSave() {
-    const result = formToBody(form);
+    const result = formToBody(form, t);
     if (typeof result === "string") {
       toast.error(result);
       return;
@@ -244,19 +247,19 @@ function RuleForm({
         { id: rule.id, body: result },
         {
           onSuccess: () => {
-            toast.success("룰이 저장되었습니다.");
+            toast.success(t("toast.ruleSaved"));
             onDone();
           },
-          onError: (err) => toast.error(err instanceof Error ? err.message : "저장 실패"),
+          onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.saveFailed")),
         },
       );
     } else {
       createMutation.mutate(result, {
         onSuccess: () => {
-          toast.success("룰이 추가되었습니다.");
+          toast.success(t("toast.ruleAdded"));
           onDone();
         },
-        onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+        onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.addFailed")),
       });
     }
   }
@@ -264,18 +267,18 @@ function RuleForm({
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
       <div>
-        <label className="text-xs text-muted-foreground">요일 (KST)</label>
+        <label className="text-xs text-muted-foreground">{t("form.daysKst")}</label>
         <DaySelector
           value={form.daysKst}
           onChange={(days) => setForm((f) => ({ ...f, daysKst: days }))}
         />
         <p className="text-[10px] text-muted-foreground mt-1">
-          day-spanning(예: 22→6)은 시작 요일 기준으로 다음 날 새벽까지 적용
+          {t("form.daySpanningHint")}
         </p>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-xs text-muted-foreground">시작 (KST, 0-23)</label>
+          <label className="text-xs text-muted-foreground">{t("form.startHour")}</label>
           <Input
             type="number"
             min="0"
@@ -286,7 +289,7 @@ function RuleForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground">종료 (KST, 1-24)</label>
+          <label className="text-xs text-muted-foreground">{t("form.endHour")}</label>
           <Input
             type="number"
             min="1"
@@ -299,7 +302,7 @@ function RuleForm({
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-xs text-muted-foreground">입력 단가 / token</label>
+          <label className="text-xs text-muted-foreground">{t("form.inputCost")}</label>
           <Input
             type="number"
             step="0.0000001"
@@ -310,7 +313,7 @@ function RuleForm({
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground">출력 단가 / token</label>
+          <label className="text-xs text-muted-foreground">{t("form.outputCost")}</label>
           <Input
             type="number"
             step="0.0000001"
@@ -323,7 +326,7 @@ function RuleForm({
       </div>
       <div className="grid grid-cols-2 gap-2 items-end">
         <div>
-          <label className="text-xs text-muted-foreground">우선순위 (높을수록 우선)</label>
+          <label className="text-xs text-muted-foreground">{t("form.priority")}</label>
           <Input
             type="number"
             value={form.priority}
@@ -337,17 +340,17 @@ function RuleForm({
             checked={form.enabled}
             onChange={(e) => setForm((f) => ({ ...f, enabled: e.target.checked }))}
           />
-          활성화
+          {t("form.enabled")}
         </label>
       </div>
       <div className="flex gap-1">
         <Button size="sm" onClick={handleSave} disabled={pending}>
           {pending ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
-          저장
+          {tc("save")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDone}>
           <X className="size-3" />
-          취소
+          {tc("cancel")}
         </Button>
       </div>
     </div>
@@ -355,6 +358,8 @@ function RuleForm({
 }
 
 function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
+  const t = useTranslations("modelCostSchedule");
+  const tc = useTranslations("common");
   const [editing, setEditing] = useState(false);
   const deleteMutation = useDeleteCostRule(modelName);
 
@@ -364,13 +369,14 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
 
   const startKst = utcHourToKst(rule.hour_start_utc);
   const endKst = rule.hour_end_utc === 24 ? 24 : utcHourToKst(rule.hour_end_utc);
-  const dayLabels = rule.days_of_week.map((d) => DAY_LABELS_KO[d - 1]).join(", ");
+  const dayNames = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
+  const dayLabels = rule.days_of_week.map((d) => dayNames[d - 1]).join(", ");
 
   function handleDelete() {
-    if (!confirm("이 룰을 삭제할까요?")) return;
+    if (!confirm(t("confirm.deleteRule"))) return;
     deleteMutation.mutate(rule.id, {
-      onSuccess: () => toast.success("룰이 삭제되었습니다."),
-      onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+      onSuccess: () => toast.success(t("toast.ruleDeleted")),
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.deleteFailed")),
     });
   }
 
@@ -386,12 +392,12 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
               {String(startKst).padStart(2, "0")}:00–{String(endKst).padStart(2, "0")}:00 KST
             </span>
             <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px]">
-              {rule.enabled ? "활성" : "비활성"}
+              {rule.enabled ? t("rule.active") : t("rule.inactive")}
             </Badge>
             <span className="text-[10px] text-muted-foreground">prio {rule.priority}</span>
           </div>
           <div className="flex gap-1">
-            <Button variant="ghost" size="icon-xs" onClick={() => setEditing(true)} title="편집">
+            <Button variant="ghost" size="icon-xs" onClick={() => setEditing(true)} title={tc("edit")}>
               <Pencil className="size-3" />
             </Button>
             <Button
@@ -399,7 +405,7 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
               size="icon-xs"
               onClick={handleDelete}
               disabled={deleteMutation.isPending}
-              title="삭제"
+              title={tc("delete")}
             >
               <Trash2 className="size-3 text-destructive" />
             </Button>
@@ -414,6 +420,7 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
 }
 
 export function ModelCostScheduleSection({ modelName }: { modelName: string }) {
+  const t = useTranslations("modelCostSchedule");
   const { data, isLoading } = useCostSchedule(modelName);
   const [adding, setAdding] = useState(false);
 
@@ -421,12 +428,12 @@ export function ModelCostScheduleSection({ modelName }: { modelName: string }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <p className="text-xs text-muted-foreground">
-          시간대(KST) 별 토큰 단가. 매칭 룰 없으면 카탈로그의 기본 단가로 복귀.
+          {t("description")}
         </p>
         {!adding && (
           <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
             <Plus className="size-3" />
-            룰 추가
+            {t("addRule")}
           </Button>
         )}
       </div>
@@ -442,7 +449,7 @@ export function ModelCostScheduleSection({ modelName }: { modelName: string }) {
           ))}
         </div>
       ) : !adding ? (
-        <div className="text-xs text-muted-foreground py-2">등록된 룰이 없습니다.</div>
+        <div className="text-xs text-muted-foreground py-2">{t("noRules")}</div>
       ) : null}
     </div>
   );

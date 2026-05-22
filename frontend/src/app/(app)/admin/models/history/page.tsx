@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Loader2, Boxes } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import { useModelCatalog } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +33,12 @@ import type { ModelStatus, ModelCatalog } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────
 
-const STATUS_OPTIONS: { value: ModelStatus; label: string }[] = [
-  { value: "testing", label: "Testing" },
-  { value: "prerelease", label: "Prerelease" },
-  { value: "lts", label: "LTS" },
-  { value: "deprecating", label: "Deprecating" },
-  { value: "deprecated", label: "Deprecated" },
+const STATUS_OPTIONS: { value: ModelStatus }[] = [
+  { value: "testing" },
+  { value: "prerelease" },
+  { value: "lts" },
+  { value: "deprecating" },
+  { value: "deprecated" },
 ];
 
 const STATUS_STYLES: Record<ModelStatus, string> = {
@@ -56,11 +57,6 @@ const STATUS_DOT_COLORS: Record<ModelStatus, string> = {
   deprecated: "bg-red-400",
 };
 
-const MONTH_NAMES = [
-  "1월", "2월", "3월", "4월", "5월", "6월",
-  "7월", "8월", "9월", "10월", "11월", "12월",
-];
-
 // ─── Types ────────────────────────────────────────────────────
 
 interface ScheduleEvent {
@@ -75,7 +71,8 @@ interface ScheduleEvent {
 // ─── Helpers ──────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: ModelStatus }) {
-  return <Badge className={STATUS_STYLES[status]}>{status}</Badge>;
+  const tms = useTranslations("modelStatus");
+  return <Badge className={STATUS_STYLES[status]}>{tms(status)}</Badge>;
 }
 
 function extractEvents(catalog: ModelCatalog[]): ScheduleEvent[] {
@@ -128,6 +125,8 @@ function CalendarGrid({
   month: number;
   events: ScheduleEvent[];
 }) {
+  const t = useTranslations("adminModelsHistory");
+  const tms = useTranslations("modelStatus");
   const daysInMonth = getDaysInMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
   const today = new Date();
@@ -153,11 +152,13 @@ function CalendarGrid({
     return today.getFullYear() === year && today.getMonth() === month && today.getDate() === day;
   };
 
+  const DOW_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-7 gap-px text-center text-xs font-medium text-muted-foreground">
-        {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
-          <div key={d} className="py-1">{d}</div>
+        {DOW_KEYS.map((d) => (
+          <div key={d} className="py-1">{t(`dow.${d}`)}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-px">
@@ -179,14 +180,14 @@ function CalendarGrid({
                   <div
                     key={j}
                     className={`truncate rounded px-1 py-0.5 text-[10px] leading-tight ${STATUS_STYLES[ev.targetStatus]}`}
-                    title={`${ev.displayName} → ${ev.targetStatus}`}
+                    title={`${ev.displayName} → ${tms(ev.targetStatus)}`}
                   >
                     {ev.displayName}
                   </div>
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="text-[10px] text-muted-foreground px-1">
-                    +{dayEvents.length - 3}개
+                    {t("moreEvents", { count: dayEvents.length - 3 })}
                   </div>
                 )}
               </div>
@@ -201,6 +202,9 @@ function CalendarGrid({
 // ─── Main Component ──────────────────────────────────────────
 
 export default function ModelCalendarPage() {
+  const t = useTranslations("adminModelsHistory");
+  const tms = useTranslations("modelStatus");
+
   const { data: catalog, isLoading } = useModelCatalog();
   const [statusFilter, setStatusFilter] = useState<string>("");
 
@@ -259,12 +263,17 @@ export default function ModelCalendarPage() {
     );
   }
 
+  const MONTH_KEYS = [
+    "jan","feb","mar","apr","may","jun",
+    "jul","aug","sep","oct","nov","dec",
+  ] as const;
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">모델 캘린더</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          모델의 상태 전환 예정일을 확인합니다
+          {t("description")}
         </p>
       </div>
 
@@ -272,29 +281,29 @@ export default function ModelCalendarPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">예정된 전환</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("stats.upcoming")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{upcomingCount}건</div>
+            <div className="text-2xl font-bold">{t("stats.upcomingValue", { count: upcomingCount })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">이번 달</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("stats.thisMonth")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{thisMonthEvents.length}건</div>
+            <div className="text-2xl font-bold">{t("stats.thisMonthValue", { count: thisMonthEvents.length })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">폐기 예정</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("stats.retiring")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{deprecatingCount}건</div>
+            <div className="text-2xl font-bold text-red-600">{t("stats.retiringValue", { count: deprecatingCount })}</div>
           </CardContent>
         </Card>
       </div>
@@ -308,13 +317,13 @@ export default function ModelCalendarPage() {
                 <ChevronLeft className="size-4" />
               </Button>
               <CardTitle className="text-base min-w-[120px] text-center">
-                {viewYear}년 {MONTH_NAMES[viewMonth]}
+                {t("yearMonth", { year: viewYear, month: t(`months.${MONTH_KEYS[viewMonth]}`) })}
               </CardTitle>
               <Button variant="outline" size="icon" onClick={nextMonth}>
                 <ChevronRight className="size-4" />
               </Button>
               <Button variant="ghost" size="sm" onClick={goToday}>
-                오늘
+                {t("today")}
               </Button>
             </div>
             <div className="flex items-center gap-2">
@@ -323,13 +332,13 @@ export default function ModelCalendarPage() {
                 onValueChange={(v) => setStatusFilter(v === "__all__" ? "" : v)}
               >
                 <SelectTrigger className="w-[140px] h-8">
-                  <SelectValue placeholder="전체 상태" />
+                  <SelectValue placeholder={t("allStatuses")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">전체 상태</SelectItem>
+                  <SelectItem value="__all__">{t("allStatuses")}</SelectItem>
                   {STATUS_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
+                      {tms(opt.value)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -341,7 +350,7 @@ export default function ModelCalendarPage() {
             {STATUS_OPTIONS.map((opt) => (
               <div key={opt.value} className="flex items-center gap-1.5">
                 <div className={`size-2.5 rounded-full ${STATUS_DOT_COLORS[opt.value]}`} />
-                <span className="text-xs text-muted-foreground">{opt.label}</span>
+                <span className="text-xs text-muted-foreground">{tms(opt.value)}</span>
               </div>
             ))}
           </div>
@@ -354,25 +363,25 @@ export default function ModelCalendarPage() {
       {/* Upcoming transitions list */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">다가오는 상태 전환</CardTitle>
-          <CardDescription>예정된 모델 상태 변경 (최대 20건)</CardDescription>
+          <CardTitle className="text-base">{t("upcomingTransitions.title")}</CardTitle>
+          <CardDescription>{t("upcomingTransitions.description")}</CardDescription>
         </CardHeader>
         <CardContent>
           {upcomingEvents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Boxes className="size-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">예정된 상태 전환이 없습니다</p>
+              <p className="text-sm text-muted-foreground">{t("upcomingTransitions.empty")}</p>
             </div>
           ) : (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>전환일</TableHead>
-                    <TableHead>모델</TableHead>
-                    <TableHead>현재 상태</TableHead>
-                    <TableHead>전환 상태</TableHead>
-                    <TableHead>D-Day</TableHead>
+                    <TableHead>{t("table.transitionDate")}</TableHead>
+                    <TableHead>{t("table.model")}</TableHead>
+                    <TableHead>{t("table.currentStatus")}</TableHead>
+                    <TableHead>{t("table.targetStatus")}</TableHead>
+                    <TableHead>{t("table.dday")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -409,7 +418,11 @@ export default function ModelCalendarPage() {
                                   : "text-muted-foreground"
                             }`}
                           >
-                            {daysUntil === 0 ? "오늘" : daysUntil < 0 ? `${-daysUntil}일 전` : `D-${daysUntil}`}
+                            {daysUntil === 0
+                              ? t("dday.today")
+                              : daysUntil < 0
+                                ? t("dday.past", { days: -daysUntil })
+                                : t("dday.future", { days: daysUntil })}
                           </span>
                         </TableCell>
                       </TableRow>

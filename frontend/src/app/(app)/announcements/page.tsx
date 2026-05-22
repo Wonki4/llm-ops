@@ -18,6 +18,7 @@ import {
   X,
   Star,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import {
   useAnnouncements,
@@ -72,6 +73,8 @@ export default function AnnouncementsPage() {
 }
 
 function AnnouncementsPageInner() {
+  const t = useTranslations("announcements");
+  const tc = useTranslations("common");
   const { data: me } = useMe();
   const isAdmin = me?.role === "super_user";
   const { data: announcements, isLoading } = useAnnouncements(isAdmin);
@@ -147,7 +150,7 @@ function AnnouncementsPageInner() {
 
   const handleSave = () => {
     if (!title.trim() || !content.trim()) {
-      toast.error("제목과 내용을 입력해주세요.");
+      toast.error(t("errorTitleContent"));
       return;
     }
     if (isFeatured && !isPublished) {
@@ -169,12 +172,12 @@ function AnnouncementsPageInner() {
         },
         {
           onSuccess: (created) => {
-            toast.success("공지사항이 등록되었습니다.");
+            toast.success(t("createSuccess"));
             selectAnnouncement(created.id);
             setMode({ kind: "view" });
           },
           onError: (err) =>
-            toast.error(err instanceof Error ? err.message : "등록 실패"),
+            toast.error(err instanceof Error ? err.message : t("createFail")),
         },
       );
     } else if (mode.kind === "edit") {
@@ -191,31 +194,31 @@ function AnnouncementsPageInner() {
         },
         {
           onSuccess: () => {
-            toast.success("공지사항이 수정되었습니다.");
+            toast.success(t("updateSuccess"));
             setMode({ kind: "view" });
           },
           onError: (err) =>
-            toast.error(err instanceof Error ? err.message : "수정 실패"),
+            toast.error(err instanceof Error ? err.message : t("updateFail")),
         },
       );
     }
   };
 
   const handleDelete = (a: Announcement) => {
-    if (!confirm(`"${a.title}" 공지사항을 삭제하시겠습니까?`)) return;
+    if (!confirm(t("confirmDelete", { title: a.title }))) return;
     deleteMutation.mutate(a.id, {
       onSuccess: () => {
-        toast.success("삭제되었습니다.");
+        toast.success(t("deleteSuccess"));
         if (selectedId === a.id) selectAnnouncement(null, { replace: true });
       },
       onError: (err) =>
-        toast.error(err instanceof Error ? err.message : "삭제 실패"),
+        toast.error(err instanceof Error ? err.message : t("deleteFail")),
     });
   };
 
   const handleSelectFromList = (id: string) => {
     if (mode.kind !== "view") {
-      if (!confirm("편집 중인 내용이 있습니다. 무시하고 이동할까요?")) return;
+      if (!confirm(t("confirmDiscardEdit"))) return;
     }
     selectAnnouncement(id);
     setMode({ kind: "view" });
@@ -228,15 +231,15 @@ function AnnouncementsPageInner() {
     <div className="flex flex-col h-[calc(100vh-4rem)] gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">공지사항</h1>
+          <h1 className="text-2xl font-bold">{t("title")}</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            포털 업데이트, 정책 변경 등 중요한 소식을 확인하세요.
+            {t("subtitle")}
           </p>
         </div>
         {isAdmin && !isEditing && (
           <Button onClick={startCreate}>
             <Plus className="size-4 mr-1" />
-            작성
+            {t("create")}
           </Button>
         )}
       </div>
@@ -249,7 +252,7 @@ function AnnouncementsPageInner() {
         mode.kind === "create" ? null : (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed flex-1">
             <Megaphone className="size-10 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">등록된 공지사항이 없습니다.</p>
+            <p className="text-muted-foreground">{t("empty")}</p>
           </div>
         )
       ) : null}
@@ -338,15 +341,14 @@ function AnnouncementsPageInner() {
       <Dialog open={confirmPublishOpen} onOpenChange={setConfirmPublishOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>대표 공지는 게시 상태여야 합니다</DialogTitle>
+            <DialogTitle>{t("confirmPublishTitle")}</DialogTitle>
             <DialogDescription>
-              미게시 상태의 공지는 대표 공지로 설정할 수 없습니다. 게시 상태로
-              전환하고 저장할까요?
+              {t("confirmPublishDesc")}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">취소</Button>
+              <Button variant="outline">{tc("cancel")}</Button>
             </DialogClose>
             <Button
               onClick={() => {
@@ -357,7 +359,7 @@ function AnnouncementsPageInner() {
               disabled={saving}
             >
               {saving && <Loader2 className="size-4 mr-1 animate-spin" />}
-              게시하고 저장
+              {t("publishAndSave")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -379,6 +381,8 @@ function ViewPane({
   onDelete: () => void;
   deleting: boolean;
 }) {
+  const t = useTranslations("announcements");
+  const tc = useTranslations("common");
   return (
     <article className="p-6 space-y-4 overflow-y-auto">
       <header className="flex items-start justify-between gap-4 pb-4 border-b">
@@ -391,19 +395,19 @@ function ViewPane({
               {announcement.is_featured && (
                 <Badge className="bg-yellow-100 text-yellow-700 hover:bg-yellow-100">
                   <Star className="size-3 mr-1 fill-yellow-500" />
-                  대표 공지
+                  {t("badgeFeatured")}
                 </Badge>
               )}
               {announcement.is_pinned && (
                 <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
                   <Pin className="size-3 mr-1 fill-amber-500" />
-                  상단 고정
+                  {t("badgePinned")}
                 </Badge>
               )}
               {!announcement.is_published && (
                 <Badge variant="outline">
                   <EyeOff className="size-3 mr-1" />
-                  미게시
+                  {t("badgeDraft")}
                 </Badge>
               )}
             </div>
@@ -412,7 +416,7 @@ function ViewPane({
             {announcement.author_id} · {formatDateTime(announcement.created_at)}
             {announcement.updated_at &&
               announcement.updated_at !== announcement.created_at && (
-                <> · 수정 {formatDateTime(announcement.updated_at)}</>
+                <> · {t("updatedAt", { date: formatDateTime(announcement.updated_at) })}</>
               )}
           </p>
         </div>
@@ -420,7 +424,7 @@ function ViewPane({
           <div className="flex gap-1 shrink-0">
             <Button variant="ghost" size="sm" onClick={onEdit}>
               <Pencil className="size-3.5 mr-1" />
-              수정
+              {tc("edit")}
             </Button>
             <Button
               variant="ghost"
@@ -430,7 +434,7 @@ function ViewPane({
               disabled={deleting}
             >
               <Trash2 className="size-3.5 mr-1" />
-              삭제
+              {tc("delete")}
             </Button>
           </div>
         )}
@@ -475,16 +479,18 @@ function EditorPane({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const t = useTranslations("announcements");
+  const tc = useTranslations("common");
   return (
     <div className="flex flex-col h-full overflow-hidden">
       <header className="flex items-center justify-between gap-3 px-6 py-3 border-b">
         <h2 className="font-semibold">
-          {mode === "edit" ? "공지사항 수정" : "새 공지사항"}
+          {mode === "edit" ? t("editorTitleEdit") : t("editorTitleCreate")}
         </h2>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onCancel} disabled={saving}>
             <X className="size-4 mr-1" />
-            취소
+            {tc("cancel")}
           </Button>
           <Button size="sm" onClick={onSave} disabled={saving}>
             {saving ? (
@@ -492,7 +498,7 @@ function EditorPane({
             ) : (
               <Save className="size-4 mr-1" />
             )}
-            저장
+            {tc("save")}
           </Button>
         </div>
       </header>
@@ -501,7 +507,7 @@ function EditorPane({
         <Input
           value={title}
           onChange={(e) => onTitleChange(e.target.value)}
-          placeholder="제목"
+          placeholder={t("titlePlaceholder")}
           className="text-lg font-semibold h-10"
         />
         <div className="flex items-center gap-6">
@@ -512,7 +518,7 @@ function EditorPane({
               onChange={(e) => onPublishedChange(e.target.checked)}
               className="size-4 rounded border-gray-300"
             />
-            게시
+            {t("labelPublish")}
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm">
             <input
@@ -522,7 +528,7 @@ function EditorPane({
               className="size-4 rounded border-gray-300"
             />
             <Pin className="size-3.5 text-amber-500" />
-            상단 고정
+            {t("badgePinned")}
           </label>
           <label className="flex items-center gap-2 cursor-pointer text-sm">
             <input
@@ -532,8 +538,8 @@ function EditorPane({
               className="size-4 rounded border-gray-300"
             />
             <Star className="size-3.5 text-yellow-500" />
-            대표 공지
-            <span className="text-xs text-muted-foreground">(최초 진입시 선택됨, 1개만)</span>
+            {t("badgeFeatured")}
+            <span className="text-xs text-muted-foreground">{t("featuredHint")}</span>
           </label>
         </div>
       </div>
@@ -546,13 +552,13 @@ function EditorPane({
           <textarea
             value={content}
             onChange={(e) => onContentChange(e.target.value)}
-            placeholder={"# 제목\n\n내용을 입력하세요...\n\n| 헤더 | 값 |\n|---|---|\n| A | 1 |"}
+            placeholder={t("contentPlaceholder")}
             className="flex-1 w-full px-4 py-3 text-sm font-mono resize-none focus:outline-none"
           />
         </div>
         <div className="flex flex-col min-h-0">
           <div className="px-4 py-2 border-b bg-muted/30 text-xs font-medium text-muted-foreground">
-            미리보기
+            {t("preview")}
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {content.trim() ? (
@@ -566,7 +572,7 @@ function EditorPane({
               </div>
             ) : (
               <p className="text-sm text-muted-foreground">
-                왼쪽에 내용을 입력하면 여기에 미리보기가 표시됩니다.
+                {t("previewPlaceholder")}
               </p>
             )}
           </div>
