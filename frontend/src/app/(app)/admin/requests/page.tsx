@@ -32,19 +32,10 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import type { TeamJoinRequest, JoinRequestStatus, RequestType } from "@/types";
-
-const STATUS_LABELS: Record<JoinRequestStatus, string> = {
-  pending: "대기중",
-  approved: "승인",
-  rejected: "거절",
-};
-
-const TYPE_LABELS: Record<RequestType, string> = {
-  join: "팀 가입",
-  budget: "예산 변경",
-};
+import { useTranslations } from "next-intl";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
+  const t = useTranslations("adminRequests");
   const styles: Record<JoinRequestStatus, string> = {
     pending:
       "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
@@ -52,14 +43,23 @@ function StatusBadge({ status }: { status: JoinRequestStatus }) {
       "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
     rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   };
-
+  const STATUS_LABELS: Record<JoinRequestStatus, string> = {
+    pending: t("statusPending"),
+    approved: t("statusApproved"),
+    rejected: t("statusRejected"),
+  };
   return <Badge className={styles[status]}>{STATUS_LABELS[status]}</Badge>;
 }
 
 function TypeBadge({ type }: { type: RequestType }) {
+  const t = useTranslations("adminRequests");
   const styles: Record<RequestType, string> = {
     join: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
     budget: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  };
+  const TYPE_LABELS: Record<RequestType, string> = {
+    join: t("typeJoin"),
+    budget: t("typeBudget"),
   };
   return <Badge className={styles[type]}>{TYPE_LABELS[type]}</Badge>;
 }
@@ -94,6 +94,8 @@ export default function AdminRequestsPage() {
   const { data: requests, isLoading, isError } = useJoinRequests();
   const approveRequest = useApproveRequest();
   const rejectRequest = useRejectRequest();
+  const t = useTranslations("adminRequests");
+  const tc = useTranslations("common");
 
   const [statusTab, setStatusTab] = useState("all");
   const [typeTab, setTypeTab] = useState("all");
@@ -152,7 +154,7 @@ export default function AdminRequestsPage() {
       },
       {
         onSuccess: () => {
-          toast.success("요청이 처리되었습니다");
+          toast.success(t("processSuccess"));
           setDialogOpen(false);
           setSelectedRequest(null);
         },
@@ -160,7 +162,7 @@ export default function AdminRequestsPage() {
           const msg =
             error instanceof Error
               ? error.message
-              : "요청 처리 중 오류가 발생했습니다";
+              : t("processError");
           toast.error(msg);
         },
       },
@@ -169,21 +171,25 @@ export default function AdminRequestsPage() {
 
   const isPending = approveRequest.isPending || rejectRequest.isPending;
   const reqType = (selectedRequest?.request_type ?? "join") as RequestType;
+  const TYPE_LABELS: Record<RequestType, string> = {
+    join: t("typeJoin"),
+    budget: t("typeBudget"),
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">요청 관리</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          팀 가입 및 예산 변경 요청을 검토하세요
+          {t("subtitle")}
         </p>
       </div>
 
       {/* Error state */}
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          요청 목록을 불러오는 중 오류가 발생했습니다.
+          {t("loadError")}
         </div>
       )}
 
@@ -192,7 +198,7 @@ export default function AdminRequestsPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
-            placeholder="요청자 / 팀명 검색..."
+            placeholder={t("searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-9"
@@ -200,20 +206,20 @@ export default function AdminRequestsPage() {
         </div>
         <Tabs value={typeTab} onValueChange={setTypeTab}>
           <TabsList>
-            <TabsTrigger value="all">전체 유형</TabsTrigger>
-            <TabsTrigger value="join">팀 가입</TabsTrigger>
-            <TabsTrigger value="budget">예산 변경</TabsTrigger>
+            <TabsTrigger value="all">{t("tabAllTypes")}</TabsTrigger>
+            <TabsTrigger value="join">{t("typeJoin")}</TabsTrigger>
+            <TabsTrigger value="budget">{t("typeBudget")}</TabsTrigger>
           </TabsList>
         </Tabs>
         {(searchQuery || typeTab !== "all") && (
           <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setTypeTab("all"); }}>
             <X className="size-3.5 mr-1" />
-            초기화
+            {t("clearSearch")}
           </Button>
         )}
         {requests && (
           <span className="text-sm text-muted-foreground ml-auto">
-            {filteredRequests.length} / {requests.length}개
+            {t("countSummary", { filtered: filteredRequests.length, total: requests.length })}
           </span>
         )}
       </div>
@@ -221,10 +227,10 @@ export default function AdminRequestsPage() {
       {/* Status tabs + Table */}
       <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
         <TabsList>
-          <TabsTrigger value="all">전체</TabsTrigger>
-          <TabsTrigger value="pending">대기중</TabsTrigger>
-          <TabsTrigger value="approved">승인</TabsTrigger>
-          <TabsTrigger value="rejected">거절</TabsTrigger>
+          <TabsTrigger value="all">{t("tabAll")}</TabsTrigger>
+          <TabsTrigger value="pending">{t("statusPending")}</TabsTrigger>
+          <TabsTrigger value="approved">{t("statusApproved")}</TabsTrigger>
+          <TabsTrigger value="rejected">{t("statusRejected")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value={statusTab} className="mt-4">
@@ -236,13 +242,13 @@ export default function AdminRequestsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>유형</TableHead>
-                    <TableHead>요청자</TableHead>
-                    <TableHead>팀</TableHead>
-                    <TableHead>내용</TableHead>
-                    <TableHead>상태</TableHead>
-                    <TableHead>요청일</TableHead>
-                    <TableHead>처리</TableHead>
+                    <TableHead>{t("colType")}</TableHead>
+                    <TableHead>{t("colRequester")}</TableHead>
+                    <TableHead>{t("colTeam")}</TableHead>
+                    <TableHead>{t("colContent")}</TableHead>
+                    <TableHead>{t("colStatus")}</TableHead>
+                    <TableHead>{t("colRequestedAt")}</TableHead>
+                    <TableHead>{t("colAction")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -287,7 +293,7 @@ export default function AdminRequestsPage() {
                                 openActionDialog(req, "approve")
                               }
                             >
-                              승인
+                              {t("statusApproved")}
                             </Button>
                             <Button
                               size="xs"
@@ -296,7 +302,7 @@ export default function AdminRequestsPage() {
                                 openActionDialog(req, "reject")
                               }
                             >
-                              거절
+                              {t("statusRejected")}
                             </Button>
                           </div>
                         ) : (
@@ -313,16 +319,20 @@ export default function AdminRequestsPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4">
                 <p className="text-sm text-muted-foreground">
-                  총 {filteredRequests.length}건 중 {(safePageValue - 1) * pageSize + 1}–{Math.min(safePageValue * pageSize, filteredRequests.length)}
+                  {t("paginationSummary", {
+                    total: filteredRequests.length,
+                    from: (safePageValue - 1) * pageSize + 1,
+                    to: Math.min(safePageValue * pageSize, filteredRequests.length),
+                  })}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" disabled={safePageValue <= 1} onClick={() => setPage((p) => p - 1)}>
                     <ArrowLeft className="size-4" />
-                    이전
+                    {t("prevPage")}
                   </Button>
                   <span className="text-sm text-muted-foreground">{safePageValue} / {totalPages}</span>
                   <Button variant="outline" size="sm" disabled={safePageValue >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                    다음
+                    {t("nextPage")}
                     <ArrowRight className="size-4" />
                   </Button>
                 </div>
@@ -332,7 +342,7 @@ export default function AdminRequestsPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Inbox className="size-10 text-muted-foreground mb-3" />
               <p className="text-muted-foreground">
-                처리할 요청이 없습니다.
+                {t("empty")}
               </p>
             </div>
           )}
@@ -343,24 +353,24 @@ export default function AdminRequestsPage() {
       <Dialog open={!!detailRequest} onOpenChange={(open) => !open && setDetailRequest(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>요청 상세</DialogTitle>
+            <DialogTitle>{t("detailTitle")}</DialogTitle>
           </DialogHeader>
           {detailRequest && (
             <div className="space-y-3 text-sm overflow-hidden">
               <div className="grid grid-cols-[80px_1fr] gap-2 min-w-0">
-                <span className="text-muted-foreground">유형</span>
+                <span className="text-muted-foreground">{t("colType")}</span>
                 <span><TypeBadge type={(detailRequest.request_type ?? "join") as RequestType} /></span>
-                <span className="text-muted-foreground">요청자</span>
+                <span className="text-muted-foreground">{t("colRequester")}</span>
                 <span className="font-medium">{detailRequest.requester_id}</span>
-                <span className="text-muted-foreground">팀</span>
+                <span className="text-muted-foreground">{t("colTeam")}</span>
                 <span className="font-medium">{detailRequest.team_alias || detailRequest.team_id}</span>
-                <span className="text-muted-foreground">상태</span>
+                <span className="text-muted-foreground">{t("colStatus")}</span>
                 <span><StatusBadge status={detailRequest.status} /></span>
-                <span className="text-muted-foreground">요청일</span>
+                <span className="text-muted-foreground">{t("colRequestedAt")}</span>
                 <span>{formatDate(detailRequest.created_at)}</span>
                 {(detailRequest.request_type ?? "join") === "budget" && (
                   <>
-                    <span className="text-muted-foreground">변경 금액</span>
+                    <span className="text-muted-foreground">{t("budgetAmount")}</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
                     </span>
@@ -368,14 +378,14 @@ export default function AdminRequestsPage() {
                 )}
               </div>
               <div>
-                <p className="text-muted-foreground mb-1">요청 내용</p>
+                <p className="text-muted-foreground mb-1">{t("colContent")}</p>
                 <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                   {detailRequest.message || "-"}
                 </p>
               </div>
               {detailRequest.review_comment && (
                 <div>
-                  <p className="text-muted-foreground mb-1">처리 코멘트</p>
+                  <p className="text-muted-foreground mb-1">{t("colReviewComment")}</p>
                   <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                     {detailRequest.review_comment}
                   </p>
@@ -391,34 +401,34 @@ export default function AdminRequestsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {TYPE_LABELS[reqType]} {dialogAction === "approve" ? "승인" : "거절"}
+              {TYPE_LABELS[reqType]} {dialogAction === "approve" ? t("statusApproved") : t("statusRejected")}
             </DialogTitle>
             <DialogDescription>
               <span className="font-semibold text-foreground">
                 {selectedRequest?.requester_id}
               </span>
-              님의{" "}
+              {t("confirmDescriptionMiddle")}{" "}
               <span className="font-semibold text-foreground">
                 {selectedRequest?.team_alias || selectedRequest?.team_id}
               </span>{" "}
-              팀 {TYPE_LABELS[reqType]} 요청을{" "}
-              {dialogAction === "approve" ? "승인" : "거절"}합니다.
+              {t("confirmDescriptionTeamSuffix", { type: TYPE_LABELS[reqType] })}{" "}
+              {dialogAction === "approve" ? t("statusApproved") : t("statusRejected")}{t("confirmDescriptionSuffix")}
               {reqType === "budget" && selectedRequest?.requested_budget != null && (
                 <span className="block mt-1 font-semibold text-purple-700 dark:text-purple-400">
-                  변경 금액: ${selectedRequest.requested_budget.toFixed(2)}
+                  {t("budgetAmount")}: ${selectedRequest.requested_budget.toFixed(2)}
                 </span>
               )}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label htmlFor="review-comment">코멘트 (선택사항)</Label>
+            <Label htmlFor="review-comment">{t("commentLabel")}</Label>
             <textarea
               id="review-comment"
               rows={3}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
-              placeholder="코멘트를 입력하세요..."
+              placeholder={t("commentPlaceholder")}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             />
           </div>
@@ -429,7 +439,7 @@ export default function AdminRequestsPage() {
               onClick={() => setDialogOpen(false)}
               disabled={isPending}
             >
-              취소
+              {tc("cancel")}
             </Button>
             <Button
               variant={
@@ -444,10 +454,10 @@ export default function AdminRequestsPage() {
               }
             >
               {isPending
-                ? "처리 중..."
+                ? t("processing")
                 : dialogAction === "approve"
-                  ? "승인"
-                  : "거절"}
+                  ? t("statusApproved")
+                  : t("statusRejected")}
             </Button>
           </DialogFooter>
         </DialogContent>

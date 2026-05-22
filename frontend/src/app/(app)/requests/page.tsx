@@ -23,31 +23,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { JoinRequestStatus, RequestType, TeamJoinRequest } from "@/types";
-
-const STATUS_LABELS: Record<JoinRequestStatus, string> = {
-  pending: "대기중",
-  approved: "승인",
-  rejected: "거절",
-};
-
-const TYPE_LABELS: Record<RequestType, string> = {
-  join: "팀 가입",
-  budget: "예산 변경",
-};
+import { useTranslations } from "next-intl";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
+  const t = useTranslations("requests");
   const styles: Record<JoinRequestStatus, string> = {
     pending: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
     approved: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
     rejected: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   };
+  const STATUS_LABELS: Record<JoinRequestStatus, string> = {
+    pending: t("statusPending"),
+    approved: t("statusApproved"),
+    rejected: t("statusRejected"),
+  };
   return <Badge className={styles[status]}>{STATUS_LABELS[status]}</Badge>;
 }
 
 function TypeBadge({ type }: { type: RequestType }) {
+  const t = useTranslations("requests");
   const styles: Record<RequestType, string> = {
     join: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
     budget: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
+  };
+  const TYPE_LABELS: Record<RequestType, string> = {
+    join: t("typeJoin"),
+    budget: t("typeBudget"),
   };
   return <Badge className={styles[type]}>{TYPE_LABELS[type]}</Badge>;
 }
@@ -67,6 +68,8 @@ export default function MyRequestsPage() {
   const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
   const [page, setPage] = useState(1);
   const pageSize = 20;
+  const t = useTranslations("requests");
+  const tc = useTranslations("common");
 
   const filteredRequests = useMemo(() => {
     if (!requests) return [];
@@ -89,15 +92,15 @@ export default function MyRequestsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">내 요청</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          내가 보낸 팀 가입 및 예산 변경 요청 현황입니다
+          {t("subtitle")}
         </p>
       </div>
 
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          요청 목록을 불러오는 중 오류가 발생했습니다.
+          {t("loadError")}
         </div>
       )}
 
@@ -105,7 +108,7 @@ export default function MyRequestsPage() {
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
-            placeholder="팀명 검색..."
+            placeholder={t("searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-8 h-9"
@@ -114,22 +117,22 @@ export default function MyRequestsPage() {
         {searchQuery && (
           <Button variant="ghost" size="sm" onClick={() => setSearchQuery("")}>
             <X className="size-3.5 mr-1" />
-            초기화
+            {t("clearSearch")}
           </Button>
         )}
         {requests && (
           <span className="text-sm text-muted-foreground ml-auto">
-            {filteredRequests.length} / {requests.length}개
+            {t("countSummary", { filtered: filteredRequests.length, total: requests.length })}
           </span>
         )}
       </div>
 
       <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
         <TabsList>
-          <TabsTrigger value="all">전체</TabsTrigger>
-          <TabsTrigger value="pending">대기중</TabsTrigger>
-          <TabsTrigger value="approved">승인</TabsTrigger>
-          <TabsTrigger value="rejected">거절</TabsTrigger>
+          <TabsTrigger value="all">{t("tabAll")}</TabsTrigger>
+          <TabsTrigger value="pending">{t("statusPending")}</TabsTrigger>
+          <TabsTrigger value="approved">{t("statusApproved")}</TabsTrigger>
+          <TabsTrigger value="rejected">{t("statusRejected")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value={statusTab} className="mt-4">
@@ -149,12 +152,12 @@ export default function MyRequestsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>유형</TableHead>
-                    <TableHead>팀</TableHead>
-                    <TableHead>내용</TableHead>
-                    <TableHead>상태</TableHead>
-                    <TableHead>요청일</TableHead>
-                    <TableHead>처리 코멘트</TableHead>
+                    <TableHead>{t("colType")}</TableHead>
+                    <TableHead>{t("colTeam")}</TableHead>
+                    <TableHead>{t("colContent")}</TableHead>
+                    <TableHead>{t("colStatus")}</TableHead>
+                    <TableHead>{t("colRequestedAt")}</TableHead>
+                    <TableHead>{t("colReviewComment")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -205,16 +208,20 @@ export default function MyRequestsPage() {
             {totalPages > 1 && (
               <div className="flex items-center justify-between mt-4">
                 <p className="text-sm text-muted-foreground">
-                  총 {filteredRequests.length}건 중 {(safePageValue - 1) * pageSize + 1}–{Math.min(safePageValue * pageSize, filteredRequests.length)}
+                  {t("paginationSummary", {
+                    total: filteredRequests.length,
+                    from: (safePageValue - 1) * pageSize + 1,
+                    to: Math.min(safePageValue * pageSize, filteredRequests.length),
+                  })}
                 </p>
                 <div className="flex items-center gap-2">
                   <Button variant="outline" size="sm" disabled={safePageValue <= 1} onClick={() => setPage((p) => p - 1)}>
                     <ArrowLeft className="size-4" />
-                    이전
+                    {t("prevPage")}
                   </Button>
                   <span className="text-sm text-muted-foreground">{safePageValue} / {totalPages}</span>
                   <Button variant="outline" size="sm" disabled={safePageValue >= totalPages} onClick={() => setPage((p) => p + 1)}>
-                    다음
+                    {t("nextPage")}
                     <ArrowRight className="size-4" />
                   </Button>
                 </div>
@@ -225,7 +232,7 @@ export default function MyRequestsPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Inbox className="size-10 text-muted-foreground mb-3" />
               <p className="text-muted-foreground">
-                {searchQuery ? "검색 결과가 없습니다." : "요청 내역이 없습니다."}
+                {searchQuery ? t("emptySearch") : t("empty")}
               </p>
             </div>
           )}
@@ -236,22 +243,22 @@ export default function MyRequestsPage() {
       <Dialog open={!!detailRequest} onOpenChange={(open) => !open && setDetailRequest(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>요청 상세</DialogTitle>
+            <DialogTitle>{t("detailTitle")}</DialogTitle>
           </DialogHeader>
           {detailRequest && (
             <div className="space-y-3 text-sm overflow-hidden">
               <div className="grid grid-cols-[80px_1fr] gap-2 min-w-0">
-                <span className="text-muted-foreground">유형</span>
+                <span className="text-muted-foreground">{t("colType")}</span>
                 <span><TypeBadge type={(detailRequest.request_type ?? "join") as RequestType} /></span>
-                <span className="text-muted-foreground">팀</span>
+                <span className="text-muted-foreground">{t("colTeam")}</span>
                 <span className="font-medium">{detailRequest.team_alias || detailRequest.team_id}</span>
-                <span className="text-muted-foreground">상태</span>
+                <span className="text-muted-foreground">{t("colStatus")}</span>
                 <span><StatusBadge status={detailRequest.status} /></span>
-                <span className="text-muted-foreground">요청일</span>
+                <span className="text-muted-foreground">{t("colRequestedAt")}</span>
                 <span>{formatDate(detailRequest.created_at)}</span>
                 {(detailRequest.request_type ?? "join") === "budget" && (
                   <>
-                    <span className="text-muted-foreground">변경 금액</span>
+                    <span className="text-muted-foreground">{t("budgetAmount")}</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
                     </span>
@@ -259,14 +266,14 @@ export default function MyRequestsPage() {
                 )}
               </div>
               <div>
-                <p className="text-muted-foreground mb-1">요청 내용</p>
+                <p className="text-muted-foreground mb-1">{t("colContent")}</p>
                 <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                   {detailRequest.message || "-"}
                 </p>
               </div>
               {detailRequest.review_comment && (
                 <div>
-                  <p className="text-muted-foreground mb-1">처리 코멘트</p>
+                  <p className="text-muted-foreground mb-1">{t("colReviewComment")}</p>
                   <p className="whitespace-pre-wrap break-words rounded-md bg-muted p-3">
                     {detailRequest.review_comment}
                   </p>
