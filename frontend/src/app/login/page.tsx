@@ -1,18 +1,22 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
+  const t = useTranslations("login");
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold">LLM Ops</CardTitle>
-          <CardDescription>사번으로 로그인하세요</CardDescription>
+          <CardDescription>{t("description")}</CardDescription>
         </CardHeader>
         <CardContent>
           <a href="/api/proxy/auth/login?return_to=/teams">
             <Button className="w-full" size="lg">
-              SSO 로그인
+              {t("ssoButton")}
             </Button>
           </a>
         </CardContent>

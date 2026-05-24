@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Search, Users, Box, Shield } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { useDiscoverTeams, useCreateJoinRequest } from "@/hooks/use-api";
@@ -14,7 +15,6 @@ import {
   CardFooter,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import {
   Dialog,
@@ -46,6 +46,7 @@ function SkeletonCard() {
 }
 
 export default function TeamDiscoveryPage() {
+  const t = useTranslations("teamsDiscover");
   const { data: teams, isLoading, isError } = useDiscoverTeams();
   const createJoinRequest = useCreateJoinRequest();
 
@@ -78,13 +79,13 @@ export default function TeamDiscoveryPage() {
       },
       {
         onSuccess: () => {
-          toast.success("가입 요청이 전송되었습니다");
+          toast.success(t("toastRequested"));
           setDialogOpen(false);
           setSelectedTeam(null);
         },
         onError: (error) => {
           const msg =
-            error instanceof Error ? error.message : "요청 처리 중 오류가 발생했습니다";
+            error instanceof Error ? error.message : t("errorRequest");
           toast.error(msg);
         },
       },
@@ -95,8 +96,8 @@ export default function TeamDiscoveryPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">팀 탐색</h1>
-        <p className="text-muted-foreground mt-1">가입 가능한 팀을 찾아보세요</p>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
+        <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
       </div>
 
       {/* Search */}
@@ -104,7 +105,7 @@ export default function TeamDiscoveryPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="팀 이름으로 검색..."
+            placeholder={t("searchPlaceholder")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -112,10 +113,10 @@ export default function TeamDiscoveryPage() {
         </div>
         <div className="flex items-center gap-1 shrink-0">
           {([
-            ["all", "전체"],
-            ["joined", "가입됨"],
-            ["not_joined", "미가입"],
-            ["pending", "요청중"],
+            ["all", t("filterAll")],
+            ["joined", t("filterJoined")],
+            ["not_joined", t("filterNotJoined")],
+            ["pending", t("filterPending")],
           ] as const).map(([value, label]) => (
             <Button
               key={value}
@@ -132,7 +133,7 @@ export default function TeamDiscoveryPage() {
       {/* Error state */}
       {isError && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-          팀 목록을 불러오는 중 오류가 발생했습니다.
+          {t("loadError")}
         </div>
       )}
 
@@ -158,28 +159,28 @@ export default function TeamDiscoveryPage() {
                   <CardContent className="space-y-2">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Box className="size-4" />
-                      <span>{team.models.includes("all-proxy-models") ? "모든 모델 사용 가능" : `${team.models.length}개 모델 사용 가능`}</span>
+                      <span>{team.models.includes("all-proxy-models") ? t("allModels") : t("modelCount", { count: team.models.length })}</span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Shield className="size-4" />
-                      <span>관리자: {team.admins.length > 0 ? team.admins.join(", ") : "-"}</span>
+                      <span>{t("admins", { names: team.admins.length > 0 ? team.admins.join(", ") : "-" })}</span>
                     </div>
                   </CardContent>
                   <CardFooter>
                     {team.is_member ? (
                       <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                        가입됨
+                        {t("badgeJoined")}
                       </Badge>
                     ) : team.has_pending_request ? (
                       <Badge className="bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                        요청중
+                        {t("badgePending")}
                       </Badge>
                     ) : (
                       <Button
                         size="sm"
                         onClick={() => handleRequestClick(team)}
                       >
-                        가입 요청
+                        {t("requestButton")}
                       </Button>
                     )}
                   </CardFooter>
@@ -190,9 +191,7 @@ export default function TeamDiscoveryPage() {
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
               <Users className="size-10 text-muted-foreground mb-3" />
               <p className="text-muted-foreground">
-                {searchQuery
-                  ? "검색 결과가 없습니다."
-                  : "가입 가능한 팀이 없습니다."}
+                {searchQuery ? t("emptySearch") : t("empty")}
               </p>
             </div>
           )}
@@ -203,23 +202,26 @@ export default function TeamDiscoveryPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>팀 가입 요청</DialogTitle>
+            <DialogTitle>{t("dialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">
-                {selectedTeam?.team_alias}
-              </span>{" "}
-              팀에 가입을 요청합니다.
+              {t.rich("dialogDescription", {
+                team: () => (
+                  <span className="font-semibold text-foreground">
+                    {selectedTeam?.team_alias}
+                  </span>
+                ),
+              })}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
-            <Label htmlFor="join-message">가입 사유 (선택사항)</Label>
+            <Label htmlFor="join-message">{t("joinReasonLabel")}</Label>
             <textarea
               id="join-message"
               rows={3}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              placeholder="가입 사유를 입력하세요..."
+              placeholder={t("joinReasonPlaceholder")}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             />
           </div>
@@ -230,13 +232,13 @@ export default function TeamDiscoveryPage() {
               onClick={() => setDialogOpen(false)}
               disabled={createJoinRequest.isPending}
             >
-              취소
+              {t("cancel")}
             </Button>
             <Button
               onClick={handleSubmit}
               disabled={createJoinRequest.isPending}
             >
-              {createJoinRequest.isPending ? "요청 중..." : "요청 보내기"}
+              {createJoinRequest.isPending ? t("submitting") : t("submit")}
             </Button>
           </DialogFooter>
         </DialogContent>

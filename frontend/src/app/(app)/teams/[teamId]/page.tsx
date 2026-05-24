@@ -2,6 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
@@ -74,9 +75,9 @@ function formatTokenCost(cost: number | null): string {
   return cost != null ? `$ ${(cost * 1_000_000).toFixed(2)}` : "-";
 }
 
-function formatBudget(spend: number, maxBudget: number | null): string {
+function formatBudget(spend: number, maxBudget: number | null, unlimitedLabel: string): string {
   const spendStr = `$${spend.toFixed(2)}`;
-  if (maxBudget === null) return `${spendStr} / 무제한`;
+  if (maxBudget === null) return `${spendStr} / ${unlimitedLabel}`;
   return `${spendStr} / $${maxBudget.toFixed(2)}`;
 }
 
@@ -102,12 +103,11 @@ function formatResetDate(dateStr: string): string {
   });
 }
 
-function formatBudgetDuration(duration: string | null): string | null {
+function formatBudgetDuration(duration: string | null, unitMap: Record<string, string>): string | null {
   if (!duration) return null;
   const match = duration.match(/^(\d+)([dhms])$/);
   if (!match) return duration;
   const [, num, unit] = match;
-  const unitMap: Record<string, string> = { d: "일", h: "시간", m: "분", s: "초" };
   return `${num}${unitMap[unit] || unit}`;
 }
 
@@ -125,6 +125,7 @@ function DeleteKeyDialog({
   onDelete: (keyHash: string) => void;
   isDeleting: boolean;
 }) {
+  const t = useTranslations("teamDetail.deleteKey");
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -134,15 +135,14 @@ function DeleteKeyDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>키 삭제</DialogTitle>
+          <DialogTitle>{t("title")}</DialogTitle>
           <DialogDescription>
-            &quot;{keyItem.key_alias || keyItem.token.slice(0, 8)}&quot; 키를 삭제하시겠습니까?
-            이 작업은 되돌릴 수 없습니다.
+            {t("description", { name: keyItem.key_alias || keyItem.token.slice(0, 8) })}
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">취소</Button>
+            <Button variant="outline">{t("cancel")}</Button>
           </DialogClose>
           <Button
             variant="destructive"
@@ -150,7 +150,7 @@ function DeleteKeyDialog({
             onClick={() => onDelete(keyItem.token)}
           >
             {isDeleting && <Loader2 className="size-4 animate-spin" />}
-            삭제
+            {t("delete")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -159,6 +159,8 @@ function DeleteKeyDialog({
 }
 
 function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; currentBudget: number | null }) {
+  const t = useTranslations("teamDetail.budgetRequest");
+  const tt = useTranslations("teamDetail");
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [message, setMessage] = useState("");
@@ -169,44 +171,44 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="w-full mt-2">
           <DollarSign className="size-3.5 mr-1" />
-          예산 변경 요청
+          {t("button")}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>예산 변경 요청</DialogTitle>
+          <DialogTitle>{t("title")}</DialogTitle>
           <DialogDescription>
-            팀 관리자에게 예산 변경을 요청합니다.
+            {t("description")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <div className="rounded-md bg-muted p-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">현재 예산</span>
-              <span className="font-medium">{currentBudget === null ? "무제한" : `$${currentBudget.toFixed(2)}`}</span>
+              <span className="text-muted-foreground">{t("currentBudget")}</span>
+              <span className="font-medium">{currentBudget === null ? tt("unlimited") : `$${currentBudget.toFixed(2)}`}</span>
             </div>
             {amount && Number(amount) > 0 && (
               <div className="flex justify-between mt-1 pt-1 border-t border-border">
-                <span className="text-muted-foreground">변경 후 예산</span>
+                <span className="text-muted-foreground">{t("newBudget")}</span>
                 <span className="font-medium text-primary">${Number(amount).toFixed(2)}</span>
               </div>
             )}
           </div>
           <div>
-            <label className="text-sm font-medium">변경 금액 ($)</label>
+            <label className="text-sm font-medium">{t("amountLabel")}</label>
             <Input
               type="number"
               step="0.01"
               min="0"
-              placeholder="예: 100"
+              placeholder={t("amountPlaceholder")}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
           </div>
           <div>
-            <label className="text-sm font-medium">사유 (선택)</label>
+            <label className="text-sm font-medium">{t("reasonLabel")}</label>
             <Input
-              placeholder="변경이 필요한 이유를 입력하세요"
+              placeholder={t("reasonPlaceholder")}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
             />
@@ -214,7 +216,7 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost">취소</Button>
+            <Button variant="ghost">{t("cancel")}</Button>
           </DialogClose>
           <Button
             disabled={!amount || Number(amount) <= 0 || mutation.isPending}
@@ -223,19 +225,19 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
                 { team_id: teamId, requested_budget: Number(amount), message: message || undefined },
                 {
                   onSuccess: () => {
-                    toast.success("예산 변경 요청이 제출되었습니다.");
+                    toast.success(t("toastSubmitted"));
                     setOpen(false);
                     setAmount("");
                     setMessage("");
                   },
                   onError: (err) => {
-                    toast.error(err instanceof Error ? err.message : "요청 실패");
+                    toast.error(err instanceof Error ? err.message : t("errorSubmit"));
                   },
                 },
               );
             }}
           >
-            {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : "요청 제출"}
+            {mutation.isPending ? <Loader2 className="size-4 animate-spin" /> : t("submit")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -274,6 +276,17 @@ function OverviewTab({
   onMoveToModels: () => void;
   onSelectModel: (model: ModelWithCatalog) => void;
 }) {
+  const t = useTranslations("teamDetail.overview");
+  const tt = useTranslations("teamDetail");
+  const unitMap = useMemo(
+    () => ({
+      d: tt("durationDay"),
+      h: tt("durationHour"),
+      m: tt("durationMinute"),
+      s: tt("durationSecond"),
+    }),
+    [tt],
+  );
   const totalMembers = team.member_count ?? team.members.length;
   const totalAdmins = team.admin_count ?? team.admins.length;
   const pct = budgetPercent(team.spend, team.max_budget);
@@ -295,12 +308,12 @@ function OverviewTab({
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">팀 예산</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("teamBudget")}</CardTitle>
             <DollarSign className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-2">
-            <div className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget)}</div>
-            <p className="text-xs text-muted-foreground">팀 전체 사용량</p>
+            <div className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget, tt("unlimited"))}</div>
+            <p className="text-xs text-muted-foreground">{t("teamTotalUsage")}</p>
             <div className="h-2 w-full rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-primary transition-all"
@@ -311,12 +324,12 @@ function OverviewTab({
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">내 사용량</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("myUsage")}</CardTitle>
             <DollarSign className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent className="space-y-2">
-            <div className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget)}</div>
-            <p className="text-xs text-muted-foreground">팀 내 내 예산</p>
+            <div className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget, tt("unlimited"))}</div>
+            <p className="text-xs text-muted-foreground">{t("myBudgetInTeam")}</p>
             <div className="h-2 w-full rounded-full bg-muted">
               <div
                 className="h-full rounded-full bg-blue-500 transition-all"
@@ -327,22 +340,22 @@ function OverviewTab({
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">내 키</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("myKeys")}</CardTitle>
             <Key className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{myKeys.length}개</div>
-            <p className="text-xs text-muted-foreground">생성된 API 키</p>
+            <div className="text-2xl font-bold">{t("myKeysCount", { count: myKeys.length })}</div>
+            <p className="text-xs text-muted-foreground">{t("apiKeysCreated")}</p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">모델</CardTitle>
+            <CardTitle className="text-sm font-medium">{t("models")}</CardTitle>
             <Boxes className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{hasAllProxyModels ? "전체" : `${catalogTeamModels.length}개`}</div>
-            <p className="text-xs text-muted-foreground">사용 가능한 모델</p>
+            <div className="text-2xl font-bold">{hasAllProxyModels ? t("modelsAll") : t("modelsCount", { count: catalogTeamModels.length })}</div>
+            <p className="text-xs text-muted-foreground">{t("availableModels")}</p>
           </CardContent>
         </Card>
       </div>
@@ -351,16 +364,16 @@ function OverviewTab({
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">팀 예산 상세</CardTitle>
+              <CardTitle className="text-base">{t("teamBudgetDetail")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-sm text-muted-foreground">팀 전체 사용량</p>
-                  <p className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget)}</p>
+                  <p className="text-sm text-muted-foreground">{t("teamTotalUsage")}</p>
+                  <p className="text-2xl font-bold">{formatBudget(team.spend, team.max_budget, tt("unlimited"))}</p>
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  {team.max_budget === null ? "무제한" : `${pct.toFixed(1)}%`}
+                  {team.max_budget === null ? tt("unlimited") : `${pct.toFixed(1)}%`}
                 </p>
               </div>
               <div className="h-2 w-full rounded-full bg-muted">
@@ -370,17 +383,17 @@ function OverviewTab({
                 />
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
-                <p>예산 주기: {team.budget_duration ? `${formatBudgetDuration(team.budget_duration)} 주기` : "-"}</p>
-                <p>예산 초기화: {team.budget_reset_at ? formatResetDate(team.budget_reset_at) : "-"}</p>
+                <p>{t("budgetCycle", { cycle: team.budget_duration ? t("cycleSuffix", { value: formatBudgetDuration(team.budget_duration, unitMap) ?? "-" }) : "-" })}</p>
+                <p>{t("budgetReset", { date: team.budget_reset_at ? formatResetDate(team.budget_reset_at) : "-" })}</p>
               </div>
               <Separator />
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <p className="text-sm text-muted-foreground">내 사용량</p>
-                  <p className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget)}</p>
+                  <p className="text-sm text-muted-foreground">{t("myUsage")}</p>
+                  <p className="text-2xl font-bold">{formatBudget(mySpend, myMaxBudget, tt("unlimited"))}</p>
                 </div>
                 <p className="text-sm font-medium text-muted-foreground">
-                  {myMaxBudget === null ? "무제한" : `${myPct.toFixed(1)}%`}
+                  {myMaxBudget === null ? tt("unlimited") : `${myPct.toFixed(1)}%`}
                 </p>
               </div>
               <div className="h-2 w-full rounded-full bg-muted">
@@ -390,8 +403,8 @@ function OverviewTab({
                 />
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
-                <p>예산 주기: {myMembership.budget_duration ? `${formatBudgetDuration(myMembership.budget_duration)} 주기` : "-"}</p>
-                <p>예산 초기화: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at) : "-"}</p>
+                <p>{t("budgetCycle", { cycle: myMembership.budget_duration ? t("cycleSuffix", { value: formatBudgetDuration(myMembership.budget_duration, unitMap) ?? "-" }) : "-" })}</p>
+                <p>{t("budgetReset", { date: myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at) : "-" })}</p>
               </div>
               <BudgetRequestDialog teamId={team.team_id} currentBudget={myMaxBudget} />
             </CardContent>
@@ -399,20 +412,20 @@ function OverviewTab({
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">팀원 정보</CardTitle>
+              <CardTitle className="text-base">{t("membersInfo")}</CardTitle>
             </CardHeader>
             <CardContent className="space-y-5">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm font-medium">
                     <Shield className="size-4" />
-                    관리자
+                    {t("adminLabel")}
                   </div>
-                  <span className="text-xs text-muted-foreground">{totalAdmins.toLocaleString()}명</span>
+                  <span className="text-xs text-muted-foreground">{t("personCount", { count: totalAdmins })}</span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {team.admins.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">관리자가 없습니다.</p>
+                    <p className="text-sm text-muted-foreground">{t("noAdmins")}</p>
                   ) : (
                     <>
                       {team.admins.map((admin) => (
@@ -423,14 +436,14 @@ function OverviewTab({
                       ))}
                       {remainingAdmins > 0 && (
                         <Badge variant="outline" className="text-muted-foreground">
-                          외 {remainingAdmins.toLocaleString()}명
+                          {t("andOthers", { count: remainingAdmins })}
                         </Badge>
                       )}
                     </>
                   )}
               </div>
             </div>
-              {isAdmin && <p className="text-xs text-muted-foreground">팀 관리 권한이 활성화되어 있습니다.</p>}
+              {isAdmin && <p className="text-xs text-muted-foreground">{t("adminEnabled")}</p>}
             </CardContent>
           </Card>
         </div>
@@ -438,18 +451,18 @@ function OverviewTab({
         <div className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">내 키 요약</CardTitle>
+              <CardTitle className="text-base">{t("myKeysSummary")}</CardTitle>
               <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onMoveToKeys}>
-                전체 보기
+                {t("viewAll")}
                 <ArrowRight className="size-4" />
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
               {topKeys.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  생성된 키가 없습니다.{" "}
+                  {t("noKeys")}{" "}
                   <Link className="underline underline-offset-4" href={`/keys/new?team_id=${team.team_id}`}>
-                    키 생성
+                    {t("createKey")}
                   </Link>
                 </div>
               ) : (
@@ -464,16 +477,16 @@ function OverviewTab({
 
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">사용 가능한 모델</CardTitle>
+              <CardTitle className="text-base">{t("availableModels")}</CardTitle>
               <Button variant="ghost" size="sm" className="h-8 px-2" onClick={onMoveToModels}>
-                전체 보기
+                {t("viewAll")}
                 <ChevronRight className="size-4" />
               </Button>
             </CardHeader>
             <CardContent className="space-y-2">
               {scopedModels.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  이 팀에 배정된 모델이 없습니다.
+                  {t("noModelsAssigned")}
                 </div>
               ) : (
                 scopedModels.map(({ modelName, model }) => (
@@ -520,6 +533,7 @@ function TeamSettingsTab({
   defaultTpmLimit: number | null;
   defaultRpmLimit: number | null;
 }) {
+  const t = useTranslations("teamDetail.settings");
   const updateSettings = useUpdateTeamSettings();
   const { data: portalSettings } = usePortalSettings();
   const [defaultBudget, setDefaultBudget] = useState(
@@ -541,33 +555,33 @@ function TeamSettingsTab({
         },
       },
       {
-        onSuccess: () => toast.success("팀 설정이 저장되었습니다."),
-        onError: (err) => toast.error(err instanceof Error ? err.message : "저장 실패"),
+        onSuccess: () => toast.success(t("toastSaved")),
+        onError: (err) => toast.error(err instanceof Error ? err.message : t("errorSave")),
       },
     );
   };
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <h2 className="text-lg font-semibold">팀 설정</h2>
+      <h2 className="text-lg font-semibold">{t("title")}</h2>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">멤버 기본 예산</CardTitle>
+          <CardTitle className="text-base">{t("memberDefaultBudgetCard")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">기본 예산 ($)</label>
+            <label className="text-sm font-medium">{t("defaultBudgetLabel")}</label>
             <input
               type="number"
               step="0.01"
               value={defaultBudget}
               onChange={(e) => setDefaultBudget(e.target.value)}
-              placeholder="미설정 시 예산 제한 없음"
+              placeholder={t("defaultBudgetPlaceholder")}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             />
             <p className="text-xs text-muted-foreground">
-              신규 멤버가 팀에 추가될 때 자동으로 할당되는 예산입니다
+              {t("defaultBudgetHelp")}
             </p>
           </div>
         </CardContent>
@@ -575,61 +589,64 @@ function TeamSettingsTab({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">키 기본 TPM / RPM</CardTitle>
+          <CardTitle className="text-base">{t("keyDefaultLimitsCard")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">TPM (tokens/min)</label>
+              <label className="text-sm font-medium">{t("tpmLabel")}</label>
               <input
                 type="number"
                 min="0"
                 step="1"
                 value={tpmLimit}
                 onChange={(e) => setTpmLimit(e.target.value)}
-                placeholder="미설정 시 전역 기본값"
+                placeholder={t("globalDefaultPlaceholder")}
                 className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">RPM (requests/min)</label>
+              <label className="text-sm font-medium">{t("rpmLabel")}</label>
               <input
                 type="number"
                 min="0"
                 step="1"
                 value={rpmLimit}
                 onChange={(e) => setRpmLimit(e.target.value)}
-                placeholder="미설정 시 전역 기본값"
+                placeholder={t("globalDefaultPlaceholder")}
                 className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
               />
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
-            이 팀에서 새로 발급되는 키에 적용되는 기본 제한값입니다. 미설정 시 관리자 설정의 전역 기본값
+            {t("keyLimitsHelpPrefix")}
             {portalSettings
-              ? ` (TPM ${portalSettings.default_tpm_limit?.toLocaleString() ?? "-"} / RPM ${portalSettings.default_rpm_limit?.toLocaleString() ?? "-"})`
+              ? t("keyLimitsPortalValues", {
+                  tpm: portalSettings.default_tpm_limit?.toLocaleString() ?? "-",
+                  rpm: portalSettings.default_rpm_limit?.toLocaleString() ?? "-",
+                })
               : ""}
-            이 적용됩니다.
+            {t("keyLimitsHelpSuffix")}
           </p>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">멤버십 유효 기간</CardTitle>
+          <CardTitle className="text-base">{t("membershipDurationCard")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium">유효 기간</label>
+            <label className="text-sm font-medium">{t("durationLabel")}</label>
             <input
               type="text"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
-              placeholder="예: 90d, 180d, 365d (미설정 시 무기한)"
+              placeholder={t("durationPlaceholder")}
               className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
             />
             <p className="text-xs text-muted-foreground">
-              설정 시 가입 승인일로부터 해당 기간 후 자동으로 팀에서 탈퇴되고 키가 삭제됩니다 (d=일, m=월)
+              {t("durationHelp")}
             </p>
           </div>
         </CardContent>
@@ -637,13 +654,15 @@ function TeamSettingsTab({
 
       <Button onClick={handleSave} disabled={updateSettings.isPending}>
         {updateSettings.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-        저장
+        {t("save")}
       </Button>
     </div>
   );
 }
 
 function MembersTab({ teamId }: { teamId: string }) {
+  const t = useTranslations("teamDetail.members");
+  const tt = useTranslations("teamDetail");
   const [page, setPage] = useState(1);
   const pageSize = 50;
   const [searchInput, setSearchInput] = useState("");
@@ -705,9 +724,9 @@ function MembersTab({ teamId }: { teamId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">팀 멤버</h2>
+        <h2 className="text-lg font-semibold">{t("title")}</h2>
         <Input
-          placeholder="사번 검색..."
+          placeholder={t("searchPlaceholder")}
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           className="w-48"
@@ -724,7 +743,7 @@ function MembersTab({ teamId }: { teamId: string }) {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8">
           <Users className="size-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            {search ? "검색 결과가 없습니다." : "멤버가 없습니다."}
+            {search ? t("emptySearch") : t("empty")}
           </p>
         </div>
       ) : (
@@ -734,24 +753,24 @@ function MembersTab({ teamId }: { teamId: string }) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10" />
-                  <TableHead>사번</TableHead>
-                  <TableHead>역할</TableHead>
+                  <TableHead>{t("colEmployeeId")}</TableHead>
+                  <TableHead>{t("colRole")}</TableHead>
                   <TableHead className="hidden sm:table-cell">
                     <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("key_count")}>
-                      키 수 {sortField === "key_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                      {t("colKeyCount")} {sortField === "key_count" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                     </button>
                   </TableHead>
                   <TableHead>
                     <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("spend")}>
-                      사용량 {sortField === "spend" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                      {t("colSpend")} {sortField === "spend" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                     </button>
                   </TableHead>
                   <TableHead className="hidden sm:table-cell">
                     <button type="button" className="flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort("budget")}>
-                      예산 {sortField === "budget" ? (sortDir === "asc" ? "↑" : "↓") : ""}
+                      {t("colBudget")} {sortField === "budget" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                     </button>
                   </TableHead>
-                  <TableHead className="hidden md:table-cell">만료일</TableHead>
+                  <TableHead className="hidden md:table-cell">{t("colExpiry")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -777,10 +796,10 @@ function MembersTab({ teamId }: { teamId: string }) {
                             {member.is_admin ? (
                               <Badge variant="default" className="gap-1">
                                 <Shield className="size-3" />
-                                관리자
+                                {t("badgeAdmin")}
                               </Badge>
                             ) : (
-                              <Badge variant="outline">멤버</Badge>
+                              <Badge variant="outline">{t("badgeMember")}</Badge>
                             )}
                             <Button
                               variant="ghost"
@@ -792,7 +811,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                 setRoleChangeTarget({ userId: member.user_id, currentIsAdmin: member.is_admin });
                               }}
                             >
-                              {member.is_admin ? "멤버로 변경" : "관리자로 변경"}
+                              {member.is_admin ? t("changeToMember") : t("changeToAdmin")}
                             </Button>
                             <Button
                               variant="ghost"
@@ -801,26 +820,26 @@ function MembersTab({ teamId }: { teamId: string }) {
                               disabled={removeMemberMutation.isPending}
                               onClick={(e) => {
                                 e.stopPropagation();
-                                if (!confirm(`${member.user_id} 멤버를 팀에서 삭제하시겠습니까?`)) return;
+                                if (!confirm(t("confirmRemove", { userId: member.user_id }))) return;
                                 removeMemberMutation.mutate(
                                   { teamId, userId: member.user_id },
                                   {
-                                    onSuccess: () => toast.success(`${member.user_id} 멤버가 삭제되었습니다.`),
-                                    onError: (err) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                                    onSuccess: () => toast.success(t("toastRemoved", { userId: member.user_id })),
+                                    onError: (err) => toast.error(err instanceof Error ? err.message : t("errorRemove")),
                                   },
                                 );
                               }}
                             >
                               <Trash2 className="size-3 mr-0.5" />
-                              삭제
+                              {t("delete")}
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="hidden sm:table-cell">{member.key_count}개</TableCell>
+                        <TableCell className="hidden sm:table-cell">{t("keyCount", { count: member.key_count })}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <div className="space-y-1">
-                              <span className="text-sm">{formatBudget(member.total_spend, member.total_max_budget)}</span>
+                              <span className="text-sm">{formatBudget(member.total_spend, member.total_max_budget, tt("unlimited"))}</span>
                               <div className="h-1.5 w-24 rounded-full bg-muted">
                                 <div
                                   className="h-full rounded-full bg-primary transition-all"
@@ -838,13 +857,13 @@ function MembersTab({ teamId }: { teamId: string }) {
                                 setBudgetAmount(member.total_max_budget != null ? String(member.total_max_budget) : "");
                               }}
                             >
-                              변경
+                              {t("change")}
                             </Button>
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
                           <span className="text-sm text-muted-foreground">
-                            {member.total_max_budget === null ? "무제한" : `$${member.total_max_budget.toFixed(2)}`}
+                            {member.total_max_budget === null ? tt("unlimited") : `$${member.total_max_budget.toFixed(2)}`}
                           </span>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
@@ -852,7 +871,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                             <span className="text-sm text-muted-foreground">
                               {member.expires_at
                                 ? new Date(member.expires_at).toLocaleDateString("ko-KR")
-                                : "무기한"}
+                                : tt("indefinite")}
                             </span>
                             <Button
                               variant="ghost"
@@ -864,7 +883,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                 setExpiryDate(member.expires_at ? member.expires_at.split("T")[0] : "");
                               }}
                             >
-                              설정
+                              {t("set")}
                             </Button>
                           </div>
                         </TableCell>
@@ -891,13 +910,13 @@ function MembersTab({ teamId }: { teamId: string }) {
                                       <div>
                                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">TPM</div>
                                         <div className="font-medium tabular-nums">
-                                          {key.tpm_limit != null ? key.tpm_limit.toLocaleString() : "무제한"}
+                                          {key.tpm_limit != null ? key.tpm_limit.toLocaleString() : tt("unlimited")}
                                         </div>
                                       </div>
                                       <div>
                                         <div className="text-[10px] uppercase tracking-wide text-muted-foreground">RPM</div>
                                         <div className="font-medium tabular-nums">
-                                          {key.rpm_limit != null ? key.rpm_limit.toLocaleString() : "무제한"}
+                                          {key.rpm_limit != null ? key.rpm_limit.toLocaleString() : tt("unlimited")}
                                         </div>
                                       </div>
                                     </div>
@@ -918,7 +937,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                                         setRpmInput(key.rpm_limit != null ? String(key.rpm_limit) : "");
                                       }}
                                     >
-                                      수정
+                                      {t("edit")}
                                     </Button>
                                   </div>
                                 </div>
@@ -936,14 +955,16 @@ function MembersTab({ teamId }: { teamId: string }) {
 
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
-              총 {data.total.toLocaleString()}명 중{" "}
-              {((page - 1) * pageSize + 1).toLocaleString()}–
-              {Math.min(page * pageSize, data.total).toLocaleString()}
+              {t("pageInfo", {
+                total: data.total.toLocaleString(),
+                start: ((page - 1) * pageSize + 1).toLocaleString(),
+                end: Math.min(page * pageSize, data.total).toLocaleString(),
+              })}
             </p>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                 <ArrowLeft className="size-4" />
-                이전
+                {t("prev")}
               </Button>
               <span className="text-sm text-muted-foreground">
                 {page} / {totalPages}
@@ -954,7 +975,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
-                다음
+                {t("next")}
                 <ArrowRight className="size-4" />
               </Button>
             </div>
@@ -966,19 +987,16 @@ function MembersTab({ teamId }: { teamId: string }) {
       <Dialog open={!!roleChangeTarget} onOpenChange={(open) => !open && setRoleChangeTarget(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>역할 변경</DialogTitle>
+            <DialogTitle>{t("roleDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">{roleChangeTarget?.userId}</span>
-              님의 역할을{" "}
-              <span className="font-semibold text-foreground">
-                {roleChangeTarget?.currentIsAdmin ? "멤버" : "관리자"}
-              </span>
-              로 변경하시겠습니까?
+              {roleChangeTarget?.currentIsAdmin
+                ? t("roleDialogDescriptionToMember", { userId: roleChangeTarget?.userId ?? "" })
+                : t("roleDialogDescriptionToAdmin", { userId: roleChangeTarget?.userId ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRoleChangeTarget(null)}>
-              취소
+              {t("cancel")}
             </Button>
             <Button
               disabled={changeRoleMutation.isPending}
@@ -992,17 +1010,17 @@ function MembersTab({ teamId }: { teamId: string }) {
                   },
                   {
                     onSuccess: () => {
-                      toast.success("역할이 변경되었습니다.");
+                      toast.success(t("toastRoleChanged"));
                       setRoleChangeTarget(null);
                     },
                     onError: (err) => {
-                      toast.error(err instanceof Error ? err.message : "역할 변경 실패");
+                      toast.error(err instanceof Error ? err.message : t("errorRoleChange"));
                     },
                   },
                 );
               }}
             >
-              {changeRoleMutation.isPending ? "변경 중..." : "확인"}
+              {changeRoleMutation.isPending ? t("changing") : t("confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1012,34 +1030,33 @@ function MembersTab({ teamId }: { teamId: string }) {
       <Dialog open={!!budgetChangeTarget} onOpenChange={(open) => { if (!open) { setBudgetChangeTarget(null); setBudgetAmount(""); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>예산 변경</DialogTitle>
+            <DialogTitle>{t("budgetDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">{budgetChangeTarget?.userId}</span>
-              님의 예산을 변경합니다.
+              {t("budgetDialogDescription", { userId: budgetChangeTarget?.userId ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-md bg-muted p-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">현재 예산</span>
+                <span className="text-muted-foreground">{t("currentBudget")}</span>
                 <span className="font-medium">
-                  {budgetChangeTarget?.currentBudget === null ? "무제한" : `$${budgetChangeTarget?.currentBudget?.toFixed(2)}`}
+                  {budgetChangeTarget?.currentBudget === null ? tt("unlimited") : `$${budgetChangeTarget?.currentBudget?.toFixed(2)}`}
                 </span>
               </div>
               {budgetAmount && Number(budgetAmount) > 0 && (
                 <div className="flex justify-between mt-1 pt-1 border-t border-border">
-                  <span className="text-muted-foreground">변경 후 예산</span>
+                  <span className="text-muted-foreground">{t("newBudget")}</span>
                   <span className="font-medium text-primary">${Number(budgetAmount).toFixed(2)}</span>
                 </div>
               )}
             </div>
             <div>
-              <label className="text-sm font-medium">변경 금액 ($)</label>
+              <label className="text-sm font-medium">{t("amountLabel")}</label>
               <Input
                 type="number"
                 step="0.01"
                 min="0"
-                placeholder="예: 100"
+                placeholder={t("amountPlaceholder")}
                 value={budgetAmount}
                 onChange={(e) => setBudgetAmount(e.target.value)}
               />
@@ -1047,7 +1064,7 @@ function MembersTab({ teamId }: { teamId: string }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => { setBudgetChangeTarget(null); setBudgetAmount(""); }}>
-              취소
+              {t("cancel")}
             </Button>
             <Button
               disabled={!budgetAmount || Number(budgetAmount) <= 0 || changeBudgetMutation.isPending}
@@ -1057,16 +1074,16 @@ function MembersTab({ teamId }: { teamId: string }) {
                   { teamId, userId: budgetChangeTarget.userId, maxBudget: Number(budgetAmount) },
                   {
                     onSuccess: () => {
-                      toast.success("예산이 변경되었습니다.");
+                      toast.success(t("toastBudgetChanged"));
                       setBudgetChangeTarget(null);
                       setBudgetAmount("");
                     },
-                    onError: (err) => toast.error(err instanceof Error ? err.message : "예산 변경 실패"),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("errorBudgetChange")),
                   },
                 );
               }}
             >
-              {changeBudgetMutation.isPending ? "변경 중..." : "확인"}
+              {changeBudgetMutation.isPending ? t("changing") : t("confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1076,23 +1093,22 @@ function MembersTab({ teamId }: { teamId: string }) {
       <Dialog open={!!expiryTarget} onOpenChange={(open) => { if (!open) { setExpiryTarget(null); setExpiryDate(""); } }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>멤버십 만료일 설정</DialogTitle>
+            <DialogTitle>{t("expiryDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">{expiryTarget?.userId}</span>
-              님의 멤버십 만료일을 설정합니다. 만료 시 팀에서 자동 탈퇴되고 키가 삭제됩니다.
+              {t("expiryDialogDescription", { userId: expiryTarget?.userId ?? "" })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             {expiryTarget?.currentExpiry && (
               <div className="rounded-md bg-muted p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">현재 만료일</span>
+                  <span className="text-muted-foreground">{t("currentExpiry")}</span>
                   <span className="font-medium">{new Date(expiryTarget.currentExpiry).toLocaleDateString("ko-KR")}</span>
                 </div>
               </div>
             )}
             <div>
-              <label className="text-sm font-medium">만료일</label>
+              <label className="text-sm font-medium">{t("expiryDateLabel")}</label>
               <input
                 type="date"
                 value={expiryDate}
@@ -1113,20 +1129,20 @@ function MembersTab({ teamId }: { teamId: string }) {
                     { teamId, userId: expiryTarget.userId, expiresAt: null },
                     {
                       onSuccess: () => {
-                        toast.success("만료일이 해제되었습니다.");
+                        toast.success(t("toastExpiryCleared"));
                         setExpiryTarget(null);
                         setExpiryDate("");
                       },
-                      onError: (err) => toast.error(err instanceof Error ? err.message : "만료일 해제 실패"),
+                      onError: (err) => toast.error(err instanceof Error ? err.message : t("errorExpiryClear")),
                     },
                   );
                 }}
               >
-                만료일 해제
+                {t("clearExpiry")}
               </Button>
             )}
             <Button variant="outline" onClick={() => { setExpiryTarget(null); setExpiryDate(""); }}>
-              취소
+              {t("cancel")}
             </Button>
             <Button
               disabled={!expiryDate || setExpiryMutation.isPending}
@@ -1136,16 +1152,16 @@ function MembersTab({ teamId }: { teamId: string }) {
                   { teamId, userId: expiryTarget.userId, expiresAt: `${expiryDate}T23:59:59` },
                   {
                     onSuccess: () => {
-                      toast.success("만료일이 설정되었습니다.");
+                      toast.success(t("toastExpirySet"));
                       setExpiryTarget(null);
                       setExpiryDate("");
                     },
-                    onError: (err) => toast.error(err instanceof Error ? err.message : "만료일 설정 실패"),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("errorExpirySet")),
                   },
                 );
               }}
             >
-              {setExpiryMutation.isPending ? "설정 중..." : "확인"}
+              {setExpiryMutation.isPending ? t("setting") : t("confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1164,24 +1180,26 @@ function MembersTab({ teamId }: { teamId: string }) {
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>키 TPM / RPM 수정</DialogTitle>
+            <DialogTitle>{t("keyLimitsDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-semibold text-foreground">{keyLimitsTarget?.userId}</span>
-              님의 키{keyLimitsTarget?.keyAlias ? ` (${keyLimitsTarget.keyAlias})` : ""}의 분당 토큰/요청 제한을 변경합니다. 빈 값으로 저장하면 무제한이 됩니다.
+              {t("keyLimitsDescription", {
+                userId: keyLimitsTarget?.userId ?? "",
+                keySuffix: keyLimitsTarget?.keyAlias ? ` (${keyLimitsTarget.keyAlias})` : "",
+              })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
             <div className="rounded-md bg-muted p-3 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">현재 TPM</span>
+                <span className="text-muted-foreground">{t("currentTpm")}</span>
                 <span className="font-medium tabular-nums">
-                  {keyLimitsTarget?.currentTpm != null ? keyLimitsTarget.currentTpm.toLocaleString() : "무제한"}
+                  {keyLimitsTarget?.currentTpm != null ? keyLimitsTarget.currentTpm.toLocaleString() : tt("unlimited")}
                 </span>
               </div>
               <div className="flex justify-between mt-1">
-                <span className="text-muted-foreground">현재 RPM</span>
+                <span className="text-muted-foreground">{t("currentRpm")}</span>
                 <span className="font-medium tabular-nums">
-                  {keyLimitsTarget?.currentRpm != null ? keyLimitsTarget.currentRpm.toLocaleString() : "무제한"}
+                  {keyLimitsTarget?.currentRpm != null ? keyLimitsTarget.currentRpm.toLocaleString() : tt("unlimited")}
                 </span>
               </div>
             </div>
@@ -1192,7 +1210,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                   type="number"
                   min="0"
                   step="1"
-                  placeholder="무제한"
+                  placeholder={t("tpmPlaceholderUnlimited")}
                   value={tpmInput}
                   onChange={(e) => setTpmInput(e.target.value)}
                 />
@@ -1203,7 +1221,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                   type="number"
                   min="0"
                   step="1"
-                  placeholder="무제한"
+                  placeholder={t("tpmPlaceholderUnlimited")}
                   value={rpmInput}
                   onChange={(e) => setRpmInput(e.target.value)}
                 />
@@ -1219,7 +1237,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                 setRpmInput("");
               }}
             >
-              취소
+              {t("cancel")}
             </Button>
             <Button
               disabled={updateKeyLimitsMutation.isPending}
@@ -1235,17 +1253,17 @@ function MembersTab({ teamId }: { teamId: string }) {
                   },
                   {
                     onSuccess: () => {
-                      toast.success("키 제한이 변경되었습니다.");
+                      toast.success(t("toastKeyLimitsChanged"));
                       setKeyLimitsTarget(null);
                       setTpmInput("");
                       setRpmInput("");
                     },
-                    onError: (err) => toast.error(err instanceof Error ? err.message : "키 제한 변경 실패"),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("errorKeyLimitsChange")),
                   },
                 );
               }}
             >
-              {updateKeyLimitsMutation.isPending ? "변경 중..." : "확인"}
+              {updateKeyLimitsMutation.isPending ? t("changing") : t("confirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1259,6 +1277,10 @@ export default function TeamDetailPage({
 }: {
   params: Promise<{ teamId: string }>;
 }) {
+  const t = useTranslations("teamDetail");
+  const tc = useTranslations("common");
+  const tk = useTranslations("teamDetail.keysTab");
+  const tm = useTranslations("teamDetail.modelsTab");
   const { teamId } = use(params);
   const [activeTab, setActiveTab] = useState("overview");
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
@@ -1296,18 +1318,17 @@ export default function TeamDetailPage({
         <Button variant="ghost" size="sm" asChild>
           <Link href="/teams">
             <ArrowLeft className="size-4" />
-            내 팀으로 돌아가기
+            {t("backToTeams")}
           </Link>
         </Button>
         <div className="flex flex-col items-center gap-4 rounded-xl border border-destructive/20 bg-destructive/5 p-8">
           <AlertCircle className="size-10 text-destructive" />
           <p className="text-sm text-destructive">
-            팀 정보를 불러오는 중 오류가 발생했습니다:{" "}
-            {error?.message ?? "알 수 없는 오류"}
+            {t("loadError")}: {error?.message ?? tc("unknownError")}
           </p>
           <Button variant="outline" size="sm" onClick={() => refetch()}>
             <RefreshCw className="size-4" />
-            다시 시도
+            {tc("retry")}
           </Button>
         </div>
       </div>
@@ -1329,7 +1350,7 @@ export default function TeamDetailPage({
       <Button variant="ghost" size="sm" asChild>
         <Link href="/teams">
           <ArrowLeft className="size-4" />
-          내 팀
+          {t("back")}
         </Link>
       </Button>
 
@@ -1340,7 +1361,7 @@ export default function TeamDetailPage({
             {is_admin && (
               <Badge variant="default" className="gap-1">
                 <Shield className="size-3" />
-                관리자
+                {t("adminBadge")}
               </Badge>
             )}
           </div>
@@ -1351,11 +1372,11 @@ export default function TeamDetailPage({
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="overview">개요</TabsTrigger>
-          <TabsTrigger value="keys">내 키</TabsTrigger>
-          <TabsTrigger value="models">모델</TabsTrigger>
-          {is_admin && <TabsTrigger value="members">멤버</TabsTrigger>}
-          {is_admin && <TabsTrigger value="settings">설정</TabsTrigger>}
+          <TabsTrigger value="overview">{t("tabOverview")}</TabsTrigger>
+          <TabsTrigger value="keys">{t("tabKeys")}</TabsTrigger>
+          <TabsTrigger value="models">{t("tabModels")}</TabsTrigger>
+          {is_admin && <TabsTrigger value="members">{t("tabMembers")}</TabsTrigger>}
+          {is_admin && <TabsTrigger value="settings">{t("tabSettings")}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="overview" className="mt-6">
@@ -1373,22 +1394,22 @@ export default function TeamDetailPage({
 
         <TabsContent value="keys" className="mt-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">내 API 키</h2>
+            <h2 className="text-lg font-semibold">{tk("title")}</h2>
             <Button asChild size="sm">
               <Link href={`/keys/new?team_id=${teamId}`}>
                 <Plus className="size-4" />
-                키 생성
+                {tk("create")}
               </Link>
             </Button>
           </div>
 
           {my_keys.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8">
-              <p className="text-sm text-muted-foreground">생성된 키가 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{tk("noKeys")}</p>
               <Button asChild variant="outline" size="sm">
                 <Link href={`/keys/new?team_id=${teamId}`}>
                   <Plus className="size-4" />
-                  첫 키 생성하기
+                  {tk("createFirst")}
                 </Link>
               </Button>
             </div>
@@ -1397,13 +1418,13 @@ export default function TeamDetailPage({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>별칭</TableHead>
-                    <TableHead>키</TableHead>
+                    <TableHead>{tk("colAlias")}</TableHead>
+                    <TableHead>{tk("colKey")}</TableHead>
                     <TableHead className="hidden lg:table-cell">TPM</TableHead>
                     <TableHead className="hidden lg:table-cell">RPM</TableHead>
-                    <TableHead className="hidden md:table-cell">만료일</TableHead>
-                    <TableHead>모델</TableHead>
-                    <TableHead className="hidden md:table-cell">생성일</TableHead>
+                    <TableHead className="hidden md:table-cell">{tk("colExpires")}</TableHead>
+                    <TableHead>{tk("colModels")}</TableHead>
+                    <TableHead className="hidden md:table-cell">{tk("colCreated")}</TableHead>
                     <TableHead className="w-12" />
                   </TableRow>
                 </TableHeader>
@@ -1420,7 +1441,7 @@ export default function TeamDetailPage({
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              title="키 복사"
+                              title={tk("copyKey")}
                               disabled={revealKeyMutation.isPending}
                               onClick={() => {
                                 revealKeyMutation.mutate(key.token, {
@@ -1438,10 +1459,10 @@ export default function TeamDetailPage({
                                       document.body.removeChild(ta);
                                     }
                                     setCopiedKeyId(key.token);
-                                    toast.success("키가 클립보드에 복사되었습니다.");
+                                    toast.success(tk("toastCopied"));
                                     setTimeout(() => setCopiedKeyId(null), 2000);
                                   },
-                                  onError: (err) => toast.error(err instanceof Error ? err.message : "키 복사 실패"),
+                                  onError: (err) => toast.error(err instanceof Error ? err.message : tk("errorCopy")),
                                 });
                               }}
                             >
@@ -1462,10 +1483,10 @@ export default function TeamDetailPage({
                           {key.models.length > 0 ? (
                             <Badge variant="secondary" className="gap-1">
                               <Boxes className="size-3" />
-                              {key.models.includes("all-proxy-models") ? "모든 모델" : `${key.models.length}개`}
+                              {key.models.includes("all-proxy-models") ? tk("allModels") : tk("modelCount", { count: key.models.length })}
                             </Badge>
                           ) : (
-                            <span className="text-xs text-muted-foreground">전체</span>
+                            <span className="text-xs text-muted-foreground">{tk("allBadge")}</span>
                           )}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
@@ -1488,20 +1509,20 @@ export default function TeamDetailPage({
         </TabsContent>
 
         <TabsContent value="models" className="mt-6 space-y-4">
-          <h2 className="text-lg font-semibold">사용 가능한 모델</h2>
+          <h2 className="text-lg font-semibold">{tm("title")}</h2>
           {enrichedTeamModels.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8">
               <Boxes className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">이 팀에 배정된 모델이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{tm("empty")}</p>
             </div>
           ) : (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>모델명</TableHead>
-                    <TableHead>상태</TableHead>
-                    <TableHead className="hidden lg:table-cell">비용</TableHead>
+                    <TableHead>{tm("colName")}</TableHead>
+                    <TableHead>{tm("colStatus")}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{tm("colCost")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
