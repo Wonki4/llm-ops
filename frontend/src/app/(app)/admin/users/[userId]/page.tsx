@@ -2,6 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -54,8 +55,8 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-function formatBudget(value: number | null): string {
-  if (value == null) return "무제한";
+function formatBudget(value: number | null, unlimitedLabel: string): string {
+  if (value == null) return unlimitedLabel;
   return `$${value.toFixed(2)}`;
 }
 
@@ -84,6 +85,7 @@ export default function AdminUserDetailPage({
 }: {
   params: Promise<{ userId: string }>;
 }) {
+  const t = useTranslations("adminUserDetail");
   const { userId: rawUserId } = use(params);
   const userId = decodeURIComponent(rawUserId);
   const { data, isLoading, error } = useAdminUserDetail(userId);
@@ -119,18 +121,18 @@ export default function AdminUserDetailPage({
     const tpm = parseLimit(tpmInput);
     const rpm = parseLimit(rpmInput);
     if (Number.isNaN(tpm) || Number.isNaN(rpm)) {
-      toast.error("TPM/RPM은 0 이상의 숫자이거나 비워두어야 합니다.");
+      toast.error(t("errorInvalidLimits"));
       return;
     }
     updateLimitsMutation.mutate(
       { userId, token: editingKey.token, tpmLimit: tpm, rpmLimit: rpm },
       {
         onSuccess: () => {
-          toast.success("키 한도가 업데이트되었습니다.");
+          toast.success(t("toastLimitsSaved"));
           setEditingKey(null);
         },
         onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "업데이트 실패"),
+          toast.error(err instanceof Error ? err.message : t("errorLimitsSave")),
       },
     );
   };
@@ -141,32 +143,32 @@ export default function AdminUserDetailPage({
       { userId, teamId: removingTeam.team_id },
       {
         onSuccess: () => {
-          toast.success("팀에서 제외되었습니다.");
+          toast.success(t("toastRemoved"));
           setRemovingTeam(null);
         },
         onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "팀 제외 실패"),
+          toast.error(err instanceof Error ? err.message : t("errorRemove")),
       },
     );
   };
 
   const handleAssignToTeam = () => {
     if (!assignTeamId) {
-      toast.error("팀을 선택해주세요.");
+      toast.error(t("errorSelectTeam"));
       return;
     }
     assignMutation.mutate(
       { userId, teamId: assignTeamId, role: assignRole },
       {
         onSuccess: () => {
-          toast.success("팀에 추가되었습니다.");
+          toast.success(t("toastAssigned"));
           setAssignOpen(false);
           setAssignTeamId("");
           setAssignRole("user");
           setAssignSearch("");
         },
         onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "팀 추가 실패"),
+          toast.error(err instanceof Error ? err.message : t("errorAssign")),
       },
     );
   };
@@ -185,12 +187,12 @@ export default function AdminUserDetailPage({
         <Link href="/admin/users">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="size-4 mr-1" />
-            사용자 목록
+            {t("back")}
           </Button>
         </Link>
         <div className="rounded-lg border border-dashed p-8 text-center">
           <p className="text-muted-foreground">
-            {error instanceof Error ? error.message : "사용자를 불러올 수 없습니다."}
+            {error instanceof Error ? error.message : t("loadError")}
           </p>
         </div>
       </div>
@@ -205,14 +207,14 @@ export default function AdminUserDetailPage({
         <Link href="/admin/users">
           <Button variant="ghost" size="sm" className="-ml-2 mb-2">
             <ArrowLeft className="size-4 mr-1" />
-            사용자 목록
+            {t("back")}
           </Button>
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold font-mono">{user.user_id}</h1>
             <p className="text-muted-foreground mt-1">
-              {user.display_name || "이름 없음"}
+              {user.display_name || t("noName")}
               {user.email && (
                 <>
                   <span className="mx-2">·</span>
@@ -227,10 +229,10 @@ export default function AdminUserDetailPage({
           {user.global_role === "super_user" ? (
             <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
               <ShieldCheck className="size-3 mr-1" />
-              관리자
+              {t("roleAdmin")}
             </Badge>
           ) : (
-            <Badge variant="outline">사용자</Badge>
+            <Badge variant="outline">{t("roleUser")}</Badge>
           )}
         </div>
       </div>
@@ -239,7 +241,7 @@ export default function AdminUserDetailPage({
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              총 사용량
+              {t("cardTotalSpend")}
             </CardTitle>
             <DollarSign className="size-4 text-muted-foreground" />
           </CardHeader>
@@ -248,36 +250,36 @@ export default function AdminUserDetailPage({
               ${user.spend.toFixed(2)}
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              한도 {formatBudget(user.max_budget)}
+              {t("cardBudgetHint", { value: formatBudget(user.max_budget, t("unlimited")) })}
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              보유 키
+              {t("cardKeys")}
             </CardTitle>
             <KeyIcon className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{keys.length}개</div>
+            <div className="text-2xl font-bold">{t("cardKeysCount", { count: keys.length })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              소속 팀
+              {t("cardTeams")}
             </CardTitle>
             <UsersIcon className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{teams.length}개</div>
+            <div className="text-2xl font-bold">{t("cardTeamsCount", { count: teams.length })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              가입일
+              {t("cardCreated")}
             </CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
@@ -292,71 +294,71 @@ export default function AdminUserDetailPage({
       <Tabs defaultValue="teams" className="space-y-4">
         <div className="flex items-center justify-between">
           <TabsList>
-            <TabsTrigger value="teams">팀 ({teams.length})</TabsTrigger>
-            <TabsTrigger value="keys">키 ({keys.length})</TabsTrigger>
+            <TabsTrigger value="teams">{t("tabTeams", { count: teams.length })}</TabsTrigger>
+            <TabsTrigger value="keys">{t("tabKeys", { count: keys.length })}</TabsTrigger>
           </TabsList>
           <Button size="sm" onClick={() => setAssignOpen(true)}>
             <UserPlus className="size-3.5 mr-1" />
-            팀에 추가
+            {t("assignBtn")}
           </Button>
         </div>
 
         <TabsContent value="teams" className="space-y-2">
           {teams.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
-              <p className="text-sm text-muted-foreground">소속된 팀이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{t("teamsEmpty")}</p>
             </div>
           ) : (
             <div className="rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>팀</TableHead>
-                    <TableHead>역할</TableHead>
-                    <TableHead className="text-right">사용량</TableHead>
-                    <TableHead className="text-right">한도</TableHead>
-                    <TableHead>만료일</TableHead>
+                    <TableHead>{t("colTeam")}</TableHead>
+                    <TableHead>{t("colRole")}</TableHead>
+                    <TableHead className="text-right">{t("colSpend")}</TableHead>
+                    <TableHead className="text-right">{t("colBudget")}</TableHead>
+                    <TableHead>{t("colExpiry")}</TableHead>
                     <TableHead className="w-16 text-right" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {teams.map((t) => (
-                    <TableRow key={t.team_id}>
+                  {teams.map((team) => (
+                    <TableRow key={team.team_id}>
                       <TableCell>
                         <Link
-                          href={`/teams/${t.team_id}`}
+                          href={`/teams/${team.team_id}`}
                           className="hover:underline"
                         >
                           <span className="font-medium">
-                            {t.team_alias || t.team_id}
+                            {team.team_alias || team.team_id}
                           </span>
-                          {t.team_alias && (
+                          {team.team_alias && (
                             <span className="block font-mono text-xs text-muted-foreground">
-                              {t.team_id}
+                              {team.team_id}
                             </span>
                           )}
                         </Link>
                       </TableCell>
                       <TableCell>
-                        {t.is_admin ? (
+                        {team.is_admin ? (
                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100">
-                            팀 관리자
+                            {t("badgeTeamAdmin")}
                           </Badge>
                         ) : (
-                          <Badge variant="outline">멤버</Badge>
+                          <Badge variant="outline">{t("badgeMember")}</Badge>
                         )}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        ${t.spend.toFixed(2)}
+                        ${team.spend.toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {formatBudget(t.max_budget)}
+                        {formatBudget(team.max_budget, t("unlimited"))}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDateShort(t.expires_at)}
-                        {t.expiry_status && t.expiry_status !== "active" && (
+                        {formatDateShort(team.expires_at)}
+                        {team.expiry_status && team.expiry_status !== "active" && (
                           <Badge variant="outline" className="ml-2 text-xs">
-                            {t.expiry_status}
+                            {team.expiry_status}
                           </Badge>
                         )}
                       </TableCell>
@@ -365,10 +367,10 @@ export default function AdminUserDetailPage({
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:text-destructive"
-                          onClick={() => setRemovingTeam(t)}
+                          onClick={() => setRemovingTeam(team)}
                         >
                           <UserMinus className="size-3.5 mr-1" />
-                          탈퇴
+                          {t("removeBtn")}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -382,21 +384,21 @@ export default function AdminUserDetailPage({
         <TabsContent value="keys" className="space-y-2">
           {keys.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
-              <p className="text-sm text-muted-foreground">발급된 키가 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{t("keysEmpty")}</p>
             </div>
           ) : (
             <div className="rounded-lg border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Alias</TableHead>
-                    <TableHead>팀</TableHead>
-                    <TableHead>모델</TableHead>
-                    <TableHead className="text-right">사용량</TableHead>
-                    <TableHead className="text-right">한도</TableHead>
-                    <TableHead className="text-right">TPM</TableHead>
-                    <TableHead className="text-right">RPM</TableHead>
-                    <TableHead>생성일</TableHead>
+                    <TableHead>{t("colAlias")}</TableHead>
+                    <TableHead>{t("colTeam")}</TableHead>
+                    <TableHead>{t("colModels")}</TableHead>
+                    <TableHead className="text-right">{t("colSpend")}</TableHead>
+                    <TableHead className="text-right">{t("colBudget")}</TableHead>
+                    <TableHead className="text-right">{t("colTpm")}</TableHead>
+                    <TableHead className="text-right">{t("colRpm")}</TableHead>
+                    <TableHead>{t("colKeyCreated")}</TableHead>
                     <TableHead className="w-16 text-right" />
                   </TableRow>
                 </TableHeader>
@@ -425,7 +427,7 @@ export default function AdminUserDetailPage({
                       </TableCell>
                       <TableCell>
                         {k.models.length === 0 ? (
-                          <span className="text-xs text-muted-foreground">전체</span>
+                          <span className="text-xs text-muted-foreground">{t("modelsAll")}</span>
                         ) : (
                           <div className="flex flex-wrap gap-1">
                             {k.models.slice(0, 3).map((m) => (
@@ -435,7 +437,7 @@ export default function AdminUserDetailPage({
                             ))}
                             {k.models.length > 3 && (
                               <Badge variant="outline" className="text-xs">
-                                +{k.models.length - 3}
+                                {t("modelsMore", { count: k.models.length - 3 })}
                               </Badge>
                             )}
                           </div>
@@ -445,7 +447,7 @@ export default function AdminUserDetailPage({
                         ${k.spend.toFixed(2)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
-                        {formatBudget(k.max_budget)}
+                        {formatBudget(k.max_budget, t("unlimited"))}
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {k.tpm_limit ?? "-"}
@@ -463,7 +465,7 @@ export default function AdminUserDetailPage({
                           onClick={() => openKeyEditor(k)}
                         >
                           <Pencil className="size-3.5 mr-1" />
-                          수정
+                          {t("editBtn")}
                         </Button>
                       </TableCell>
                     </TableRow>
@@ -481,31 +483,32 @@ export default function AdminUserDetailPage({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>키 한도 수정</DialogTitle>
+            <DialogTitle>{t("limitsDialogTitle")}</DialogTitle>
             <DialogDescription>
-              {editingKey?.key_alias || editingKey?.key_name || editingKey?.token.slice(0, 12)}
-              {" "}의 TPM/RPM 한도를 변경합니다. 비워두면 무제한입니다.
+              {t("limitsDialogDescription", {
+                name: editingKey?.key_alias || editingKey?.key_name || editingKey?.token.slice(0, 12) || "",
+              })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="tpm-input">TPM (분당 토큰)</Label>
+              <Label htmlFor="tpm-input">{t("tpmLabel")}</Label>
               <Input
                 id="tpm-input"
                 type="number"
                 min={0}
-                placeholder="무제한"
+                placeholder={t("unlimited")}
                 value={tpmInput}
                 onChange={(e) => setTpmInput(e.target.value)}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rpm-input">RPM (분당 요청)</Label>
+              <Label htmlFor="rpm-input">{t("rpmLabel")}</Label>
               <Input
                 id="rpm-input"
                 type="number"
                 min={0}
-                placeholder="무제한"
+                placeholder={t("unlimited")}
                 value={rpmInput}
                 onChange={(e) => setRpmInput(e.target.value)}
               />
@@ -513,7 +516,7 @@ export default function AdminUserDetailPage({
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">취소</Button>
+              <Button variant="outline">{t("limitsCancel")}</Button>
             </DialogClose>
             <Button
               onClick={handleSaveLimits}
@@ -522,7 +525,7 @@ export default function AdminUserDetailPage({
               {updateLimitsMutation.isPending && (
                 <Loader2 className="size-4 mr-1 animate-spin" />
               )}
-              저장
+              {t("limitsSave")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -541,56 +544,55 @@ export default function AdminUserDetailPage({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>팀에 추가</DialogTitle>
+            <DialogTitle>{t("assignDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{user.user_id}</span> 님을 팀에
-              강제로 가입시킵니다.
+              {t("assignDialogDescription", { user: user.user_id })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="team-search">팀 검색</Label>
+              <Label htmlFor="team-search">{t("assignSearchLabel")}</Label>
               <Input
                 id="team-search"
-                placeholder="팀 이름 또는 ID"
+                placeholder={t("assignSearchPlaceholder")}
                 value={assignSearch}
                 onChange={(e) => setAssignSearch(e.target.value)}
               />
               <div className="max-h-60 overflow-y-auto rounded-md border">
                 {(() => {
-                  const memberTeamIds = new Set(teams.map((t) => t.team_id));
+                  const memberTeamIds = new Set(teams.map((team) => team.team_id));
                   const q = assignSearch.trim().toLowerCase();
                   const candidates = (allTeams ?? [])
-                    .filter((t) => !memberTeamIds.has(t.team_id))
-                    .filter((t) => {
+                    .filter((team) => !memberTeamIds.has(team.team_id))
+                    .filter((team) => {
                       if (!q) return true;
                       return (
-                        t.team_id.toLowerCase().includes(q) ||
-                        (t.team_alias ?? "").toLowerCase().includes(q)
+                        team.team_id.toLowerCase().includes(q) ||
+                        (team.team_alias ?? "").toLowerCase().includes(q)
                       );
                     });
                   if (candidates.length === 0) {
                     return (
                       <div className="p-4 text-sm text-muted-foreground text-center">
-                        추가 가능한 팀이 없습니다.
+                        {t("assignEmpty")}
                       </div>
                     );
                   }
-                  return candidates.map((t) => (
+                  return candidates.map((team) => (
                     <button
-                      key={t.team_id}
+                      key={team.team_id}
                       type="button"
-                      onClick={() => setAssignTeamId(t.team_id)}
+                      onClick={() => setAssignTeamId(team.team_id)}
                       className={`w-full text-left px-3 py-2 text-sm hover:bg-muted/50 border-b last:border-b-0 ${
-                        assignTeamId === t.team_id ? "bg-muted" : ""
+                        assignTeamId === team.team_id ? "bg-muted" : ""
                       }`}
                     >
                       <div className="font-medium">
-                        {t.team_alias || t.team_id}
+                        {team.team_alias || team.team_id}
                       </div>
-                      {t.team_alias && (
+                      {team.team_alias && (
                         <div className="font-mono text-xs text-muted-foreground">
-                          {t.team_id}
+                          {team.team_id}
                         </div>
                       )}
                     </button>
@@ -599,7 +601,7 @@ export default function AdminUserDetailPage({
               </div>
             </div>
             <div className="space-y-2">
-              <Label>역할</Label>
+              <Label>{t("assignRoleLabel")}</Label>
               <div className="flex gap-2">
                 <Button
                   type="button"
@@ -607,7 +609,7 @@ export default function AdminUserDetailPage({
                   size="sm"
                   onClick={() => setAssignRole("user")}
                 >
-                  멤버
+                  {t("assignMember")}
                 </Button>
                 <Button
                   type="button"
@@ -615,14 +617,14 @@ export default function AdminUserDetailPage({
                   size="sm"
                   onClick={() => setAssignRole("admin")}
                 >
-                  팀 관리자
+                  {t("assignTeamAdmin")}
                 </Button>
               </div>
             </div>
           </div>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">취소</Button>
+              <Button variant="outline">{t("assignCancel")}</Button>
             </DialogClose>
             <Button
               onClick={handleAssignToTeam}
@@ -631,7 +633,7 @@ export default function AdminUserDetailPage({
               {assignMutation.isPending && (
                 <Loader2 className="size-4 mr-1 animate-spin" />
               )}
-              추가
+              {t("assignBtnConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -643,19 +645,17 @@ export default function AdminUserDetailPage({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>팀에서 강제 탈퇴</DialogTitle>
+            <DialogTitle>{t("removeDialogTitle")}</DialogTitle>
             <DialogDescription>
-              <span className="font-medium">{user.user_id}</span>
-              {" "}님을{" "}
-              <span className="font-medium">
-                {removingTeam?.team_alias || removingTeam?.team_id}
-              </span>
-              {" "}팀에서 제외합니다. 이 작업은 되돌릴 수 없습니다.
+              {t("removeDialogDescription", {
+                user: user.user_id,
+                team: removingTeam?.team_alias || removingTeam?.team_id || "",
+              })}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <DialogClose asChild>
-              <Button variant="outline">취소</Button>
+              <Button variant="outline">{t("removeCancel")}</Button>
             </DialogClose>
             <Button
               variant="destructive"
@@ -665,7 +665,7 @@ export default function AdminUserDetailPage({
               {removeFromTeamMutation.isPending && (
                 <Loader2 className="size-4 mr-1 animate-spin" />
               )}
-              탈퇴시키기
+              {t("removeConfirm")}
             </Button>
           </DialogFooter>
         </DialogContent>

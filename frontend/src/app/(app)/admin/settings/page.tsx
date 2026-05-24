@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
+import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 
 import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules, useCatalogList, useUpdateCatalogList } from "@/hooks/use-api";
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/card";
 
 export default function PortalSettingsPage() {
+  const t = useTranslations("adminSettings");
   const { data: settings, isLoading } = usePortalSettings();
   const updateMutation = useUpdatePortalSettings();
   const { data: hiddenTeams } = useHiddenTeams();
@@ -32,26 +34,26 @@ export default function PortalSettingsPage() {
     const name = suffixInput.trim();
     if (!name) return;
     if (catalogs.includes(name)) {
-      toast.error("이미 존재하는 suffix입니다.");
+      toast.error(t("errorSuffixExists"));
       return;
     }
     updateCatalogList.mutate([...catalogs, name], {
       onSuccess: () => {
-        toast.success(`'${name}' suffix가 추가되었습니다.`);
+        toast.success(t("toastSuffixAdded", { name }));
         setSuffixInput("");
       },
-      onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("errorSuffixAdd")),
     });
   }
 
   function handleRemoveSuffix(name: string) {
     if (catalogs.length <= 1) {
-      toast.error("최소 1개의 suffix가 필요합니다.");
+      toast.error(t("errorSuffixMin"));
       return;
     }
     updateCatalogList.mutate(catalogs.filter((c) => c !== name), {
-      onSuccess: () => toast.success(`'${name}' suffix가 제거되었습니다.`),
-      onError: (err) => toast.error(err instanceof Error ? err.message : "제거 실패"),
+      onSuccess: () => toast.success(t("toastSuffixRemoved", { name })),
+      onError: (err) => toast.error(err instanceof Error ? err.message : t("errorSuffixRemove")),
     });
   }
 
@@ -80,9 +82,9 @@ export default function PortalSettingsPage() {
         default_team_id: defaultTeamId || undefined,
       },
       {
-        onSuccess: () => toast.success("설정이 저장되었습니다."),
+        onSuccess: () => toast.success(t("toastSaved")),
         onError: (err) =>
-          toast.error(err instanceof Error ? err.message : "저장 실패"),
+          toast.error(err instanceof Error ? err.message : t("errorSave")),
       },
     );
   };
@@ -98,9 +100,9 @@ export default function PortalSettingsPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h1 className="text-2xl font-bold">포털 설정</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          전체 포털에 적용되는 기본값을 관리합니다
+          {t("subtitle")}
         </p>
       </div>
 
@@ -108,16 +110,16 @@ export default function PortalSettingsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Settings className="size-4" />
-            API 키 기본 제한
+            {t("limitsCardTitle")}
           </CardTitle>
           <CardDescription>
-            새로운 API 키 생성 시 적용되는 기본 TPM/RPM 제한값입니다
+            {t("limitsCardDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="tpm-limit">기본 TPM (Tokens Per Minute)</Label>
+              <Label htmlFor="tpm-limit">{t("tpmLabel")}</Label>
               <Input
                 id="tpm-limit"
                 type="number"
@@ -127,7 +129,7 @@ export default function PortalSettingsPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rpm-limit">기본 RPM (Requests Per Minute)</Label>
+              <Label htmlFor="rpm-limit">{t("rpmLabel")}</Label>
               <Input
                 id="rpm-limit"
                 type="number"
@@ -144,43 +146,43 @@ export default function PortalSettingsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <Settings className="size-4" />
-            신규 유저 자동 등록
+            {t("autoEnrollCardTitle")}
           </CardTitle>
           <CardDescription>
-            SSO 로그인 시 신규 유저를 자동으로 등록합니다. 기본 팀은 모든 유저에게 부여되고, 사번 규칙에 해당하면 추가 팀이 배정됩니다.
+            {t("autoEnrollCardDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {/* Base team */}
           <div className="space-y-2">
-            <Label htmlFor="default-team-id">기본 팀 ID (모든 유저)</Label>
+            <Label htmlFor="default-team-id">{t("baseTeamLabel")}</Label>
             <Input
               id="default-team-id"
               value={defaultTeamId}
               onChange={(e) => setDefaultTeamId(e.target.value)}
-              placeholder="쉼표로 여러 팀 입력 가능 (예: team-a, team-b)"
+              placeholder={t("baseTeamPlaceholder")}
             />
             <p className="text-xs text-muted-foreground">
-              모든 신규 유저가 자동으로 추가될 팀입니다. 쉼표(,)로 여러 팀을 지정할 수 있습니다.
+              {t("baseTeamHelp")}
             </p>
           </div>
 
           <div className="border-t pt-4 space-y-3">
             <div>
-              <Label>추가 팀 규칙 (사번 prefix 기반)</Label>
+              <Label>{t("rulesLabel")}</Label>
               <p className="text-xs text-muted-foreground mt-1">
-                사번이 해당 prefix로 시작하면 위 기본 팀에 더해 추가 팀이 배정됩니다
+                {t("rulesHelp")}
               </p>
             </div>
             <div className="flex items-center gap-2">
               <Input
-                placeholder="Prefix (예: X)"
+                placeholder={t("rulePrefixPlaceholder")}
                 value={newRulePrefix}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRulePrefix(e.target.value)}
                 className="w-32"
               />
               <Input
-                placeholder="팀 ID (쉼표 구분)"
+                placeholder={t("ruleTeamsPlaceholder")}
                 value={newRuleTeams}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRuleTeams(e.target.value)}
                 className="flex-1"
@@ -190,7 +192,7 @@ export default function PortalSettingsPage() {
                 size="sm"
                 disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
                 onClick={() => {
-                  const teams = newRuleTeams.split(",").map((t: string) => t.trim()).filter(Boolean);
+                  const teams = newRuleTeams.split(",").map((s: string) => s.trim()).filter(Boolean);
                   if (teams.length === 0) return;
                   const updated: DefaultTeamRule[] = [
                     ...(teamRules || []),
@@ -198,16 +200,16 @@ export default function PortalSettingsPage() {
                   ];
                   updateTeamRules.mutate(updated, {
                     onSuccess: () => {
-                      toast.success("규칙이 추가되었습니다.");
+                      toast.success(t("toastRuleAdded"));
                       setNewRulePrefix("");
                       setNewRuleTeams("");
                     },
-                    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("errorRuleAdd")),
                   });
                 }}
               >
                 <Plus className="size-4" />
-                추가
+                {t("addBtn")}
               </Button>
             </div>
             {teamRules && teamRules.length > 0 ? (
@@ -226,8 +228,8 @@ export default function PortalSettingsPage() {
                       onClick={() => {
                         const updated = teamRules.filter((_: DefaultTeamRule, i: number) => i !== idx);
                         updateTeamRules.mutate(updated, {
-                          onSuccess: () => toast.success("규칙이 삭제되었습니다."),
-                          onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "삭제 실패"),
+                          onSuccess: () => toast.success(t("toastRuleRemoved")),
+                          onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("errorRuleRemove")),
                         });
                       }}
                     >
@@ -237,7 +239,7 @@ export default function PortalSettingsPage() {
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">등록된 추가 규칙이 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{t("rulesEmpty")}</p>
             )}
           </div>
         </CardContent>
@@ -247,16 +249,16 @@ export default function PortalSettingsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <EyeOff className="size-4" />
-            팀 숨기기
+            {t("hideCardTitle")}
           </CardTitle>
           <CardDescription>
-            일반 유저에게 보이지 않는 팀을 관리합니다. 관리자에게는 항상 표시됩니다.
+            {t("hideCardDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-2">
             <Input
-              placeholder="숨길 팀 ID 입력"
+              placeholder={t("hidePlaceholder")}
               value={newHiddenTeamId}
               onChange={(e) => setNewHiddenTeamId(e.target.value)}
               onKeyDown={(e) => {
@@ -266,10 +268,10 @@ export default function PortalSettingsPage() {
                   const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
                   updateHiddenTeams.mutate(updated, {
                     onSuccess: () => {
-                      toast.success("팀이 숨김 목록에 추가되었습니다.");
+                      toast.success(t("toastHideAdded"));
                       setNewHiddenTeamId("");
                     },
-                    onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("errorHideAdd")),
                   });
                 }
               }}
@@ -283,15 +285,15 @@ export default function PortalSettingsPage() {
                 const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
                 updateHiddenTeams.mutate(updated, {
                   onSuccess: () => {
-                    toast.success("팀이 숨김 목록에 추가되었습니다.");
+                    toast.success(t("toastHideAdded"));
                     setNewHiddenTeamId("");
                   },
-                  onError: (err) => toast.error(err instanceof Error ? err.message : "추가 실패"),
+                  onError: (err) => toast.error(err instanceof Error ? err.message : t("errorHideAdd")),
                 });
               }}
             >
               <Plus className="size-4" />
-              추가
+              {t("addBtn")}
             </Button>
           </div>
           {hiddenTeams && hiddenTeams.length > 0 ? (
@@ -305,8 +307,8 @@ export default function PortalSettingsPage() {
                     onClick={() => {
                       const updated = hiddenTeams.filter((id) => id !== teamId);
                       updateHiddenTeams.mutate(updated, {
-                        onSuccess: () => toast.success("팀이 숨김 목록에서 제거되었습니다."),
-                        onError: (err) => toast.error(err instanceof Error ? err.message : "제거 실패"),
+                        onSuccess: () => toast.success(t("toastHideRemoved")),
+                        onError: (err) => toast.error(err instanceof Error ? err.message : t("errorHideRemove")),
                       });
                     }}
                   >
@@ -316,7 +318,7 @@ export default function PortalSettingsPage() {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">숨겨진 팀이 없습니다.</p>
+            <p className="text-sm text-muted-foreground">{t("hideEmpty")}</p>
           )}
         </CardContent>
       </Card>
@@ -325,10 +327,10 @@ export default function PortalSettingsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <Settings className="size-4" />
-            캐시 카탈로그 (suffix)
+            {t("cacheCardTitle")}
           </CardTitle>
           <CardDescription>
-            모델 캐시가 저장되는 Redis hash key suffix를 관리합니다 (예: chat → GENERATIVE:AI:chat). 모델 디테일 시트의 캐시 설정 섹션에서 각 suffix별로 엔트리를 추가할 수 있습니다.
+            {t("cacheCardDescription")}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -336,7 +338,7 @@ export default function PortalSettingsPage() {
             <Input
               value={suffixInput}
               onChange={(e) => setSuffixInput(e.target.value)}
-              placeholder="새 suffix... (예: chat, hcp, common)"
+              placeholder={t("cachePlaceholder")}
               className="h-9"
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
@@ -347,7 +349,7 @@ export default function PortalSettingsPage() {
             />
             <Button size="sm" onClick={handleAddSuffix} disabled={updateCatalogList.isPending}>
               <Plus className="size-3.5" />
-              추가
+              {t("addBtn")}
             </Button>
           </div>
           <div className="space-y-2">
@@ -367,7 +369,7 @@ export default function PortalSettingsPage() {
                 </div>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">등록된 suffix가 없습니다.</p>
+              <p className="text-sm text-muted-foreground">{t("cacheEmpty")}</p>
             )}
           </div>
         </CardContent>
@@ -382,7 +384,7 @@ export default function PortalSettingsPage() {
         ) : (
           <Save className="size-4" />
         )}
-        저장
+        {t("save")}
       </Button>
     </div>
   );

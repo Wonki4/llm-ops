@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
+import { useTranslations } from "next-intl";
 
 import { useAdminUsers } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -28,8 +29,8 @@ import {
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300] as const;
 const DEFAULT_PAGE_SIZE = 50;
 
-function formatBudget(value: number | null): string {
-  if (value == null) return "무제한";
+function formatBudget(value: number | null, unlimitedLabel: string): string {
+  if (value == null) return unlimitedLabel;
   return `$${value.toFixed(2)}`;
 }
 
@@ -43,6 +44,7 @@ function formatDate(dateStr: string | null): string {
 }
 
 export default function AdminUsersPage() {
+  const t = useTranslations("adminUsers");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [searchInput, setSearchInput] = useState("");
@@ -63,9 +65,9 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">사용자 관리</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          포털에 등록된 전체 사용자를 사번 기준으로 조회합니다.
+          {t("subtitle")}
         </p>
       </div>
 
@@ -73,7 +75,7 @@ export default function AdminUsersPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
           <Input
-            placeholder="사번, 이메일, 이름 검색..."
+            placeholder={t("searchPlaceholder")}
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="pl-8 h-9"
@@ -87,9 +89,9 @@ export default function AdminUsersPage() {
             setPage(1);
           }}
         >
-          <option value="">전체 역할</option>
-          <option value="super_user">관리자</option>
-          <option value="user">일반 사용자</option>
+          <option value="">{t("roleAll")}</option>
+          <option value="super_user">{t("roleAdmin")}</option>
+          <option value="user">{t("roleUser")}</option>
         </select>
         {(search || role) && (
           <Button
@@ -102,7 +104,7 @@ export default function AdminUsersPage() {
             }}
           >
             <X className="size-3.5 mr-1" />
-            초기화
+            {t("clearFilters")}
           </Button>
         )}
       </div>
@@ -114,7 +116,7 @@ export default function AdminUsersPage() {
       ) : !data || data.users.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
           <UsersIcon className="size-10 text-muted-foreground mb-3" />
-          <p className="text-muted-foreground">사용자가 없습니다.</p>
+          <p className="text-muted-foreground">{t("empty")}</p>
         </div>
       ) : (
         <>
@@ -122,15 +124,15 @@ export default function AdminUsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>사번</TableHead>
-                  <TableHead>이름</TableHead>
-                  <TableHead>이메일</TableHead>
-                  <TableHead>역할</TableHead>
-                  <TableHead className="text-right">키</TableHead>
-                  <TableHead className="text-right">팀</TableHead>
-                  <TableHead className="text-right">사용량</TableHead>
-                  <TableHead className="text-right">한도</TableHead>
-                  <TableHead>가입일</TableHead>
+                  <TableHead>{t("colEmployeeId")}</TableHead>
+                  <TableHead>{t("colName")}</TableHead>
+                  <TableHead>{t("colEmail")}</TableHead>
+                  <TableHead>{t("colRole")}</TableHead>
+                  <TableHead className="text-right">{t("colKeys")}</TableHead>
+                  <TableHead className="text-right">{t("colTeams")}</TableHead>
+                  <TableHead className="text-right">{t("colSpend")}</TableHead>
+                  <TableHead className="text-right">{t("colBudget")}</TableHead>
+                  <TableHead>{t("colCreated")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -159,10 +161,10 @@ export default function AdminUsersPage() {
                       {u.global_role === "super_user" ? (
                         <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-100">
                           <ShieldCheck className="size-3 mr-1" />
-                          관리자
+                          {t("badgeAdmin")}
                         </Badge>
                       ) : (
-                        <Badge variant="outline">사용자</Badge>
+                        <Badge variant="outline">{t("badgeUser")}</Badge>
                       )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
@@ -175,7 +177,7 @@ export default function AdminUsersPage() {
                       ${u.spend.toFixed(2)}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-muted-foreground">
-                      {formatBudget(u.max_budget)}
+                      {formatBudget(u.max_budget, t("unlimited"))}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {formatDate(u.created_at)}
@@ -189,8 +191,11 @@ export default function AdminUsersPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <p className="text-sm text-muted-foreground">
-                총 {data.total}명 중 {(page - 1) * pageSize + 1}–
-                {Math.min(page * pageSize, data.total)}
+                {t("pageInfo", {
+                  total: data.total,
+                  start: (page - 1) * pageSize + 1,
+                  end: Math.min(page * pageSize, data.total),
+                })}
               </p>
               <select
                 className="h-8 rounded-md border border-input bg-background px-2 text-sm"
@@ -202,7 +207,7 @@ export default function AdminUsersPage() {
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
                   <option key={size} value={size}>
-                    {size}개씩
+                    {t("pageSizeOption", { size })}
                   </option>
                 ))}
               </select>
@@ -215,7 +220,7 @@ export default function AdminUsersPage() {
                 onClick={() => setPage(page - 1)}
               >
                 <ChevronLeft className="size-4" />
-                이전
+                {t("prev")}
               </Button>
               <span className="text-sm text-muted-foreground">
                 {page} / {totalPages || 1}
@@ -226,7 +231,7 @@ export default function AdminUsersPage() {
                 disabled={page >= totalPages}
                 onClick={() => setPage(page + 1)}
               >
-                다음
+                {t("next")}
                 <ChevronRight className="size-4" />
               </Button>
             </div>
