@@ -31,6 +31,7 @@ import type {
   UpdateAnnouncementRequest,
   BenchmarkRun,
   BenchmarkListResponse,
+  CreateBenchmarkRequest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -955,5 +956,17 @@ export function useCancelBenchmark() {
       qc.invalidateQueries({ queryKey: ["benchmarks"] });
       qc.invalidateQueries({ queryKey: ["benchmarks", id] });
     },
+  });
+}
+
+export function useCreateBenchmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateBenchmarkRequest) =>
+      apiFetch<BenchmarkRun>("/api/benchmarks", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["benchmarks"] }),
   });
 }

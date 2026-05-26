@@ -1,0 +1,430 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { ArrowLeft, Loader2, Play } from "lucide-react";
+import { toast } from "sonner";
+import { useTranslations } from "next-intl";
+
+import { useCreateBenchmark, useModels } from "@/hooks/use-api";
+import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+const TOOL_OPTIONS: BenchmarkTool[] = [
+  "vllm_serving",
+  "sglang_serving",
+  "lm_eval",
+];
+
+const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
+  vllm_serving: "performance",
+  sglang_serving: "performance",
+  lm_eval: "accuracy",
+};
+
+const DEFAULT_PERF_PARAMS = {
+  num_prompts: 32,
+  concurrency: 8,
+  max_tokens: 128,
+  temperature: 0,
+  prompt: "Write a short paragraph explaining the difference between TCP and UDP.",
+};
+
+const DEFAULT_ACCURACY_PARAMS = {
+  tasks: "mmlu",
+  num_fewshot: "",
+  limit: "",
+  batch_size: 8,
+  num_concurrent: 4,
+};
+
+export default function NewBenchmarkPage() {
+  const t = useTranslations("benchmarkForm");
+  const tc = useTranslations("common");
+  const router = useRouter();
+  const { data: models, isLoading: modelsLoading } = useModels();
+  const createMutation = useCreateBenchmark();
+
+  const [modelName, setModelName] = useState("");
+  const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
+  const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
+  const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
+  const [namespace, setNamespace] = useState("");
+  const [image, setImage] = useState("");
+
+  const kind = TOOL_TO_KIND[tool];
+
+  // Deduplicated model_name list for the dropdown.
+  const modelOptions = useMemo(() => {
+    if (!models) return [] as string[];
+    return Array.from(new Set(models.map((m) => m.model_name))).sort();
+  }, [models]);
+
+  const buildParams = (): Record<string, unknown> => {
+    if (kind === "performance") {
+      return {
+        num_prompts: perfParams.num_prompts,
+        concurrency: perfParams.concurrency,
+        max_tokens: perfParams.max_tokens,
+        temperature: perfParams.temperature,
+        prompt: perfParams.prompt,
+      };
+    }
+    const tasks = accParams.tasks
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const params: Record<string, unknown> = {
+      tasks,
+      batch_size: accParams.batch_size,
+      num_concurrent: accParams.num_concurrent,
+    };
+    if (accParams.num_fewshot !== "") {
+      params.num_fewshot = Number(accParams.num_fewshot);
+    }
+    if (accParams.limit !== "") {
+      params.limit = Number(accParams.limit);
+    }
+    return params;
+  };
+
+  const validate = (): string | null => {
+    if (!modelName.trim()) return t("errorModelRequired");
+    if (kind === "accuracy") {
+      const tasks = accParams.tasks.split(",").map((s) => s.trim()).filter(Boolean);
+      if (tasks.length === 0) return t("errorTasksRequired");
+    }
+    return null;
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const err = validate();
+    if (err) {
+      toast.error(err);
+      return;
+    }
+    const body: CreateBenchmarkRequest = {
+      model_name: modelName.trim(),
+      tool,
+      params: buildParams(),
+    };
+    if (namespace.trim()) body.namespace = namespace.trim();
+    if (image.trim()) body.image = image.trim();
+
+    createMutation.mutate(body, {
+      onSuccess: (run) => {
+        toast.success(t("submitSuccess"));
+        router.push(`/admin/benchmarks/${run.id}`);
+      },
+      onError: (e) =>
+        toast.error(e instanceof Error ? e.message : t("submitFail")),
+    });
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div>
+        <Link
+          href="/admin/benchmarks"
+          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+        >
+          <ArrowLeft className="size-3.5" />
+          {t("backToList")}
+        </Link>
+        <h1 className="text-2xl font-bold mt-2">{t("pageTitle")}</h1>
+        <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("target")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="model_name">{t("modelLabel")}</Label>
+              <select
+                id="model_name"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={modelName}
+                onChange={(e) => setModelName(e.target.value)}
+                disabled={modelsLoading}
+              >
+                <option value="">{t("modelPlaceholder")}</option>
+                {modelOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t("modelHint")}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="tool">{t("toolLabel")}</Label>
+              <select
+                id="tool"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={tool}
+                onChange={(e) => setTool(e.target.value as BenchmarkTool)}
+              >
+                {TOOL_OPTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value} ({TOOL_TO_KIND[value]})
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t(`toolHint_${tool}`)}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("params")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {kind === "performance" ? (
+              <PerfParamsFields
+                params={perfParams}
+                onChange={setPerfParams}
+              />
+            ) : (
+              <AccuracyParamsFields
+                params={accParams}
+                onChange={setAccParams}
+              />
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("advanced")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="namespace">{t("namespaceLabel")}</Label>
+              <Input
+                id="namespace"
+                placeholder="default"
+                value={namespace}
+                onChange={(e) => setNamespace(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("namespaceHint")}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="image">{t("imageLabel")}</Label>
+              <Input
+                id="image"
+                placeholder="llmops-benchmark:latest"
+                value={image}
+                onChange={(e) => setImage(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("imageHint")}</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-end gap-3">
+          <Link href="/admin/benchmarks">
+            <Button type="button" variant="outline">
+              {tc("cancel")}
+            </Button>
+          </Link>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? (
+              <Loader2 className="size-4 mr-1 animate-spin" />
+            ) : (
+              <Play className="size-4 mr-1" />
+            )}
+            {t("submit")}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function PerfParamsFields({
+  params,
+  onChange,
+}: {
+  params: typeof DEFAULT_PERF_PARAMS;
+  onChange: (next: typeof DEFAULT_PERF_PARAMS) => void;
+}) {
+  const t = useTranslations("benchmarkForm");
+  return (
+    <>
+      <div className="grid grid-cols-2 gap-4">
+        <NumberField
+          id="num_prompts"
+          label={t("numPromptsLabel")}
+          hint={t("numPromptsHint")}
+          value={params.num_prompts}
+          onChange={(v) => onChange({ ...params, num_prompts: v })}
+          min={1}
+        />
+        <NumberField
+          id="concurrency"
+          label={t("concurrencyLabel")}
+          hint={t("concurrencyHint")}
+          value={params.concurrency}
+          onChange={(v) => onChange({ ...params, concurrency: v })}
+          min={1}
+        />
+        <NumberField
+          id="max_tokens"
+          label={t("maxTokensLabel")}
+          hint={t("maxTokensHint")}
+          value={params.max_tokens}
+          onChange={(v) => onChange({ ...params, max_tokens: v })}
+          min={1}
+        />
+        <NumberField
+          id="temperature"
+          label={t("temperatureLabel")}
+          hint={t("temperatureHint")}
+          value={params.temperature}
+          onChange={(v) => onChange({ ...params, temperature: v })}
+          step="0.1"
+          min={0}
+        />
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="prompt">{t("promptLabel")}</Label>
+        <textarea
+          id="prompt"
+          rows={4}
+          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+          value={params.prompt}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+            onChange({ ...params, prompt: e.target.value })
+          }
+        />
+        <p className="text-xs text-muted-foreground">{t("promptHint")}</p>
+      </div>
+    </>
+  );
+}
+
+function AccuracyParamsFields({
+  params,
+  onChange,
+}: {
+  params: typeof DEFAULT_ACCURACY_PARAMS;
+  onChange: (next: typeof DEFAULT_ACCURACY_PARAMS) => void;
+}) {
+  const t = useTranslations("benchmarkForm");
+  return (
+    <>
+      <div className="space-y-1.5">
+        <Label htmlFor="tasks">{t("tasksLabel")}</Label>
+        <Input
+          id="tasks"
+          placeholder="mmlu, hellaswag"
+          value={params.tasks}
+          onChange={(e) => onChange({ ...params, tasks: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">{t("tasksHint")}</p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <NumberField
+          id="batch_size"
+          label={t("batchSizeLabel")}
+          hint={t("batchSizeHint")}
+          value={params.batch_size}
+          onChange={(v) => onChange({ ...params, batch_size: v })}
+          min={1}
+        />
+        <NumberField
+          id="num_concurrent"
+          label={t("numConcurrentLabel")}
+          hint={t("numConcurrentHint")}
+          value={params.num_concurrent}
+          onChange={(v) => onChange({ ...params, num_concurrent: v })}
+          min={1}
+        />
+        <OptionalNumberField
+          id="num_fewshot"
+          label={t("numFewshotLabel")}
+          hint={t("numFewshotHint")}
+          value={params.num_fewshot}
+          onChange={(v) => onChange({ ...params, num_fewshot: v })}
+        />
+        <OptionalNumberField
+          id="limit"
+          label={t("limitLabel")}
+          hint={t("limitHint")}
+          value={params.limit}
+          onChange={(v) => onChange({ ...params, limit: v })}
+        />
+      </div>
+    </>
+  );
+}
+
+function NumberField({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+  min,
+  step,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: number;
+  onChange: (v: number) => void;
+  min?: number;
+  step?: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        value={value}
+        min={min}
+        step={step}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
+
+function OptionalNumberField({
+  id,
+  label,
+  hint,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p className="text-xs text-muted-foreground">{hint}</p>
+    </div>
+  );
+}
