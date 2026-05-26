@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
 
 import { useModelStatusHistory } from "@/hooks/use-api";
 import { ModelCacheSection } from "@/components/model-cache-section";
@@ -51,18 +52,9 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
-
-function formatDateTime(dateStr: string | null | undefined): string {
-  if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString("ko-KR", {
+  return new Date(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -82,6 +74,9 @@ function renderBoolean(value: boolean | null | undefined): string {
 }
 
 export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheetProps) {
+  const t = useTranslations("modelDetail");
+  const locale = useLocale();
+  const localeTag = locale === "ko" ? "ko-KR" : "en-US";
   const catalog = model?.catalog ?? null;
   const litellmInfo = model?.litellm_info ?? null;
   const provider = litellmInfo?.model_info?.litellm_provider ?? "-";
@@ -111,13 +106,13 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
   const featureRows: { label: string; value: string }[] = [];
   if (litellmInfo?.model_info.supports_vision != null) {
     featureRows.push({
-      label: "Vision 지원",
+      label: t("featureVision"),
       value: renderBoolean(litellmInfo.model_info.supports_vision),
     });
   }
   if (litellmInfo?.model_info.supports_function_calling != null) {
     featureRows.push({
-      label: "Function Calling 지원",
+      label: t("featureFunctionCalling"),
       value: renderBoolean(litellmInfo.model_info.supports_function_calling),
     });
   }
@@ -128,24 +123,24 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         <SheetHeader className="px-6 pt-6 pb-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <SheetTitle>{catalog?.display_name ?? model?.model_name ?? "모델 상세"}</SheetTitle>
+              <SheetTitle>{catalog?.display_name ?? model?.model_name ?? t("fallbackTitle")}</SheetTitle>
               {catalog && <Badge className={STATUS_STYLES[catalog.status]}>{catalog.status}</Badge>}
             </div>
-            <SheetDescription>Provider: {provider}</SheetDescription>
+            <SheetDescription>{t("providerLabel", { provider })}</SheetDescription>
           </div>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
           {model && (
             <section>
-              <h4 className="text-sm font-semibold mb-2">캐시 설정 (suffix별)</h4>
+              <h4 className="text-sm font-semibold mb-2">{t("sectionCache")}</h4>
               <ModelCacheSection modelName={model.model_name} />
             </section>
           )}
 
           {model && (
             <section>
-              <h4 className="text-sm font-semibold mb-2">시간대 요금</h4>
+              <h4 className="text-sm font-semibold mb-2">{t("sectionCostSchedule")}</h4>
               <ModelCostScheduleSection modelName={model.model_name} />
             </section>
           )}
@@ -154,7 +149,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
             <>
               <Separator />
               <section>
-                <h4 className="text-sm font-semibold mb-2">비용 정보</h4>
+                <h4 className="text-sm font-semibold mb-2">{t("sectionCost")}</h4>
                 <Card>
                   <CardContent className="pt-4 space-y-2">
                     <div className="flex justify-between text-sm">
@@ -173,7 +168,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                 <>
                   <Separator />
                   <section>
-                    <h4 className="text-sm font-semibold mb-2">모델 제한</h4>
+                    <h4 className="text-sm font-semibold mb-2">{t("sectionLimits")}</h4>
                     <Card>
                       <CardContent className="pt-4 space-y-2">
                         {limitRows.map((item) => (
@@ -192,7 +187,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                 <>
                   <Separator />
                   <section>
-                    <h4 className="text-sm font-semibold mb-2">기능</h4>
+                    <h4 className="text-sm font-semibold mb-2">{t("sectionFeatures")}</h4>
                     <Card>
                       <CardContent className="pt-4 space-y-2">
                         {featureRows.map((item) => (
@@ -213,19 +208,19 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
             <>
               <Separator />
               <section>
-                <h4 className="text-sm font-semibold mb-2">카탈로그 정보</h4>
+                <h4 className="text-sm font-semibold mb-2">{t("sectionCatalog")}</h4>
                 <Card>
                   <CardContent className="pt-4 space-y-2">
                     <div className="flex justify-between text-sm gap-3">
-                      <span className="text-muted-foreground">설명</span>
+                      <span className="text-muted-foreground">{t("catalogDescription")}</span>
                       <span className="text-right break-words">{catalog.description ?? "-"}</span>
                     </div>
                     <div className="flex justify-between text-sm items-center">
-                      <span className="text-muted-foreground">현재 상태</span>
+                      <span className="text-muted-foreground">{t("catalogCurrentStatus")}</span>
                       <Badge className={STATUS_STYLES[catalog.status]}>{catalog.status}</Badge>
                     </div>
                     <div className="space-y-1.5 pt-1">
-                      <div className="text-sm text-muted-foreground">상태별 일정</div>
+                      <div className="text-sm text-muted-foreground">{t("catalogSchedule")}</div>
                       {STATUS_ORDER.some((status) => catalog.status_schedule?.[status]) ? (
                         STATUS_ORDER.filter((status) => catalog.status_schedule?.[status]).map((status) => {
                           const currentIndex = STATUS_ORDER.indexOf(catalog.status);
@@ -250,16 +245,16 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                       )}
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">등록자</span>
+                      <span className="text-muted-foreground">{t("catalogCreatedBy")}</span>
                       <span>{catalog.created_by ?? "-"}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">등록일</span>
-                      <span>{formatDateTime(catalog.created_at)}</span>
+                      <span className="text-muted-foreground">{t("catalogCreatedAt")}</span>
+                      <span>{formatDateTime(catalog.created_at, localeTag)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">수정일</span>
-                      <span>{formatDateTime(catalog.updated_at)}</span>
+                      <span className="text-muted-foreground">{t("catalogUpdatedAt")}</span>
+                      <span>{formatDateTime(catalog.updated_at, localeTag)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -267,7 +262,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
 
               <Separator />
               <section>
-                <h4 className="text-sm font-semibold mb-2">상태 변경 이력</h4>
+                <h4 className="text-sm font-semibold mb-2">{t("sectionHistory")}</h4>
                 <Card>
                   <CardContent className="pt-4">
                     {statusHistoryLoading ? (
@@ -279,7 +274,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                         {statusHistory.slice(0, 5).map((entry) => (
                           <div key={entry.id} className="rounded-md border px-2.5 py-2 text-xs space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground">{formatDateTime(entry.changed_at)}</span>
+                              <span className="text-muted-foreground">{formatDateTime(entry.changed_at, localeTag)}</span>
                               <span className="font-mono text-muted-foreground">{entry.changed_by}</span>
                             </div>
                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -291,7 +286,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                                   <span className="text-muted-foreground">→</span>
                                 </>
                               ) : (
-                                <span className="text-muted-foreground">생성 →</span>
+                                <span className="text-muted-foreground">{t("historyCreatedArrow")}</span>
                               )}
                               <Badge className={STATUS_STYLES[entry.new_status]}>{entry.new_status}</Badge>
                             </div>
@@ -299,7 +294,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                         ))}
                       </div>
                     ) : (
-                      <div className="text-sm text-muted-foreground">변경 이력이 없습니다.</div>
+                      <div className="text-sm text-muted-foreground">{t("historyEmpty")}</div>
                     )}
                   </CardContent>
                 </Card>
