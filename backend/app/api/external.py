@@ -32,15 +32,21 @@ class UpdateTeamBudgetRequest(BaseModel):
     rpm_limit: int | None = None
 
 
+class UpsertTeamBudgetByNameRequest(UpdateTeamBudgetRequest):
+    create_if_missing: bool = False
+
+
 async def _resolve_team(
     litellm_db: AsyncSession,
     *,
     team_id: str | None = None,
     team_alias: str | None = None,
-) -> dict:
+    missing_ok: bool = False,
+) -> dict | None:
     """Return the team row matching team_id or team_alias.
 
-    Raises 404 when no match, 409 when team_alias matches multiple teams.
+    Raises 404 when no match (unless missing_ok=True, then returns None).
+    Raises 409 when team_alias matches multiple teams.
     Exactly one of team_id / team_alias must be provided.
     """
     if team_id is not None:
@@ -50,6 +56,8 @@ async def _resolve_team(
         )
         row = result.mappings().first()
         if not row:
+            if missing_ok:
+                return None
             raise HTTPException(status_code=404, detail=f"Team {team_id} not found")
         return dict(row)
 
@@ -59,6 +67,8 @@ async def _resolve_team(
     )
     rows = list(result.mappings())
     if not rows:
+        if missing_ok:
+            return None
         raise HTTPException(status_code=404, detail=f"Team with name '{team_alias}' not found")
     if len(rows) > 1:
         raise HTTPException(
@@ -124,13 +134,14 @@ async def update_team_budget(
     - rpm_limit: requests-per-minute limit. null to remove.
     """
     team_row = await _resolve_team(litellm_db, team_id=team_id)
+    assert team_row is not None  # missing_ok defaults to False
     return await _apply_team_budget_update(litellm, team_row, body)
 
 
 @router.put("/teams/by-name/{team_alias}/budget")
 async def update_team_budget_by_name(
     team_alias: str,
-    body: UpdateTeamBudgetRequest,
+    body: UpsertTeamBudgetByNameRequest,
     _key: str = Depends(verify_external_api_key),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     litellm_db: AsyncSession = Depends(get_litellm_db),
@@ -139,6 +150,35 @@ async def update_team_budget_by_name(
 
     Returns 409 Conflict if multiple teams share the same name; use team_id
     in that case.
+
+    Set `create_if_missing: true` to auto-create the team when no match is
+    found. Created teams have an empty models list and no admins; the budget
+    fields from this request are applied at creation time.
     """
-    team_row = await _resolve_team(litellm_db, team_alias=team_alias)
+    team_row = await _resolve_team(
+        litellm_db, team_alias=team_alias, missing_ok=body.create_if_missing
+    )
+    if team_row is None:
+        # Auto-create requested and no existing team matched.
+        update_fields = body.model_dump(
+            exclude_unset=True, exclude={"create_if_missing"}
+        )
+        new_team = await litellm.create_team(
+            team_alias=team_alias,
+            models=[],
+            **update_fields,
+        )
+        new_team_id = new_team.get("team_id", "")
+        logger.info(
+            "External API: created team %s (%s) via create_if_missing with %s",
+            new_team_id,
+            team_alias,
+            update_fields,
+        )
+        return {
+            "status": "created",
+            "team_id": new_team_id,
+            "team_alias": team_alias,
+            **update_fields,
+        }
     return await _apply_team_budget_update(litellm, team_row, body)
