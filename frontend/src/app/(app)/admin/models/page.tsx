@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
 import { toast } from "sonner";
 
 import {
@@ -98,18 +99,18 @@ function formatContextLength(tokens: number | null | undefined): string {
   return tokens.toLocaleString();
 }
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
 }
 
-function formatDateTime(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -124,18 +125,19 @@ function StatusBadge({ status }: { status: ModelStatus }) {
 
 /** Badge showing whether a model is LiteLLM-deployed, catalog-only, or both */
 function SourceBadge({ model }: { model: ModelWithCatalog }) {
+  const t = useTranslations("adminModels");
   if (model.litellm_info) {
     return (
       <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
         <Server className="size-2.5" />
-        LiteLLM
+        {t("sourceLitellm")}
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1 border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-400">
       <BookOpen className="size-2.5" />
-      외부
+      {t("sourceExternal")}
     </Badge>
   );
 }
@@ -192,6 +194,9 @@ function catalogToForm(catalog: ModelCatalog): ModelFormState {
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelManagementPage() {
+  const t = useTranslations("adminModels");
+  const locale = useLocale();
+  const localeTag = locale === "ko" ? "ko-KR" : "en-US";
   const { data: models, isLoading, isError } = useModels();
   const createEntry = useCreateCatalogEntry();
   const updateEntry = useUpdateCatalogEntry();
@@ -297,7 +302,7 @@ export default function ModelManagementPage() {
   function handleFormSubmit() {
     const trimmedName = form.model_name.trim();
     if (!trimmedName) {
-      toast.error("모델명은 필수입니다.");
+      toast.error(t("errorRequireName"));
       return;
     }
 
@@ -316,15 +321,11 @@ export default function ModelManagementPage() {
         },
         {
           onSuccess: () => {
-            toast.success("모델이 수정되었습니다");
+            toast.success(t("toastUpdated"));
             setFormOpen(false);
           },
           onError: (error) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "수정 중 오류가 발생했습니다",
-            );
+            toast.error(error instanceof Error ? error.message : t("errorUpdate"));
           },
         },
       );
@@ -342,15 +343,11 @@ export default function ModelManagementPage() {
         },
         {
           onSuccess: () => {
-            toast.success("모델이 추가되었습니다");
+            toast.success(t("toastCreated"));
             setFormOpen(false);
           },
           onError: (error) => {
-            toast.error(
-              error instanceof Error
-                ? error.message
-                : "추가 중 오류가 발생했습니다",
-            );
+            toast.error(error instanceof Error ? error.message : t("errorCreate"));
           },
         },
       );
@@ -362,16 +359,12 @@ export default function ModelManagementPage() {
 
     deleteEntry.mutate(deletingModel.catalog.id, {
       onSuccess: () => {
-        toast.success("카탈로그 항목이 삭제되었습니다");
+        toast.success(t("toastDeleted"));
         setDeleteOpen(false);
         setDeletingModel(null);
       },
       onError: (error) => {
-        toast.error(
-          error instanceof Error
-            ? error.message
-            : "삭제 중 오류가 발생했습니다",
-        );
+        toast.error(error instanceof Error ? error.message : t("errorDelete"));
       },
     });
   }
@@ -435,21 +428,21 @@ export default function ModelManagementPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">모델 관리</h1>
+            <h1 className="text-2xl font-bold">{t("title")}</h1>
             <p className="text-muted-foreground mt-1">
-              LiteLLM 배포 모델과 커스텀 카탈로그를 통합 관리합니다
+              {t("subtitle")}
             </p>
           </div>
           <Button onClick={() => openCreateDialog()}>
             <Plus className="size-4" />
-            카탈로그 등록
+            {t("registerBtn")}
           </Button>
         </div>
 
         {/* Error state */}
         {isError && (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-            모델 목록을 불러오는 중 오류가 발생했습니다.
+            {t("loadError")}
           </div>
         )}
 
@@ -458,7 +451,7 @@ export default function ModelManagementPage() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <Input
-              placeholder="모델명 검색..."
+              placeholder={t("searchPlaceholder")}
               value={nameFilter}
               onChange={(e) => setNameFilter(e.target.value)}
               className="pl-8 h-9"
@@ -466,10 +459,10 @@ export default function ModelManagementPage() {
           </div>
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[140px] h-9">
-              <SelectValue placeholder="상태" />
+              <SelectValue placeholder={t("statusPlaceholder")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">전체 상태</SelectItem>
+              <SelectItem value="all">{t("statusAll")}</SelectItem>
               {STATUS_OPTIONS.map((s) => (
                 <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
               ))}
@@ -477,23 +470,23 @@ export default function ModelManagementPage() {
           </Select>
           <Select value={sourceFilter} onValueChange={setSourceFilter}>
             <SelectTrigger className="w-[140px] h-9">
-              <SelectValue placeholder="소스" />
+              <SelectValue placeholder={t("sourcePlaceholder")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">전체 소스</SelectItem>
-              <SelectItem value="litellm">LiteLLM</SelectItem>
-              <SelectItem value="external">외부</SelectItem>
+              <SelectItem value="all">{t("sourceAll")}</SelectItem>
+              <SelectItem value="litellm">{t("sourceLitellm")}</SelectItem>
+              <SelectItem value="external">{t("sourceExternal")}</SelectItem>
             </SelectContent>
           </Select>
           {(nameFilter || statusFilter !== "all" || sourceFilter !== "all") && (
             <Button variant="ghost" size="sm" onClick={() => { setNameFilter(""); setStatusFilter("all"); setSourceFilter("all"); }}>
               <X className="size-3.5 mr-1" />
-              초기화
+              {t("clearFilters")}
             </Button>
           )}
           {models && (
             <span className="text-sm text-muted-foreground ml-auto">
-              {filteredModels.length} / {models.length}개
+              {t("filteredCount", { filtered: filteredModels.length, total: models.length })}
             </span>
           )}
         </div>
@@ -506,16 +499,16 @@ export default function ModelManagementPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>모델</TableHead>
-                  <TableHead>소스</TableHead>
-                  <TableHead>Provider</TableHead>
-                  <TableHead>상태</TableHead>
-                  <TableHead>노출</TableHead>
-                  <TableHead>컨텍스트</TableHead>
-                  <TableHead>Input Cost</TableHead>
-                  <TableHead>Output Cost</TableHead>
-                  <TableHead>다음 전환</TableHead>
-                  <TableHead>작업</TableHead>
+                  <TableHead>{t("colModel")}</TableHead>
+                  <TableHead>{t("colSource")}</TableHead>
+                  <TableHead>{t("colProvider")}</TableHead>
+                  <TableHead>{t("colStatus")}</TableHead>
+                  <TableHead>{t("colVisible")}</TableHead>
+                  <TableHead>{t("colContext")}</TableHead>
+                  <TableHead>{t("colInputCost")}</TableHead>
+                  <TableHead>{t("colOutputCost")}</TableHead>
+                  <TableHead>{t("colNextTransition")}</TableHead>
+                  <TableHead>{t("colActions")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -585,7 +578,7 @@ export default function ModelManagementPage() {
                             });
                           }}
                         >
-                          {model.catalog.visible !== false ? "ON" : "OFF"}
+                          {model.catalog.visible !== false ? t("visibleOn") : t("visibleOff")}
                         </Button>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
@@ -609,7 +602,7 @@ export default function ModelManagementPage() {
                     </TableCell>
 
                     <TableCell className="text-sm">
-                      {formatDate(getNextTransitionDate(model.catalog))}
+                      {formatDate(getNextTransitionDate(model.catalog), localeTag)}
                     </TableCell>
 
                     {/* Actions */}
@@ -627,7 +620,7 @@ export default function ModelManagementPage() {
                                   <Pencil className="size-3.5" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>카탈로그 수정</TooltipContent>
+                              <TooltipContent>{t("tipEdit")}</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -640,7 +633,7 @@ export default function ModelManagementPage() {
                                   <Trash2 className="size-3.5" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>카탈로그 삭제</TooltipContent>
+                              <TooltipContent>{t("tipDelete")}</TooltipContent>
                             </Tooltip>
                             <Tooltip>
                               <TooltipTrigger asChild>
@@ -652,7 +645,7 @@ export default function ModelManagementPage() {
                                   <History className="size-3.5" />
                                 </Button>
                               </TooltipTrigger>
-                              <TooltipContent>상태 변경 이력</TooltipContent>
+                              <TooltipContent>{t("tipHistory")}</TooltipContent>
                             </Tooltip>
                           </>
                         ) : (
@@ -665,10 +658,10 @@ export default function ModelManagementPage() {
                                 onClick={() => openCreateDialog(model.model_name)}
                               >
                                 <BookOpen className="size-3 mr-1" />
-                                카탈로그 등록
+                                {t("registerCatalog")}
                               </Button>
                             </TooltipTrigger>
-                            <TooltipContent>이 LiteLLM 모델의 카탈로그 항목을 생성합니다</TooltipContent>
+                            <TooltipContent>{t("tipRegister")}</TooltipContent>
                           </Tooltip>
                         )}
                       </div>
@@ -681,7 +674,7 @@ export default function ModelManagementPage() {
         ) : (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-center">
             <Package className="size-10 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">등록된 모델이 없습니다.</p>
+            <p className="text-muted-foreground">{t("empty")}</p>
           </div>
         )}
 
@@ -690,12 +683,10 @@ export default function ModelManagementPage() {
           <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
-                {editingId ? "카탈로그 수정" : "카탈로그 등록"}
+                {editingId ? t("formTitleEdit") : t("formTitleCreate")}
               </DialogTitle>
               <DialogDescription>
-                {editingId
-                  ? "모델 카탈로그 정보를 수정합니다."
-                  : "새로운 모델을 카탈로그에 등록합니다."}
+                {editingId ? t("formDescEdit") : t("formDescCreate")}
               </DialogDescription>
             </DialogHeader>
 
@@ -703,7 +694,7 @@ export default function ModelManagementPage() {
               {/* type selector (create only) */}
               {!editingId && (
                 <div className="grid gap-2">
-                  <Label>등록 유형 <span className="text-destructive">*</span></Label>
+                  <Label>{t("formTypeLabel")} <span className="text-destructive">*</span></Label>
                   <div className="flex gap-2">
                     <Button
                       type="button"
@@ -714,7 +705,7 @@ export default function ModelManagementPage() {
                       }}
                     >
                       <Server className="size-3.5 mr-1" />
-                      LiteLLM 모델
+                      {t("formTypeLitellm")}
                     </Button>
                     <Button
                       type="button"
@@ -725,13 +716,11 @@ export default function ModelManagementPage() {
                       }}
                     >
                       <BookOpen className="size-3.5 mr-1" />
-                      외부 모델
+                      {t("formTypeExternal")}
                     </Button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {form.is_external
-                      ? "LiteLLM에 배포되지 않은 모델을 카탈로그에만 기록합니다."
-                      : "LiteLLM에 등록된 모델 중 선택해 카탈로그를 추가합니다."}
+                    {form.is_external ? t("formTypeHelpExternal") : t("formTypeHelpLitellm")}
                   </p>
                 </div>
               )}
@@ -739,7 +728,7 @@ export default function ModelManagementPage() {
               {/* model_name */}
               <div className="grid gap-2">
                 <Label htmlFor="model-name">
-                  모델명 <span className="text-destructive">*</span>
+                  {t("formNameLabel")} <span className="text-destructive">*</span>
                 </Label>
                 {editingId ? (
                   <Input
@@ -752,7 +741,7 @@ export default function ModelManagementPage() {
                     id="model-name"
                     value={form.model_name}
                     onChange={(e) => handleFormChange("model_name", e.target.value)}
-                    placeholder="외부 모델명을 입력하세요 (예: gpt-5-preview)"
+                    placeholder={t("formNameExternalPlaceholder")}
                   />
                 ) : (
                   <Select
@@ -760,7 +749,7 @@ export default function ModelManagementPage() {
                     onValueChange={(value) => handleFormChange("model_name", value)}
                   >
                     <SelectTrigger id="model-name">
-                      <SelectValue placeholder="LiteLLM 등록 모델 중 선택하세요" />
+                      <SelectValue placeholder={t("formNameLitellmPlaceholder")} />
                     </SelectTrigger>
                     <SelectContent>
                       {(() => {
@@ -768,7 +757,7 @@ export default function ModelManagementPage() {
                         if (candidates.length === 0) {
                           return (
                             <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                              카탈로그에 등록할 LiteLLM 모델이 없습니다.
+                              {t("formNoLitellmCandidates")}
                             </div>
                           );
                         }
@@ -785,7 +774,7 @@ export default function ModelManagementPage() {
 
               {/* description */}
               <div className="grid gap-2">
-                <Label htmlFor="model-desc">설명</Label>
+                <Label htmlFor="model-desc">{t("formDescLabel")}</Label>
                 <textarea
                   id="model-desc"
                   rows={2}
@@ -793,14 +782,14 @@ export default function ModelManagementPage() {
                   onChange={(e) =>
                     handleFormChange("description", e.target.value)
                   }
-                  placeholder="모델 설명을 입력하세요..."
+                  placeholder={t("formDescPlaceholder")}
                   className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                 />
               </div>
 
               {/* status */}
               <div className="grid gap-2">
-                <Label>상태</Label>
+                <Label>{t("formStatusLabel")}</Label>
                 <Select
                   value={form.status}
                   onValueChange={(v) =>
@@ -821,7 +810,7 @@ export default function ModelManagementPage() {
               </div>
 
               <div className="grid gap-3">
-                <Label>상태별 일정</Label>
+                <Label>{t("formScheduleLabel")}</Label>
                 <div className="grid gap-2">
                   {STATUS_OPTIONS.map((option) => (
                     <div key={option.value} className="grid grid-cols-[130px_1fr] items-center gap-3">
@@ -846,14 +835,14 @@ export default function ModelManagementPage() {
                 onClick={() => setFormOpen(false)}
                 disabled={isSubmitting}
               >
-                취소
+                {t("formCancel")}
               </Button>
               <Button onClick={handleFormSubmit} disabled={isSubmitting}>
                 {isSubmitting
-                  ? "저장 중..."
+                  ? t("formSaving")
                   : editingId
-                    ? "수정"
-                    : "등록"}
+                    ? t("formEditSubmit")
+                    : t("formCreateSubmit")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -863,15 +852,14 @@ export default function ModelManagementPage() {
         <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>카탈로그 삭제</DialogTitle>
+              <DialogTitle>{t("deleteTitle")}</DialogTitle>
               <DialogDescription>
-                <span className="font-semibold text-foreground">
-                  {deletingModel?.catalog?.display_name ?? deletingModel?.model_name}
-                </span>{" "}
-                의 카탈로그 항목을 삭제하시겠습니까?
+                {t("deleteDescription", {
+                  name: deletingModel?.catalog?.display_name ?? deletingModel?.model_name ?? "",
+                })}
                 {deletingModel?.litellm_info && (
                   <span className="block mt-1 text-xs">
-                    LiteLLM에 배포된 모델은 유지되며, 카탈로그 메타데이터만 삭제됩니다.
+                    {t("deleteHintLitellm")}
                   </span>
                 )}
               </DialogDescription>
@@ -882,14 +870,14 @@ export default function ModelManagementPage() {
                 onClick={() => setDeleteOpen(false)}
                 disabled={deleteEntry.isPending}
               >
-                취소
+                {t("deleteCancel")}
               </Button>
               <Button
                 variant="destructive"
                 onClick={handleDelete}
                 disabled={deleteEntry.isPending}
               >
-                {deleteEntry.isPending ? "삭제 중..." : "삭제"}
+                {deleteEntry.isPending ? t("deleting") : t("deleteConfirm")}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -899,9 +887,9 @@ export default function ModelManagementPage() {
         <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
           <DialogContent className="sm:max-w-lg">
             <DialogHeader>
-              <DialogTitle>상태 변경 이력</DialogTitle>
+              <DialogTitle>{t("historyTitle")}</DialogTitle>
               <DialogDescription>
-                모델 카탈로그의 상태 변경 기록입니다.
+                {t("historyDescription")}
               </DialogDescription>
             </DialogHeader>
 
@@ -927,7 +915,7 @@ export default function ModelManagementPage() {
                             </>
                           ) : (
                             <>
-                              <span className="text-xs text-muted-foreground">생성</span>
+                              <span className="text-xs text-muted-foreground">{t("historyCreated")}</span>
                               <ArrowRight className="size-3 text-muted-foreground shrink-0" />
                               <StatusBadge status={h.new_status} />
                             </>
@@ -936,7 +924,7 @@ export default function ModelManagementPage() {
                         <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{h.changed_by}</span>
                           <span>·</span>
-                          <span>{formatDateTime(h.changed_at)}</span>
+                          <span>{formatDateTime(h.changed_at, localeTag)}</span>
                         </div>
                         {h.comment && (
                           <p className="mt-1 text-xs text-muted-foreground">{h.comment}</p>
@@ -948,7 +936,7 @@ export default function ModelManagementPage() {
               ) : (
                 <div className="flex flex-col items-center gap-2 py-8 text-center">
                   <History className="size-8 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">변경 이력이 없습니다.</p>
+                  <p className="text-sm text-muted-foreground">{t("historyEmpty")}</p>
                 </div>
               )}
             </div>

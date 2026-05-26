@@ -16,6 +16,7 @@ import {
   X,
   ExternalLink,
 } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
 
 import { useModels, useAllModelStatusHistory } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -117,9 +118,9 @@ function StatusBadge({ status }: { status: ModelStatus }) {
   return <Badge className={STATUS_STYLES[status]}>{status}</Badge>;
 }
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -132,16 +133,23 @@ function formatCost(cost: number | null | undefined): string {
   return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
-function formatRelativeTime(dateStr: string): string {
+type RelativeTimeStrings = {
+  justNow: string;
+  minutesAgo: (n: number) => string;
+  hoursAgo: (n: number) => string;
+  daysAgo: (n: number) => string;
+};
+
+function formatRelativeTime(dateStr: string, strings: RelativeTimeStrings, localeTag: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return "방금 전";
-  if (minutes < 60) return `${minutes}분 전`;
+  if (minutes < 1) return strings.justNow;
+  if (minutes < 60) return strings.minutesAgo(minutes);
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}시간 전`;
+  if (hours < 24) return strings.hoursAgo(hours);
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}일 전`;
-  return formatDate(dateStr);
+  if (days < 7) return strings.daysAgo(days);
+  return formatDate(dateStr, localeTag);
 }
 
 function getProvider(model: ModelWithCatalog): string {
@@ -213,6 +221,7 @@ function StatCard({
 // ─── Source Badge ──────────────────────────────────────────────
 
 function SourceBadge({ model }: { model: ModelWithCatalog }) {
+  const t = useTranslations("modelsDashboard");
   const hasLiteLLM = !!model.litellm_info;
   const hasCatalog = !!model.catalog;
 
@@ -224,14 +233,14 @@ function SourceBadge({ model }: { model: ModelWithCatalog }) {
           className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
         >
           <Server className="size-2.5" />
-          배포
+          {t("sourceDeployed")}
         </Badge>
         <Badge
           variant="outline"
           className="text-[10px] px-1.5 py-0 gap-1 border-blue-300 text-blue-700 dark:border-blue-700 dark:text-blue-400"
         >
           <BookOpen className="size-2.5" />
-          카탈로그
+          {t("sourceCatalog")}
         </Badge>
       </div>
     );
@@ -243,7 +252,7 @@ function SourceBadge({ model }: { model: ModelWithCatalog }) {
         className="text-[10px] px-1.5 py-0 gap-1 border-green-300 text-green-700 dark:border-green-700 dark:text-green-400"
       >
         <Server className="size-2.5" />
-        배포만
+        {t("sourceDeployedOnly")}
       </Badge>
     );
   }
@@ -253,7 +262,7 @@ function SourceBadge({ model }: { model: ModelWithCatalog }) {
       className="text-[10px] px-1.5 py-0 gap-1 border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-400"
     >
       <BookOpen className="size-2.5" />
-      카탈로그만
+      {t("sourceCatalogOnly")}
     </Badge>
   );
 }
@@ -265,15 +274,6 @@ const DISTRIBUTION_ORDER: (ModelStatus | "unregistered")[] = [
   "unregistered",
 ];
 
-const DISTRIBUTION_LABELS: Record<ModelStatus | "unregistered", string> = {
-  testing: "testing",
-  prerelease: "prerelease",
-  lts: "lts",
-  deprecating: "deprecating",
-  deprecated: "deprecated",
-  unregistered: "미등록",
-};
-
 function StatusDistributionBar({
   counts,
   total,
@@ -281,12 +281,21 @@ function StatusDistributionBar({
   counts: Record<ModelStatus | "unregistered", number>;
   total: number;
 }) {
+  const t = useTranslations("modelsDashboard");
+  const labels: Record<ModelStatus | "unregistered", string> = {
+    testing: "testing",
+    prerelease: "prerelease",
+    lts: "lts",
+    deprecating: "deprecating",
+    deprecated: "deprecated",
+    unregistered: t("distributionUnregistered"),
+  };
   if (total === 0) {
     return (
       <div className="space-y-3">
         <div className="h-4 w-full rounded-full bg-muted" />
         <p className="text-sm text-muted-foreground text-center">
-          등록된 모델이 없습니다
+          {t("distributionEmpty")}
         </p>
       </div>
     );
@@ -307,12 +316,12 @@ function StatusDistributionBar({
                   <div
                     className={`${STATUS_BAR_COLORS[status]} transition-all`}
                     style={{ width: `${pct}%`, minWidth: count > 0 ? "8px" : "0" }}
-                    aria-label={`${DISTRIBUTION_LABELS[status]}: ${count}개 (${pct.toFixed(0)}%)`}
+                    aria-label={t("distributionTooltip", { label: labels[status], count, pct: pct.toFixed(0) })}
                   />
                 </TooltipTrigger>
                 <TooltipContent>
                   <p className="text-xs">
-                    {DISTRIBUTION_LABELS[status]}: {count}개 ({pct.toFixed(1)}%)
+                    {t("distributionTooltip", { label: labels[status], count, pct: pct.toFixed(1) })}
                   </p>
                 </TooltipContent>
               </Tooltip>
@@ -329,7 +338,7 @@ function StatusDistributionBar({
               className={`size-2.5 rounded-full ${STATUS_DOT_COLORS[status]}`}
             />
             <span className="text-xs text-muted-foreground">
-              {DISTRIBUTION_LABELS[status]}
+              {labels[status]}
             </span>
             <span className="text-xs font-medium">{counts[status]}</span>
           </div>
@@ -350,6 +359,16 @@ function RecentChanges({
   isLoading: boolean;
   onModelClick: (modelName: string) => void;
 }) {
+  const t = useTranslations("modelsDashboard");
+  const locale = useLocale();
+  const localeTag = locale === "ko" ? "ko-KR" : "en-US";
+  const relStrings: RelativeTimeStrings = {
+    justNow: t("justNow"),
+    minutesAgo: (n) => t("minutesAgo", { minutes: n }),
+    hoursAgo: (n) => t("hoursAgo", { hours: n }),
+    daysAgo: (n) => t("daysAgo", { days: n }),
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-8">
@@ -362,7 +381,7 @@ function RecentChanges({
     return (
       <div className="flex flex-col items-center justify-center py-8 text-center">
         <Activity className="size-8 text-muted-foreground/40 mb-2" />
-        <p className="text-sm text-muted-foreground">최근 변경이 없습니다</p>
+        <p className="text-sm text-muted-foreground">{t("recentEmpty")}</p>
       </div>
     );
   }
@@ -392,7 +411,7 @@ function RecentChanges({
                   </>
                 ) : (
                   <>
-                    <span className="text-xs text-muted-foreground">생성</span>
+                    <span className="text-xs text-muted-foreground">{t("created")}</span>
                     <ArrowRight className="size-3 text-muted-foreground shrink-0" />
                     <StatusBadge status={h.new_status} />
                   </>
@@ -402,7 +421,7 @@ function RecentChanges({
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{h.changed_by}</span>
               <span>·</span>
-              <span>{formatRelativeTime(h.changed_at)}</span>
+              <span>{formatRelativeTime(h.changed_at, relStrings, localeTag)}</span>
             </div>
           </div>
         </div>
@@ -414,6 +433,9 @@ function RecentChanges({
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelDashboardPage() {
+  const t = useTranslations("modelsDashboard");
+  const locale = useLocale();
+  const localeTag = locale === "ko" ? "ko-KR" : "en-US";
   // Data fetching
   const { data: models, isLoading, isError } = useModels();
   const { data: recentData, isLoading: recentLoading } =
@@ -521,9 +543,9 @@ export default function ModelDashboardPage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">모델 대시보드</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          전체 모델 현황을 한눈에 확인합니다
+          {t("subtitle")}
         </p>
       </div>
 
@@ -541,28 +563,28 @@ export default function ModelDashboardPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="전체 모델"
+            title={t("statTotal")}
             value={stats.total}
             icon={Boxes}
-            description="LiteLLM + 카탈로그 합산"
+            description={t("statTotalDesc")}
           />
           <StatCard
-            title="카탈로그 등록"
+            title={t("statCatalog")}
             value={stats.withCatalog}
             icon={BookOpen}
-            description="상태 관리 중인 모델"
+            description={t("statCatalogDesc")}
           />
           <StatCard
-            title="LiteLLM 활성"
+            title={t("statLitellm")}
             value={stats.withLiteLLM}
             icon={Server}
-            description="배포된 모델"
+            description={t("statLitellmDesc")}
           />
           <StatCard
-            title="폐기 예정"
+            title={t("statRetiring")}
             value={stats.retiring}
             icon={AlertTriangle}
-            description="deprecating / deprecated"
+            description={t("statRetiringDesc")}
           />
         </div>
       )}
@@ -572,9 +594,9 @@ export default function ModelDashboardPage() {
         {/* Status Distribution */}
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">상태 분포</CardTitle>
+            <CardTitle className="text-base">{t("distributionTitle")}</CardTitle>
             <CardDescription>
-              전체 모델의 상태별 비율 (미등록 포함)
+              {t("distributionDescription")}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -594,14 +616,14 @@ export default function ModelDashboardPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="text-base">최근 변경</CardTitle>
+                <CardTitle className="text-base">{t("recentTitle")}</CardTitle>
                 <CardDescription>
-                  최근 모델 상태 변경 이력
+                  {t("recentDescription")}
                 </CardDescription>
               </div>
               <Link href="/admin/models/history">
                 <Button variant="ghost" size="sm" className="text-xs gap-1">
-                  더 보기
+                  {t("recentMore")}
                   <ExternalLink className="size-3" />
                 </Button>
               </Link>
@@ -624,18 +646,18 @@ export default function ModelDashboardPage() {
 
       {/* ── All Models Table Section ── */}
       <div>
-        <h2 className="text-lg font-semibold mb-4">전체 모델 목록</h2>
+        <h2 className="text-lg font-semibold mb-4">{t("tableTitle")}</h2>
 
         {/* Filters */}
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div className="flex-1 min-w-[200px] max-w-xs">
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-              모델명
+              {t("filterNameLabel")}
             </label>
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
               <Input
-                placeholder="모델명 검색..."
+                placeholder={t("filterNamePlaceholder")}
                 value={nameInput}
                 onChange={(e) => setNameInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && applyFilters()}
@@ -646,7 +668,7 @@ export default function ModelDashboardPage() {
 
           <div className="w-[160px]">
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-              상태
+              {t("filterStatusLabel")}
             </label>
             <Select
               value={statusFilter}
@@ -656,10 +678,10 @@ export default function ModelDashboardPage() {
               }}
             >
               <SelectTrigger className="h-9">
-                <SelectValue placeholder="전체" />
+                <SelectValue placeholder={t("filterAll")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__all__">전체</SelectItem>
+                <SelectItem value="__all__">{t("filterAll")}</SelectItem>
                 {STATUS_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {opt.label}
@@ -671,7 +693,7 @@ export default function ModelDashboardPage() {
 
           <Button size="sm" onClick={applyFilters} className="h-9">
             <Search className="size-3.5 mr-1" />
-            검색
+            {t("searchBtn")}
           </Button>
 
           {hasActiveFilters && (
@@ -682,7 +704,7 @@ export default function ModelDashboardPage() {
               className="h-9 text-muted-foreground"
             >
               <X className="size-3.5 mr-1" />
-              초기화
+              {t("clearBtn")}
             </Button>
           )}
         </div>
@@ -694,15 +716,13 @@ export default function ModelDashboardPage() {
           </div>
         ) : isError ? (
           <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
-            모델 데이터를 불러오는 중 오류가 발생했습니다.
+            {t("loadError")}
           </div>
         ) : totalFiltered === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
             <Boxes className="size-10 text-muted-foreground mb-3" />
             <p className="text-muted-foreground">
-              {hasActiveFilters
-                ? "필터 조건에 맞는 모델이 없습니다."
-                : "등록된 모델이 없습니다."}
+              {hasActiveFilters ? t("emptyFiltered") : t("emptyAll")}
             </p>
           </div>
         ) : (
@@ -711,11 +731,11 @@ export default function ModelDashboardPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[200px]">모델명</TableHead>
-                    <TableHead className="w-[100px]">상태</TableHead>
-                    <TableHead>Input 비용</TableHead>
-                    <TableHead>Output 비용</TableHead>
-                    <TableHead className="w-[110px]">다음 전환</TableHead>
+                    <TableHead className="min-w-[200px]">{t("colName")}</TableHead>
+                    <TableHead className="w-[100px]">{t("colStatus")}</TableHead>
+                    <TableHead>{t("colInputCost")}</TableHead>
+                    <TableHead>{t("colOutputCost")}</TableHead>
+                    <TableHead className="w-[110px]">{t("colNextTransition")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -759,7 +779,7 @@ export default function ModelDashboardPage() {
                           if (!next) return <span className="text-sm">-</span>;
                           return (
                             <div className="space-y-0.5">
-                              <span className="text-sm">{formatDate(next.date)}</span>
+                              <span className="text-sm">{formatDate(next.date, localeTag)}</span>
                               <div><StatusBadge status={next.status} /></div>
                             </div>
                           );
@@ -774,7 +794,7 @@ export default function ModelDashboardPage() {
             {/* Pagination */}
             <div className="flex items-center justify-between mt-4">
               <p className="text-sm text-muted-foreground">
-                총 {totalFiltered}개 중 {startItem}–{endItem}
+                {t("pageInfo", { total: totalFiltered, start: startItem, end: endItem })}
               </p>
               <div className="flex items-center gap-2">
                 <Button
@@ -784,7 +804,7 @@ export default function ModelDashboardPage() {
                   onClick={() => setPage((p) => p - 1)}
                 >
                   <ChevronLeft className="size-4" />
-                  이전
+                  {t("prev")}
                 </Button>
                 <span className="text-sm text-muted-foreground">
                   {page + 1} / {totalPages || 1}
@@ -795,7 +815,7 @@ export default function ModelDashboardPage() {
                   disabled={page >= totalPages - 1}
                   onClick={() => setPage((p) => p + 1)}
                 >
-                  다음
+                  {t("next")}
                   <ChevronRight className="size-4" />
                 </Button>
               </div>

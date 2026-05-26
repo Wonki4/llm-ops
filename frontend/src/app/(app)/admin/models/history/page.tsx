@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Calendar, ChevronLeft, ChevronRight, Loader2, Boxes } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
 
 import { useModelCatalog } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -56,10 +57,22 @@ const STATUS_DOT_COLORS: Record<ModelStatus, string> = {
   deprecated: "bg-red-400",
 };
 
-const MONTH_NAMES = [
-  "1월", "2월", "3월", "4월", "5월", "6월",
-  "7월", "8월", "9월", "10월", "11월", "12월",
-];
+function toLocaleTag(locale: string): string {
+  return locale === "ko" ? "ko-KR" : "en-US";
+}
+
+function getMonthNames(localeTag: string): string[] {
+  return Array.from({ length: 12 }, (_, i) =>
+    new Date(2024, i, 1).toLocaleString(localeTag, { month: "long" }),
+  );
+}
+
+function getWeekdayNames(localeTag: string): string[] {
+  // 2024-01-07 is a Sunday
+  return Array.from({ length: 7 }, (_, i) =>
+    new Date(2024, 0, 7 + i).toLocaleString(localeTag, { weekday: "short" }),
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -112,9 +125,9 @@ function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function formatDateKo(dateStr: string): string {
+function formatShortDate(dateStr: string, localeTag: string): string {
   const d = new Date(`${dateStr}T00:00:00`);
-  return d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+  return d.toLocaleDateString(localeTag, { month: "short", day: "numeric" });
 }
 
 // ─── Calendar Grid ───────────────────────────────────────────
@@ -123,10 +136,14 @@ function CalendarGrid({
   year,
   month,
   events,
+  weekdays,
+  moreLabel,
 }: {
   year: number;
   month: number;
   events: ScheduleEvent[];
+  weekdays: string[];
+  moreLabel: (extra: number) => string;
 }) {
   const daysInMonth = getDaysInMonth(year, month);
   const firstDayOfWeek = new Date(year, month, 1).getDay();
@@ -156,8 +173,8 @@ function CalendarGrid({
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-7 gap-px text-center text-xs font-medium text-muted-foreground">
-        {["일", "월", "화", "수", "목", "금", "토"].map((d) => (
-          <div key={d} className="py-1">{d}</div>
+        {weekdays.map((d, i) => (
+          <div key={i} className="py-1">{d}</div>
         ))}
       </div>
       <div className="grid grid-cols-7 gap-px">
@@ -186,7 +203,7 @@ function CalendarGrid({
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="text-[10px] text-muted-foreground px-1">
-                    +{dayEvents.length - 3}개
+                    {moreLabel(dayEvents.length - 3)}
                   </div>
                 )}
               </div>
@@ -201,6 +218,11 @@ function CalendarGrid({
 // ─── Main Component ──────────────────────────────────────────
 
 export default function ModelCalendarPage() {
+  const t = useTranslations("modelsCalendar");
+  const locale = useLocale();
+  const localeTag = toLocaleTag(locale);
+  const monthNames = useMemo(() => getMonthNames(localeTag), [localeTag]);
+  const weekdays = useMemo(() => getWeekdayNames(localeTag), [localeTag]);
   const { data: catalog, isLoading } = useModelCatalog();
   const [statusFilter, setStatusFilter] = useState<string>("");
 
@@ -262,9 +284,9 @@ export default function ModelCalendarPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">모델 캘린더</h1>
+        <h1 className="text-2xl font-bold">{t("title")}</h1>
         <p className="text-muted-foreground mt-1">
-          모델의 상태 전환 예정일을 확인합니다
+          {t("subtitle")}
         </p>
       </div>
 
@@ -272,29 +294,29 @@ export default function ModelCalendarPage() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">예정된 전환</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("statUpcoming")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{upcomingCount}건</div>
+            <div className="text-2xl font-bold">{t("eventCount", { count: upcomingCount })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">이번 달</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("statThisMonth")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{thisMonthEvents.length}건</div>
+            <div className="text-2xl font-bold">{t("eventCount", { count: thisMonthEvents.length })}</div>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">폐기 예정</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">{t("statDeprecating")}</CardTitle>
             <Calendar className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">{deprecatingCount}건</div>
+            <div className="text-2xl font-bold text-red-600">{t("eventCount", { count: deprecatingCount })}</div>
           </CardContent>
         </Card>
       </div>
@@ -308,13 +330,13 @@ export default function ModelCalendarPage() {
                 <ChevronLeft className="size-4" />
               </Button>
               <CardTitle className="text-base min-w-[120px] text-center">
-                {viewYear}년 {MONTH_NAMES[viewMonth]}
+                {t("ymCaption", { year: viewYear, month: monthNames[viewMonth] })}
               </CardTitle>
               <Button variant="outline" size="icon" onClick={nextMonth}>
                 <ChevronRight className="size-4" />
               </Button>
               <Button variant="ghost" size="sm" onClick={goToday}>
-                오늘
+                {t("today")}
               </Button>
             </div>
             <div className="flex items-center gap-2">
@@ -323,10 +345,10 @@ export default function ModelCalendarPage() {
                 onValueChange={(v) => setStatusFilter(v === "__all__" ? "" : v)}
               >
                 <SelectTrigger className="w-[140px] h-8">
-                  <SelectValue placeholder="전체 상태" />
+                  <SelectValue placeholder={t("filterAll")} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__all__">전체 상태</SelectItem>
+                  <SelectItem value="__all__">{t("filterAll")}</SelectItem>
                   {STATUS_OPTIONS.map((opt) => (
                     <SelectItem key={opt.value} value={opt.value}>
                       {opt.label}
@@ -347,32 +369,38 @@ export default function ModelCalendarPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <CalendarGrid year={viewYear} month={viewMonth} events={filteredEvents} />
+          <CalendarGrid
+            year={viewYear}
+            month={viewMonth}
+            events={filteredEvents}
+            weekdays={weekdays}
+            moreLabel={(extra) => t("more", { count: extra })}
+          />
         </CardContent>
       </Card>
 
       {/* Upcoming transitions list */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">다가오는 상태 전환</CardTitle>
-          <CardDescription>예정된 모델 상태 변경 (최대 20건)</CardDescription>
+          <CardTitle className="text-base">{t("upcomingTitle")}</CardTitle>
+          <CardDescription>{t("upcomingDescription")}</CardDescription>
         </CardHeader>
         <CardContent>
           {upcomingEvents.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Boxes className="size-8 text-muted-foreground/40 mb-2" />
-              <p className="text-sm text-muted-foreground">예정된 상태 전환이 없습니다</p>
+              <p className="text-sm text-muted-foreground">{t("emptyUpcoming")}</p>
             </div>
           ) : (
             <div className="rounded-md border">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>전환일</TableHead>
-                    <TableHead>모델</TableHead>
-                    <TableHead>현재 상태</TableHead>
-                    <TableHead>전환 상태</TableHead>
-                    <TableHead>D-Day</TableHead>
+                    <TableHead>{t("colDate")}</TableHead>
+                    <TableHead>{t("colModel")}</TableHead>
+                    <TableHead>{t("colCurrentStatus")}</TableHead>
+                    <TableHead>{t("colTargetStatus")}</TableHead>
+                    <TableHead>{t("colDday")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -383,7 +411,7 @@ export default function ModelCalendarPage() {
                     return (
                       <TableRow key={`${ev.modelName}-${ev.targetStatus}-${i}`}>
                         <TableCell className="font-mono text-sm">
-                          {formatDateKo(ev.date)}
+                          {formatShortDate(ev.date, localeTag)}
                         </TableCell>
                         <TableCell>
                           <div>
@@ -409,7 +437,11 @@ export default function ModelCalendarPage() {
                                   : "text-muted-foreground"
                             }`}
                           >
-                            {daysUntil === 0 ? "오늘" : daysUntil < 0 ? `${-daysUntil}일 전` : `D-${daysUntil}`}
+                            {daysUntil === 0
+                              ? t("today")
+                              : daysUntil < 0
+                                ? t("dayPast", { days: -daysUntil })
+                                : t("dDay", { days: daysUntil })}
                           </span>
                         </TableCell>
                       </TableRow>
