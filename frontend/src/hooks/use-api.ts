@@ -29,6 +29,8 @@ import type {
   Announcement,
   CreateAnnouncementRequest,
   UpdateAnnouncementRequest,
+  BenchmarkRun,
+  BenchmarkListResponse,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -904,5 +906,54 @@ export function useDeleteAnnouncement() {
     mutationFn: (id: string) =>
       apiFetch<{ status: string }>(`/api/announcements/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
+// ─── Benchmark Runs ─────────────────────────────────────────
+
+export function useBenchmarks(filters: {
+  model_name?: string;
+  tool?: string;
+  status?: string;
+  limit?: number;
+}) {
+  const params = new URLSearchParams();
+  if (filters.model_name) params.set("model_name", filters.model_name);
+  if (filters.tool) params.set("tool", filters.tool);
+  if (filters.status) params.set("status_filter", filters.status);
+  if (filters.limit) params.set("limit", String(filters.limit));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+
+  return useQuery({
+    queryKey: ["benchmarks", filters],
+    queryFn: () =>
+      apiFetch<BenchmarkListResponse>(`/api/benchmarks${qs}`).then((r) => r.runs),
+    // Refresh while jobs are still pending/running.
+    refetchInterval: 5000,
+  });
+}
+
+export function useBenchmark(id: string) {
+  return useQuery({
+    queryKey: ["benchmarks", id],
+    queryFn: () => apiFetch<BenchmarkRun>(`/api/benchmarks/${id}`),
+    enabled: !!id,
+    refetchInterval: (query) => {
+      const data = query.state.data as BenchmarkRun | undefined;
+      if (!data) return 5000;
+      return data.status === "pending" || data.status === "running" ? 5000 : false;
+    },
+  });
+}
+
+export function useCancelBenchmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<BenchmarkRun>(`/api/benchmarks/${id}/cancel`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["benchmarks"] });
+      qc.invalidateQueries({ queryKey: ["benchmarks", id] });
+    },
   });
 }
