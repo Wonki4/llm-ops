@@ -13,6 +13,7 @@ from app.api import (
     admin_users,
     announcements,
     auth,
+    benchmarks,
     budgets,
     catalog,
     external,
@@ -68,6 +69,7 @@ app.include_router(external.router)
 app.include_router(admin_users.router)
 app.include_router(announcements.router)
 app.include_router(model_deployments.router)
+app.include_router(benchmarks.router)
 
 
 @app.exception_handler(Exception)
