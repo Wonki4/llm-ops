@@ -51,15 +51,18 @@ async def _one_request(
     prompt: str,
     max_tokens: int,
     temperature: float,
+    ignore_eos: bool = False,
 ) -> dict[str, float]:
     """Single streamed chat-completion call. Returns timing metrics."""
-    body = {
+    body: dict[str, object] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temperature,
         "stream": True,
     }
+    if ignore_eos:
+        body["ignore_eos"] = True
     started = time.perf_counter()
     ttft: float | None = None
     output_tokens = 0
@@ -91,11 +94,22 @@ async def _one_request(
 
 
 async def run_performance(*, model: str, base_url: str, api_key: str, params: dict) -> dict:
-    """Concurrent-load benchmark — same shape as vllm/sglang benchmark_serving."""
+    """Concurrent-load benchmark — same shape as vllm/sglang benchmark_serving.
+
+    Unknown keys in `params` are silently accepted (stored at the API layer for
+    audit / reproducibility) so users can ship extra params via the form's
+    JSON escape hatch even though this homegrown runner doesn't consume them.
+    """
     num_prompts = int(params.get("num_prompts", 32))
     concurrency = int(params.get("concurrency", 8))
     max_tokens = int(params.get("max_tokens", 128))
     temperature = float(params.get("temperature", 0.0))
+    request_rate = params.get("request_rate")
+    if request_rate is not None:
+        request_rate = float(request_rate)
+        if request_rate <= 0:
+            request_rate = None
+    ignore_eos = bool(params.get("ignore_eos", False))
     prompt = params.get(
         "prompt",
         "Write a short paragraph explaining the difference between TCP and UDP.",
@@ -115,6 +129,7 @@ async def run_performance(*, model: str, base_url: str, api_key: str, params: di
                     prompt=prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    ignore_eos=ignore_eos,
                 )
                 samples.append(m)
             except Exception as e:  # noqa: BLE001
@@ -125,7 +140,18 @@ async def run_performance(*, model: str, base_url: str, api_key: str, params: di
     headers = {"Authorization": f"Bearer {api_key}"}
     async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=timeout) as client:
         wall_start = time.perf_counter()
-        await asyncio.gather(*(worker() for _ in range(num_prompts)))
+        if request_rate is None:
+            await asyncio.gather(*(worker() for _ in range(num_prompts)))
+        else:
+            # Open-loop: launch each worker at 1/rate intervals so the inflight
+            # set is bounded by `concurrency` but the arrival pattern matches
+            # the requested rate (basic deterministic spacing, not Poisson).
+            interval = 1.0 / request_rate
+            tasks: list[asyncio.Task] = []
+            for _ in range(num_prompts):
+                tasks.append(asyncio.create_task(worker()))
+                await asyncio.sleep(interval)
+            await asyncio.gather(*tasks)
         wall_total = time.perf_counter() - wall_start
 
     def pct(xs: list[float], p: float) -> float:
@@ -143,6 +169,8 @@ async def run_performance(*, model: str, base_url: str, api_key: str, params: di
     return {
         "num_prompts": num_prompts,
         "concurrency": concurrency,
+        "request_rate": request_rate,
+        "ignore_eos": ignore_eos,
         "successful": len(samples),
         "errors": errors,
         "wall_time_s": wall_total,

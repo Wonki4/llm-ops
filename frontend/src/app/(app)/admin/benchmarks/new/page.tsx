@@ -31,6 +31,8 @@ const DEFAULT_PERF_PARAMS = {
   concurrency: 8,
   max_tokens: 128,
   temperature: 0,
+  request_rate: "",
+  ignore_eos: false,
   prompt: "Write a short paragraph explaining the difference between TCP and UDP.",
 };
 
@@ -53,6 +55,7 @@ export default function NewBenchmarkPage() {
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
   const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
   const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
+  const [extraParamsText, setExtraParamsText] = useState("");
   const [namespace, setNamespace] = useState("");
   const [image, setImage] = useState("");
 
@@ -64,15 +67,22 @@ export default function NewBenchmarkPage() {
     return Array.from(new Set(models.map((m) => m.model_name))).sort();
   }, [models]);
 
-  const buildParams = (): Record<string, unknown> => {
+  const buildNamedParams = (): Record<string, unknown> => {
     if (kind === "performance") {
-      return {
+      const params: Record<string, unknown> = {
         num_prompts: perfParams.num_prompts,
         concurrency: perfParams.concurrency,
         max_tokens: perfParams.max_tokens,
         temperature: perfParams.temperature,
         prompt: perfParams.prompt,
       };
+      if (perfParams.request_rate !== "") {
+        params.request_rate = Number(perfParams.request_rate);
+      }
+      if (perfParams.ignore_eos) {
+        params.ignore_eos = true;
+      }
+      return params;
     }
     const tasks = accParams.tasks
       .split(",")
@@ -92,26 +102,54 @@ export default function NewBenchmarkPage() {
     return params;
   };
 
-  const validate = (): string | null => {
-    if (!modelName.trim()) return t("errorModelRequired");
-    if (kind === "accuracy") {
-      const tasks = accParams.tasks.split(",").map((s) => s.trim()).filter(Boolean);
-      if (tasks.length === 0) return t("errorTasksRequired");
+  const parseExtras = ():
+    | { ok: true; value: Record<string, unknown> }
+    | { ok: false; error: string } => {
+    const text = extraParamsText.trim();
+    if (!text) return { ok: true, value: {} };
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return { ok: false, error: t("errorExtrasNotObject") };
+      }
+      return { ok: true, value: parsed as Record<string, unknown> };
+    } catch (e) {
+      return {
+        ok: false,
+        error: t("errorExtrasJsonInvalid", {
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      };
     }
-    return null;
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const err = validate();
-    if (err) {
-      toast.error(err);
+    if (!modelName.trim()) {
+      toast.error(t("errorModelRequired"));
       return;
     }
+    if (kind === "accuracy") {
+      const tasks = accParams.tasks
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (tasks.length === 0) {
+        toast.error(t("errorTasksRequired"));
+        return;
+      }
+    }
+    const extras = parseExtras();
+    if (!extras.ok) {
+      toast.error(extras.error);
+      return;
+    }
+
     const body: CreateBenchmarkRequest = {
       model_name: modelName.trim(),
       tool,
-      params: buildParams(),
+      // Extras override named so users can correct any field via JSON.
+      params: { ...buildNamedParams(), ...extras.value },
     };
     if (namespace.trim()) body.namespace = namespace.trim();
     if (image.trim()) body.image = image.trim();
@@ -200,6 +238,27 @@ export default function NewBenchmarkPage() {
                 onChange={setAccParams}
               />
             )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("extraParams")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
+            <textarea
+              id="extra_params"
+              rows={5}
+              spellCheck={false}
+              placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
+              className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+              value={extraParamsText}
+              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                setExtraParamsText(e.target.value)
+              }
+            />
+            <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
           </CardContent>
         </Card>
 
@@ -295,6 +354,25 @@ function PerfParamsFields({
           step="0.1"
           min={0}
         />
+        <OptionalNumberField
+          id="request_rate"
+          label={t("requestRateLabel")}
+          hint={t("requestRateHint")}
+          value={params.request_rate}
+          onChange={(v) => onChange({ ...params, request_rate: v })}
+        />
+        <div className="flex items-center gap-2 mt-6">
+          <input
+            id="ignore_eos"
+            type="checkbox"
+            className="size-4 rounded border-input"
+            checked={params.ignore_eos}
+            onChange={(e) => onChange({ ...params, ignore_eos: e.target.checked })}
+          />
+          <Label htmlFor="ignore_eos" className="cursor-pointer">
+            {t("ignoreEosLabel")}
+          </Label>
+        </div>
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="prompt">{t("promptLabel")}</Label>
