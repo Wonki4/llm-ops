@@ -31,6 +31,7 @@
     "adminModels": "Model Management",
     "adminBudgets": "Budget Management",
     "adminUsers": "User Management",
+    "adminBenchmarks": "Benchmarks",
     "adminSettings": "Portal Settings",
     "adminSectionLabel": "Admin",
     "logout": "Log out"
@@ -968,5 +969,45 @@
   "auth": {
     "loginSubtitle": "Sign in with your employee ID",
     "ssoLogin": "SSO Login"
+  },
+  "adminBenchmarks": {
+    "pageTitle": "Benchmarks",
+    "pageDescription": "Performance and accuracy benchmark runs against LiteLLM-registered models.",
+    "searchPlaceholder": "Filter by model name...",
+    "allTools": "All tools",
+    "allStatuses": "All statuses",
+    "resetFilters": "Reset",
+    "empty": "No benchmark runs yet.",
+    "colModel": "Model",
+    "colTool": "Tool",
+    "colKind": "Kind",
+    "colStatus": "Status",
+    "colDuration": "Duration",
+    "colCreatedBy": "Created by",
+    "colCreatedAt": "Created at",
+    "backToList": "Back to list",
+    "overview": "Overview",
+    "createdBy": "Created by",
+    "createdAt": "Created at",
+    "startedAt": "Started at",
+    "finishedAt": "Finished at",
+    "duration": "Duration",
+    "k8sJob": "K8s Job name",
+    "k8sNamespace": "K8s namespace",
+    "params": "Parameters",
+    "result": "Result",
+    "error": "Error",
+    "pendingResult": "Waiting for the runner to finish...",
+    "cancel": "Cancel run",
+    "confirmCancel": "Cancel this benchmark run? The K8s Job will be deleted.",
+    "cancelSuccess": "Benchmark cancelled.",
+    "cancelFail": "Failed to cancel benchmark"
+  },
+  "benchmarkStatus": {
+    "pending": "Pending",
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
   }
 }

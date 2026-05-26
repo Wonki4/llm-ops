@@ -31,6 +31,7 @@
     "adminModels": "모델 관리",
     "adminBudgets": "예산 관리",
     "adminUsers": "사용자 관리",
+    "adminBenchmarks": "벤치마크",
     "adminSettings": "포털 설정",
     "adminSectionLabel": "관리자",
     "logout": "로그아웃"
@@ -968,5 +969,45 @@
   "auth": {
     "loginSubtitle": "사번으로 로그인하세요",
     "ssoLogin": "SSO 로그인"
+  },
+  "adminBenchmarks": {
+    "pageTitle": "벤치마크",
+    "pageDescription": "LiteLLM에 등록된 모델에 대한 성능 / 정확도 벤치마크 실행 기록입니다.",
+    "searchPlaceholder": "모델 이름으로 필터...",
+    "allTools": "전체 툴",
+    "allStatuses": "전체 상태",
+    "resetFilters": "초기화",
+    "empty": "아직 실행된 벤치마크가 없습니다.",
+    "colModel": "모델",
+    "colTool": "툴",
+    "colKind": "종류",
+    "colStatus": "상태",
+    "colDuration": "소요 시간",
+    "colCreatedBy": "실행자",
+    "colCreatedAt": "생성 시각",
+    "backToList": "목록으로",
+    "overview": "개요",
+    "createdBy": "실행자",
+    "createdAt": "생성 시각",
+    "startedAt": "시작 시각",
+    "finishedAt": "종료 시각",
+    "duration": "소요 시간",
+    "k8sJob": "K8s Job 이름",
+    "k8sNamespace": "K8s 네임스페이스",
+    "params": "파라미터",
+    "result": "결과",
+    "error": "오류",
+    "pendingResult": "러너 완료를 기다리는 중...",
+    "cancel": "실행 취소",
+    "confirmCancel": "이 벤치마크 실행을 취소할까요? K8s Job이 삭제됩니다.",
+    "cancelSuccess": "벤치마크가 취소되었습니다.",
+    "cancelFail": "벤치마크 취소 실패"
+  },
+  "benchmarkStatus": {
+    "pending": "대기 중",
+    "running": "실행 중",
+    "succeeded": "성공",
+    "failed": "실패",
+    "cancelled": "취소됨"
   }
 }

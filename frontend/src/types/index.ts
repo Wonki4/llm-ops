@@ -406,3 +406,35 @@ export interface UpdateAnnouncementRequest {
   is_pinned?: boolean;
   is_featured?: boolean;
 }
+
+// ─── Benchmark Runs ─────────────────────────────────────────────
+
+export type BenchmarkTool = "vllm_serving" | "sglang_serving" | "lm_eval";
+export type BenchmarkKind = "performance" | "accuracy";
+export type BenchmarkStatus =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export interface BenchmarkRun {
+  id: string;
+  model_name: string;
+  tool: BenchmarkTool;
+  kind: BenchmarkKind;
+  params: Record<string, unknown>;
+  status: BenchmarkStatus;
+  k8s_job_name: string | null;
+  k8s_namespace: string | null;
+  result: Record<string, unknown> | null;
+  error_message: string | null;
+  created_by: string;
+  created_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface BenchmarkListResponse {
+  runs: BenchmarkRun[];
+}
