@@ -50,11 +50,12 @@ import {
 } from "lucide-react";
 import type { ApiKey } from "@/types";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 /* ── helpers (same as team detail page) ── */
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+function formatDate(dateStr: string, localeTag: string): string {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -115,6 +116,7 @@ function DeleteKeyDialog({
 /* ── Page ── */
 
 export default function AllKeysPage() {
+  const localeTag = useLocaleTag();
   const { data: keys, isLoading, isError, error, refetch } = useMyKeys();
   const { data: teams } = useMyTeams();
   const deleteKeyMutation = useDeleteKey();
@@ -358,7 +360,7 @@ export default function AllKeysPage() {
                     {key.rpm_limit?.toLocaleString() ?? "-"}
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {formatDate(key.created_at)}
+                    {formatDate(key.created_at, localeTag)}
                   </TableCell>
                   <TableCell>
                     <DeleteKeyDialog

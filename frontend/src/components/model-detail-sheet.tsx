@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useModelStatusHistory } from "@/hooks/use-api";
+import { useLocaleTag } from "@/lib/locale";
 import { ModelCacheSection } from "@/components/model-cache-section";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import {
@@ -44,18 +45,18 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
 }
 
-function formatDateTime(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString("ko-KR", {
+  return new Date(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -75,6 +76,7 @@ function renderBoolean(value: boolean | null | undefined): string {
 }
 
 export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheetProps) {
+  const localeTag = useLocaleTag();
   const t = useTranslations("modelDetail");
   const tms = useTranslations("modelStatus");
 
@@ -251,11 +253,11 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{t("catalog.createdAt")}</span>
-                      <span>{formatDateTime(catalog.created_at)}</span>
+                      <span>{formatDateTime(catalog.created_at, localeTag)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{t("catalog.updatedAt")}</span>
-                      <span>{formatDateTime(catalog.updated_at)}</span>
+                      <span>{formatDateTime(catalog.updated_at, localeTag)}</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -275,7 +277,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                         {statusHistory.slice(0, 5).map((entry) => (
                           <div key={entry.id} className="rounded-md border px-2.5 py-2 text-xs space-y-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground">{formatDateTime(entry.changed_at)}</span>
+                              <span className="text-muted-foreground">{formatDateTime(entry.changed_at, localeTag)}</span>
                               <span className="font-mono text-muted-foreground">{entry.changed_by}</span>
                             </div>
                             <div className="flex items-center gap-1.5 flex-wrap">

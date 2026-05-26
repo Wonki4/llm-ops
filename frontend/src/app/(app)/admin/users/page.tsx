@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import { useAdminUsers } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -34,9 +35,9 @@ function formatBudget(value: number | null, unlimited: string): string {
   return `$${value.toFixed(2)}`;
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -45,6 +46,7 @@ function formatDate(dateStr: string | null): string {
 
 export default function AdminUsersPage() {
   const t = useTranslations("adminUsers");
+  const localeTag = useLocaleTag();
   const tc = useTranslations("common");
 
   const [page, setPage] = useState(1);
@@ -182,7 +184,7 @@ export default function AdminUsersPage() {
                       {formatBudget(u.max_budget, t("unlimited"))}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {formatDate(u.created_at)}
+                      {formatDate(u.created_at, localeTag)}
                     </TableCell>
                   </TableRow>
                 ))}

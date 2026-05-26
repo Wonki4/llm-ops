@@ -17,6 +17,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import { useModels, useAllModelStatusHistory } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -119,9 +120,9 @@ function StatusBadge({ status }: { status: ModelStatus }) {
   return <Badge className={STATUS_STYLES[status]}>{tms(status)}</Badge>;
 }
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -134,7 +135,7 @@ function formatCost(cost: number | null | undefined): string {
   return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
-function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslations>): string {
+function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslations>, localeTag: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return t("relativeTime.justNow");
@@ -143,7 +144,7 @@ function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslation
   if (hours < 24) return t("relativeTime.hoursAgo", { count: hours });
   const days = Math.floor(hours / 24);
   if (days < 7) return t("relativeTime.daysAgo", { count: days });
-  return formatDate(dateStr);
+  return formatDate(dateStr, localeTag);
 }
 
 function getProvider(model: ModelWithCatalog): string {
@@ -351,6 +352,7 @@ function RecentChanges({
   onModelClick: (modelName: string) => void;
 }) {
   const t = useTranslations("adminModelsDashboard");
+  const localeTag = useLocaleTag();
 
   if (isLoading) {
     return (
@@ -404,7 +406,7 @@ function RecentChanges({
             <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
               <span>{h.changed_by}</span>
               <span>·</span>
-              <span>{formatRelativeTime(h.changed_at, t)}</span>
+              <span>{formatRelativeTime(h.changed_at, t, localeTag)}</span>
             </div>
           </div>
         </div>
@@ -416,6 +418,7 @@ function RecentChanges({
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelDashboardPage() {
+  const localeTag = useLocaleTag();
   const t = useTranslations("adminModelsDashboard");
   const tms = useTranslations("modelStatus");
 
@@ -764,7 +767,7 @@ export default function ModelDashboardPage() {
                           if (!next) return <span className="text-sm">-</span>;
                           return (
                             <div className="space-y-0.5">
-                              <span className="text-sm">{formatDate(next.date)}</span>
+                              <span className="text-sm">{formatDate(next.date, localeTag)}</span>
                               <div><StatusBadge status={next.status} /></div>
                             </div>
                           );

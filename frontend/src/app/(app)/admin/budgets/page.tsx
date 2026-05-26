@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import { useBudgets, useBudgetDetails, useOrphanBudgets, useDeleteOrphanBudgets, useDeleteBudget, useDeleteBudgetsBatch } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -46,9 +47,9 @@ function formatBudget(value: number | null, unlimited: string): string {
   return `$${value.toFixed(2)}`;
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -227,6 +228,7 @@ function BudgetDetailPanel({ budgetId }: { budgetId: string }) {
 export default function BudgetManagementPage() {
   const t = useTranslations("budgets");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -475,7 +477,7 @@ export default function BudgetManagementPage() {
                         </TableCell>
                         <TableCell className="font-medium">{formatBudget(b.max_budget, t("unlimited"))}</TableCell>
                         <TableCell className="text-sm">{b.budget_duration || "-"}</TableCell>
-                        <TableCell className="text-sm">{formatDate(b.budget_reset_at)}</TableCell>
+                        <TableCell className="text-sm">{formatDate(b.budget_reset_at, localeTag)}</TableCell>
                         <TableCell>
                           {b.team_membership_count > 0 ? (
                             <Badge variant="secondary" className="gap-1">
@@ -500,7 +502,7 @@ export default function BudgetManagementPage() {
                             </Badge>
                           ) : "-"}
                         </TableCell>
-                        <TableCell className="text-sm">{formatDate(b.created_at)}</TableCell>
+                        <TableCell className="text-sm">{formatDate(b.created_at, localeTag)}</TableCell>
                         <TableCell>
                           <Button
                             variant="ghost"

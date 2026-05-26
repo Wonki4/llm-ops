@@ -17,6 +17,7 @@ import {
   UserPlus,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import {
   useAdminUserDetail,
@@ -60,9 +61,9 @@ function formatBudget(value: number | null, unlimited: string): string {
   return `$${value.toFixed(2)}`;
 }
 
-function formatDate(dateStr: string | null): string {
+function formatDate(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString("ko-KR", {
+  return new Date(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -71,9 +72,9 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
-function formatDateShort(dateStr: string | null): string {
+function formatDateShort(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -87,6 +88,7 @@ export default function AdminUserDetailPage({
 }) {
   const t = useTranslations("adminUsers");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
 
   const { userId: rawUserId } = use(params);
   const userId = decodeURIComponent(rawUserId);
@@ -287,7 +289,7 @@ export default function AdminUserDetailPage({
           </CardHeader>
           <CardContent>
             <div className="text-lg font-semibold">
-              {formatDateShort(user.created_at)}
+              {formatDateShort(user.created_at, localeTag)}
             </div>
           </CardContent>
         </Card>
@@ -357,7 +359,7 @@ export default function AdminUserDetailPage({
                         {formatBudget(t_.max_budget, t("unlimited"))}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDateShort(t_.expires_at)}
+                        {formatDateShort(t_.expires_at, localeTag)}
                         {t_.expiry_status && t_.expiry_status !== "active" && (
                           <Badge variant="outline" className="ml-2 text-xs">
                             {t_.expiry_status}
@@ -458,7 +460,7 @@ export default function AdminUserDetailPage({
                         {k.rpm_limit ?? "-"}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(k.created_at)}
+                        {formatDate(k.created_at, localeTag)}
                       </TableCell>
                       <TableCell className="text-right">
                         <Button

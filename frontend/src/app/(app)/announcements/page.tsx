@@ -19,6 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import {
   useAnnouncements,
@@ -42,9 +43,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-function formatDateTime(dateStr: string | null): string {
+function formatDateTime(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString("ko-KR", {
+  return new Date(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -53,9 +54,9 @@ function formatDateTime(dateStr: string | null): string {
   });
 }
 
-function formatDateShort(dateStr: string | null): string {
+function formatDateShort(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -75,6 +76,7 @@ export default function AnnouncementsPage() {
 function AnnouncementsPageInner() {
   const t = useTranslations("announcements");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
   const { data: me } = useMe();
   const isAdmin = me?.role === "super_user";
   const { data: announcements, isLoading } = useAnnouncements(isAdmin);
@@ -297,7 +299,7 @@ function AnnouncementsPageInner() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        {a.author_id} · {formatDateShort(a.created_at)}
+                        {a.author_id} · {formatDateShort(a.created_at, localeTag)}
                       </p>
                     </button>
                   </li>
@@ -383,6 +385,7 @@ function ViewPane({
 }) {
   const t = useTranslations("announcements");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
   return (
     <article className="p-6 space-y-4 overflow-y-auto">
       <header className="flex items-start justify-between gap-4 pb-4 border-b">
@@ -413,10 +416,10 @@ function ViewPane({
             </div>
           )}
           <p className="text-xs text-muted-foreground mt-2">
-            {announcement.author_id} · {formatDateTime(announcement.created_at)}
+            {announcement.author_id} · {formatDateTime(announcement.created_at, localeTag)}
             {announcement.updated_at &&
               announcement.updated_at !== announcement.created_at && (
-                <> · {t("updatedAt", { date: formatDateTime(announcement.updated_at) })}</>
+                <> · {t("updatedAt", { date: formatDateTime(announcement.updated_at, localeTag) })}</>
               )}
           </p>
         </div>
