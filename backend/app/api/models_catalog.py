@@ -623,15 +623,66 @@ async def list_cost_schedule(
     return {"model_name": model_name, "rules": [_serialize_cost_schedule(r) for r in result.scalars().all()]}
 
 
+async def _snapshot_default_cost_if_missing(
+    db: AsyncSession,
+    litellm: LiteLLMClient,
+    model_name: str,
+) -> None:
+    """Capture the current LiteLLM cost as the catalog default before saving a rule.
+
+    The cost-schedule worker reverts to `catalog.default_*_cost_per_token` when
+    no rule is active. If the admin never set those, the worker's revert path
+    silently skips and the model stays stuck on whatever the last active rule
+    set. Snapshotting on rule create/update closes that gap automatically.
+
+    Idempotent: only fills the side that is currently null, so an admin's
+    explicit catalog default always wins. No-op when the catalog row doesn't
+    exist or LiteLLM has no cost for this model.
+    """
+    result = await db.execute(
+        select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name)
+    )
+    catalog = result.scalar_one_or_none()
+    if catalog is None:
+        return
+    in_set = catalog.default_input_cost_per_token is not None
+    out_set = catalog.default_output_cost_per_token is not None
+    if in_set and out_set:
+        return
+    try:
+        deployments = await litellm.get_model_info()
+    except Exception:
+        logger.exception(
+            "cost-schedule: failed to fetch LiteLLM model_info for default snapshot of %s",
+            model_name,
+        )
+        return
+    for d in deployments:
+        if d.get("model_name") != model_name:
+            continue
+        params = d.get("litellm_params") or {}
+        info = d.get("model_info") or {}
+        in_cost = params.get("input_cost_per_token") or info.get("input_cost_per_token")
+        out_cost = params.get("output_cost_per_token") or info.get("output_cost_per_token")
+        if not in_set and in_cost is not None:
+            catalog.default_input_cost_per_token = float(in_cost)
+        if not out_set and out_cost is not None:
+            catalog.default_output_cost_per_token = float(out_cost)
+        await db.flush()
+        return
+
+
 @router.post("/{model_name}/cost-schedule", status_code=status.HTTP_201_CREATED)
 async def create_cost_schedule(
     model_name: str,
     body: CostScheduleRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Create a cost schedule rule for a model (Super User only)."""
     _validate_cost_schedule(body)
+    await _snapshot_default_cost_if_missing(db, litellm, model_name)
     rule = CustomModelCostSchedule(
         id=uuid.uuid4(),
         model_name=model_name,
@@ -657,6 +708,7 @@ async def update_cost_schedule(
     body: CostScheduleRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Update a cost schedule rule (Super User only)."""
     _validate_cost_schedule(body)
@@ -664,6 +716,7 @@ async def update_cost_schedule(
     rule = result.scalar_one_or_none()
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
+    await _snapshot_default_cost_if_missing(db, litellm, rule.model_name)
     rule.days_of_week = sorted(set(body.days_of_week))
     rule.hour_start_utc = body.hour_start_utc
     rule.hour_end_utc = body.hour_end_utc
