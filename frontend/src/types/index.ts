@@ -438,3 +438,11 @@ export interface BenchmarkRun {
 export interface BenchmarkListResponse {
   runs: BenchmarkRun[];
 }
+
+export interface CreateBenchmarkRequest {
+  model_name: string;
+  tool: BenchmarkTool;
+  params: Record<string, unknown>;
+  namespace?: string;
+  image?: string;
+}

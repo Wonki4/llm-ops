@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Loader2, FlaskConical, X } from "lucide-react";
+import { Search, Loader2, FlaskConical, X, Plus } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag } from "@/lib/locale";
 import { useBenchmarks } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -91,9 +92,17 @@ export default function AdminBenchmarksPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t("pageTitle")}</h1>
-        <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">{t("pageTitle")}</h1>
+          <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
+        </div>
+        <Link href="/admin/benchmarks/new">
+          <Button>
+            <Plus className="size-4 mr-1" />
+            {t("runBenchmark")}
+          </Button>
+        </Link>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
