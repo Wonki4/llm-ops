@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Loader2, FlaskConical, X, Plus } from "lucide-react";
+import { Search, Loader2, FlaskConical, X, Plus, GitCompare } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag } from "@/lib/locale";
@@ -11,6 +11,8 @@ import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const COMPARE_MAX = 5;
 import {
   Table,
   TableBody,
@@ -77,6 +79,7 @@ export default function AdminBenchmarksPage() {
   const [model, setModel] = useState("");
   const [tool, setTool] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const timer = setTimeout(() => setModel(modelInput.trim()), 300);
@@ -90,6 +93,19 @@ export default function AdminBenchmarksPage() {
     limit: 200,
   });
 
+  const toggleSelected = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else if (next.size < COMPARE_MAX) {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+  const compareHref = `/admin/benchmarks/compare?ids=${Array.from(selected).join(",")}`;
+
   return (
     <div className="space-y-6">
       <div className="flex items-start justify-between gap-4">
@@ -97,12 +113,22 @@ export default function AdminBenchmarksPage() {
           <h1 className="text-2xl font-bold">{t("pageTitle")}</h1>
           <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
         </div>
-        <Link href="/admin/benchmarks/new">
-          <Button>
-            <Plus className="size-4 mr-1" />
-            {t("runBenchmark")}
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          {selected.size >= 2 && (
+            <Link href={compareHref}>
+              <Button variant="outline">
+                <GitCompare className="size-4 mr-1" />
+                {t("compareSelected", { count: selected.size })}
+              </Button>
+            </Link>
+          )}
+          <Link href="/admin/benchmarks/new">
+            <Button>
+              <Plus className="size-4 mr-1" />
+              {t("runBenchmark")}
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
@@ -160,6 +186,7 @@ export default function AdminBenchmarksPage() {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10"></TableHead>
               <TableHead>{t("colModel")}</TableHead>
               <TableHead>{t("colTool")}</TableHead>
               <TableHead>{t("colKind")}</TableHead>
@@ -172,7 +199,7 @@ export default function AdminBenchmarksPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
                   </div>
@@ -180,7 +207,7 @@ export default function AdminBenchmarksPage() {
               </TableRow>
             ) : !runs || runs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7}>
+                <TableCell colSpan={8}>
                   <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                     <FlaskConical className="size-6" />
                     <span className="text-sm">{t("empty")}</span>
@@ -188,8 +215,25 @@ export default function AdminBenchmarksPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              runs.map((r) => (
-                <TableRow key={r.id} className="cursor-pointer hover:bg-muted/40">
+              runs.map((r) => {
+                const isChecked = selected.has(r.id);
+                const disableCheck = !isChecked && selected.size >= COMPARE_MAX;
+                return (
+                <TableRow key={r.id} className="hover:bg-muted/40">
+                  <TableCell>
+                    <input
+                      type="checkbox"
+                      className="size-4 rounded border-input cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                      checked={isChecked}
+                      disabled={disableCheck}
+                      title={
+                        disableCheck
+                          ? t("compareMaxHint", { max: COMPARE_MAX })
+                          : undefined
+                      }
+                      onChange={() => toggleSelected(r.id)}
+                    />
+                  </TableCell>
                   <TableCell className="font-medium">
                     <Link
                       href={`/admin/benchmarks/${r.id}`}
@@ -213,7 +257,8 @@ export default function AdminBenchmarksPage() {
                     {formatDateTime(r.created_at, localeTag)}
                   </TableCell>
                 </TableRow>
-              ))
+                );
+              })
             )}
           </TableBody>
         </Table>

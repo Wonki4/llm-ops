@@ -974,6 +974,8 @@
     "pageTitle": "벤치마크",
     "pageDescription": "LiteLLM에 등록된 모델에 대한 성능 / 정확도 벤치마크 실행 기록입니다.",
     "runBenchmark": "벤치마크 실행",
+    "compareSelected": "비교 ({count})",
+    "compareMaxHint": "한 번에 최대 {max}개까지 비교할 수 있습니다.",
     "searchPlaceholder": "모델 이름으로 필터...",
     "allTools": "전체 툴",
     "allStatuses": "전체 상태",
@@ -1062,5 +1064,26 @@
     "submitFail": "벤치마크 시작 실패",
     "errorModelRequired": "모델을 먼저 선택하세요.",
     "errorTasksRequired": "Task를 최소 한 개 이상 입력하세요."
+  },
+  "benchmarkCompare": {
+    "pageTitle": "벤치마크 비교",
+    "pageDescription": "{count}개 실행을 나란히 비교합니다. 각 row에서 최고/최저 값이 강조됩니다.",
+    "backToList": "목록으로",
+    "needAtLeastTwo": "비교하려면 목록에서 최소 두 개를 선택하세요.",
+    "mixedKindsWarning": "선택된 실행에 성능과 정확도가 섞여있어 공통 항목(파라미터, 타임스탬프)만 비교됩니다.",
+    "runs": "실행 목록",
+    "attribute": "항목",
+    "status": "상태",
+    "tool": "툴",
+    "kind": "종류",
+    "createdAt": "생성 시각",
+    "createdBy": "실행자",
+    "params": "파라미터",
+    "param": "파라미터",
+    "perfMetrics": "성능 지표",
+    "accuracyMetrics": "정확도 지표",
+    "metric": "지표",
+    "perfLegend": "처리량 항목: 큰 값이 좋음. 지연(TTFT / TPOT / total) 항목: 작은 값이 좋음.",
+    "accuracyLegend": "큰 값을 최고로 강조합니다 (지표가 점수형(높을수록 좋음)이라는 가정)."
   }
 }

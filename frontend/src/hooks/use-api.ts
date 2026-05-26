@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import type {
   User,
@@ -957,6 +957,23 @@ export function useCancelBenchmark() {
       qc.invalidateQueries({ queryKey: ["benchmarks", id] });
     },
   });
+}
+
+export function useBenchmarkBulk(ids: string[]) {
+  // Fetch N runs in parallel. Reuses the per-run query cache so opening a
+  // comparison after viewing a detail page hits cache without re-fetching.
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ["benchmarks", id],
+      queryFn: () => apiFetch<BenchmarkRun>(`/api/benchmarks/${id}`),
+      enabled: !!id,
+    })),
+  });
+  return {
+    runs: results.map((r) => r.data).filter((r): r is BenchmarkRun => !!r),
+    isLoading: results.some((r) => r.isLoading),
+    isError: results.some((r) => r.isError),
+  };
 }
 
 export function useCreateBenchmark() {

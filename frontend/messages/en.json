@@ -974,6 +974,8 @@
     "pageTitle": "Benchmarks",
     "pageDescription": "Performance and accuracy benchmark runs against LiteLLM-registered models.",
     "runBenchmark": "Run benchmark",
+    "compareSelected": "Compare ({count})",
+    "compareMaxHint": "You can compare up to {max} runs at once.",
     "searchPlaceholder": "Filter by model name...",
     "allTools": "All tools",
     "allStatuses": "All statuses",
@@ -1062,5 +1064,26 @@
     "submitFail": "Failed to start benchmark",
     "errorModelRequired": "Pick a model first.",
     "errorTasksRequired": "Enter at least one task."
+  },
+  "benchmarkCompare": {
+    "pageTitle": "Compare benchmarks",
+    "pageDescription": "Side-by-side metrics across {count} runs. Best and worst values are highlighted per row.",
+    "backToList": "Back to list",
+    "needAtLeastTwo": "Select at least two benchmarks from the list to compare.",
+    "mixedKindsWarning": "Selected runs mix performance and accuracy kinds — only shared fields (params, timestamps) are compared.",
+    "runs": "Runs",
+    "attribute": "Attribute",
+    "status": "Status",
+    "tool": "Tool",
+    "kind": "Kind",
+    "createdAt": "Created at",
+    "createdBy": "Created by",
+    "params": "Parameters",
+    "param": "Param",
+    "perfMetrics": "Performance metrics",
+    "accuracyMetrics": "Accuracy metrics",
+    "metric": "Metric",
+    "perfLegend": "Throughput rows: higher is better. Latency (TTFT / TPOT / total) rows: lower is better.",
+    "accuracyLegend": "Higher value is highlighted as best; this assumes the metric is a score (higher = better)."
   }
 }
