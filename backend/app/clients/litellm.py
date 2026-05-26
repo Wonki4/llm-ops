@@ -115,6 +115,25 @@ class LiteLLMClient:
         payload = {"team_id": team_id, **kwargs}
         return await self._request("POST", "/team/update", json=payload)
 
+    async def create_team(
+        self,
+        *,
+        team_alias: str,
+        models: list[str] | None = None,
+        **kwargs: Any,
+    ) -> dict:
+        """Create a new team via /team/new.
+
+        Extra budget/limit fields (max_budget, budget_duration, tpm_limit,
+        rpm_limit, ...) are passed straight through as kwargs.
+        """
+        payload: dict[str, Any] = {
+            "team_alias": team_alias,
+            "models": models if models is not None else [],
+            **kwargs,
+        }
+        return await self._request("POST", "/team/new", json=payload)
+
     # ──── User endpoints ────
     async def get_user_info(self, user_id: str) -> dict:
         return await self._request("GET", "/user/info", params={"user_id": user_id})
