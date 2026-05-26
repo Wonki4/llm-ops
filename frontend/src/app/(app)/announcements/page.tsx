@@ -442,7 +442,7 @@ function ViewPane({
           </div>
         )}
       </header>
-      <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-a:text-blue-600 prose-pre:bg-gray-50 prose-pre:border">
+      <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-a:text-blue-600 dark:prose-a:text-blue-400 prose-pre:bg-gray-50 dark:prose-pre:bg-gray-800 prose-pre:border">
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
           {announcement.content}
         </ReactMarkdown>
@@ -565,7 +565,7 @@ function EditorPane({
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {content.trim() ? (
-              <div className="prose prose-sm max-w-none">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   rehypePlugins={[rehypeRaw]}
