@@ -6,6 +6,7 @@ import logging
 from app.jobs.apply_cost_schedule import cost_schedule_loop
 from app.jobs.auto_deprecate import deprecation_loop
 from app.jobs.expire_memberships import membership_expiry_loop
+from app.jobs.reconcile_benchmarks import reconcile_loop as benchmark_reconcile_loop
 from app.jobs.reconcile_deployments import reconcile_loop
 from app.jobs.reset_team_membership_budget import team_membership_budget_reset_loop
 
@@ -21,6 +22,7 @@ async def main() -> None:
         team_membership_budget_reset_loop(interval_seconds=3600),
         cost_schedule_loop(interval_seconds=300),
         reconcile_loop(interval_seconds=60),
+        benchmark_reconcile_loop(interval_seconds=30),
     )
 
 

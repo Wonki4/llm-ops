@@ -129,6 +129,82 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    # ─── Batch v1 (Jobs) — used by benchmark runner ─────────────────
+
+    async def create_job(self, namespace: str, manifest: dict) -> None:
+        """Create a K8s Job. Raises ApiException(409) if name collides."""
+        api_client = await _api_client()
+        try:
+            batch = client.BatchV1Api(api_client)
+            await batch.create_namespaced_job(namespace=namespace, body=manifest)
+        finally:
+            await api_client.close()
+
+    async def read_job_status(self, namespace: str, name: str) -> dict[str, Any]:
+        """Return {'active': int, 'succeeded': int, 'failed': int, 'conditions': [...]}.
+
+        Raises ApiException(404) when the Job is gone.
+        """
+        api_client = await _api_client()
+        try:
+            batch = client.BatchV1Api(api_client)
+            job = await batch.read_namespaced_job_status(name=name, namespace=namespace)
+            return {
+                "active": int(job.status.active or 0),
+                "succeeded": int(job.status.succeeded or 0),
+                "failed": int(job.status.failed or 0),
+                "conditions": [
+                    {"type": c.type, "status": c.status, "reason": c.reason, "message": c.message}
+                    for c in (job.status.conditions or [])
+                ],
+            }
+        finally:
+            await api_client.close()
+
+    async def read_job_pod_logs(self, namespace: str, job_name: str, tail_lines: int = 2000) -> str:
+        """Concatenate logs from all pods owned by the Job.
+
+        Used to harvest the runner's stdout JSON result. Returns empty string
+        when no pods are found (e.g. Job spawned but pod not yet scheduled).
+        """
+        api_client = await _api_client()
+        try:
+            core = client.CoreV1Api(api_client)
+            pods = await core.list_namespaced_pod(
+                namespace=namespace, label_selector=f"job-name={job_name}"
+            )
+            buf: list[str] = []
+            for pod in pods.items:
+                try:
+                    log = await core.read_namespaced_pod_log(
+                        name=pod.metadata.name,
+                        namespace=namespace,
+                        tail_lines=tail_lines,
+                    )
+                    buf.append(log or "")
+                except ApiException:
+                    continue
+            return "\n".join(buf)
+        finally:
+            await api_client.close()
+
+    async def delete_job(self, namespace: str, name: str) -> None:
+        """Delete the Job and its pods. 404 swallowed (idempotent)."""
+        api_client = await _api_client()
+        try:
+            batch = client.BatchV1Api(api_client)
+            try:
+                await batch.delete_namespaced_job(
+                    name=name,
+                    namespace=namespace,
+                    propagation_policy="Background",
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        finally:
+            await api_client.close()
+
 
 def get_k8s_client() -> K8sClient:
     return K8sClient()
