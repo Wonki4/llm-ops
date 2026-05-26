@@ -533,8 +533,8 @@
       "daySpanningHint": "Day-spanning (e.g. 22→6) applies until early next morning based on start day",
       "startHour": "Start (KST, 0-23)",
       "endHour": "End (KST, 1-24)",
-      "inputCost": "Input cost / token",
-      "outputCost": "Output cost / token",
+      "inputCost": "Input cost (USD / 1M tokens)",
+      "outputCost": "Output cost (USD / 1M tokens)",
       "priority": "Priority (higher = preferred)",
       "enabled": "Enabled"
     },

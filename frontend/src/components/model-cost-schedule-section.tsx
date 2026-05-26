@@ -137,6 +137,16 @@ interface FormState {
   enabled: boolean;
 }
 
+// LiteLLM stores cost as per-1-token (e.g. 0.00000125). Humans think in
+// per-1M-tokens (e.g. $1.25), and the rest of the portal already shows costs
+// that way, so the form converts at the boundary: divide by 1M on submit,
+// multiply by 1M when loading.
+const PER_MILLION = 1_000_000;
+
+function toPerMillion(perToken: number): string {
+  return (perToken * PER_MILLION).toString();
+}
+
 function ruleToForm(rule: CostRule | null): FormState {
   if (!rule) {
     return {
@@ -155,8 +165,8 @@ function ruleToForm(rule: CostRule | null): FormState {
     daysKst: start.days,
     hourStartKst: String(start.hourKst),
     hourEndKst: String(end.hourKst === 0 && rule.hour_end_utc === 24 ? 24 : end.hourKst),
-    inputCost: String(rule.input_cost_per_token),
-    outputCost: String(rule.output_cost_per_token),
+    inputCost: toPerMillion(rule.input_cost_per_token),
+    outputCost: toPerMillion(rule.output_cost_per_token),
     priority: String(rule.priority),
     enabled: rule.enabled,
   };
@@ -169,10 +179,12 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
   if (!Number.isInteger(hs) || hs < 0 || hs > 23) return t("validation.invalidStartHour");
   if (!Number.isInteger(he) || he < 1 || he > 24) return t("validation.invalidEndHour");
   if (hs === he) return t("validation.sameStartEnd");
-  const inCost = Number(form.inputCost);
-  const outCost = Number(form.outputCost);
-  if (!Number.isFinite(inCost) || inCost < 0) return t("validation.invalidInputCost");
-  if (!Number.isFinite(outCost) || outCost < 0) return t("validation.invalidOutputCost");
+  const inCostPerMillion = Number(form.inputCost);
+  const outCostPerMillion = Number(form.outputCost);
+  if (!Number.isFinite(inCostPerMillion) || inCostPerMillion < 0)
+    return t("validation.invalidInputCost");
+  if (!Number.isFinite(outCostPerMillion) || outCostPerMillion < 0)
+    return t("validation.invalidOutputCost");
 
   const startConv = kstDayHourToUtc(form.daysKst, hs);
   // end uses 24 to mean "exclusive end of day" — keep that and convert separately.
@@ -181,8 +193,8 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
     days_of_week: startConv.days,
     hour_start_utc: startConv.hourUtc,
     hour_end_utc: heUtcRaw,
-    input_cost_per_token: inCost,
-    output_cost_per_token: outCost,
+    input_cost_per_token: inCostPerMillion / PER_MILLION,
+    output_cost_per_token: outCostPerMillion / PER_MILLION,
     priority: Number(form.priority) || 0,
     enabled: form.enabled,
   };
@@ -305,7 +317,7 @@ function RuleForm({
           <label className="text-xs text-muted-foreground">{t("form.inputCost")}</label>
           <Input
             type="number"
-            step="0.0000001"
+            step="0.01"
             min="0"
             value={form.inputCost}
             onChange={(e) => setForm((f) => ({ ...f, inputCost: e.target.value }))}
@@ -316,7 +328,7 @@ function RuleForm({
           <label className="text-xs text-muted-foreground">{t("form.outputCost")}</label>
           <Input
             type="number"
-            step="0.0000001"
+            step="0.01"
             min="0"
             value={form.outputCost}
             onChange={(e) => setForm((f) => ({ ...f, outputCost: e.target.value }))}
@@ -412,7 +424,8 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
           </div>
         </div>
         <div className="text-[11px] font-mono text-muted-foreground">
-          in {rule.input_cost_per_token} · out {rule.output_cost_per_token}
+          in ${(rule.input_cost_per_token * PER_MILLION).toFixed(2)} · out $
+          {(rule.output_cost_per_token * PER_MILLION).toFixed(2)} / 1M
         </div>
       </CardContent>
     </Card>

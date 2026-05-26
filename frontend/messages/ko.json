@@ -533,8 +533,8 @@
       "daySpanningHint": "day-spanning(예: 22→6)은 시작 요일 기준으로 다음 날 새벽까지 적용",
       "startHour": "시작 (KST, 0-23)",
       "endHour": "종료 (KST, 1-24)",
-      "inputCost": "입력 단가 / token",
-      "outputCost": "출력 단가 / token",
+      "inputCost": "입력 단가 (USD / 1M tokens)",
+      "outputCost": "출력 단가 (USD / 1M tokens)",
       "priority": "우선순위 (높을수록 우선)",
       "enabled": "활성화"
     },
