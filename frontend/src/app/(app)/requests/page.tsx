@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import type { JoinRequestStatus, RequestType, TeamJoinRequest } from "@/types";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
   const t = useTranslations("requests");
@@ -53,8 +54,8 @@ function TypeBadge({ type }: { type: RequestType }) {
   return <Badge className={styles[type]}>{TYPE_LABELS[type]}</Badge>;
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+function formatDate(dateStr: string, localeTag: string) {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -62,6 +63,7 @@ function formatDate(dateStr: string) {
 }
 
 export default function MyRequestsPage() {
+  const localeTag = useLocaleTag();
   const { data: requests, isLoading, isError } = useJoinRequests(undefined, undefined, true);
   const [statusTab, setStatusTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -189,7 +191,7 @@ export default function MyRequestsPage() {
                         <StatusBadge status={req.status} />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {formatDate(req.created_at)}
+                        {formatDate(req.created_at, localeTag)}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
                         <button
@@ -255,7 +257,7 @@ export default function MyRequestsPage() {
                 <span className="text-muted-foreground">{t("colStatus")}</span>
                 <span><StatusBadge status={detailRequest.status} /></span>
                 <span className="text-muted-foreground">{t("colRequestedAt")}</span>
-                <span>{formatDate(detailRequest.created_at)}</span>
+                <span>{formatDate(detailRequest.created_at, localeTag)}</span>
                 {(detailRequest.request_type ?? "join") === "budget" && (
                   <>
                     <span className="text-muted-foreground">{t("budgetAmount")}</span>

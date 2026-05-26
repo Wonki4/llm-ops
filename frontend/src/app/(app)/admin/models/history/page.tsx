@@ -5,6 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, Loader2, Boxes } from "lucide-reac
 import { useTranslations } from "next-intl";
 
 import { useModelCatalog } from "@/hooks/use-api";
+import { useLocaleTag } from "@/lib/locale";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -109,9 +110,9 @@ function getDaysInMonth(year: number, month: number): number {
   return new Date(year, month + 1, 0).getDate();
 }
 
-function formatDateKo(dateStr: string): string {
+function formatDateKo(dateStr: string, localeTag: string): string {
   const d = new Date(`${dateStr}T00:00:00`);
-  return d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
+  return d.toLocaleDateString(localeTag, { month: "short", day: "numeric" });
 }
 
 // ─── Calendar Grid ───────────────────────────────────────────
@@ -202,6 +203,7 @@ function CalendarGrid({
 // ─── Main Component ──────────────────────────────────────────
 
 export default function ModelCalendarPage() {
+  const localeTag = useLocaleTag();
   const t = useTranslations("adminModelsHistory");
   const tms = useTranslations("modelStatus");
 
@@ -392,7 +394,7 @@ export default function ModelCalendarPage() {
                     return (
                       <TableRow key={`${ev.modelName}-${ev.targetStatus}-${i}`}>
                         <TableCell className="font-mono text-sm">
-                          {formatDateKo(ev.date)}
+                          {formatDateKo(ev.date, localeTag)}
                         </TableCell>
                         <TableCell>
                           <div>

@@ -3,6 +3,7 @@
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
@@ -86,16 +87,16 @@ function budgetPercent(spend: number, maxBudget: number | null): number {
   return Math.min((spend / maxBudget) * 100, 100);
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+function formatDate(dateStr: string, localeTag: string): string {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "short",
     day: "numeric",
   });
 }
 
-function formatResetDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+function formatResetDate(dateStr: string, localeTag: string): string {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -278,6 +279,7 @@ function OverviewTab({
   onSelectModel: (model: ModelWithCatalog) => void;
 }) {
   const t = useTranslations("teamDetail");
+  const localeTag = useLocaleTag();
   const unitLabels: Record<string, string> = {
     d: t("unitDay"),
     h: t("unitHour"),
@@ -382,7 +384,7 @@ function OverviewTab({
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p>{t("budgetCycle")}: {team.budget_duration ? t("budgetCycleValue", { duration: formatBudgetDuration(team.budget_duration, unitLabels) }) : "-"}</p>
-                <p>{t("budgetReset")}: {team.budget_reset_at ? formatResetDate(team.budget_reset_at) : "-"}</p>
+                <p>{t("budgetReset")}: {team.budget_reset_at ? formatResetDate(team.budget_reset_at, localeTag) : "-"}</p>
               </div>
               <Separator />
               <div className="flex items-end justify-between gap-3">
@@ -402,7 +404,7 @@ function OverviewTab({
               </div>
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p>{t("budgetCycle")}: {myMembership.budget_duration ? t("budgetCycleValue", { duration: formatBudgetDuration(myMembership.budget_duration, unitLabels) }) : "-"}</p>
-                <p>{t("budgetReset")}: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at) : "-"}</p>
+                <p>{t("budgetReset")}: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at, localeTag) : "-"}</p>
               </div>
               <BudgetRequestDialog teamId={team.team_id} currentBudget={myMaxBudget} />
             </CardContent>
@@ -659,6 +661,7 @@ function TeamSettingsTab({
 function MembersTab({ teamId }: { teamId: string }) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
   const [page, setPage] = useState(1);
   const pageSize = 50;
   const [searchInput, setSearchInput] = useState("");
@@ -866,7 +869,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                           <div className="flex items-center gap-2">
                             <span className="text-sm text-muted-foreground">
                               {member.expires_at
-                                ? new Date(member.expires_at).toLocaleDateString("ko-KR")
+                                ? new Date(member.expires_at).toLocaleDateString(localeTag)
                                 : t("indefinite")}
                             </span>
                             <Button
@@ -1102,7 +1105,7 @@ function MembersTab({ teamId }: { teamId: string }) {
               <div className="rounded-md bg-muted p-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t("currentExpiry")}</span>
-                  <span className="font-medium">{new Date(expiryTarget.currentExpiry).toLocaleDateString("ko-KR")}</span>
+                  <span className="font-medium">{new Date(expiryTarget.currentExpiry).toLocaleDateString(localeTag)}</span>
                 </div>
               </div>
             )}
@@ -1276,6 +1279,7 @@ export default function TeamDetailPage({
 }) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
+  const localeTag = useLocaleTag();
   const { teamId } = use(params);
   const [activeTab, setActiveTab] = useState("overview");
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
@@ -1473,7 +1477,7 @@ export default function TeamDetailPage({
                           {key.rpm_limit?.toLocaleString() ?? "-"}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                          {key.expires ? formatDate(key.expires) : "-"}
+                          {key.expires ? formatDate(key.expires, localeTag) : "-"}
                         </TableCell>
                         <TableCell>
                           {key.models.length > 0 ? (
@@ -1486,7 +1490,7 @@ export default function TeamDetailPage({
                           )}
                         </TableCell>
                         <TableCell className="hidden text-sm text-muted-foreground md:table-cell">
-                          {formatDate(key.created_at)}
+                          {formatDate(key.created_at, localeTag)}
                         </TableCell>
                         <TableCell>
                           <DeleteKeyDialog

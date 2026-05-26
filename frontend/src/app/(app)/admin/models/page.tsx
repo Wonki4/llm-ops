@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
+import { useLocaleTag } from "@/lib/locale";
 
 import {
   useModels,
@@ -99,18 +100,18 @@ function formatContextLength(tokens: number | null | undefined): string {
   return tokens.toLocaleString();
 }
 
-function formatDate(dateStr: string | null | undefined): string {
+function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
 }
 
-function formatDateTime(dateStr: string | null | undefined): string {
+function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("ko-KR", {
+  return new Date(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -195,6 +196,7 @@ function catalogToForm(catalog: ModelCatalog): ModelFormState {
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelManagementPage() {
+  const localeTag = useLocaleTag();
   const t = useTranslations("adminModels");
   const tc = useTranslations("common");
   const tms = useTranslations("modelStatus");
@@ -616,7 +618,7 @@ export default function ModelManagementPage() {
                     </TableCell>
 
                     <TableCell className="text-sm">
-                      {formatDate(getNextTransitionDate(model.catalog))}
+                      {formatDate(getNextTransitionDate(model.catalog), localeTag)}
                     </TableCell>
 
                     {/* Actions */}
@@ -943,7 +945,7 @@ export default function ModelManagementPage() {
                         <div className="mt-1.5 flex items-center gap-2 text-xs text-muted-foreground">
                           <span>{h.changed_by}</span>
                           <span>·</span>
-                          <span>{formatDateTime(h.changed_at)}</span>
+                          <span>{formatDateTime(h.changed_at, localeTag)}</span>
                         </div>
                         {h.comment && (
                           <p className="mt-1 text-xs text-muted-foreground">{h.comment}</p>
