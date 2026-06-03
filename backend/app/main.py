@@ -17,7 +17,6 @@ from app.api import (
     budgets,
     catalog,
     external,
-    inference,
     keys,
     me,
     model_deployments,
@@ -61,7 +60,6 @@ app.include_router(teams.router)
 app.include_router(keys.router)
 app.include_router(team_requests.router)
 app.include_router(models_catalog.router)
-app.include_router(inference.router)
 app.include_router(budgets.router)
 app.include_router(portal_settings.router)
 app.include_router(catalog.router)

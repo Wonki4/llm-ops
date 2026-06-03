@@ -5,4 +5,8 @@ backend/.pytest_cache/
 backend/.ruff_cache/
 backend/**/__pycache__/
 backend/**/*.pyc
+gateway/.pytest_cache/
+gateway/.ruff_cache/
+gateway/**/__pycache__/
+gateway/**/*.pyc
 frontend/.next/
