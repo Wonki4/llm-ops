@@ -15,6 +15,9 @@ images:
   - name: litellm-portal-frontend
     newName: registry.example.com/llm-ops/litellm-portal-frontend
     newTag: stable
+  - name: litellm-inference-gateway
+    newName: registry.example.com/llm-ops/litellm-inference-gateway
+    newTag: stable
 
 patches:
   - target:
@@ -79,6 +82,29 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: portal-api.example.com
+  - target:
+      kind: Deployment
+      name: gateway
+    patch: |
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: "1"
+            memory: 256Mi
+  - target:
+      kind: Ingress
+      name: gateway
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: inference.example.com
 
 configMapGenerator:
   - name: backend-config
@@ -109,6 +135,11 @@ configMapGenerator:
     literals:
       - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:changeme@db-prd.llm-ops-prd.svc:5432/litellm
       - APP_LITELLM_BASE_URL=http://llm-ops-prd.llm-ops-prd.svc:4000
+
+  - name: gateway-config
+    literals:
+      - APP_LITELLM_BASE_URL=http://llm-ops-prd.llm-ops-prd.svc:4000
+      - APP_SSL_VERIFY_SETTING=
 
 secretGenerator:
   - name: backend-secrets

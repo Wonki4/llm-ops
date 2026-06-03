@@ -1,8 +1,8 @@
 """Reverse proxy for LiteLLM inference endpoints (/v1/*).
 
 Transparently forwards all /v1/* requests to the LiteLLM proxy so that
-SDK users only need a single endpoint (our backend) for both management
-and inference.  Streaming (SSE) responses are relayed in real time.
+SDK users have a single inference endpoint.  Streaming (SSE) responses are
+relayed in real time.
 """
 
 import httpx

@@ -141,6 +141,28 @@ services:
         condition: service_healthy
 
   # ═══════════════════════════════════════════
+  # Inference Gateway (reverse proxy for /v1/*)
+  # ═══════════════════════════════════════════
+  gateway:
+    build:
+      context: ./gateway
+    container_name: litellm_gateway
+    ports:
+      - "8003:8000"
+    environment:
+      APP_LITELLM_BASE_URL: "http://litellm:4000"
+      APP_SSL_VERIFY_SETTING: "${APP_SSL_VERIFY_SETTING:-}"
+    depends_on:
+      litellm:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ═══════════════════════════════════════════
   # Frontend (Next.js)
   # ═══════════════════════════════════════════
   frontend:

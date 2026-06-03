@@ -12,5 +12,8 @@ resources:
   - frontend-deployment.yaml
   - frontend-service.yaml
   - worker-deployment.yaml
+  - gateway-deployment.yaml
+  - gateway-service.yaml
   - frontend-ingress.yaml
   - backend-ingress.yaml
+  - gateway-ingress.yaml

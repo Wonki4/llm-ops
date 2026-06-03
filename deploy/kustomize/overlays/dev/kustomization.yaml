@@ -15,6 +15,9 @@ images:
   - name: litellm-portal-frontend
     newName: registry.example.com/llm-ops/litellm-portal-frontend
     newTag: dev
+  - name: litellm-inference-gateway
+    newName: registry.example.com/llm-ops/litellm-inference-gateway
+    newTag: dev
 
 patches:
   - target:
@@ -31,6 +34,13 @@ patches:
       - op: replace
         path: /spec/rules/0/host
         value: portal-api-dev.example.com
+  - target:
+      kind: Ingress
+      name: gateway
+    patch: |
+      - op: replace
+        path: /spec/rules/0/host
+        value: inference-dev.example.com
 
 configMapGenerator:
   - name: backend-config
@@ -61,6 +71,11 @@ configMapGenerator:
     literals:
       - APP_DATABASE_URL=postgresql+asyncpg://llmproxy:dbpassword9090@db:5432/litellm
       - APP_LITELLM_BASE_URL=http://litellm:4000
+
+  - name: gateway-config
+    literals:
+      - APP_LITELLM_BASE_URL=http://litellm:4000
+      - APP_SSL_VERIFY_SETTING=
 
 secretGenerator:
   - name: backend-secrets
