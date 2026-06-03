@@ -33,10 +33,62 @@ _HOP_HEADERS = frozenset(
     }
 )
 
+# LiteLLM virtual keys must start with this prefix.
+_KEY_PREFIX = "sk-"
+
+# Headers LiteLLM reads the virtual key from (lowercased).  Different clients
+# use different ones, so we normalise the credential in every recognised header.
+#   authorization      -> OpenAI / Cohere / Mistral / OpenAI-compatible SDKs
+#   x-api-key          -> Anthropic SDK
+#   api-key            -> Azure OpenAI SDK
+#   x-goog-api-key     -> Google AI Studio (Gemini)
+#   x-litellm-api-key  -> LiteLLM custom header
+_CREDENTIAL_HEADERS = frozenset(
+    {
+        "authorization",
+        "x-api-key",
+        "api-key",
+        "x-goog-api-key",
+        "x-litellm-api-key",
+    }
+)
+
+
+def _ensure_sk(token: str) -> str:
+    """Prepend the ``sk-`` prefix to a bare key when it is missing."""
+    token = token.strip()
+    if token and not token.startswith(_KEY_PREFIX):
+        return f"{_KEY_PREFIX}{token}"
+    return token
+
+
+def _ensure_sk_credential(value: str) -> str:
+    """Inject the ``sk-`` prefix into a credential header value.
+
+    Handles both bare keys (``mykey``) and ``Bearer``-scheme values
+    (``Bearer mykey``).  Non-key schemes (``Basic`` for Langfuse, AWS SigV4
+    from LangChain) are left untouched so we never mangle them.
+    """
+    for scheme in ("Bearer ", "bearer "):
+        if value.startswith(scheme):
+            return f"{scheme}{_ensure_sk(value[len(scheme):])}"
+    if value.startswith("Basic ") or value.startswith("AWS4-HMAC-SHA256"):
+        return value
+    return _ensure_sk(value)
+
 
 def _forward_headers(headers: dict[str, str]) -> dict[str, str]:
-    """Filter incoming request headers for upstream forwarding."""
-    return {k: v for k, v in headers.items() if k.lower() not in _HOP_HEADERS}
+    """Filter hop-by-hop headers and normalise auth credentials.
+
+    LiteLLM only accepts virtual keys prefixed with ``sk-``.  Clients send the
+    key via different headers and may omit the prefix, so inject ``sk-`` into
+    every recognised credential header before forwarding upstream.
+    """
+    fwd = {k: v for k, v in headers.items() if k.lower() not in _HOP_HEADERS}
+    for name, value in fwd.items():
+        if name.lower() in _CREDENTIAL_HEADERS:
+            fwd[name] = _ensure_sk_credential(value)
+    return fwd
 
 
 def _response_headers(headers: httpx.Headers) -> dict[str, str]:
