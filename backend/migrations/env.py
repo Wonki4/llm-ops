@@ -16,7 +16,13 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from app.db.base import CustomBase
 
 # Import all models so metadata is populated
-from app.db.models import CustomModelCatalog, CustomModelStatusHistory, CustomTeamJoinRequest, CustomUser  # noqa: F401
+from app.db.models import (  # noqa: F401
+    CustomModelCatalog,
+    CustomModelStatusHistory,
+    CustomTeamJoinRequest,
+    CustomTrustedSystem,
+    CustomUser,
+)
 
 config = context.config
 if config.config_file_name is not None:
