@@ -90,6 +90,7 @@ configMapGenerator:
     literals:
       - APP_LITELLM_BASE_URL=http://llm-ops-stg.llm-ops-stg.svc:4000
       - APP_SSL_VERIFY_SETTING=
+      - APP_BACKEND_BASE_URL=http://stg-backend:8000
 
 secretGenerator:
   - name: backend-secrets
@@ -97,6 +98,10 @@ secretGenerator:
       - APP_LITELLM_ADMIN_API_KEY=change-me-stg
       - APP_KEYCLOAK_CLIENT_SECRET=change-me-stg
       - APP_SESSION_SECRET_KEY=change-me-stg-session-secret-32bytes
+      - APP_EXTERNAL_API_KEY=change-me-stg-external-key
+  - name: gateway-secrets
+    literals:
+      - APP_BACKEND_API_KEY=change-me-stg-external-key
 
 generatorOptions:
   disableNameSuffixHash: true

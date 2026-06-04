@@ -101,6 +101,7 @@ services:
       APP_REDIS_CATALOG_PREFIX: "${APP_REDIS_CATALOG_PREFIX:-GENERATIVE:AI:}"
       APP_KUBECONFIG_PATH: "${APP_KUBECONFIG_PATH:-}"
       APP_K8S_DEFAULT_NAMESPACE: "${APP_K8S_DEFAULT_NAMESPACE:-default}"
+      APP_EXTERNAL_API_KEY: "${APP_EXTERNAL_API_KEY:-}"
     env_file:
       - .env
     volumes:
@@ -152,6 +153,9 @@ services:
     environment:
       APP_LITELLM_BASE_URL: "http://litellm:4000"
       APP_SSL_VERIFY_SETTING: "${APP_SSL_VERIFY_SETTING:-}"
+      # Keyless trusted-system auth (resolved via the management backend).
+      APP_BACKEND_BASE_URL: "http://backend:8000"
+      APP_BACKEND_API_KEY: "${APP_EXTERNAL_API_KEY:-}"
     depends_on:
       litellm:
         condition: service_healthy

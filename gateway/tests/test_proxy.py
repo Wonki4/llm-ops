@@ -1,6 +1,6 @@
 """Tests for credential normalisation in the inference gateway proxy."""
 
-from app.proxy import _ensure_sk_credential, _forward_headers
+from app.proxy import _ensure_sk_credential, _forward_headers, _has_credential
 
 
 class TestEnsureSkCredential:
@@ -58,3 +58,17 @@ class TestForwardHeaders:
         out = _forward_headers({"content-type": "application/json", "user-agent": "x"})
         assert out["content-type"] == "application/json"
         assert out["user-agent"] == "x"
+
+
+class TestHasCredential:
+    def test_authorization_counts(self):
+        assert _has_credential({"authorization": "Bearer x"}) is True
+
+    def test_x_api_key_counts(self):
+        assert _has_credential({"x-api-key": "x"}) is True
+
+    def test_empty_credential_does_not_count(self):
+        assert _has_credential({"authorization": "   "}) is False
+
+    def test_only_emp_no_is_not_a_credential(self):
+        assert _has_credential({"emp-no": "12345", "x-system-id": "payroll"}) is False

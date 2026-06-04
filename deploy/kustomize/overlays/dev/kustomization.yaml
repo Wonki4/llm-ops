@@ -76,6 +76,7 @@ configMapGenerator:
     literals:
       - APP_LITELLM_BASE_URL=http://litellm:4000
       - APP_SSL_VERIFY_SETTING=
+      - APP_BACKEND_BASE_URL=http://dev-backend:8000
 
 secretGenerator:
   - name: backend-secrets
@@ -83,6 +84,10 @@ secretGenerator:
       - APP_LITELLM_ADMIN_API_KEY=sk-1234
       - APP_KEYCLOAK_CLIENT_SECRET=change-me-in-keycloak
       - APP_SESSION_SECRET_KEY=change-me-dev-session-secret-32bytes
+      - APP_EXTERNAL_API_KEY=change-me-dev-external-key
+  - name: gateway-secrets
+    literals:
+      - APP_BACKEND_API_KEY=change-me-dev-external-key
 
 generatorOptions:
   disableNameSuffixHash: true

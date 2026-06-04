@@ -1,15 +1,23 @@
 """External API endpoints - authenticated via API key for external system integration."""
 
+import hashlib
+import hmac
 import logging
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
-from app.db.session import get_litellm_db
+from app.db.models import CustomTrustedSystem
+from app.db.session import get_db, get_litellm_db
+
+
+def hash_system_secret(secret: str) -> str:
+    """SHA-256 hex digest of a trusted-system shared secret."""
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
 
 logger = logging.getLogger(__name__)
 
@@ -182,3 +190,48 @@ async def update_team_budget_by_name(
             **update_fields,
         }
     return await _apply_team_budget_update(litellm, team_row, body)
+
+
+class SystemAuthRequest(BaseModel):
+    system_id: str
+    secret: str
+
+
+class SystemAuthResponse(BaseModel):
+    litellm_key: str
+    system_id: str
+    name: str
+
+
+@router.post("/system-auth", response_model=SystemAuthResponse)
+async def system_auth(
+    body: SystemAuthRequest,
+    _key: str = Depends(verify_external_api_key),
+    db: AsyncSession = Depends(get_db),
+) -> SystemAuthResponse:
+    """Resolve a trusted system (system_id + shared secret) to its LiteLLM key.
+
+    Used by the inference gateway to authenticate keyless requests that arrive
+    with only an identity header (e.g. emp-no). Returns a uniform 401 for
+    unknown, disabled, or mismatched-secret systems so callers cannot probe
+    which systems exist.
+    """
+    result = await db.execute(
+        select(CustomTrustedSystem).where(CustomTrustedSystem.system_id == body.system_id)
+    )
+    system = result.scalar_one_or_none()
+
+    # Always hash the provided secret and compare in constant time, even when
+    # the system is missing, to avoid leaking existence via timing.
+    expected_hash = system.secret_hash if system is not None else ""
+    secret_ok = hmac.compare_digest(expected_hash, hash_system_secret(body.secret))
+
+    if system is None or not system.enabled or not secret_ok:
+        logger.warning("System auth failed for system_id=%s", body.system_id)
+        raise HTTPException(status_code=401, detail="Invalid system credentials")
+
+    return SystemAuthResponse(
+        litellm_key=system.litellm_key,
+        system_id=system.system_id,
+        name=system.name,
+    )

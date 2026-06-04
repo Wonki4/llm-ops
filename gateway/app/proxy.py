@@ -10,6 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import Response, StreamingResponse
 
 from app.config import settings
+from app.trusted_system import resolve_system_key
 
 router = APIRouter(tags=["inference"])
 
@@ -91,6 +92,19 @@ def _forward_headers(headers: dict[str, str]) -> dict[str, str]:
     return fwd
 
 
+def _has_credential(headers: dict[str, str]) -> bool:
+    """Whether the request already carries a recognised LiteLLM credential."""
+    return any(name.lower() in _CREDENTIAL_HEADERS and value.strip() for name, value in headers.items())
+
+
+def _unauthorized() -> Response:
+    return Response(
+        content=b'{"error":{"message":"Unauthorized system","type":"auth_error"}}',
+        status_code=401,
+        media_type="application/json",
+    )
+
+
 def _response_headers(headers: httpx.Headers) -> dict[str, str]:
     """Filter upstream response headers for the client."""
     return {k: v for k, v in headers.items() if k.lower() not in _HOP_HEADERS and k.lower() != "content-length"}
@@ -115,7 +129,25 @@ async def proxy_inference(request: Request, path: str) -> Response:
         target_url += f"?{request.url.query}"
 
     # ── Forward headers & body ───────────────────────────────────
-    fwd_headers = _forward_headers(dict(request.headers))
+    incoming = dict(request.headers)
+    fwd_headers = _forward_headers(incoming)
+
+    # ── Keyless trusted-system auth ──────────────────────────────
+    # No LiteLLM credential, but a system id + shared secret were presented:
+    # resolve them to the system's virtual key (identity, e.g. emp-no, is left
+    # in place for LiteLLM end-user tracking).
+    if not _has_credential(incoming):
+        system_id = incoming.get(settings.system_id_header.lower(), "").strip()
+        secret = incoming.get(settings.system_secret_header.lower(), "").strip()
+        if system_id and secret:
+            key = await resolve_system_key(system_id, secret)
+            if key is None:
+                return _unauthorized()
+            fwd_headers["authorization"] = f"Bearer {_ensure_sk(key)}"
+            # Never forward the shared secret (or system id) upstream.
+            fwd_headers.pop(settings.system_secret_header.lower(), None)
+            fwd_headers.pop(settings.system_id_header.lower(), None)
+
     body = await request.body()
 
     # ── Upstream request (always stream so we can inspect headers) ─

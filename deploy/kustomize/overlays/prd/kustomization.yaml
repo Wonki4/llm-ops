@@ -140,6 +140,7 @@ configMapGenerator:
     literals:
       - APP_LITELLM_BASE_URL=http://llm-ops-prd.llm-ops-prd.svc:4000
       - APP_SSL_VERIFY_SETTING=
+      - APP_BACKEND_BASE_URL=http://prd-backend:8000
 
 secretGenerator:
   - name: backend-secrets
@@ -147,6 +148,10 @@ secretGenerator:
       - APP_LITELLM_ADMIN_API_KEY=change-me-prd
       - APP_KEYCLOAK_CLIENT_SECRET=change-me-prd
       - APP_SESSION_SECRET_KEY=change-me-prd-session-secret-32bytes
+      - APP_EXTERNAL_API_KEY=change-me-prd-external-key
+  - name: gateway-secrets
+    literals:
+      - APP_BACKEND_API_KEY=change-me-prd-external-key
 
 generatorOptions:
   disableNameSuffixHash: true
