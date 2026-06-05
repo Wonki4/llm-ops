@@ -519,7 +519,7 @@ class ModelCacheEntry(BaseModel):
 @router.get("/{model_name}/cache")
 async def get_model_cache(
     model_name: str,
-    user: CustomUser = Depends(get_current_user),
+    user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Return per-suffix cache entries for a model. Missing suffixes return null."""
@@ -611,7 +611,7 @@ def _validate_cost_schedule(body: CostScheduleRequest) -> None:
 @router.get("/{model_name}/cost-schedule")
 async def list_cost_schedule(
     model_name: str,
-    user: CustomUser = Depends(get_current_user),
+    user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """List time-of-day cost rules for a model."""

@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { useModelStatusHistory } from "@/hooks/use-api";
+import { useMe, useModelStatusHistory } from "@/hooks/use-api";
 import { useLocaleTag } from "@/lib/locale";
 import { ModelCacheSection } from "@/components/model-cache-section";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
@@ -79,6 +79,9 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
   const localeTag = useLocaleTag();
   const t = useTranslations("modelDetail");
   const tms = useTranslations("modelStatus");
+  const { data: me } = useMe();
+  // Cache settings and time-of-day pricing are admin-only.
+  const isSuperUser = me?.role === "super_user";
 
   const catalog = model?.catalog ?? null;
   const litellmInfo = model?.litellm_info ?? null;
@@ -134,14 +137,14 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
-          {model && (
+          {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.cacheSettings")}</h4>
               <ModelCacheSection modelName={model.model_name} />
             </section>
           )}
 
-          {model && (
+          {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.timezonePricing")}</h4>
               <ModelCostScheduleSection modelName={model.model_name} />
