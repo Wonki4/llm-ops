@@ -18,6 +18,7 @@ from app.clients.redis import (
     catalog_get as redis_get,
     catalog_set as redis_set,
 )
+from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
@@ -514,6 +515,89 @@ class ModelCacheEntry(BaseModel):
 
     class Config:
         extra = "allow"
+
+
+@router.get("/{model_name}/summary")
+async def model_summary(
+    model_name: str,
+    user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Read-only aggregated model info for the model detail page.
+
+    Bundles metadata (context window, max tokens, base pricing), the
+    time-of-day cost schedule, and the latest succeeded performance &
+    accuracy benchmark runs. Pricing is read-only here — editing the
+    schedule/catalog stays on the admin-only management endpoints.
+    """
+    is_admin = user.global_role == GlobalRole.SUPER_USER
+
+    result = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name))
+    catalog = result.scalar_one_or_none()
+
+    # Visibility: non-admins only see catalogued, visible models (mirrors list_models).
+    if not is_admin and (catalog is None or catalog.visible is False):
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    litellm_info = None
+    try:
+        for lm in await litellm.get_model_info():
+            if lm.get("model_name") == model_name:
+                litellm_info = _sanitize_litellm_info(lm)
+                break
+    except Exception:
+        logger.error("Failed to fetch LiteLLM model info for %s", model_name, exc_info=True)
+
+    sched_result = await db.execute(
+        select(CustomModelCostSchedule)
+        .where(
+            CustomModelCostSchedule.model_name == model_name,
+            CustomModelCostSchedule.enabled.is_(True),
+        )
+        .order_by(CustomModelCostSchedule.priority.desc())
+    )
+    cost_schedule = [
+        {
+            "days_of_week": s.days_of_week,
+            "hour_start_utc": s.hour_start_utc,
+            "hour_end_utc": s.hour_end_utc,
+            "input_cost_per_token": s.input_cost_per_token,
+            "output_cost_per_token": s.output_cost_per_token,
+            "priority": s.priority,
+        }
+        for s in sched_result.scalars().all()
+    ]
+
+    runs_result = await db.execute(
+        select(CustomBenchmarkRun)
+        .where(
+            CustomBenchmarkRun.model_name == model_name,
+            CustomBenchmarkRun.status == "succeeded",
+        )
+        .order_by(CustomBenchmarkRun.finished_at.desc())
+    )
+    runs = list(runs_result.scalars().all())
+
+    def _latest(kind: str) -> dict | None:
+        for r in runs:
+            if r.kind == kind:
+                return {
+                    "tool": r.tool,
+                    "result": r.result,
+                    "params": r.params,
+                    "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+                }
+        return None
+
+    return {
+        "model_name": model_name,
+        "catalog": _serialize_model(catalog) if catalog else None,
+        "litellm_info": litellm_info,
+        "cost_schedule": cost_schedule,
+        "performance": _latest("performance"),
+        "accuracy": _latest("accuracy"),
+    }
 
 
 @router.get("/{model_name}/cache")
