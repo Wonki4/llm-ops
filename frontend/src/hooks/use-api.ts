@@ -732,6 +732,44 @@ export function useModelCache(modelName: string | null) {
   });
 }
 
+export interface ModelSummaryBenchmark {
+  tool: string;
+  result: Record<string, unknown> | null;
+  params: Record<string, unknown> | null;
+  finished_at: string | null;
+}
+
+export interface ModelSummary {
+  model_name: string;
+  catalog: {
+    display_name?: string;
+    description?: string | null;
+    status?: string;
+    default_input_cost_per_token?: number | null;
+    default_output_cost_per_token?: number | null;
+  } | null;
+  litellm_info: Record<string, unknown> | null;
+  cost_schedule: Array<{
+    days_of_week: number[];
+    hour_start_utc: number;
+    hour_end_utc: number;
+    input_cost_per_token: number;
+    output_cost_per_token: number;
+    priority: number;
+  }>;
+  performance: ModelSummaryBenchmark | null;
+  accuracy: ModelSummaryBenchmark | null;
+}
+
+export function useModelSummary(modelName: string | null) {
+  return useQuery({
+    queryKey: ["model-summary", modelName],
+    queryFn: () =>
+      apiFetch<ModelSummary>(`/api/models/${encodeURIComponent(modelName!)}/summary`),
+    enabled: !!modelName,
+  });
+}
+
 export function useSetModelCacheEntry() {
   const qc = useQueryClient();
   return useMutation({
