@@ -8,18 +8,15 @@ import {
   Boxes,
   BookOpen,
   Server,
-  AlertTriangle,
   Activity,
-  ArrowRight,
   ChevronLeft,
   ChevronRight,
   X,
-  ExternalLink,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useLocaleTag } from "@/lib/locale";
 
-import { useModels, useAllModelStatusHistory } from "@/hooks/use-api";
+import { useModels } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -28,7 +25,6 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-  CardDescription,
 } from "@/components/ui/card";
 import {
   Select,
@@ -45,15 +41,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { Separator } from "@/components/ui/separator";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
-import type { ModelStatus, ModelWithCatalog, ModelStatusHistory, ModelCatalog } from "@/types";
+import type { ModelStatus, ModelWithCatalog, ModelCatalog } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────
 
@@ -78,32 +67,6 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
   deprecated:
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
-
-const STATUS_BAR_COLORS: Record<ModelStatus | "unregistered", string> = {
-  testing: "bg-blue-400",
-  prerelease: "bg-purple-400",
-  lts: "bg-green-500",
-  deprecating: "bg-yellow-400",
-  deprecated: "bg-red-400",
-  unregistered: "bg-gray-300 dark:bg-gray-600",
-};
-
-const STATUS_DOT_COLORS: Record<ModelStatus | "unregistered", string> = {
-  testing: "bg-blue-400",
-  prerelease: "bg-purple-400",
-  lts: "bg-green-500",
-  deprecating: "bg-yellow-400",
-  deprecated: "bg-red-400",
-  unregistered: "bg-gray-300 dark:bg-gray-600",
-};
-
-const STATUS_ORDER: ModelStatus[] = [
-  "testing",
-  "prerelease",
-  "lts",
-  "deprecating",
-  "deprecated",
-];
 
 const STATUS_INDEX: Record<ModelStatus, number> = {
   testing: 0,
@@ -133,18 +96,6 @@ function formatCost(cost: number | null | undefined): string {
   if (cost == null) return "-";
   if (cost === 0) return "$ 0";
   return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
-}
-
-function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslations>, localeTag: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const minutes = Math.floor(diff / 60000);
-  if (minutes < 1) return t("relativeTime.justNow");
-  if (minutes < 60) return t("relativeTime.minutesAgo", { count: minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t("relativeTime.hoursAgo", { count: hours });
-  const days = Math.floor(hours / 24);
-  if (days < 7) return t("relativeTime.daysAgo", { count: days });
-  return formatDate(dateStr, localeTag);
 }
 
 function getProvider(model: ModelWithCatalog): string {
@@ -264,159 +215,6 @@ function SourceBadge({ model }: { model: ModelWithCatalog }) {
 
 // ─── Status Distribution Bar ──────────────────────────────────
 
-const DISTRIBUTION_ORDER: (ModelStatus | "unregistered")[] = [
-  ...STATUS_ORDER,
-  "unregistered",
-];
-
-function StatusDistributionBar({
-  counts,
-  total,
-}: {
-  counts: Partial<Record<ModelStatus | "unregistered", number>>;
-  total: number;
-}) {
-  const t = useTranslations("modelsDashboard");
-  const tms = useTranslations("modelStatus");
-
-  const getLabel = (status: ModelStatus | "unregistered") =>
-    status === "unregistered" ? t("unregistered") : tms(status);
-
-  if (total === 0) {
-    return (
-      <div className="space-y-3">
-        <div className="h-4 w-full rounded-full bg-muted" />
-        <p className="text-sm text-muted-foreground text-center">
-          {t("noModels")}
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-3">
-      {/* Stacked bar */}
-      <div className="flex h-4 w-full overflow-hidden rounded-full border">
-        {DISTRIBUTION_ORDER.map((status) => {
-          const count = counts[status] ?? 0;
-          if (count === 0) return null;
-          const pct = (count / total) * 100;
-          return (
-            <TooltipProvider key={status}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    className={`${STATUS_BAR_COLORS[status]} transition-all`}
-                    style={{ width: `${pct}%`, minWidth: count > 0 ? "8px" : "0" }}
-                    aria-label={`${getLabel(status)}: ${count} (${pct.toFixed(0)}%)`}
-                  />
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">
-                    {getLabel(status)}: {count} ({pct.toFixed(1)}%)
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          );
-        })}
-      </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-        {DISTRIBUTION_ORDER.map((status) => (
-          <div key={status} className="flex items-center gap-1.5">
-            <div
-              className={`size-2.5 rounded-full ${STATUS_DOT_COLORS[status]}`}
-            />
-            <span className="text-xs text-muted-foreground">
-              {getLabel(status)}
-            </span>
-            <span className="text-xs font-medium">{counts[status] ?? 0}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Recent Changes ───────────────────────────────────────────
-
-function RecentChanges({
-  history,
-  isLoading,
-  onModelClick,
-  modelDisplayNames,
-}: {
-  history: ModelStatusHistory[];
-  isLoading: boolean;
-  onModelClick: (modelName: string) => void;
-  modelDisplayNames: Map<string, string>;
-}) {
-  const t = useTranslations("modelsDashboard");
-  const localeTag = useLocaleTag();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (history.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <Activity className="size-8 text-muted-foreground/40 mb-2" />
-        <p className="text-sm text-muted-foreground">{t("recentChanges.empty")}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-1">
-      {history.map((h) => (
-        <div
-          key={h.id}
-          className="flex items-center gap-3 rounded-md px-3 py-2.5 hover:bg-muted/50 transition-colors"
-        >
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => onModelClick(h.model_name)}
-                className="text-sm truncate max-w-[180px] hover:underline cursor-pointer text-left font-medium"
-              >
-                {modelDisplayNames.get(h.model_name) || h.model_name}
-              </button>
-              <div className="flex items-center gap-1">
-                {h.previous_status ? (
-                  <>
-                    <StatusBadge status={h.previous_status} />
-                    <ArrowRight className="size-3 text-muted-foreground shrink-0" />
-                    <StatusBadge status={h.new_status} />
-                  </>
-                ) : (
-                  <>
-                    <span className="text-xs text-muted-foreground">{t("recentChanges.created")}</span>
-                    <ArrowRight className="size-3 text-muted-foreground shrink-0" />
-                    <StatusBadge status={h.new_status} />
-                  </>
-                )}
-              </div>
-            </div>
-            <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{h.changed_by}</span>
-              <span>·</span>
-              <span>{formatRelativeTime(h.changed_at, t, localeTag)}</span>
-            </div>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelDashboardPage() {
@@ -426,8 +224,6 @@ export default function ModelDashboardPage() {
 
   // Data fetching
   const { data: models, isLoading, isError } = useModels();
-  const { data: recentData, isLoading: recentLoading } =
-    useAllModelStatusHistory({ limit: 5, offset: 0 });
   const [detailModel, setDetailModel] = useState<ModelWithCatalog | null>(null);
 
   // Filter state for model table
@@ -435,44 +231,6 @@ export default function ModelDashboardPage() {
   const [nameFilter, setNameFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [page, setPage] = useState(0);
-
-  // ── Computed stats ──
-  const stats = useMemo(() => {
-    const all = (models ?? []).filter((m) => !m.catalog || m.catalog.visible !== false);
-    const total = all.length;
-    const withCatalog = all.filter((m) => m.catalog).length;
-    const withLiteLLM = all.filter((m) => m.litellm_info).length;
-    const now = Date.now();
-    const retiring = all.filter(
-      (m) =>
-        m.catalog &&
-        (m.catalog.status === "deprecating" ||
-          m.catalog.status === "deprecated" ||
-          (m.catalog.status_schedule?.deprecated &&
-            new Date(m.catalog.status_schedule.deprecated).getTime() > now)),
-    ).length;
-
-    return { total, withCatalog, withLiteLLM, retiring };
-  }, [models]);
-
-  // ── Status distribution (visible catalog only) ──
-  const statusCounts = useMemo(() => {
-    const counts: Record<ModelStatus, number> = {
-      testing: 0,
-      prerelease: 0,
-      lts: 0,
-      deprecating: 0,
-      deprecated: 0,
-    };
-    let total = 0;
-    for (const m of models ?? []) {
-      if (m.catalog && m.catalog.visible !== false) {
-        counts[m.catalog.status]++;
-        total++;
-      }
-    }
-    return { counts, total };
-  }, [models]);
 
   // ── Filtered models for table (catalog only) ──
   const filteredModels = useMemo(() => {
@@ -521,25 +279,6 @@ export default function ModelDashboardPage() {
 
   const hasActiveFilters = !!(nameFilter || statusFilter);
 
-  // ── Recent history (exclude hidden models) ──
-  const visibleModelNames = useMemo(() => {
-    const all = models ?? [];
-    return new Set(
-      all.filter((m) => !m.catalog || m.catalog.visible !== false).map((m) => m.model_name),
-    );
-  }, [models]);
-  const recentHistory = useMemo(
-    () => (recentData?.history ?? []).filter((h) => visibleModelNames.has(h.model_name)),
-    [recentData, visibleModelNames],
-  );
-  const modelDisplayNames = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const m of models ?? []) {
-      if (m.catalog?.display_name) map.set(m.model_name, m.catalog.display_name);
-    }
-    return map;
-  }, [models]);
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -550,61 +289,6 @@ export default function ModelDashboardPage() {
         </p>
       </div>
 
-      {/* ── Status Distribution + Recent Changes (side by side) ── */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Status Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("statusDistribution.title")}</CardTitle>
-            <CardDescription>
-              {t("statusDistribution.description")}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="h-4 w-full animate-pulse rounded-full bg-muted" />
-            ) : (
-              <StatusDistributionBar
-                counts={statusCounts.counts}
-                total={statusCounts.total}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Recent Changes */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-base">{t("recentChanges.title")}</CardTitle>
-                <CardDescription>
-                  {t("recentChanges.description")}
-                </CardDescription>
-              </div>
-              <Link href="/models/calendar">
-                <Button variant="ghost" size="sm" className="text-xs gap-1">
-                  {t("recentChanges.viewMore")}
-                  <ExternalLink className="size-3" />
-                </Button>
-              </Link>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <RecentChanges
-              history={recentHistory}
-              isLoading={recentLoading}
-              modelDisplayNames={modelDisplayNames}
-              onModelClick={(modelName) => {
-                const fullModel = models?.find((m) => m.model_name === modelName);
-                if (fullModel) setDetailModel(fullModel);
-              }}
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Separator />
 
       {/* ── All Models Table Section ── */}
       <div>
@@ -706,15 +390,14 @@ export default function ModelDashboardPage() {
                   {pageModels.map((m, idx) => (
                     <TableRow key={`${m.model_name}-${idx}`}>
                       <TableCell>
-                        <button
-                          type="button"
-                          onClick={() => setDetailModel(m)}
+                        <Link
+                          href={`/models/${m.model_name.split("/").map(encodeURIComponent).join("/")}`}
                           className="text-left hover:underline cursor-pointer"
                         >
                           <div className="font-medium text-sm truncate max-w-[280px]">
                             {m.catalog?.display_name ?? m.model_name}
                           </div>
-                        </button>
+                        </Link>
                       </TableCell>
                       <TableCell>
                         {m.catalog ? (
