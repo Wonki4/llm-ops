@@ -1,0 +1,2 @@
+[ 1532576ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3003/api/proxy/benchmarks?limit=200:0
+[ 1533581ms] [ERROR] Failed to load resource: net::ERR_CONNECTION_REFUSED @ http://localhost:3003/api/proxy/benchmarks?limit=200:0

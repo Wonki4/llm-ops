@@ -206,7 +206,7 @@ export function useUpdateMemberKeyLimits() {
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null; model_tpm_limit?: Record<string, number>; model_rpm_limit?: Record<string, number> } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),
@@ -849,17 +849,26 @@ export function useAdminUpdateKeyLimits() {
       token,
       tpmLimit,
       rpmLimit,
+      modelTpmLimit,
+      modelRpmLimit,
     }: {
       userId: string;
       token: string;
       tpmLimit: number | null;
       rpmLimit: number | null;
+      modelTpmLimit?: Record<string, number>;
+      modelRpmLimit?: Record<string, number>;
     }) =>
       apiFetch<{ status: string }>(
         `/api/admin/users/${encodeURIComponent(userId)}/keys/${encodeURIComponent(token)}/limits`,
         {
           method: "PATCH",
-          body: JSON.stringify({ tpm_limit: tpmLimit, rpm_limit: rpmLimit }),
+          body: JSON.stringify({
+            tpm_limit: tpmLimit,
+            rpm_limit: rpmLimit,
+            ...(modelTpmLimit !== undefined ? { model_tpm_limit: modelTpmLimit } : {}),
+            ...(modelRpmLimit !== undefined ? { model_rpm_limit: modelRpmLimit } : {}),
+          }),
         },
       ),
     onSuccess: (_data, variables) => {

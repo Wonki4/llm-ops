@@ -1,0 +1,2 @@
+[ 1127561ms] [ERROR] Access to fetch at 'http://localhost:8002/api/teams/mega-team-001/usage?start_date=2026-05-19&end_date=2026-06-18&granularity=day&sort_by=spend&sort_dir=desc' from origin 'http://localhost:3003' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://localhost:3003/teams/mega-team-001:0
+[ 1127561ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://localhost:8002/api/teams/mega-team-001/usage?start_date=2026-05-19&end_date=2026-06-18&granularity=day&sort_by=spend&sort_dir=desc:0

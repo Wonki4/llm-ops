@@ -1,0 +1,18 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: LLM Ops
+  - main [ref=e6]:
+    - heading "Sign in to your account" [level=1] [ref=e8]
+    - generic [ref=e12]:
+      - generic [ref=e13]:
+        - generic [ref=e15]: Username or email
+        - textbox "Username or email" [active] [ref=e17]
+      - generic [ref=e18]:
+        - generic [ref=e20]: Password
+        - generic [ref=e21]:
+          - textbox "Password" [ref=e24]
+          - button "Show password" [ref=e26] [cursor=pointer]:
+            - generic [ref=e27]: 
+        - link "Forgot Password?" [ref=e32] [cursor=pointer]:
+          - /url: /realms/litellm/login-actions/reset-credentials?client_id=litellm-portal&tab_id=da2ltlVMZnw&client_data=eyJydSI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMy9hcGkvYXV0aC9jYWxsYmFjayIsInJ0IjoiY29kZSIsInN0IjoidW83a0JRZy1VanFPNko0SHNNSVI1LUVVeUlqNlQyeWpIR2lrbTdMRzBMZyJ9
+      - button "Sign In" [ref=e35] [cursor=pointer]

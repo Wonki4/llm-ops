@@ -1,0 +1,158 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+        - generic [ref=e43]: 관리자
+        - generic [ref=e45]:
+          - link "요청 관리" [ref=e46] [cursor=pointer]:
+            - /url: /admin/requests
+            - img [ref=e47]
+            - text: 요청 관리
+          - link "관리자 대시보드" [ref=e50] [cursor=pointer]:
+            - /url: /admin/models/dashboard
+            - img [ref=e51]
+            - text: 관리자 대시보드
+          - link "모델 관리" [ref=e53] [cursor=pointer]:
+            - /url: /admin/models
+            - img [ref=e54]
+            - text: 모델 관리
+          - link "예산 관리" [ref=e64] [cursor=pointer]:
+            - /url: /admin/budgets
+            - img [ref=e65]
+            - text: 예산 관리
+          - link "사용자 관리" [ref=e67] [cursor=pointer]:
+            - /url: /admin/users
+            - img [ref=e68]
+            - text: 사용자 관리
+          - link "벤치마크" [ref=e80] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e81]
+            - text: 벤치마크
+          - link "포털 설정" [ref=e83] [cursor=pointer]:
+            - /url: /admin/settings
+            - img [ref=e84]
+            - text: 포털 설정
+      - generic [ref=e87]:
+        - paragraph [ref=e88]: ADMIN001
+        - generic [ref=e89]:
+          - img [ref=e90]
+          - generic [ref=e94]:
+            - button "한국어" [ref=e95]
+            - button "English" [ref=e96]
+        - link "로그아웃" [ref=e97] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e98]
+          - text: 로그아웃
+    - main [ref=e101]:
+      - generic [ref=e164]:
+        - generic [ref=e165]:
+          - link "목록으로" [ref=e166] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e167]
+            - text: 목록으로
+          - heading "벤치마크 비교" [level=1] [ref=e169]
+          - paragraph [ref=e170]: 2개 실행을 나란히 비교합니다. 각 row에서 최고/최저 값이 강조됩니다.
+        - generic [ref=e171]: 선택된 실행에 성능과 정확도가 섞여있어 공통 항목(파라미터, 타임스탬프)만 비교됩니다.
+        - generic [ref=e172]:
+          - generic [ref=e174]: 실행 목록
+          - table [ref=e176]:
+            - rowgroup [ref=e177]:
+              - row "항목 gpt-3.5-turbo-large gpt-3.5-turbo-large" [ref=e178]:
+                - columnheader "항목" [ref=e179]
+                - columnheader "gpt-3.5-turbo-large" [ref=e180]:
+                  - link "gpt-3.5-turbo-large" [ref=e181] [cursor=pointer]:
+                    - /url: /admin/benchmarks/8c4cddad-92f3-4356-8a48-d069b9e9530e
+                - columnheader "gpt-3.5-turbo-large" [ref=e182]:
+                  - link "gpt-3.5-turbo-large" [ref=e183] [cursor=pointer]:
+                    - /url: /admin/benchmarks/d4dee25a-a92a-491d-a273-a99306c15886
+            - rowgroup [ref=e184]:
+              - row "상태 성공 성공" [ref=e185]:
+                - cell "상태" [ref=e186]
+                - cell "성공" [ref=e187]:
+                  - generic [ref=e188]: 성공
+                - cell "성공" [ref=e189]:
+                  - generic [ref=e190]: 성공
+              - row "툴 lm_eval vllm_serving" [ref=e191]:
+                - cell "툴" [ref=e192]
+                - cell "lm_eval" [ref=e193]
+                - cell "vllm_serving" [ref=e194]
+              - row "종류 accuracy performance" [ref=e195]:
+                - cell "종류" [ref=e196]
+                - cell "accuracy" [ref=e197]
+                - cell "performance" [ref=e198]
+              - row "생성 시각 2026. 06. 05. 오후 05:17 2026. 06. 05. 오후 05:17" [ref=e199]:
+                - cell "생성 시각" [ref=e200]
+                - cell "2026. 06. 05. 오후 05:17" [ref=e201]
+                - cell "2026. 06. 05. 오후 05:17" [ref=e202]
+              - row "실행자 admin001 admin001" [ref=e203]:
+                - cell "실행자" [ref=e204]
+                - cell "admin001" [ref=e205]
+                - cell "admin001" [ref=e206]
+        - generic [ref=e207]:
+          - generic [ref=e209]: 파라미터
+          - table [ref=e211]:
+            - rowgroup [ref=e212]:
+              - row "파라미터 gpt-3.5-turbo-large gpt-3.5-turbo-large" [ref=e213]:
+                - columnheader "파라미터" [ref=e214]
+                - columnheader "gpt-3.5-turbo-large" [ref=e215]
+                - columnheader "gpt-3.5-turbo-large" [ref=e216]
+            - rowgroup [ref=e217]:
+              - row "concurrency - 16" [ref=e218]:
+                - cell "concurrency" [ref=e219]
+                - cell "-" [ref=e220]
+                - cell "16" [ref=e221]
+              - row "input_tokens - 512" [ref=e222]:
+                - cell "input_tokens" [ref=e223]
+                - cell "-" [ref=e224]
+                - cell "512" [ref=e225]
+              - row "num_fewshot 5 -" [ref=e226]:
+                - cell "num_fewshot" [ref=e227]
+                - cell "5" [ref=e228]
+                - cell "-" [ref=e229]
+              - row "num_requests - 200" [ref=e230]:
+                - cell "num_requests" [ref=e231]
+                - cell "-" [ref=e232]
+                - cell "200" [ref=e233]
+              - row "output_tokens - 256" [ref=e234]:
+                - cell "output_tokens" [ref=e235]
+                - cell "-" [ref=e236]
+                - cell "256" [ref=e237]
+              - row "tasks [\"gsm8k\",\"mmlu\",\"hellaswag\",\"arc_challenge\"] -" [ref=e238]:
+                - cell "tasks" [ref=e239]
+                - cell "[\"gsm8k\",\"mmlu\",\"hellaswag\",\"arc_challenge\"]" [ref=e240]
+                - cell "-" [ref=e241]
+  - region "Notifications alt+T"
+  - alert [ref=e137]

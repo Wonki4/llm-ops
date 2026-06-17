@@ -1,0 +1,101 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+      - generic [ref=e42]:
+        - paragraph [ref=e60]: USER001
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - generic [ref=e48]:
+            - button "한국어" [ref=e49]
+            - button "English" [ref=e50]
+        - link "로그아웃" [ref=e51] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e52]
+          - text: 로그아웃
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e61]:
+          - link "← 모델 대시보드" [ref=e62] [cursor=pointer]:
+            - /url: /models/dashboard
+          - generic [ref=e63]:
+            - heading "gpt-3.5-turbo-large" [level=1] [ref=e64]
+            - generic [ref=e65]: testing
+          - paragraph [ref=e66]: gpt-3.5-turbo-large
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - generic [ref=e70]: 컨텍스트
+            - generic [ref=e71]:
+              - generic [ref=e72]:
+                - generic [ref=e73]: Context window
+                - generic [ref=e74]: 16,385 tok
+              - generic [ref=e75]:
+                - generic [ref=e76]: Max output
+                - generic [ref=e77]: 4,096 tok
+          - generic [ref=e78]:
+            - generic [ref=e80]: 가격 (읽기 전용)
+            - generic [ref=e82]:
+              - generic [ref=e83]:
+                - generic [ref=e84]: Input
+                - generic [ref=e85]: $1.00 / 1M
+              - generic [ref=e86]:
+                - generic [ref=e87]: Output
+                - generic [ref=e88]: $2.00 / 1M
+          - generic [ref=e89]:
+            - generic [ref=e91]: 성능
+            - paragraph [ref=e93]: 아직 벤치마크 결과가 없습니다.
+          - generic [ref=e94]:
+            - generic [ref=e96]: 정확도
+            - paragraph [ref=e98]: 아직 정확도 결과가 없습니다.
+        - generic [ref=e99]:
+          - tablist [ref=e100]:
+            - tab "성능 상세" [ref=e101]
+            - tab "정확도" [ref=e102]
+            - tab "가격 상세" [active] [selected] [ref=e103]
+            - tab "모델 정보" [ref=e104]
+          - tabpanel "가격 상세" [ref=e109]:
+            - generic [ref=e112]:
+              - table [ref=e114]:
+                - rowgroup [ref=e115]:
+                  - row "기본 Input $1.00 / 1M" [ref=e116]:
+                    - cell "기본 Input" [ref=e117]
+                    - cell "$1.00 / 1M" [ref=e118]
+                  - row "기본 Output $2.00 / 1M" [ref=e119]:
+                    - cell "기본 Output" [ref=e120]
+                    - cell "$2.00 / 1M" [ref=e121]
+              - paragraph [ref=e122]: 시간대 요금 규칙이 없습니다.
+  - region "Notifications alt+T"
+  - alert [ref=e59]

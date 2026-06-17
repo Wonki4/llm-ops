@@ -8,6 +8,7 @@ import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, u
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
+import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -535,15 +536,22 @@ function TeamSettingsTab({
   membershipDuration,
   defaultTpmLimit,
   defaultRpmLimit,
+  modelTpmLimit,
+  modelRpmLimit,
+  modelOptions,
 }: {
   teamId: string;
   defaultMemberBudget: number | null;
   membershipDuration: string | null;
   defaultTpmLimit: number | null;
   defaultRpmLimit: number | null;
+  modelTpmLimit: Record<string, number> | null;
+  modelRpmLimit: Record<string, number> | null;
+  modelOptions: ModelOption[];
 }) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
+  const tm = useTranslations("modelLimits");
   const updateSettings = useUpdateTeamSettings();
   const { data: portalSettings } = usePortalSettings();
   const [defaultBudget, setDefaultBudget] = useState(
@@ -552,6 +560,8 @@ function TeamSettingsTab({
   const [duration, setDuration] = useState(membershipDuration || "");
   const [tpmLimit, setTpmLimit] = useState(defaultTpmLimit != null ? String(defaultTpmLimit) : "");
   const [rpmLimit, setRpmLimit] = useState(defaultRpmLimit != null ? String(defaultRpmLimit) : "");
+  const [modelTpm, setModelTpm] = useState<Record<string, number>>(modelTpmLimit ?? {});
+  const [modelRpm, setModelRpm] = useState<Record<string, number>>(modelRpmLimit ?? {});
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -562,6 +572,8 @@ function TeamSettingsTab({
           membership_duration: duration || null,
           default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
           default_rpm_limit: rpmLimit ? Number(rpmLimit) : null,
+          model_tpm_limit: modelTpm,
+          model_rpm_limit: modelRpm,
         },
       },
       {
@@ -635,6 +647,24 @@ function TeamSettingsTab({
               : ""}
             {t("settingsTpmRpmHintSuffix")}
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{tm("title")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ModelLimitEditor
+            initialTpm={modelTpmLimit}
+            initialRpm={modelRpmLimit}
+            models={modelOptions}
+            onChange={(tpm, rpm) => {
+              setModelTpm(tpm);
+              setModelRpm(rpm);
+            }}
+          />
+          <p className="text-xs text-muted-foreground">{tm("teamRetroHint")}</p>
         </CardContent>
       </Card>
 
@@ -1585,6 +1615,16 @@ export default function TeamDetailPage({
               membershipDuration={data.membership_duration ?? null}
               defaultTpmLimit={data.default_tpm_limit ?? null}
               defaultRpmLimit={data.default_rpm_limit ?? null}
+              modelTpmLimit={data.model_tpm_limit ?? null}
+              modelRpmLimit={data.model_rpm_limit ?? null}
+              modelOptions={(
+                (data.team.models ?? []).includes("all-proxy-models")
+                  ? (allModels?.map((m) => m.model_name) ?? [])
+                  : (data.team.models ?? []).filter((m) => m !== "all-proxy-models")
+              ).map((name) => ({
+                value: name,
+                label: modelsByName.get(name)?.catalog?.display_name || name,
+              }))}
             />
           </TabsContent>
         )}

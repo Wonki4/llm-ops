@@ -1,0 +1,168 @@
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - link:
+          - /url: /
+          - img
+          - text: LLM Ops
+      - navigation:
+        - generic:
+          - link:
+            - /url: /announcements
+            - img
+            - text: 공지사항
+          - link:
+            - /url: /models/calendar
+            - img
+            - text: 모델 캘린더
+          - link:
+            - /url: /models/dashboard
+            - img
+            - text: 모델 대시보드
+          - link:
+            - /url: /teams
+            - img
+            - text: 내 팀
+          - link:
+            - /url: /teams/discover
+            - img
+            - text: 팀 탐색
+          - link:
+            - /url: /keys
+            - img
+            - text: 내 전체 키
+          - link:
+            - /url: /requests
+            - img
+            - text: 내 요청
+        - generic:
+          - generic: 관리자
+        - generic:
+          - link:
+            - /url: /admin/requests
+            - img
+            - text: 요청 관리
+          - link:
+            - /url: /admin/models/dashboard
+            - img
+            - text: 관리자 대시보드
+          - link:
+            - /url: /admin/models
+            - img
+            - text: 모델 관리
+          - link:
+            - /url: /admin/budgets
+            - img
+            - text: 예산 관리
+          - link:
+            - /url: /admin/users
+            - img
+            - text: 사용자 관리
+          - link:
+            - /url: /admin/benchmarks
+            - img
+            - text: 벤치마크
+          - link:
+            - /url: /admin/settings
+            - img
+            - text: 포털 설정
+      - generic:
+        - paragraph: ADMIN001
+        - generic:
+          - img
+          - generic:
+            - button: 한국어
+            - button: English
+        - link:
+          - /url: /api/auth/logout
+          - img
+          - text: 로그아웃
+    - main:
+      - generic:
+        - link:
+          - /url: /teams
+          - img
+          - text: 내 팀
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=1]: alpha-team
+              - generic:
+                - img
+                - text: 관리자
+        - generic:
+          - tablist:
+            - tab: 개요
+            - tab: 내 키
+            - tab: 모델
+            - tab: 멤버
+            - tab [selected]: 설정
+          - tabpanel:
+            - generic:
+              - heading [level=2]: 팀 설정
+              - generic:
+                - generic:
+                  - generic: 멤버 기본 예산
+                - generic:
+                  - generic:
+                    - text: 기본 예산 ($)
+                    - spinbutton
+                    - paragraph: 신규 멤버가 팀에 추가될 때 자동으로 할당되는 예산입니다
+              - generic:
+                - generic:
+                  - generic: 키 기본 TPM / RPM
+                - generic:
+                  - generic:
+                    - generic:
+                      - text: TPM (tokens/min)
+                      - spinbutton
+                    - generic:
+                      - text: RPM (requests/min)
+                      - spinbutton
+                  - paragraph: 이 팀에서 새로 발급되는 키에 적용되는 기본 제한값입니다. 미설정 시 관리자 설정의 전역 기본값 (TPM 100,000 / RPM 1,000)이 적용됩니다.
+              - generic:
+                - generic:
+                  - generic: 모델별 한도
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: 모델
+                      - generic: TPM
+                      - generic: RPM
+                    - generic:
+                      - combobox [expanded]:
+                        - generic: 모델
+                        - img
+                      - spinbutton
+                      - spinbutton
+                      - button:
+                        - img
+                    - button:
+                      - img
+                      - text: 모델 추가
+                    - paragraph: 빈 칸은 제한 없음(∞). 모델 전체를 비우면 제한이 해제됩니다.
+                  - paragraph: 여기서 설정한 모델별 한도는 이 팀의 기존·신규 키 모두에 적용됩니다(소급). 특정 키만 다르게 하려면 해당 유저의 키에서 개별 설정하세요.
+              - generic:
+                - generic:
+                  - generic: 멤버십 유효 기간
+                - generic:
+                  - generic:
+                    - text: 유효 기간
+                    - textbox:
+                      - /placeholder: "예: 90d, 180d, 365d (미설정 시 무기한)"
+                    - paragraph: 설정 시 가입 승인일로부터 해당 기간 후 자동으로 팀에서 탈퇴되고 키가 삭제됩니다 (d=일, m=월)
+              - button:
+                - img
+                - text: 저장
+  - region "Notifications alt+T"
+  - alert
+  - listbox [ref=e295]:
+    - option "GLM-5" [active] [ref=e296]:
+      - generic [ref=e298]: GLM-5
+    - option "Kimi-K2.5" [ref=e299]:
+      - generic [ref=e301]: Kimi-K2.5
+    - option "Qwen3-VL" [ref=e302]:
+      - generic [ref=e304]: Qwen3-VL
+    - option "DeepSeek-V3" [ref=e305]:
+      - generic [ref=e307]: DeepSeek-V3

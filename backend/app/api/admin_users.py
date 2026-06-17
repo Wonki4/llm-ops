@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.key_limits import effective_model_limits
 from app.auth.deps import require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser
@@ -152,11 +153,13 @@ async def get_user_detail(
 
     keys_result = await litellm_db.execute(
         text(
-            "SELECT token, key_alias, key_name, team_id, spend, max_budget, "
-            "       budget_duration, budget_reset_at, models, tpm_limit, rpm_limit, expires, created_at "
-            'FROM "LiteLLM_VerificationToken" '
-            "WHERE user_id = :uid "
-            "ORDER BY created_at DESC"
+            "SELECT v.token, v.key_alias, v.key_name, v.team_id, v.spend, v.max_budget, "
+            "       v.budget_duration, v.budget_reset_at, v.models, v.tpm_limit, v.rpm_limit, "
+            "       v.metadata, v.expires, v.created_at, t.metadata AS team_metadata "
+            'FROM "LiteLLM_VerificationToken" v '
+            'LEFT JOIN "LiteLLM_TeamTable" t ON v.team_id = t.team_id '
+            "WHERE v.user_id = :uid "
+            "ORDER BY v.created_at DESC"
         ),
         {"uid": user_id},
     )
@@ -173,6 +176,7 @@ async def get_user_detail(
             "models": list(k["models"] or []),
             "tpm_limit": k["tpm_limit"],
             "rpm_limit": k["rpm_limit"],
+            **effective_model_limits(k["metadata"], k["team_metadata"]),
             "expires": k["expires"].isoformat() if k["expires"] else None,
             "created_at": k["created_at"].isoformat() if k["created_at"] else None,
         }
@@ -257,6 +261,12 @@ async def get_user_detail(
 class UpdateKeyLimitsRequest(BaseModel):
     tpm_limit: int | None = Field(None, ge=0)
     rpm_limit: int | None = Field(None, ge=0)
+    # Per-model overrides. LiteLLM treats these as a WHOLE-MAP replacement (no
+    # per-model merge with the team value), so callers must send the full set
+    # they want enforced on this key. An empty dict clears the override, letting
+    # the team-level limit apply again.
+    model_tpm_limit: dict[str, int] | None = None
+    model_rpm_limit: dict[str, int] | None = None
 
 
 @router.patch("/{user_id}/keys/{token}/limits")
@@ -268,7 +278,7 @@ async def update_user_key_limits(
     litellm: LiteLLMClient = Depends(get_litellm_client),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """Update TPM/RPM limits for a user's key (super user only)."""
+    """Update TPM/RPM (and per-model) limits for a user's key (super user only)."""
     owner_result = await litellm_db.execute(
         text('SELECT user_id FROM "LiteLLM_VerificationToken" WHERE token = :token'),
         {"token": token},
@@ -282,8 +292,15 @@ async def update_user_key_limits(
             detail="Key does not belong to the specified user",
         )
 
-    await litellm.update_key(token, tpm_limit=body.tpm_limit, rpm_limit=body.rpm_limit)
-    return {"status": "updated", "tpm_limit": body.tpm_limit, "rpm_limit": body.rpm_limit}
+    update_kwargs: dict = {"tpm_limit": body.tpm_limit, "rpm_limit": body.rpm_limit}
+    provided = body.model_dump(exclude_unset=True)
+    if "model_tpm_limit" in provided:
+        update_kwargs["model_tpm_limit"] = body.model_tpm_limit or {}
+    if "model_rpm_limit" in provided:
+        update_kwargs["model_rpm_limit"] = body.model_rpm_limit or {}
+
+    await litellm.update_key(token, **update_kwargs)
+    return {"status": "updated", **update_kwargs}
 
 
 @router.delete("/{user_id}/teams/{team_id}")

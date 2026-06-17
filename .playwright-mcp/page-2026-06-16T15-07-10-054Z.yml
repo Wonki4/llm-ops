@@ -1,0 +1,302 @@
+- generic:
+  - generic:
+    - complementary:
+      - generic:
+        - link:
+          - /url: /
+          - img
+          - text: LLM Ops
+      - navigation:
+        - generic:
+          - link:
+            - /url: /announcements
+            - img
+            - text: 공지사항
+          - link:
+            - /url: /models/calendar
+            - img
+            - text: 모델 캘린더
+          - link:
+            - /url: /models/dashboard
+            - img
+            - text: 모델 대시보드
+          - link:
+            - /url: /teams
+            - img
+            - text: 내 팀
+          - link:
+            - /url: /teams/discover
+            - img
+            - text: 팀 탐색
+          - link:
+            - /url: /keys
+            - img
+            - text: 내 전체 키
+          - link:
+            - /url: /requests
+            - img
+            - text: 내 요청
+        - generic:
+          - generic: 관리자
+        - generic:
+          - link:
+            - /url: /admin/requests
+            - img
+            - text: 요청 관리
+          - link:
+            - /url: /admin/models/dashboard
+            - img
+            - text: 관리자 대시보드
+          - link:
+            - /url: /admin/models
+            - img
+            - text: 모델 관리
+          - link:
+            - /url: /admin/budgets
+            - img
+            - text: 예산 관리
+          - link:
+            - /url: /admin/users
+            - img
+            - text: 사용자 관리
+          - link:
+            - /url: /admin/benchmarks
+            - img
+            - text: 벤치마크
+          - link:
+            - /url: /admin/settings
+            - img
+            - text: 포털 설정
+      - generic:
+        - paragraph: ADMIN001
+        - generic:
+          - img
+          - generic:
+            - button: 한국어
+            - button: English
+        - link:
+          - /url: /api/auth/logout
+          - img
+          - text: 로그아웃
+    - main:
+      - generic:
+        - generic:
+          - link:
+            - /url: /admin/users
+            - button:
+              - img
+              - text: 사용자 목록
+          - generic:
+            - generic:
+              - heading [level=1]: admin001
+              - paragraph:
+                - text: Admin User·
+                - generic:
+                  - img
+                  - text: admin@example.com
+            - generic:
+              - img
+              - text: 관리자
+        - generic:
+          - generic:
+            - generic:
+              - generic: 총 사용량
+              - img
+            - generic:
+              - generic: $0.00
+              - paragraph: 한도 무제한
+          - generic:
+            - generic:
+              - generic: 보유 키
+              - img
+            - generic:
+              - generic: 6개
+          - generic:
+            - generic:
+              - generic: 소속 팀
+              - img
+            - generic:
+              - generic: 1개
+          - generic:
+            - generic:
+              - generic: 가입일
+              - img
+            - generic:
+              - generic: 2026. 04. 04.
+        - generic:
+          - generic:
+            - tablist:
+              - tab: 팀 (1)
+              - tab [selected]: 키 (6)
+            - button:
+              - img
+              - text: 팀에 추가
+          - tabpanel:
+            - generic:
+              - generic:
+                - table:
+                  - rowgroup:
+                    - row:
+                      - columnheader: Alias
+                      - columnheader: 팀
+                      - columnheader: 모델
+                      - columnheader: 사용량
+                      - columnheader: 한도
+                      - columnheader: TPM
+                      - columnheader: RPM
+                      - columnheader: 생성일
+                      - columnheader
+                  - rowgroup:
+                    - row:
+                      - cell:
+                        - generic: admin001-tete
+                        - generic: ae095a92e2ca...
+                      - cell:
+                        - link:
+                          - /url: /teams/mega-team-001
+                          - text: mega-team-001
+                      - cell: 전체
+                      - cell: $0.00
+                      - cell: 무제한
+                      - cell: "100000"
+                      - cell: "1000"
+                      - cell: 2026. 04. 07. 오전 07:48
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+                    - row:
+                      - cell:
+                        - generic: admin-mega-key-3
+                        - generic: sk-mega-admi...
+                      - cell:
+                        - link:
+                          - /url: /teams/mega-team-001
+                          - text: mega-team-001
+                      - cell:
+                        - generic:
+                          - generic: my-special-fake-model-alias-name
+                      - cell: $3.20
+                      - cell: $100.00
+                      - cell: "-"
+                      - cell: "-"
+                      - cell: 2026. 03. 09. 오전 12:11
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+                    - row:
+                      - cell:
+                        - generic: admin-mega-key-2
+                        - generic: sk-mega-admi...
+                      - cell:
+                        - link:
+                          - /url: /teams/mega-team-001
+                          - text: mega-team-001
+                      - cell:
+                        - generic:
+                          - generic: my-special-fake-model-alias-name
+                      - cell: $42.75
+                      - cell: $100.00
+                      - cell: "-"
+                      - cell: "-"
+                      - cell: 2026. 03. 09. 오전 12:11
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+                    - row:
+                      - cell:
+                        - generic: admin-mega-key-1
+                        - generic: sk-mega-admi...
+                      - cell:
+                        - link:
+                          - /url: /teams/mega-team-001
+                          - text: mega-team-001
+                      - cell:
+                        - generic:
+                          - generic: my-special-fake-model-alias-name
+                      - cell: $15.50
+                      - cell: $100.00
+                      - cell: "-"
+                      - cell: "-"
+                      - cell: 2026. 03. 09. 오전 12:11
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+                    - row:
+                      - cell:
+                        - generic: smoke-key
+                        - generic: 8605b1fe35c7...
+                      - cell:
+                        - link:
+                          - /url: /teams/e659f799-2fe4-48c8-989e-f12988d28826
+                          - text: e659f799-2fe4-48c8-989e-f12988d28826
+                      - cell:
+                        - generic:
+                          - generic: my-special-fake-model-alias-name
+                      - cell: $0.00
+                      - cell: $10.00
+                      - cell:
+                        - text: "-"
+                        - generic: 모델별 1 (팀)
+                      - cell: "-"
+                      - cell: 2026. 03. 06. 오후 08:04
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+                    - row:
+                      - cell:
+                        - generic: sk-...q0RQ
+                        - generic: 22eddf725722...
+                      - cell: "-"
+                      - cell: 전체
+                      - cell: $0.00
+                      - cell: 무제한
+                      - cell: "-"
+                      - cell: "-"
+                      - cell: 2026. 03. 06. 오후 07:26
+                      - cell:
+                        - button:
+                          - img
+                          - text: 수정
+  - region "Notifications alt+T"
+  - alert
+  - dialog "키 한도 수정" [ref=e292]:
+    - generic [ref=e293]:
+      - heading "키 한도 수정" [level=2] [ref=e294]
+      - paragraph [ref=e295]: smoke-key 의 TPM/RPM 한도를 변경합니다. 비워두면 무제한입니다.
+    - generic [ref=e296]:
+      - generic [ref=e297]:
+        - generic [ref=e298]: TPM (분당 토큰)
+        - spinbutton "TPM (분당 토큰)" [active] [ref=e299]
+      - generic [ref=e300]:
+        - generic [ref=e301]: RPM (분당 요청)
+        - spinbutton "RPM (분당 요청)" [ref=e302]
+      - generic [ref=e303]:
+        - generic [ref=e304]: 모델별 한도
+        - generic [ref=e305]:
+          - generic [ref=e306]:
+            - generic [ref=e307]: 모델
+            - generic [ref=e308]: TPM
+            - generic [ref=e309]: RPM
+          - generic [ref=e311]:
+            - combobox [ref=e312]:
+              - generic: GLM-5
+              - img
+            - spinbutton [ref=e313]: "50000"
+            - spinbutton [ref=e314]
+            - button [ref=e315]:
+              - img
+          - button "모델 추가" [ref=e316]:
+            - img
+            - text: 모델 추가
+          - paragraph [ref=e317]: 빈 칸은 제한 없음(∞). 모델 전체를 비우면 제한이 해제됩니다.
+    - generic [ref=e318]:
+      - button "취소" [ref=e319]
+      - button "저장" [ref=e320]
+    - button "Close" [ref=e321]:
+      - img
+      - generic [ref=e322]: Close

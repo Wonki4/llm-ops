@@ -1,0 +1,7 @@
+{
+  "tool_name": "Read",
+  "tool_input_preview": "{\"file_path\":\"/Users/wongibaek/Documents/litellm-ops/.playwright-mcp/models-authed.png\"}",
+  "error": "File does not exist. Note: your current working directory is /Users/wongibaek/Documents/litellm-ops.",
+  "timestamp": "2026-06-22T01:53:24.862Z",
+  "retry_count": 1
+}
