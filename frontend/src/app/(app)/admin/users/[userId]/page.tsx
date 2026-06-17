@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -25,9 +25,12 @@ import {
   useAdminRemoveUserFromTeam,
   useAdminAssignUserToTeam,
   useDiscoverTeams,
+  useModels,
 } from "@/hooks/use-api";
 import type { AdminUserKey, AdminUserTeam } from "@/types";
 import { Badge } from "@/components/ui/badge";
+import { ModelLimitOverrides } from "@/components/model-limit-overrides";
+import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -88,17 +91,29 @@ export default function AdminUserDetailPage({
 }) {
   const t = useTranslations("adminUsers");
   const tc = useTranslations("common");
+  const tm = useTranslations("modelLimits");
   const localeTag = useLocaleTag();
 
   const { userId: rawUserId } = use(params);
   const userId = decodeURIComponent(rawUserId);
   const { data, isLoading, error } = useAdminUserDetail(userId);
+  const { data: allModels } = useModels();
+  const modelOptions = useMemo<ModelOption[]>(
+    () =>
+      (allModels ?? []).map((m) => ({
+        value: m.model_name,
+        label: m.catalog?.display_name || m.model_name,
+      })),
+    [allModels],
+  );
   const updateLimitsMutation = useAdminUpdateKeyLimits();
   const removeFromTeamMutation = useAdminRemoveUserFromTeam();
 
   const [editingKey, setEditingKey] = useState<AdminUserKey | null>(null);
   const [tpmInput, setTpmInput] = useState("");
   const [rpmInput, setRpmInput] = useState("");
+  const [modelTpm, setModelTpm] = useState<Record<string, number>>({});
+  const [modelRpm, setModelRpm] = useState<Record<string, number>>({});
   const [removingTeam, setRemovingTeam] = useState<AdminUserTeam | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignTeamId, setAssignTeamId] = useState("");
@@ -111,6 +126,10 @@ export default function AdminUserDetailPage({
     setEditingKey(key);
     setTpmInput(key.tpm_limit == null ? "" : String(key.tpm_limit));
     setRpmInput(key.rpm_limit == null ? "" : String(key.rpm_limit));
+    // Prefill with the EFFECTIVE per-model limits (team-inherited values
+    // included) so an override edits the full set, not just one model.
+    setModelTpm(key.model_tpm_limit ?? {});
+    setModelRpm(key.model_rpm_limit ?? {});
   };
 
   const parseLimit = (value: string): number | null => {
@@ -129,7 +148,14 @@ export default function AdminUserDetailPage({
       return;
     }
     updateLimitsMutation.mutate(
-      { userId, token: editingKey.token, tpmLimit: tpm, rpmLimit: rpm },
+      {
+        userId,
+        token: editingKey.token,
+        tpmLimit: tpm,
+        rpmLimit: rpm,
+        modelTpmLimit: modelTpm,
+        modelRpmLimit: modelRpm,
+      },
       {
         onSuccess: () => {
           toast.success(t("keyLimitsUpdated"));
@@ -455,9 +481,11 @@ export default function AdminUserDetailPage({
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {k.tpm_limit ?? "-"}
+                        <ModelLimitOverrides limits={k.model_tpm_limit} inherited={k.model_tpm_inherited} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums text-muted-foreground">
                         {k.rpm_limit ?? "-"}
+                        <ModelLimitOverrides limits={k.model_rpm_limit} inherited={k.model_rpm_inherited} />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(k.created_at, localeTag)}
@@ -516,6 +544,21 @@ export default function AdminUserDetailPage({
                 onChange={(e) => setRpmInput(e.target.value)}
               />
             </div>
+            {editingKey && (
+              <div className="space-y-2 border-t pt-3">
+                <Label>{tm("title")}</Label>
+                <ModelLimitEditor
+                  key={editingKey.token}
+                  initialTpm={editingKey.model_tpm_limit}
+                  initialRpm={editingKey.model_rpm_limit}
+                  models={modelOptions}
+                  onChange={(tpm, rpm) => {
+                    setModelTpm(tpm);
+                    setModelRpm(rpm);
+                  }}
+                />
+              </div>
+            )}
           </div>
           <DialogFooter>
             <DialogClose asChild>

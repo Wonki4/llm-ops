@@ -1054,5 +1054,14 @@
     "submitFail": "벤치마크 시작 실패",
     "errorModelRequired": "모델을 먼저 선택하세요.",
     "errorTasksRequired": "Task를 최소 한 개 이상 입력하세요."
+  },
+  "modelLimits": {
+    "title": "모델별 한도",
+    "model": "모델",
+    "addModel": "모델 추가",
+    "editorHint": "빈 칸은 제한 없음(∞). 모델 전체를 비우면 제한이 해제됩니다.",
+    "perModelBadge": "모델별",
+    "teamBadge": "팀",
+    "teamRetroHint": "여기서 설정한 모델별 한도는 이 팀의 기존·신규 키 모두에 적용됩니다(소급). 특정 키만 다르게 하려면 해당 유저의 키에서 개별 설정하세요."
   }
 }
