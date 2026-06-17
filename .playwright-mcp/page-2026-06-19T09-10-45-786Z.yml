@@ -1,0 +1,125 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+        - generic [ref=e61]: 관리자
+        - generic [ref=e63]:
+          - link "요청 관리" [ref=e64] [cursor=pointer]:
+            - /url: /admin/requests
+            - img [ref=e65]
+            - text: 요청 관리
+          - link "관리자 대시보드" [ref=e68] [cursor=pointer]:
+            - /url: /admin/models/dashboard
+            - img [ref=e69]
+            - text: 관리자 대시보드
+          - link "모델 관리" [ref=e71] [cursor=pointer]:
+            - /url: /admin/models
+            - img [ref=e72]
+            - text: 모델 관리
+          - link "예산 관리" [ref=e82] [cursor=pointer]:
+            - /url: /admin/budgets
+            - img [ref=e83]
+            - text: 예산 관리
+          - link "사용자 관리" [ref=e85] [cursor=pointer]:
+            - /url: /admin/users
+            - img [ref=e86]
+            - text: 사용자 관리
+          - link "벤치마크" [active] [ref=e98] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e99]
+            - text: 벤치마크
+          - link "포털 설정" [ref=e101] [cursor=pointer]:
+            - /url: /admin/settings
+            - img [ref=e102]
+            - text: 포털 설정
+      - generic [ref=e42]:
+        - paragraph [ref=e105]: ADMIN001
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - generic [ref=e48]:
+            - button "한국어" [ref=e49]
+            - button "English" [ref=e50]
+        - link "로그아웃" [ref=e51] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e52]
+          - text: 로그아웃
+    - main [ref=e55]:
+      - generic [ref=e138]:
+        - generic [ref=e139]:
+          - generic [ref=e140]:
+            - heading "벤치마크" [level=1] [ref=e141]
+            - paragraph [ref=e142]: LiteLLM에 등록된 모델에 대한 성능 / 정확도 벤치마크 실행 기록입니다.
+          - link "벤치마크 실행" [ref=e144] [cursor=pointer]:
+            - /url: /admin/benchmarks/new
+            - button "벤치마크 실행" [ref=e145]:
+              - img
+              - text: 벤치마크 실행
+        - generic [ref=e146]:
+          - generic [ref=e147]:
+            - img [ref=e148]
+            - textbox "모델 이름으로 필터..." [ref=e151]
+          - combobox [ref=e152]:
+            - option "전체 툴" [selected]
+            - option "vllm_serving"
+            - option "sglang_serving"
+            - option "lm_eval"
+          - combobox [ref=e153]:
+            - option "전체 상태" [selected]
+            - option "프로비저닝"
+            - option "대기 중"
+            - option "실행 중"
+            - option "성공"
+            - option "실패"
+            - option "취소됨"
+        - table [ref=e156]:
+          - rowgroup [ref=e157]:
+            - row "모델 툴 종류 상태 소요 시간 실행자 생성 시각" [ref=e158]:
+              - columnheader [ref=e159]
+              - columnheader "모델" [ref=e160]
+              - columnheader "툴" [ref=e161]
+              - columnheader "종류" [ref=e162]
+              - columnheader "상태" [ref=e163]
+              - columnheader "소요 시간" [ref=e164]
+              - columnheader "실행자" [ref=e165]
+              - columnheader "생성 시각" [ref=e166]
+          - rowgroup [ref=e167]:
+            - row "아직 실행된 벤치마크가 없습니다." [ref=e168]:
+              - cell "아직 실행된 벤치마크가 없습니다." [ref=e169]:
+                - generic [ref=e170]:
+                  - img [ref=e171]
+                  - generic [ref=e173]: 아직 실행된 벤치마크가 없습니다.
+  - region "Notifications alt+T"
+  - alert [ref=e59]

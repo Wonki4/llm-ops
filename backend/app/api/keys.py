@@ -13,8 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
-from app.auth.deps import get_current_user
+from app.api.key_limits import effective_model_limits
 from app.api.teams import _get_hidden_teams
+from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
 from app.db.models.custom_user import CustomUser, GlobalRole
@@ -139,17 +140,19 @@ async def list_my_keys(
 ) -> dict:
     """List current user's API keys, optionally filtered by team."""
     query = (
-        "SELECT token, key_name, key_alias, team_id, user_id, "
-        "       spend, max_budget, budget_duration, budget_reset_at, "
-        "       models, expires, created_at, metadata, tpm_limit, rpm_limit "
-        'FROM "LiteLLM_VerificationToken" '
-        "WHERE user_id = :user_id "
+        "SELECT v.token, v.key_name, v.key_alias, v.team_id, v.user_id, "
+        "       v.spend, v.max_budget, v.budget_duration, v.budget_reset_at, "
+        "       v.models, v.expires, v.created_at, v.metadata, v.tpm_limit, v.rpm_limit, "
+        "       t.metadata AS team_metadata "
+        'FROM "LiteLLM_VerificationToken" v '
+        'LEFT JOIN "LiteLLM_TeamTable" t ON v.team_id = t.team_id '
+        "WHERE v.user_id = :user_id "
     )
     params: dict = {"user_id": user.user_id}
     if team_id:
-        query += "AND team_id = :team_id "
+        query += "AND v.team_id = :team_id "
         params["team_id"] = team_id
-    query += "ORDER BY created_at DESC"
+    query += "ORDER BY v.created_at DESC"
 
     result = await litellm_db.execute(text(query), params)
     keys = [
@@ -168,6 +171,7 @@ async def list_my_keys(
             "created_at": k["created_at"].isoformat() if k["created_at"] else None,
             "tpm_limit": k["tpm_limit"],
             "rpm_limit": k["rpm_limit"],
+            **effective_model_limits(k["metadata"], k["team_metadata"]),
         }
         for k in result.mappings()
     ]

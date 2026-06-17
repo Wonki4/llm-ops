@@ -1,0 +1,7 @@
+{
+  "tool_name": "mcp__plugin_playwright_playwright__browser_navigate",
+  "tool_input_preview": "{\"url\":\"http://localhost:3003/admin/benchmarks/new\"}",
+  "error": "### Error\nError: browserBackend.callTool: net::ERR_CONNECTION_RESET at http://localhost:3003/admin/benchmarks/new\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3003/admin/benchmarks/new\", waiting until \"domcontentloaded\"\u001b[22m",
+  "timestamp": "2026-06-19T13:45:36.223Z",
+  "retry_count": 1
+}

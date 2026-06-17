@@ -1,0 +1,504 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+        - generic [ref=e154]: 관리자
+        - generic [ref=e156]:
+          - link "요청 관리" [ref=e157] [cursor=pointer]:
+            - /url: /admin/requests
+            - img [ref=e158]
+            - text: 요청 관리
+          - link "관리자 대시보드" [ref=e161] [cursor=pointer]:
+            - /url: /admin/models/dashboard
+            - img [ref=e162]
+            - text: 관리자 대시보드
+          - link "모델 관리" [ref=e164] [cursor=pointer]:
+            - /url: /admin/models
+            - img [ref=e165]
+            - text: 모델 관리
+          - link "예산 관리" [ref=e175] [cursor=pointer]:
+            - /url: /admin/budgets
+            - img [ref=e176]
+            - text: 예산 관리
+          - link "사용자 관리" [ref=e178] [cursor=pointer]:
+            - /url: /admin/users
+            - img [ref=e179]
+            - text: 사용자 관리
+          - link "벤치마크" [ref=e191] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e192]
+            - text: 벤치마크
+          - link "포털 설정" [ref=e194] [cursor=pointer]:
+            - /url: /admin/settings
+            - img [ref=e195]
+            - text: 포털 설정
+      - generic [ref=e42]:
+        - paragraph [ref=e198]: ADMIN001
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - generic [ref=e48]:
+            - button "한국어" [ref=e49]
+            - button "English" [ref=e50]
+        - link "로그아웃" [ref=e51] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e52]
+          - text: 로그아웃
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - link "목록으로" [ref=e58] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e59]
+            - text: 목록으로
+          - heading "벤치마크 실행" [level=1] [ref=e61]
+          - paragraph [ref=e62]: LiteLLM에 등록된 모델에 대해 벤치마크 Job을 띄웁니다. 입력한 파라미터는 결과와 함께 저장되어 나중에 동일 조건으로 재실행할 수 있습니다.
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - generic [ref=e65]:
+              - generic [ref=e67]: 대상
+              - generic [ref=e68]:
+                - generic [ref=e69]:
+                  - generic [ref=e70]: 실행 클러스터
+                  - combobox "실행 클러스터" [ref=e71]:
+                    - option "포털 기본 클러스터"
+                    - option "minikube-local — https://host.docker.internal:50347" [selected]
+                  - paragraph [ref=e72]: 벤치마크 Job을 어느 K8s 클러스터에 띄울지 선택합니다. 비워두면 포털 기본 클러스터를 사용합니다.
+                - generic [ref=e73]:
+                  - generic [ref=e74]: 서빙 디플로이먼트
+                  - combobox "서빙 디플로이먼트" [ref=e75]:
+                    - option "— 없음 (등록된 별칭 사용) —" [selected]
+                  - paragraph [ref=e76]: 포털이 관리하는 서빙 디플로이먼트를 직접 벤치마크 (권장). Ready 상태만 표시됩니다.
+                - generic [ref=e77]:
+                  - generic [ref=e78]: 모델
+                  - combobox "모델" [ref=e79]:
+                    - option "모델 선택..."
+                    - option "*"
+                    - option "anthropic/*"
+                    - option "anthropic/claude-3-7-sonnet-20250219"
+                    - option "anthropic/claude-3-haiku-20240307"
+                    - option "anthropic/claude-3-opus-20240229"
+                    - option "anthropic/claude-4-opus-20250514"
+                    - option "anthropic/claude-4-sonnet-20250514"
+                    - option "anthropic/claude-fable-5"
+                    - option "anthropic/claude-haiku-4-5" [selected]
+                    - option "anthropic/claude-haiku-4-5-20251001"
+                    - option "anthropic/claude-opus-4-1"
+                    - option "anthropic/claude-opus-4-1-20250805"
+                    - option "anthropic/claude-opus-4-20250514"
+                    - option "anthropic/claude-opus-4-5"
+                    - option "anthropic/claude-opus-4-5-20251101"
+                    - option "anthropic/claude-opus-4-6"
+                    - option "anthropic/claude-opus-4-6-20260205"
+                    - option "anthropic/claude-opus-4-7"
+                    - option "anthropic/claude-opus-4-7-20260416"
+                    - option "anthropic/claude-opus-4-8"
+                    - option "anthropic/claude-sonnet-4-20250514"
+                    - option "anthropic/claude-sonnet-4-5"
+                    - option "anthropic/claude-sonnet-4-5-20250929"
+                    - option "anthropic/claude-sonnet-4-6"
+                    - option "bad-model"
+                    - option "badly-configured-openai-endpoint"
+                    - option "bedrock/*"
+                    - option "bedrock/1024-x-1024/50-steps/bedrock/amazon.nova-canvas-v1:0"
+                    - option "bedrock/1024-x-1024/50-steps/stability.stable-diffusion-xl-v1"
+                    - option "bedrock/1024-x-1024/max-steps/stability.stable-diffusion-xl-v1"
+                    - option "bedrock/512-x-512/50-steps/stability.stable-diffusion-xl-v0"
+                    - option "bedrock/512-x-512/max-steps/stability.stable-diffusion-xl-v0"
+                    - option "bedrock/ai21.j2-mid-v1"
+                    - option "bedrock/ai21.j2-ultra-v1"
+                    - option "bedrock/ai21.jamba-1-5-large-v1:0"
+                    - option "bedrock/ai21.jamba-1-5-mini-v1:0"
+                    - option "bedrock/ai21.jamba-instruct-v1:0"
+                    - option "bedrock/amazon.nova-2-lite-v1:0"
+                    - option "bedrock/amazon.nova-2-multimodal-embeddings-v1:0"
+                    - option "bedrock/amazon.nova-2-pro-preview-20251202-v1:0"
+                    - option "bedrock/amazon.nova-canvas-v1:0"
+                    - option "bedrock/amazon.nova-lite-v1:0"
+                    - option "bedrock/amazon.nova-micro-v1:0"
+                    - option "bedrock/amazon.nova-pro-v1:0"
+                    - option "bedrock/amazon.rerank-v1:0"
+                    - option "bedrock/amazon.titan-embed-image-v1"
+                    - option "bedrock/amazon.titan-embed-text-v1"
+                    - option "bedrock/amazon.titan-embed-text-v2:0"
+                    - option "bedrock/amazon.titan-image-generator-v1"
+                    - option "bedrock/amazon.titan-image-generator-v2"
+                    - option "bedrock/amazon.titan-image-generator-v2:0"
+                    - option "bedrock/amazon.titan-text-express-v1"
+                    - option "bedrock/amazon.titan-text-lite-v1"
+                    - option "bedrock/amazon.titan-text-premier-v1:0"
+                    - option "bedrock/anthropic.claude-3-5-haiku-20241022-v1:0"
+                    - option "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"
+                    - option "bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    - option "bedrock/anthropic.claude-3-7-sonnet-20240620-v1:0"
+                    - option "bedrock/anthropic.claude-3-7-sonnet-20250219-v1:0"
+                    - option "bedrock/anthropic.claude-3-haiku-20240307-v1:0"
+                    - option "bedrock/anthropic.claude-3-opus-20240229-v1:0"
+                    - option "bedrock/anthropic.claude-3-sonnet-20240229-v1:0"
+                    - option "bedrock/anthropic.claude-fable-5"
+                    - option "bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/anthropic.claude-haiku-4-5@20251001"
+                    - option "bedrock/anthropic.claude-instant-v1"
+                    - option "bedrock/anthropic.claude-mythos-preview"
+                    - option "bedrock/anthropic.claude-opus-4-1-20250805-v1:0"
+                    - option "bedrock/anthropic.claude-opus-4-20250514-v1:0"
+                    - option "bedrock/anthropic.claude-opus-4-5-20251101-v1:0"
+                    - option "bedrock/anthropic.claude-opus-4-6-v1"
+                    - option "bedrock/anthropic.claude-opus-4-6-v1:0"
+                    - option "bedrock/anthropic.claude-opus-4-7"
+                    - option "bedrock/anthropic.claude-opus-4-8"
+                    - option "bedrock/anthropic.claude-sonnet-4-20250514-v1:0"
+                    - option "bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/anthropic.claude-sonnet-4-6"
+                    - option "bedrock/anthropic.claude-v1"
+                    - option "bedrock/anthropic.claude-v2"
+                    - option "bedrock/anthropic.claude-v2:1"
+                    - option "bedrock/apac.amazon.nova-2-lite-v1:0"
+                    - option "bedrock/apac.amazon.nova-2-pro-preview-20251202-v1:0"
+                    - option "bedrock/apac.amazon.nova-lite-v1:0"
+                    - option "bedrock/apac.amazon.nova-micro-v1:0"
+                    - option "bedrock/apac.amazon.nova-pro-v1:0"
+                    - option "bedrock/apac.anthropic.claude-3-5-sonnet-20240620-v1:0"
+                    - option "bedrock/apac.anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    - option "bedrock/apac.anthropic.claude-3-haiku-20240307-v1:0"
+                    - option "bedrock/apac.anthropic.claude-3-sonnet-20240229-v1:0"
+                    - option "bedrock/apac.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/apac.anthropic.claude-sonnet-4-20250514-v1:0"
+                    - option "bedrock/au.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/au.anthropic.claude-opus-4-6-v1"
+                    - option "bedrock/au.anthropic.claude-opus-4-7"
+                    - option "bedrock/au.anthropic.claude-opus-4-8"
+                    - option "bedrock/au.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/au.anthropic.claude-sonnet-4-6"
+                    - option "bedrock/claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/cohere.command-light-text-v14"
+                    - option "bedrock/cohere.command-r-plus-v1:0"
+                    - option "bedrock/cohere.command-r-v1:0"
+                    - option "bedrock/cohere.command-text-v14"
+                    - option "bedrock/cohere.embed-english-v3"
+                    - option "bedrock/cohere.embed-multilingual-v3"
+                    - option "bedrock/cohere.embed-v4:0"
+                    - option "bedrock/cohere.rerank-v3-5:0"
+                    - option "bedrock/deepseek.v3-v1:0"
+                    - option "bedrock/deepseek.v3.2"
+                    - option "bedrock/eu.amazon.nova-2-lite-v1:0"
+                    - option "bedrock/eu.amazon.nova-2-pro-preview-20251202-v1:0"
+                    - option "bedrock/eu.amazon.nova-lite-v1:0"
+                    - option "bedrock/eu.amazon.nova-micro-v1:0"
+                    - option "bedrock/eu.amazon.nova-pro-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-5-haiku-20241022-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-5-sonnet-20240620-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    - option "bedrock/eu.anthropic.claude-3-7-sonnet-20250219-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-haiku-20240307-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-opus-20240229-v1:0"
+                    - option "bedrock/eu.anthropic.claude-3-sonnet-20240229-v1:0"
+                    - option "bedrock/eu.anthropic.claude-fable-5"
+                    - option "bedrock/eu.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/eu.anthropic.claude-opus-4-1-20250805-v1:0"
+                    - option "bedrock/eu.anthropic.claude-opus-4-20250514-v1:0"
+                    - option "bedrock/eu.anthropic.claude-opus-4-5-20251101-v1:0"
+                    - option "bedrock/eu.anthropic.claude-opus-4-6-v1"
+                    - option "bedrock/eu.anthropic.claude-opus-4-7"
+                    - option "bedrock/eu.anthropic.claude-opus-4-8"
+                    - option "bedrock/eu.anthropic.claude-sonnet-4-20250514-v1:0"
+                    - option "bedrock/eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/eu.anthropic.claude-sonnet-4-6"
+                    - option "bedrock/eu.deepseek.v3.2"
+                    - option "bedrock/eu.meta.llama3-2-1b-instruct-v1:0"
+                    - option "bedrock/eu.meta.llama3-2-3b-instruct-v1:0"
+                    - option "bedrock/eu.mistral.pixtral-large-2502-v1:0"
+                    - option "bedrock/eu.twelvelabs.marengo-embed-2-7-v1:0"
+                    - option "bedrock/eu.twelvelabs.pegasus-1-2-v1:0"
+                    - option "bedrock/global.amazon.nova-2-lite-v1:0"
+                    - option "bedrock/global.anthropic.claude-fable-5"
+                    - option "bedrock/global.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/global.anthropic.claude-opus-4-5-20251101-v1:0"
+                    - option "bedrock/global.anthropic.claude-opus-4-6-v1"
+                    - option "bedrock/global.anthropic.claude-opus-4-7"
+                    - option "bedrock/global.anthropic.claude-opus-4-8"
+                    - option "bedrock/global.anthropic.claude-sonnet-4-20250514-v1:0"
+                    - option "bedrock/global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/global.anthropic.claude-sonnet-4-6"
+                    - option "bedrock/google.gemma-3-12b-it"
+                    - option "bedrock/google.gemma-3-27b-it"
+                    - option "bedrock/google.gemma-3-4b-it"
+                    - option "bedrock/jp.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/jp.anthropic.claude-opus-4-7"
+                    - option "bedrock/jp.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/jp.anthropic.claude-sonnet-4-6"
+                    - option "bedrock/max-x-max/50-steps/stability.stable-diffusion-xl-v0"
+                    - option "bedrock/max-x-max/max-steps/stability.stable-diffusion-xl-v0"
+                    - option "bedrock/meta.llama2-13b-chat-v1"
+                    - option "bedrock/meta.llama2-70b-chat-v1"
+                    - option "bedrock/meta.llama3-1-405b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-1-70b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-1-8b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-2-11b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-2-1b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-2-3b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-2-90b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-3-70b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-70b-instruct-v1:0"
+                    - option "bedrock/meta.llama3-8b-instruct-v1:0"
+                    - option "bedrock/meta.llama4-maverick-17b-instruct-v1:0"
+                    - option "bedrock/meta.llama4-scout-17b-instruct-v1:0"
+                    - option "bedrock/minimax.minimax-m2"
+                    - option "bedrock/minimax.minimax-m2.1"
+                    - option "bedrock/minimax.minimax-m2.5"
+                    - option "bedrock/mistral.devstral-2-123b"
+                    - option "bedrock/mistral.magistral-small-2509"
+                    - option "bedrock/mistral.ministral-3-14b-instruct"
+                    - option "bedrock/mistral.ministral-3-3b-instruct"
+                    - option "bedrock/mistral.ministral-3-8b-instruct"
+                    - option "bedrock/mistral.mistral-7b-instruct-v0:2"
+                    - option "bedrock/mistral.mistral-large-2402-v1:0"
+                    - option "bedrock/mistral.mistral-large-2407-v1:0"
+                    - option "bedrock/mistral.mistral-large-3-675b-instruct"
+                    - option "bedrock/mistral.mistral-small-2402-v1:0"
+                    - option "bedrock/mistral.mixtral-8x7b-instruct-v0:1"
+                    - option "bedrock/mistral.voxtral-mini-3b-2507"
+                    - option "bedrock/mistral.voxtral-small-24b-2507"
+                    - option "bedrock/moonshot.kimi-k2-thinking"
+                    - option "bedrock/moonshotai.kimi-k2-thinking"
+                    - option "bedrock/moonshotai.kimi-k2.5"
+                    - option "bedrock/nvidia.nemotron-nano-12b-v2"
+                    - option "bedrock/nvidia.nemotron-nano-3-30b"
+                    - option "bedrock/nvidia.nemotron-nano-9b-v2"
+                    - option "bedrock/nvidia.nemotron-super-3-120b"
+                    - option "bedrock/openai.gpt-oss-120b-1:0"
+                    - option "bedrock/openai.gpt-oss-20b-1:0"
+                    - option "bedrock/openai.gpt-oss-safeguard-120b"
+                    - option "bedrock/openai.gpt-oss-safeguard-20b"
+                    - option "bedrock/qwen.qwen3-235b-a22b-2507-v1:0"
+                    - option "bedrock/qwen.qwen3-32b-v1:0"
+                    - option "bedrock/qwen.qwen3-coder-30b-a3b-v1:0"
+                    - option "bedrock/qwen.qwen3-coder-480b-a35b-v1:0"
+                    - option "bedrock/qwen.qwen3-coder-next"
+                    - option "bedrock/qwen.qwen3-next-80b-a3b"
+                    - option "bedrock/qwen.qwen3-vl-235b-a22b"
+                    - option "bedrock/stability.sd3-5-large-v1:0"
+                    - option "bedrock/stability.sd3-large-v1:0"
+                    - option "bedrock/stability.stable-conservative-upscale-v1:0"
+                    - option "bedrock/stability.stable-creative-upscale-v1:0"
+                    - option "bedrock/stability.stable-fast-upscale-v1:0"
+                    - option "bedrock/stability.stable-image-control-sketch-v1:0"
+                    - option "bedrock/stability.stable-image-control-structure-v1:0"
+                    - option "bedrock/stability.stable-image-core-v1:0"
+                    - option "bedrock/stability.stable-image-core-v1:1"
+                    - option "bedrock/stability.stable-image-erase-object-v1:0"
+                    - option "bedrock/stability.stable-image-inpaint-v1:0"
+                    - option "bedrock/stability.stable-image-remove-background-v1:0"
+                    - option "bedrock/stability.stable-image-search-recolor-v1:0"
+                    - option "bedrock/stability.stable-image-search-replace-v1:0"
+                    - option "bedrock/stability.stable-image-style-guide-v1:0"
+                    - option "bedrock/stability.stable-image-ultra-v1:0"
+                    - option "bedrock/stability.stable-image-ultra-v1:1"
+                    - option "bedrock/stability.stable-outpaint-v1:0"
+                    - option "bedrock/stability.stable-style-transfer-v1:0"
+                    - option "bedrock/twelvelabs.marengo-embed-2-7-v1:0"
+                    - option "bedrock/twelvelabs.pegasus-1-2-v1:0"
+                    - option "bedrock/us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/us.amazon.nova-2-lite-v1:0"
+                    - option "bedrock/us.amazon.nova-2-pro-preview-20251202-v1:0"
+                    - option "bedrock/us.amazon.nova-canvas-v1:0"
+                    - option "bedrock/us.amazon.nova-lite-v1:0"
+                    - option "bedrock/us.amazon.nova-micro-v1:0"
+                    - option "bedrock/us.amazon.nova-premier-v1:0"
+                    - option "bedrock/us.amazon.nova-pro-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-5-haiku-20241022-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-5-sonnet-20240620-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+                    - option "bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-haiku-20240307-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-opus-20240229-v1:0"
+                    - option "bedrock/us.anthropic.claude-3-sonnet-20240229-v1:0"
+                    - option "bedrock/us.anthropic.claude-fable-5"
+                    - option "bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0"
+                    - option "bedrock/us.anthropic.claude-opus-4-1-20250805-v1:0"
+                    - option "bedrock/us.anthropic.claude-opus-4-20250514-v1:0"
+                    - option "bedrock/us.anthropic.claude-opus-4-5-20251101-v1:0"
+                    - option "bedrock/us.anthropic.claude-opus-4-6-v1"
+                    - option "bedrock/us.anthropic.claude-opus-4-7"
+                    - option "bedrock/us.anthropic.claude-opus-4-8"
+                    - option "bedrock/us.anthropic.claude-sonnet-4-20250514-v1:0"
+                    - option "bedrock/us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+                    - option "bedrock/us.anthropic.claude-sonnet-4-6"
+                    - option "bedrock/us.deepseek.r1-v1:0"
+                    - option "bedrock/us.deepseek.v3.2"
+                    - option "bedrock/us.meta.llama3-1-405b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-1-70b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-1-8b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-2-11b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-2-1b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-2-3b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-2-90b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama3-3-70b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama4-maverick-17b-instruct-v1:0"
+                    - option "bedrock/us.meta.llama4-scout-17b-instruct-v1:0"
+                    - option "bedrock/us.mistral.pixtral-large-2502-v1:0"
+                    - option "bedrock/us.twelvelabs.marengo-embed-2-7-v1:0"
+                    - option "bedrock/us.twelvelabs.pegasus-1-2-v1:0"
+                    - option "bedrock/us.writer.palmyra-x4-v1:0"
+                    - option "bedrock/us.writer.palmyra-x5-v1:0"
+                    - option "bedrock/writer.palmyra-x4-v1:0"
+                    - option "bedrock/writer.palmyra-x5-v1:0"
+                    - option "bedrock/zai.glm-4.7"
+                    - option "bedrock/zai.glm-4.7-flash"
+                    - option "bedrock/zai.glm-5"
+                    - option "claude-sonnet-4"
+                    - option "dall-e-2"
+                    - option "deepseek-v3"
+                    - option "fake-openai-endpoint"
+                    - option "fake-openai-endpoint-2"
+                    - option "fake-openai-endpoint-3"
+                    - option "fake-openai-endpoint-4"
+                    - option "fake-openai-endpoint-5"
+                    - option "gemini-2.5-flash"
+                    - option "glm-5"
+                    - option "good-model"
+                    - option "gpt-3.5-turbo"
+                    - option "gpt-3.5-turbo-end-user-test"
+                    - option "gpt-3.5-turbo-large"
+                    - option "gpt-4"
+                    - option "gpt-4.1"
+                    - option "gpt-5-mini-end-user-test"
+                    - option "gpt-5.5"
+                    - option "gpt-instruct"
+                    - option "groq/*"
+                    - option "groq/gemma-7b-it"
+                    - option "groq/llama-3.1-8b-instant"
+                    - option "groq/llama-3.3-70b-versatile"
+                    - option "groq/meta-llama/llama-4-maverick-17b-128e-instruct"
+                    - option "groq/meta-llama/llama-4-scout-17b-16e-instruct"
+                    - option "groq/meta-llama/llama-guard-4-12b"
+                    - option "groq/moonshotai/kimi-k2-instruct-0905"
+                    - option "groq/openai/gpt-oss-120b"
+                    - option "groq/openai/gpt-oss-20b"
+                    - option "groq/openai/gpt-oss-safeguard-20b"
+                    - option "groq/playai-tts"
+                    - option "groq/qwen/qwen3-32b"
+                    - option "groq/whisper-large-v3"
+                    - option "groq/whisper-large-v3-turbo"
+                    - option "kimi-k2.5"
+                    - option "llama-4-maverick"
+                    - option "mistral-embed"
+                    - option "my-special-fake-model-alias-name"
+                    - option "openai-dall-e-3"
+                    - option "qwen3-vl"
+                    - option "realtime-beta"
+                    - option "realtime-v1"
+                    - option "sagemaker-completion-model"
+                    - option "text-embedding-ada-002"
+                  - paragraph [ref=e80]: LiteLLM 프록시에 등록된 모델만 표시됩니다.
+                - generic [ref=e81]:
+                  - generic [ref=e82]: 툴
+                  - combobox "툴" [ref=e83]:
+                    - option "vllm_serving (performance)" [selected]
+                    - option "sglang_serving (performance)"
+                    - option "lm_eval (accuracy)"
+                  - paragraph [ref=e84]: "성능: vllm 스타일 동시성 부하 테스트 (TTFT / TPOT / 처리량)."
+            - generic [ref=e85]:
+              - generic [ref=e87]: 파라미터
+              - generic [ref=e88]:
+                - generic [ref=e89]:
+                  - generic [ref=e90]:
+                    - generic [ref=e91]: 프롬프트 수
+                    - spinbutton "프롬프트 수" [ref=e92]: "32"
+                    - paragraph [ref=e93]: 총 발사할 요청 수.
+                  - generic [ref=e94]:
+                    - generic [ref=e95]: 동시성
+                    - spinbutton "동시성" [ref=e96]: "8"
+                    - paragraph [ref=e97]: 동시에 떠 있는 요청 최대치.
+                  - generic [ref=e98]:
+                    - generic [ref=e99]: 출력 토큰 수
+                    - spinbutton "출력 토큰 수" [ref=e100]: "128"
+                    - paragraph [ref=e101]: 요청당 최대 출력 토큰.
+                  - generic [ref=e102]:
+                    - generic [ref=e103]: Temperature
+                    - spinbutton "Temperature" [ref=e104]: "0"
+                    - paragraph [ref=e105]: 0 이면 결정적 생성.
+                  - generic [ref=e106]:
+                    - generic [ref=e107]: 요청 속도 (req/s, 선택)
+                    - spinbutton "요청 속도 (req/s, 선택)" [ref=e108]
+                    - paragraph [ref=e109]: 비워두면 무제한(closed-loop). 값이 있으면 1/rate 간격으로 요청 발사.
+                  - generic [ref=e110]:
+                    - checkbox "EOS 무시" [ref=e111]
+                    - generic [ref=e112] [cursor=pointer]: EOS 무시
+                - generic [ref=e113]:
+                  - generic [ref=e114]: 프롬프트
+                  - textbox "프롬프트" [ref=e115]: Write a short paragraph explaining the difference between TCP and UDP.
+                  - paragraph [ref=e116]: 모든 요청에 동일하게 사용될 단일 프롬프트.
+            - generic [ref=e117]:
+              - generic [ref=e119]: 추가 파라미터
+              - generic [ref=e120]:
+                - generic [ref=e121]: 추가 파라미터 (JSON)
+                - textbox "추가 파라미터 (JSON)" [ref=e122]:
+                  - /placeholder: "{\n  \"request_rate\": 4,\n  \"ignore_eos\": true\n}"
+                - paragraph [ref=e123]: Named 필드 위에 머지됩니다 (덮어쓰기). 폼에 노출되지 않은 툴 옵션을 통과시킬 때 사용하세요.
+            - generic [ref=e124]:
+              - generic [ref=e126]: 고급 옵션
+              - generic [ref=e127]:
+                - generic [ref=e128]:
+                  - generic [ref=e129]: K8s 네임스페이스
+                  - textbox "K8s 네임스페이스" [ref=e130]:
+                    - /placeholder: default
+                  - paragraph [ref=e131]: 기본값 'default'.
+                - generic [ref=e132]:
+                  - generic [ref=e133]: 러너 이미지
+                  - textbox "러너 이미지" [ref=e134]:
+                    - /placeholder: llmops-benchmark:latest
+                  - paragraph [ref=e135]: 커스텀 벤치마크 이미지를 운영 중일 때만 변경.
+            - generic [ref=e136]:
+              - link "취소" [ref=e137] [cursor=pointer]:
+                - /url: /admin/benchmarks
+                - button "취소" [ref=e138]
+              - button "실행" [ref=e139]:
+                - img
+                - text: 실행
+          - complementary [ref=e140]:
+            - generic [ref=e141]:
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - img [ref=e144]
+                  - text: 실행 매니페스트 (YAML)
+                - paragraph [ref=e149]: 현재 입력값으로 클러스터에 실제 적용될 K8s 리소스입니다. 민감한 값(API 키 등)은 마스킹됩니다.
+              - generic [ref=e199]:
+                - generic [ref=e200]:
+                  - generic [ref=e201]: Job
+                  - generic [ref=e202]: bench-89681407-00e2-4bb6-b63c-5b4a9668
+                - code [ref=e204]: "apiVersion: batch/v1 kind: Job metadata: name: bench-89681407-00e2-4bb6-b63c-5b4a9668 namespace: default labels: app: llmops-benchmark bench-tool: vllm_serving bench-kind: performance spec: backoffLimit: 0 ttlSecondsAfterFinished: 604800 template: metadata: labels: app: llmops-benchmark job-name: bench-89681407-00e2-4bb6-b63c-5b4a9668 spec: restartPolicy: Never containers: - name: runner image: llmops-benchmark:latest imagePullPolicy: IfNotPresent env: - name: BENCH_TOOL value: vllm_serving - name: BENCH_KIND value: performance - name: BENCH_MODEL value: anthropic/claude-haiku-4-5 - name: BENCH_TARGET_URL value: http://litellm:4000 - name: BENCH_API_KEY value: '***' - name: BENCH_PARAMS_JSON value: '{\"num_prompts\": 32, \"concurrency\": 8, \"max_tokens\": 128, \"temperature\": 0, \"prompt\": \"Write a short paragraph explaining the difference between TCP and UDP.\"}' - name: BENCH_RUN_ID value: 89681407-00e2-4bb6-b63c-5b4a96682081"
+  - region "Notifications alt+T"
+  - alert [ref=e152]

@@ -1,0 +1,226 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1782054717038,
+  "projectRoot": "/Users/wongibaek/Documents/litellm-ops",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "backend": {
+      "path": "backend",
+      "purpose": null,
+      "fileCount": 5,
+      "lastAccessed": 1782054717012,
+      "keyFiles": [
+        "Dockerfile",
+        "alembic.ini",
+        "pyproject.toml",
+        "uv.lock"
+      ]
+    },
+    "bench": {
+      "path": "bench",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1782054717013,
+      "keyFiles": [
+        "Dockerfile",
+        "entrypoint.py"
+      ]
+    },
+    "deploy": {
+      "path": "deploy",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1782054717014,
+      "keyFiles": []
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1782054717015,
+      "keyFiles": []
+    },
+    "frontend": {
+      "path": "frontend",
+      "purpose": null,
+      "fileCount": 14,
+      "lastAccessed": 1782054717015,
+      "keyFiles": [
+        "Dockerfile",
+        "README.md",
+        "components.json",
+        "eslint.config.mjs",
+        "next-env.d.ts"
+      ]
+    },
+    "gateway": {
+      "path": "gateway",
+      "purpose": null,
+      "fileCount": 2,
+      "lastAccessed": 1782054717016,
+      "keyFiles": [
+        "Dockerfile",
+        "pyproject.toml"
+      ]
+    },
+    "litellm": {
+      "path": "litellm",
+      "purpose": null,
+      "fileCount": 38,
+      "lastAccessed": 1782054717016,
+      "keyFiles": [
+        "AGENTS.md",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "CONTRIBUTING.md",
+        "Dockerfile"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1782054717017,
+      "keyFiles": [
+        "deploy.sh",
+        "seed_mega_team.sql"
+      ]
+    },
+    "tmp": {
+      "path": "tmp",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1782054717017,
+      "keyFiles": [
+        "edit-dialog-snapshot-2.md",
+        "edit-dialog-snapshot.md",
+        "models-after-close.md",
+        "seed_vllm_perf.sql"
+      ]
+    },
+    "backend/app": {
+      "path": "backend/app",
+      "purpose": "Application code",
+      "fileCount": 4,
+      "lastAccessed": 1782054717018,
+      "keyFiles": [
+        "__init__.py",
+        "config.py",
+        "main.py"
+      ]
+    },
+    "backend/migrations": {
+      "path": "backend/migrations",
+      "purpose": "Database migrations",
+      "fileCount": 2,
+      "lastAccessed": 1782054717018,
+      "keyFiles": [
+        "env.py",
+        "script.py.mako"
+      ]
+    },
+    "gateway/app": {
+      "path": "gateway/app",
+      "purpose": "Application code",
+      "fileCount": 5,
+      "lastAccessed": 1782054717018,
+      "keyFiles": [
+        "__init__.py",
+        "config.py",
+        "main.py"
+      ]
+    },
+    "gateway/tests": {
+      "path": "gateway/tests",
+      "purpose": "Test files",
+      "fileCount": 2,
+      "lastAccessed": 1782054717018,
+      "keyFiles": [
+        "test_proxy.py",
+        "test_trusted_system.py"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "frontend/src/app/(app)/teams/[teamId]/page.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1782103812477,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/hooks/use-api.ts",
+      "accessCount": 4,
+      "lastAccessed": 1782104195183,
+      "type": "file"
+    },
+    {
+      "path": "frontend/messages/ko.json",
+      "accessCount": 3,
+      "lastAccessed": 1782103936767,
+      "type": "file"
+    },
+    {
+      "path": "frontend/src/components/model-detail-sheet.tsx",
+      "accessCount": 2,
+      "lastAccessed": 1782055887469,
+      "type": "file"
+    },
+    {
+      "path": "frontend/messages/en.json",
+      "accessCount": 2,
+      "lastAccessed": 1782103884979,
+      "type": "file"
+    },
+    {
+      "path": "docker-compose.yml",
+      "accessCount": 1,
+      "lastAccessed": 1782090950762,
+      "type": "file"
+    },
+    {
+      "path": "models-authed.png",
+      "accessCount": 1,
+      "lastAccessed": 1782093294041,
+      "type": "file"
+    },
+    {
+      "path": "models-final-verify.png",
+      "accessCount": 1,
+      "lastAccessed": 1782096753542,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

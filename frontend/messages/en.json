@@ -1254,5 +1254,14 @@
     "accuracyLegend": "Higher value is highlighted as best; this assumes the metric is a score (higher = better).",
     "serving": "Serving config",
     "servingLegend": "Bold = differs across runs. Identical resource rows confirm a same-hardware comparison."
+  },
+  "modelLimits": {
+    "title": "Per-model limits",
+    "model": "Model",
+    "addModel": "Add model",
+    "editorHint": "Empty = unlimited (∞). Clear all rows to remove the limit.",
+    "perModelBadge": "Per-model",
+    "teamBadge": "team",
+    "teamRetroHint": "These per-model limits apply to all existing and new keys in this team (retroactive). To make one key different, set an override on that user's key."
   }
 }

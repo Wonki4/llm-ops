@@ -1,0 +1,295 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+      - generic [ref=e42]:
+        - paragraph [ref=e97]: USER001
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - generic [ref=e48]:
+            - button "한국어" [ref=e49]
+            - button "English" [ref=e50]
+        - link "로그아웃" [ref=e51] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e52]
+          - text: 로그아웃
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - heading "모델 대시보드" [level=1] [ref=e58]
+          - paragraph [ref=e59]: 전체 모델 현황을 한눈에 확인합니다
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]:
+              - generic [ref=e63]: 상태 분포
+              - generic [ref=e64]: 전체 모델의 상태별 비율 (미등록 포함)
+            - generic [ref=e98]:
+              - generic [ref=e99]:
+                - 'generic "테스트: 5 (50%)" [ref=e100]'
+                - 'generic "사전 출시: 1 (10%)" [ref=e101]'
+                - 'generic "LTS: 3 (30%)" [ref=e102]'
+                - 'generic "지원 중단 예정: 1 (10%)" [ref=e103]'
+              - generic [ref=e104]:
+                - generic [ref=e105]:
+                  - generic [ref=e107]: 테스트
+                  - generic [ref=e108]: "5"
+                - generic [ref=e109]:
+                  - generic [ref=e111]: 사전 출시
+                  - generic [ref=e112]: "1"
+                - generic [ref=e113]:
+                  - generic [ref=e115]: LTS
+                  - generic [ref=e116]: "3"
+                - generic [ref=e117]:
+                  - generic [ref=e119]: 지원 중단 예정
+                  - generic [ref=e120]: "1"
+                - generic [ref=e121]:
+                  - generic [ref=e123]: 지원 종료
+                  - generic [ref=e124]: "0"
+                - generic [ref=e125]:
+                  - generic [ref=e127]: 미등록
+                  - generic [ref=e128]: "0"
+          - generic [ref=e67]:
+            - generic [ref=e69]:
+              - generic [ref=e70]:
+                - generic [ref=e71]: 최근 변경
+                - generic [ref=e72]: 최근 모델 상태 변경 이력
+              - link "더 보기" [ref=e73] [cursor=pointer]:
+                - /url: /models/calendar
+                - button "더 보기" [ref=e74]:
+                  - text: 더 보기
+                  - img
+            - generic [ref=e76]:
+              - generic [ref=e130]:
+                - generic [ref=e131]:
+                  - button "gpt-3.5-turbo-large" [ref=e132] [cursor=pointer]
+                  - generic [ref=e133]:
+                    - generic [ref=e134]: 생성
+                    - img [ref=e135]
+                    - generic [ref=e137]: 테스트
+                - generic [ref=e138]:
+                  - generic [ref=e139]: ADMIN001
+                  - generic [ref=e140]: ·
+                  - generic [ref=e141]: 2026. 05. 02.
+              - generic [ref=e143]:
+                - generic [ref=e144]:
+                  - button "gpt-3.5-turbo-end-user-test" [ref=e145] [cursor=pointer]
+                  - generic [ref=e146]:
+                    - generic [ref=e147]: 생성
+                    - img [ref=e148]
+                    - generic [ref=e150]: 테스트
+                - generic [ref=e151]:
+                  - generic [ref=e152]: ADMIN001
+                  - generic [ref=e153]: ·
+                  - generic [ref=e154]: 2026. 05. 02.
+              - generic [ref=e156]:
+                - generic [ref=e157]:
+                  - button "ㅇㄹㄴㄹㅇㄴㄹ" [ref=e158] [cursor=pointer]
+                  - generic [ref=e159]:
+                    - generic [ref=e160]: 생성
+                    - img [ref=e161]
+                    - generic [ref=e163]: 테스트
+                - generic [ref=e164]:
+                  - generic [ref=e165]: ADMIN001
+                  - generic [ref=e166]: ·
+                  - generic [ref=e167]: 2026. 05. 02.
+              - generic [ref=e169]:
+                - generic [ref=e170]:
+                  - button "DeepSeek-V3" [ref=e171] [cursor=pointer]
+                  - generic [ref=e172]:
+                    - generic [ref=e173]: 테스트
+                    - img [ref=e174]
+                    - generic [ref=e176]: LTS
+                - generic [ref=e177]:
+                  - generic [ref=e178]: ADMIN
+                  - generic [ref=e179]: ·
+                  - generic [ref=e180]: 2026. 04. 11.
+              - generic [ref=e182]:
+                - generic [ref=e183]:
+                  - button "Kimi-K2.5" [ref=e184] [cursor=pointer]
+                  - generic [ref=e185]:
+                    - generic [ref=e186]: 테스트
+                    - img [ref=e187]
+                    - generic [ref=e189]: 사전 출시
+                - generic [ref=e190]:
+                  - generic [ref=e191]: ADMIN
+                  - generic [ref=e192]: ·
+                  - generic [ref=e193]: 2026. 04. 11.
+        - generic [ref=e79]:
+          - heading "전체 모델 목록" [level=2] [ref=e80]
+          - generic [ref=e81]:
+            - generic [ref=e82]:
+              - generic [ref=e83]: 모델명
+              - generic [ref=e84]:
+                - img [ref=e85]
+                - textbox "모델명 검색..." [ref=e88]
+            - generic [ref=e89]:
+              - generic [ref=e90]: 상태
+              - combobox [ref=e91]:
+                - generic: 전체
+                - img
+            - button "검색" [ref=e93]:
+              - img
+              - text: 검색
+          - table [ref=e196]:
+            - rowgroup [ref=e197]:
+              - row "모델명 상태 Input 비용 Output 비용 다음 전환" [ref=e198]:
+                - columnheader "모델명" [ref=e199]
+                - columnheader "상태" [ref=e200]
+                - columnheader "Input 비용" [ref=e201]
+                - columnheader "Output 비용" [ref=e202]
+                - columnheader "다음 전환" [ref=e203]
+            - rowgroup [ref=e204]:
+              - row "gpt-3.5-turbo-end-user-test 테스트 $ 0.50 / 1M $ 1.50 / 1M -" [ref=e205]:
+                - cell "gpt-3.5-turbo-end-user-test" [ref=e206]:
+                  - link "gpt-3.5-turbo-end-user-test" [ref=e207] [cursor=pointer]:
+                    - /url: /models/gpt-3.5-turbo-end-user-test
+                    - generic [ref=e208]: gpt-3.5-turbo-end-user-test
+                - cell "테스트" [ref=e209]:
+                  - generic [ref=e210]: 테스트
+                - cell "$ 0.50 / 1M" [ref=e211]
+                - cell "$ 1.50 / 1M" [ref=e212]
+                - cell "-" [ref=e213]
+              - row "gpt-3.5-turbo-large 테스트 $ 1.00 / 1M $ 2.00 / 1M -" [ref=e214]:
+                - cell "gpt-3.5-turbo-large" [ref=e215]:
+                  - link "gpt-3.5-turbo-large" [ref=e216] [cursor=pointer]:
+                    - /url: /models/gpt-3.5-turbo-large
+                    - generic [ref=e217]: gpt-3.5-turbo-large
+                - cell "테스트" [ref=e218]:
+                  - generic [ref=e219]: 테스트
+                - cell "$ 1.00 / 1M" [ref=e220]
+                - cell "$ 2.00 / 1M" [ref=e221]
+                - cell "-" [ref=e222]
+              - row "ㅇㄹㄴㄹㅇㄴㄹ 테스트 $ 0 $ 0 -" [ref=e223]:
+                - cell "ㅇㄹㄴㄹㅇㄴㄹ" [ref=e224]:
+                  - link "ㅇㄹㄴㄹㅇㄴㄹ" [ref=e225] [cursor=pointer]:
+                    - /url: /models/sagemaker-completion-model
+                    - generic [ref=e226]: ㅇㄹㄴㄹㅇㄴㄹ
+                - cell "테스트" [ref=e227]:
+                  - generic [ref=e228]: 테스트
+                - cell "$ 0" [ref=e229]
+                - cell "$ 0" [ref=e230]
+                - cell "-" [ref=e231]
+              - row "Claude Sonnet 4 LTS - - -" [ref=e232]:
+                - cell "Claude Sonnet 4" [ref=e233]:
+                  - link "Claude Sonnet 4" [ref=e234] [cursor=pointer]:
+                    - /url: /models/claude-sonnet-4
+                    - generic [ref=e235]: Claude Sonnet 4
+                - cell "LTS" [ref=e236]:
+                  - generic [ref=e237]: LTS
+                - cell "-" [ref=e238]
+                - cell "-" [ref=e239]
+                - cell "-" [ref=e240]
+              - row "DeepSeek-V3 LTS - - -" [ref=e241]:
+                - cell "DeepSeek-V3" [ref=e242]:
+                  - link "DeepSeek-V3" [ref=e243] [cursor=pointer]:
+                    - /url: /models/deepseek-v3
+                    - generic [ref=e244]: DeepSeek-V3
+                - cell "LTS" [ref=e245]:
+                  - generic [ref=e246]: LTS
+                - cell "-" [ref=e247]
+                - cell "-" [ref=e248]
+                - cell "-" [ref=e249]
+              - row "GLM-5 LTS - - -" [ref=e250]:
+                - cell "GLM-5" [ref=e251]:
+                  - link "GLM-5" [ref=e252] [cursor=pointer]:
+                    - /url: /models/glm-5
+                    - generic [ref=e253]: GLM-5
+                - cell "LTS" [ref=e254]:
+                  - generic [ref=e255]: LTS
+                - cell "-" [ref=e256]
+                - cell "-" [ref=e257]
+                - cell "-" [ref=e258]
+              - row "GPT-4.1 지원 중단 예정 - - 2026. 06. 30. 지원 종료" [ref=e259]:
+                - cell "GPT-4.1" [ref=e260]:
+                  - link "GPT-4.1" [ref=e261] [cursor=pointer]:
+                    - /url: /models/gpt-4.1
+                    - generic [ref=e262]: GPT-4.1
+                - cell "지원 중단 예정" [ref=e263]:
+                  - generic [ref=e264]: 지원 중단 예정
+                - cell "-" [ref=e265]
+                - cell "-" [ref=e266]
+                - cell "2026. 06. 30. 지원 종료" [ref=e267]:
+                  - generic [ref=e268]:
+                    - text: 2026. 06. 30.
+                    - generic [ref=e270]: 지원 종료
+              - row "Kimi-K2.5 사전 출시 - - -" [ref=e271]:
+                - cell "Kimi-K2.5" [ref=e272]:
+                  - link "Kimi-K2.5" [ref=e273] [cursor=pointer]:
+                    - /url: /models/kimi-k2.5
+                    - generic [ref=e274]: Kimi-K2.5
+                - cell "사전 출시" [ref=e275]:
+                  - generic [ref=e276]: 사전 출시
+                - cell "-" [ref=e277]
+                - cell "-" [ref=e278]
+                - cell "-" [ref=e279]
+              - row "Llama 4 Maverick 테스트 - - 2026. 08. 01. LTS" [ref=e280]:
+                - cell "Llama 4 Maverick" [ref=e281]:
+                  - link "Llama 4 Maverick" [ref=e282] [cursor=pointer]:
+                    - /url: /models/llama-4-maverick
+                    - generic [ref=e283]: Llama 4 Maverick
+                - cell "테스트" [ref=e284]:
+                  - generic [ref=e285]: 테스트
+                - cell "-" [ref=e286]
+                - cell "-" [ref=e287]
+                - cell "2026. 08. 01. LTS" [ref=e288]:
+                  - generic [ref=e289]:
+                    - text: 2026. 08. 01.
+                    - generic [ref=e291]: LTS
+              - row "Qwen3-VL 테스트 - - 2026. 07. 01. LTS" [ref=e292]:
+                - cell "Qwen3-VL" [ref=e293]:
+                  - link "Qwen3-VL" [ref=e294] [cursor=pointer]:
+                    - /url: /models/qwen3-vl
+                    - generic [ref=e295]: Qwen3-VL
+                - cell "테스트" [ref=e296]:
+                  - generic [ref=e297]: 테스트
+                - cell "-" [ref=e298]
+                - cell "-" [ref=e299]
+                - cell "2026. 07. 01. LTS" [ref=e300]:
+                  - generic [ref=e301]:
+                    - text: 2026. 07. 01.
+                    - generic [ref=e303]: LTS
+          - generic [ref=e304]:
+            - paragraph [ref=e305]: 총 10개 중 1–10
+            - generic [ref=e306]:
+              - button "이전" [disabled]:
+                - img
+                - text: 이전
+              - generic [ref=e307]: 1 / 1
+              - button "다음" [disabled]:
+                - text: 다음
+                - img
+  - region "Notifications alt+T"
+  - alert [ref=e308]

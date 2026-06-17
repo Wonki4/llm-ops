@@ -1,0 +1,3 @@
+[     676ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3003/model-logos/qwen.png:0
+[  194140ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3003/model-logos/qwen.png:0
+[  200484ms] [ERROR] Failed to load resource: the server responded with a status of 404 (Not Found) @ http://localhost:3003/model-logos/qwen.png:0

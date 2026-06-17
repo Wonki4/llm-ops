@@ -1,0 +1,132 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+        - generic [ref=e43]: 관리자
+        - generic [ref=e45]:
+          - link "요청 관리" [ref=e46] [cursor=pointer]:
+            - /url: /admin/requests
+            - img [ref=e47]
+            - text: 요청 관리
+          - link "관리자 대시보드" [ref=e50] [cursor=pointer]:
+            - /url: /admin/models/dashboard
+            - img [ref=e51]
+            - text: 관리자 대시보드
+          - link "모델 관리" [ref=e53] [cursor=pointer]:
+            - /url: /admin/models
+            - img [ref=e54]
+            - text: 모델 관리
+          - link "예산 관리" [ref=e64] [cursor=pointer]:
+            - /url: /admin/budgets
+            - img [ref=e65]
+            - text: 예산 관리
+          - link "사용자 관리" [ref=e67] [cursor=pointer]:
+            - /url: /admin/users
+            - img [ref=e68]
+            - text: 사용자 관리
+          - link "벤치마크" [ref=e80] [cursor=pointer]:
+            - /url: /admin/benchmarks
+            - img [ref=e81]
+            - text: 벤치마크
+          - link "llm-d" [ref=e83] [cursor=pointer]:
+            - /url: /admin/llmd
+            - img [ref=e84]
+            - text: llm-d
+          - link "포털 설정" [ref=e89] [cursor=pointer]:
+            - /url: /admin/settings
+            - img [ref=e90]
+            - text: 포털 설정
+      - generic [ref=e93]:
+        - paragraph [ref=e94]: ADMIN001
+        - generic [ref=e95]:
+          - img [ref=e96]
+          - generic [ref=e100]:
+            - button "한국어" [ref=e101]
+            - button "English" [ref=e102]
+        - link "로그아웃" [ref=e103] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e104]
+          - text: 로그아웃
+    - main [ref=e107]:
+      - generic [ref=e108]:
+        - generic [ref=e109]:
+          - heading "내 팀" [level=1] [ref=e110]
+          - paragraph [ref=e111]: 소속된 팀 목록을 확인하세요
+        - generic [ref=e112]:
+          - link "alpha-team 4개 모델" [ref=e113] [cursor=pointer]:
+            - /url: /teams/e659f799-2fe4-48c8-989e-f12988d28826
+            - generic [ref=e114]:
+              - generic [ref=e116]: alpha-team
+              - generic [ref=e119]:
+                - img
+                - text: 4개 모델
+          - link "beta-team 3개 모델" [ref=e120] [cursor=pointer]:
+            - /url: /teams/a0260ba1-22cf-434c-8283-b2480b7f0a43
+            - generic [ref=e121]:
+              - generic [ref=e123]: beta-team
+              - generic [ref=e126]:
+                - img
+                - text: 3개 모델
+          - link "e2e-1779786693-create 0개 모델" [ref=e127] [cursor=pointer]:
+            - /url: /teams/4425b7c7-cb34-4526-ba21-a16cc974675d
+            - generic [ref=e128]:
+              - generic [ref=e130]: e2e-1779786693-create
+              - generic [ref=e133]:
+                - img
+                - text: 0개 모델
+          - link "e2e-1779786693-create 0개 모델" [ref=e134] [cursor=pointer]:
+            - /url: /teams/a479349f-94f1-4d02-80bc-c1ecd171ad45
+            - generic [ref=e135]:
+              - generic [ref=e137]: e2e-1779786693-create
+              - generic [ref=e140]:
+                - img
+                - text: 0개 모델
+          - link "mega-team 모든 모델" [ref=e141] [cursor=pointer]:
+            - /url: /teams/mega-team-001
+            - generic [ref=e142]:
+              - generic [ref=e144]: mega-team
+              - generic [ref=e147]:
+                - img
+                - text: 모든 모델
+          - link "test-budget-team 0개 모델" [ref=e148] [cursor=pointer]:
+            - /url: /teams/444e8edb-5b65-4d4f-8534-e67b2ea05063
+            - generic [ref=e149]:
+              - generic [ref=e151]: test-budget-team
+              - generic [ref=e154]:
+                - img
+                - text: 0개 모델
+  - region "Notifications alt+T"
+  - alert [ref=e155]

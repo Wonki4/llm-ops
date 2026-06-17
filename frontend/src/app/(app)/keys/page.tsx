@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useMyKeys, useMyTeams, useDeleteKey, useRevealKey } from "@/hooks/use-api";
+import { ModelLimitOverrides } from "@/components/model-limit-overrides";
 import {
   Card,
   CardContent,
@@ -355,9 +356,11 @@ export default function AllKeysPage() {
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                     {key.tpm_limit?.toLocaleString() ?? "-"}
+                    <ModelLimitOverrides limits={key.model_tpm_limit} inherited={key.model_tpm_inherited} />
                   </TableCell>
                   <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
                     {key.rpm_limit?.toLocaleString() ?? "-"}
+                    <ModelLimitOverrides limits={key.model_rpm_limit} inherited={key.model_rpm_inherited} />
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {formatDate(key.created_at, localeTag)}

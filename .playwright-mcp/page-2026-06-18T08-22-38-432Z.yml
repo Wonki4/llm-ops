@@ -1,0 +1,70 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "LLM Ops" [ref=e5] [cursor=pointer]:
+        - /url: /
+        - img [ref=e6]
+        - text: LLM Ops
+      - navigation [ref=e11]:
+        - generic [ref=e12]:
+          - link "공지사항" [ref=e13] [cursor=pointer]:
+            - /url: /announcements
+            - img [ref=e14]
+            - text: 공지사항
+          - link "모델 캘린더" [ref=e17] [cursor=pointer]:
+            - /url: /models/calendar
+            - img [ref=e18]
+            - text: 모델 캘린더
+          - link "모델 대시보드" [ref=e20] [cursor=pointer]:
+            - /url: /models/dashboard
+            - img [ref=e21]
+            - text: 모델 대시보드
+          - link "내 팀" [ref=e23] [cursor=pointer]:
+            - /url: /teams
+            - img [ref=e24]
+            - text: 내 팀
+          - link "팀 탐색" [ref=e29] [cursor=pointer]:
+            - /url: /teams/discover
+            - img [ref=e30]
+            - text: 팀 탐색
+          - link "내 전체 키" [ref=e33] [cursor=pointer]:
+            - /url: /keys
+            - img [ref=e34]
+            - text: 내 전체 키
+          - link "내 요청" [ref=e38] [cursor=pointer]:
+            - /url: /requests
+            - img [ref=e39]
+            - text: 내 요청
+      - generic [ref=e42]:
+        - paragraph
+        - generic [ref=e43]:
+          - img [ref=e44]
+          - generic [ref=e48]:
+            - button "한국어" [ref=e49]
+            - button "English" [ref=e50]
+        - link "로그아웃" [ref=e51] [cursor=pointer]:
+          - /url: /api/auth/logout
+          - img [ref=e52]
+          - text: 로그아웃
+    - main [ref=e55]:
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - heading "요청 관리" [level=1] [ref=e58]
+          - paragraph [ref=e59]: 팀 가입 및 예산 변경 요청을 검토하세요
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - img [ref=e62]
+            - textbox "요청자 / 팀명 검색..." [ref=e65]
+          - tablist [ref=e67]:
+            - tab "전체 유형" [selected] [ref=e68]
+            - tab "팀 가입" [ref=e69]
+            - tab "예산 변경" [ref=e70]
+        - generic [ref=e71]:
+          - tablist [ref=e72]:
+            - tab "전체" [selected] [ref=e73]
+            - tab "대기중" [ref=e74]
+            - tab "승인" [ref=e75]
+            - tab "거절" [ref=e76]
+          - tabpanel "전체" [ref=e77]
+  - region "Notifications alt+T"
+  - alert [ref=e114]
