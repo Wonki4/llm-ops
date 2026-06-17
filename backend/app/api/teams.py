@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.key_limits import effective_model_limits
 from app.auth.deps import get_current_user
 from app.auth.permissions import require_team_admin
 from app.clients.litellm import LiteLLMClient, get_litellm_client
@@ -231,7 +232,7 @@ async def get_team_detail(
     result = await litellm_db.execute(
         text(
             "SELECT team_id, team_alias, max_budget, spend, budget_duration, "
-            "       budget_reset_at, models, members, admins "
+            "       budget_reset_at, models, members, admins, metadata "
             'FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'
         ),
         {"team_id": team_id},
@@ -242,6 +243,7 @@ async def get_team_detail(
 
     all_members: list[str] = list(row["members"] or [])
     all_admins: list[str] = list(row["admins"] or [])
+    team_metadata: dict = row["metadata"] or {}
 
     # Fetch ONLY the current user's keys directly from DB (indexed on user_id + team_id)
     keys_result = await litellm_db.execute(
@@ -271,6 +273,7 @@ async def get_team_detail(
             "created_at": k["created_at"].isoformat() if k["created_at"] else None,
             "tpm_limit": k["tpm_limit"],
             "rpm_limit": k["rpm_limit"],
+            **effective_model_limits(k["metadata"], team_metadata),
         }
         for k in keys_result.mappings()
     ]
@@ -305,6 +308,8 @@ async def get_team_detail(
         "default_member_budget": await _get_default_member_budget(litellm_db, team_id),
         "membership_duration": await _get_membership_duration(db, team_id),
         **(await _get_team_default_limits(db, team_id)),
+        "model_tpm_limit": team_metadata.get("model_tpm_limit") or None,
+        "model_rpm_limit": team_metadata.get("model_rpm_limit") or None,
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -755,6 +760,11 @@ class UpdateTeamSettingsRequest(BaseModel):
     membership_duration: str | None = None  # e.g. "90d", "180d", "365d"
     default_tpm_limit: int | None = None
     default_rpm_limit: int | None = None
+    # Per-model limits stored on the team (LiteLLM_TeamTable.metadata). These
+    # apply at runtime to ALL existing + future keys in the team — no per-key
+    # write — so a change here is retroactive. An empty dict clears them.
+    model_tpm_limit: dict[str, int] | None = None
+    model_rpm_limit: dict[str, int] | None = None
 
 
 @router.put("/{team_id}/settings")
@@ -776,6 +786,16 @@ async def update_team_settings(
     # Set team_member_budget via LiteLLM API
     if "default_member_budget" in updates:
         await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
+
+    # Per-model limits → team metadata via LiteLLM (/team/update merges these into
+    # metadata and invalidates the team cache, so all team keys pick them up).
+    model_limit_kwargs: dict = {}
+    if "model_tpm_limit" in updates:
+        model_limit_kwargs["model_tpm_limit"] = updates["model_tpm_limit"] or {}
+    if "model_rpm_limit" in updates:
+        model_limit_kwargs["model_rpm_limit"] = updates["model_rpm_limit"] or {}
+    if model_limit_kwargs:
+        await litellm.update_team(team_id, **model_limit_kwargs)
 
     # Store team-scoped portal settings (membership_duration, default TPM/RPM).
     portal_setting_keys = {

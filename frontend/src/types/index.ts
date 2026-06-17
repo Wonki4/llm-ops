@@ -48,6 +48,8 @@ export interface TeamDetail {
   membership_duration: string | null;
   default_tpm_limit: number | null;
   default_rpm_limit: number | null;
+  model_tpm_limit: Record<string, number> | null;
+  model_rpm_limit: Record<string, number> | null;
   is_admin: boolean;
   my_membership: TeamMembership;
 }
@@ -68,6 +70,10 @@ export interface ApiKey {
   created_at: string;
   tpm_limit: number | null;
   rpm_limit: number | null;
+  model_tpm_limit: Record<string, number> | null;
+  model_rpm_limit: Record<string, number> | null;
+  model_tpm_inherited: boolean;
+  model_rpm_inherited: boolean;
 }
 
 export type StatusSchedule = Partial<Record<ModelStatus, string>>;
@@ -357,6 +363,10 @@ export interface AdminUserKey {
   models: string[];
   tpm_limit: number | null;
   rpm_limit: number | null;
+  model_tpm_limit: Record<string, number> | null;
+  model_rpm_limit: Record<string, number> | null;
+  model_tpm_inherited: boolean;
+  model_rpm_inherited: boolean;
   expires: string | null;
   created_at: string | null;
 }
