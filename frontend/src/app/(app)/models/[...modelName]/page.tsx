@@ -7,7 +7,8 @@ import { useParams } from "next/navigation";
 import { useModelSummary, type ModelSummary } from "@/hooks/use-api";
 import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
-import { Badge } from "@/components/ui/badge";
+import { ModelStatusBadge } from "@/components/model-status-badge";
+import type { ModelStatus } from "@/types";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -235,7 +236,7 @@ export default function ModelDetailPage() {
         <div className="flex items-center gap-3">
           <ModelIcon iconUrl={summary.catalog?.icon_url} provider={iconProvider} modelName={summary.model_name} size={32} />
           <h1 className="text-2xl font-bold">{summary.catalog?.display_name || summary.model_name}</h1>
-          {summary.catalog?.status && <Badge variant="secondary">{summary.catalog.status}</Badge>}
+          {summary.catalog?.status && <ModelStatusBadge status={summary.catalog.status as ModelStatus} />}
         </div>
         <p className="text-sm text-muted-foreground">
           {summary.model_name}
