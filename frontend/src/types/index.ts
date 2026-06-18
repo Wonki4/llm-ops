@@ -83,6 +83,7 @@ export interface ModelCatalog {
   model_name: string;
   display_name: string;
   description: string | null;
+  icon_url: string | null;
   status: ModelStatus;
   status_schedule: StatusSchedule | null;
   visible: boolean;
@@ -204,6 +205,7 @@ export interface CreateModelCatalogRequest {
   model_name: string;
   display_name: string;
   description?: string;
+  icon_url?: string | null;
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
   is_external?: boolean;
@@ -212,6 +214,7 @@ export interface CreateModelCatalogRequest {
 export interface UpdateModelCatalogRequest {
   display_name?: string;
   description?: string;
+  icon_url?: string | null;
   status?: ModelStatus;
   status_schedule?: StatusSchedule;
   visible?: boolean;

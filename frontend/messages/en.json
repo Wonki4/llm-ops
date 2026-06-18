@@ -236,6 +236,17 @@
     "allModels": {
       "title": "All Models"
     },
+    "byTeam": {
+      "description": "Models available to the teams you belong to",
+      "myTeams": "My Teams",
+      "allModels": "All models",
+      "modelCount": "{count} models",
+      "noTeams": "You don't belong to any teams yet.",
+      "discoverTeams": "Discover teams",
+      "teamDetail": "Team detail",
+      "noModels": "This team has no models.",
+      "notDeployed": "Not deployed"
+    },
     "filters": {
       "modelName": "Model Name",
       "modelNamePlaceholder": "Search model name...",
@@ -254,8 +265,10 @@
     "table": {
       "modelName": "Model Name",
       "status": "Status",
+      "modality": "Modality",
       "inputCost": "Input Cost",
       "outputCost": "Output Cost",
+      "context": "Context",
       "nextTransition": "Next Transition"
     },
     "pagination": {
@@ -329,7 +342,10 @@
       "saving": "Saving...",
       "update": "Update",
       "register": "Register",
-      "deleting": "Deleting..."
+      "deleting": "Deleting...",
+      "iconUrl": "Icon URL",
+      "iconUrlPlaceholder": "https://... (blank = provider logo)",
+      "iconUrlHint": "Leave blank to auto-show the provider logo."
     },
     "toast": {
       "updateSuccess": "Model updated successfully",

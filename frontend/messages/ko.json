@@ -236,6 +236,17 @@
     "allModels": {
       "title": "전체 모델 목록"
     },
+    "byTeam": {
+      "description": "내가 속한 팀에서 사용할 수 있는 모델",
+      "myTeams": "내 팀",
+      "allModels": "전체 모델",
+      "modelCount": "모델 {count}개",
+      "noTeams": "아직 속한 팀이 없습니다.",
+      "discoverTeams": "팀 둘러보기",
+      "teamDetail": "팀 상세",
+      "noModels": "이 팀에 모델이 없습니다.",
+      "notDeployed": "미배포"
+    },
     "filters": {
       "modelName": "모델명",
       "modelNamePlaceholder": "모델명 검색...",
@@ -254,8 +265,10 @@
     "table": {
       "modelName": "모델명",
       "status": "상태",
+      "modality": "모달리티",
       "inputCost": "Input 비용",
       "outputCost": "Output 비용",
+      "context": "컨텍스트",
       "nextTransition": "다음 전환"
     },
     "pagination": {
@@ -329,7 +342,10 @@
       "saving": "저장 중...",
       "update": "수정",
       "register": "등록",
-      "deleting": "삭제 중..."
+      "deleting": "삭제 중...",
+      "iconUrl": "아이콘 URL",
+      "iconUrlPlaceholder": "https://... (비우면 provider 로고 자동)",
+      "iconUrlHint": "비워두면 provider 로고가 자동 표시됩니다."
     },
     "toast": {
       "updateSuccess": "모델이 수정되었습니다",

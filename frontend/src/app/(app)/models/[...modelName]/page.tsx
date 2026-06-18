@@ -1,19 +1,12 @@
 "use client";
 
-import {
-  ArrowRight,
-  AudioLines,
-  Binary,
-  FileText,
-  Image as ImageIcon,
-  Loader2,
-  Type,
-  type LucideIcon,
-} from "lucide-react";
+import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 
 import { useModelSummary, type ModelSummary } from "@/hooks/use-api";
+import { ModelIcon } from "@/components/model-icon";
+import { ModalityValue } from "@/components/model-modality";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,49 +42,6 @@ function StatCard({ label, value, sub }: { label: string; value: React.ReactNode
         {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
       </CardContent>
     </Card>
-  );
-}
-
-const MODALITY_ICONS: Record<string, { icon: LucideIcon; label: string }> = {
-  text: { icon: Type, label: "Text" },
-  image: { icon: ImageIcon, label: "Image" },
-  audio: { icon: AudioLines, label: "Audio" },
-  pdf: { icon: FileText, label: "PDF" },
-  embedding: { icon: Binary, label: "Embedding" },
-};
-
-/** Derive input/output modality keys from litellm capability flags. */
-function modalitiesOf(info: unknown): { input: string[]; output: string[] } {
-  const input = ["text"];
-  if (get(info, "supports_vision") || get(info, "supports_embedding_image_input")) input.push("image");
-  if (get(info, "supports_audio_input")) input.push("audio");
-  if (get(info, "supports_pdf_input")) input.push("pdf");
-  const output = get(info, "mode") === "embedding" ? ["embedding"] : ["text"];
-  if (get(info, "supports_audio_output")) output.push("audio");
-  return { input, output };
-}
-
-function ModalityIcons({ keys }: { keys: string[] }) {
-  return (
-    <span className="inline-flex items-center gap-1.5">
-      {keys.map((k) => {
-        const m = MODALITY_ICONS[k];
-        if (!m) return null;
-        const Icon = m.icon;
-        return <Icon key={k} className="size-5" aria-label={m.label}><title>{m.label}</title></Icon>;
-      })}
-    </span>
-  );
-}
-
-function ModalityValue({ info }: { info: unknown }) {
-  const { input, output } = modalitiesOf(info);
-  return (
-    <span className="inline-flex items-center gap-2">
-      <ModalityIcons keys={input} />
-      <ArrowRight className="size-4 text-muted-foreground" />
-      <ModalityIcons keys={output} />
-    </span>
   );
 }
 
@@ -270,6 +220,7 @@ export default function ModelDetailPage() {
   const provider = String(get(get(summary.litellm_info, "litellm_params"), "custom_llm_provider") ?? "");
 
   const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
+  const iconProvider = String(get(info, "litellm_provider") ?? provider);
   const baseIn = summary.catalog?.default_input_cost_per_token ?? get(info, "input_cost_per_token");
   const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
   const ctx = num(get(info, "max_input_tokens")) ?? num(get(info, "max_tokens"));
@@ -282,6 +233,7 @@ export default function ModelDetailPage() {
           <Link href="/models/dashboard">← 모델 대시보드</Link>
         </Button>
         <div className="flex items-center gap-3">
+          <ModelIcon iconUrl={summary.catalog?.icon_url} provider={iconProvider} modelName={summary.model_name} size={32} />
           <h1 className="text-2xl font-bold">{summary.catalog?.display_name || summary.model_name}</h1>
           {summary.catalog?.status && <Badge variant="secondary">{summary.catalog.status}</Badge>}
         </div>

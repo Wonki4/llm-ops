@@ -777,6 +777,7 @@ export interface ModelSummary {
   catalog: {
     display_name?: string;
     description?: string | null;
+    icon_url?: string | null;
     status?: string;
     default_input_cost_per_token?: number | null;
     default_output_cost_per_token?: number | null;

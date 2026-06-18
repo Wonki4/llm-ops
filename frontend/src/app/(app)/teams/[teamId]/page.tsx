@@ -7,6 +7,7 @@ import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
+import { ModelIcon } from "@/components/model-icon";
 import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -492,21 +493,29 @@ function OverviewTab({
               ) : (
                 scopedModels.map(({ modelName, model }) => (
                   <div key={modelName} className="flex items-start justify-between gap-3 rounded-lg border p-3">
-                    <div className="min-w-0 space-y-1">
-                      {model ? (
-                        <button
-                          type="button"
-                          onClick={() => onSelectModel(model)}
-                          className="cursor-pointer text-left text-sm font-medium hover:underline"
-                        >
-                          {model.catalog?.display_name || model.model_name}
-                        </button>
-                      ) : (
-                        <p className="text-sm font-medium">{modelName}</p>
-                      )}
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <Globe className="size-3.5" />
-                        {model?.litellm_info?.model_info?.litellm_provider || "-"}
+                    <div className="flex min-w-0 items-start gap-2">
+                      <ModelIcon
+                        iconUrl={model?.catalog?.icon_url}
+                        provider={model?.litellm_info?.model_info?.litellm_provider}
+                        modelName={model?.model_name ?? modelName}
+                        className="mt-0.5"
+                      />
+                      <div className="min-w-0 space-y-1">
+                        {model ? (
+                          <button
+                            type="button"
+                            onClick={() => onSelectModel(model)}
+                            className="cursor-pointer text-left text-sm font-medium hover:underline"
+                          >
+                            {model.catalog?.display_name || model.model_name}
+                          </button>
+                        ) : (
+                          <p className="text-sm font-medium">{modelName}</p>
+                        )}
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Globe className="size-3.5" />
+                          {model?.litellm_info?.model_info?.litellm_provider || "-"}
+                        </div>
                       </div>
                     </div>
                     {model?.catalog ? <StatusBadge status={model.catalog.status} /> : null}
@@ -1752,8 +1761,13 @@ export default function TeamDetailPage({
                           <button
                             type="button"
                             onClick={() => setDetailModel(model)}
-                            className="cursor-pointer text-left font-medium hover:underline"
+                            className="flex cursor-pointer items-center gap-2 text-left font-medium hover:underline"
                           >
+                            <ModelIcon
+                              iconUrl={model.catalog?.icon_url}
+                              provider={model.litellm_info?.model_info?.litellm_provider}
+                              modelName={model.model_name}
+                            />
                             {displayName}
                           </button>
                         </TableCell>
