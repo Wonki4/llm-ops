@@ -31,6 +31,7 @@ class CustomModelCatalog(CustomBase):
     model_name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(256), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    icon_url: Mapped[str | None] = mapped_column(String(512), nullable=True)  # admin-set icon; falls back to provider logo in UI
     status_schedule: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"testing": "2026-01-15", "lts": "2026-03-01", ...}
     status: Mapped[ModelStatus] = mapped_column(
         Enum(

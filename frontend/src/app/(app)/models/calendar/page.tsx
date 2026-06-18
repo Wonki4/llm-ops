@@ -1,11 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Calendar, ChevronLeft, ChevronRight, Loader2, Boxes } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useLocaleTag } from "@/lib/locale";
 
 import { useModelCatalog } from "@/hooks/use-api";
+import { ModelIcon } from "@/components/model-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -64,6 +66,7 @@ interface ScheduleEvent {
   date: string; // YYYY-MM-DD
   modelName: string;
   displayName: string;
+  iconUrl: string | null;
   currentStatus: ModelStatus;
   targetStatus: ModelStatus;
   isPast: boolean;
@@ -95,6 +98,7 @@ function extractEvents(catalog: ModelCatalog[]): ScheduleEvent[] {
         date: dateStr,
         modelName: model.model_name,
         displayName: model.display_name || model.model_name,
+        iconUrl: model.icon_url ?? null,
         currentStatus: model.status,
         targetStatus: status,
         isPast: date < today,
@@ -113,6 +117,11 @@ function getDaysInMonth(year: number, month: number): number {
 function formatDateKo(dateStr: string, localeTag: string): string {
   const d = new Date(`${dateStr}T00:00:00`);
   return d.toLocaleDateString(localeTag, { month: "short", day: "numeric" });
+}
+
+/** Link to a model's detail page (catch-all route preserves any "/" in the name). */
+function modelHref(modelName: string): string {
+  return `/models/${modelName.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 // ─── Calendar Grid ───────────────────────────────────────────
@@ -178,13 +187,15 @@ function CalendarGrid({
               </div>
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((ev, j) => (
-                  <div
+                  <Link
                     key={j}
-                    className={`truncate rounded px-1 py-0.5 text-[10px] leading-tight ${STATUS_STYLES[ev.targetStatus]}`}
+                    href={modelHref(ev.modelName)}
+                    className={`flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-tight transition-opacity hover:opacity-80 ${STATUS_STYLES[ev.targetStatus]}`}
                     title={`${ev.displayName} → ${tms(ev.targetStatus)}`}
                   >
-                    {ev.displayName}
-                  </div>
+                    <ModelIcon iconUrl={ev.iconUrl} modelName={ev.modelName} size={12} />
+                    <span className="truncate">{ev.displayName}</span>
+                  </Link>
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="text-[10px] text-muted-foreground px-1">
@@ -389,7 +400,7 @@ export default function ModelCalendarPage() {
                 <TableBody>
                   {upcomingEvents.map((ev, i) => {
                     const daysUntil = Math.ceil(
-                      (new Date(`${ev.date}T00:00:00`).getTime() - Date.now()) / 86400000,
+                      (new Date(`${ev.date}T00:00:00`).getTime() - now.getTime()) / 86400000,
                     );
                     return (
                       <TableRow key={`${ev.modelName}-${ev.targetStatus}-${i}`}>
@@ -397,12 +408,18 @@ export default function ModelCalendarPage() {
                           {formatDateKo(ev.date, localeTag)}
                         </TableCell>
                         <TableCell>
-                          <div>
-                            <span className="font-medium text-sm">{ev.displayName}</span>
-                            {ev.displayName !== ev.modelName && (
-                              <p className="font-mono text-[11px] text-muted-foreground">{ev.modelName}</p>
-                            )}
-                          </div>
+                          <Link
+                            href={modelHref(ev.modelName)}
+                            className="flex items-center gap-2 hover:underline"
+                          >
+                            <ModelIcon iconUrl={ev.iconUrl} modelName={ev.modelName} />
+                            <div>
+                              <span className="font-medium text-sm">{ev.displayName}</span>
+                              {ev.displayName !== ev.modelName && (
+                                <p className="font-mono text-[11px] text-muted-foreground">{ev.modelName}</p>
+                              )}
+                            </div>
+                          </Link>
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={ev.currentStatus} />

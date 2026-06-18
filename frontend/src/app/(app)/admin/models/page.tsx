@@ -47,6 +47,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
+import { ModelIcon } from "@/components/model-icon";
 import type { ModelCatalog, ModelStatus, ModelWithCatalog } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -168,6 +169,7 @@ interface ModelFormState {
   model_name: string;
   display_name: string;
   description: string;
+  icon_url: string;
   status: ModelStatus;
   status_schedule: Record<string, string>;
   is_external: boolean;
@@ -177,6 +179,7 @@ const INITIAL_FORM: ModelFormState = {
   model_name: "",
   display_name: "",
   description: "",
+  icon_url: "",
   status: "testing",
   status_schedule: {},
   is_external: false,
@@ -187,6 +190,7 @@ function catalogToForm(catalog: ModelCatalog): ModelFormState {
     model_name: catalog.model_name,
     display_name: catalog.display_name,
     description: catalog.description ?? "",
+    icon_url: catalog.icon_url ?? "",
     status: catalog.status,
     status_schedule: catalog.status_schedule ? { ...catalog.status_schedule } : {},
     is_external: false,
@@ -319,6 +323,7 @@ export default function ModelManagementPage() {
           body: {
             display_name: trimmedName,
             description: form.description.trim() || undefined,
+            icon_url: form.icon_url.trim() || null,
             status: form.status,
             status_schedule: statusSchedule,
           },
@@ -345,6 +350,7 @@ export default function ModelManagementPage() {
           model_name: trimmedName,
           display_name: trimmedName,
           description: form.description.trim() || undefined,
+          icon_url: form.icon_url.trim() || null,
           status: form.status,
           status_schedule: statusSchedule,
           is_external: form.is_external,
@@ -537,20 +543,27 @@ export default function ModelManagementPage() {
                         onClick={() => setDetailModel(model)}
                         className="text-left hover:underline cursor-pointer"
                       >
-                        <div className="min-w-0">
-                          <span className="font-medium">
-                            {getDisplayName(model)}
-                          </span>
-                          {getDisplayName(model) !== model.model_name && (
-                            <p className="text-xs text-muted-foreground font-mono truncate">
-                              {model.model_name}
-                            </p>
-                          )}
-                          {model.litellm_info && getActualModel(model) !== model.model_name && (
-                            <p className="text-[10px] text-muted-foreground/60 font-mono truncate">
-                              → {getActualModel(model)}
-                            </p>
-                          )}
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ModelIcon
+                            iconUrl={model.catalog?.icon_url}
+                            provider={getProvider(model) !== "-" ? getProvider(model) : undefined}
+                            modelName={model.model_name}
+                          />
+                          <div className="min-w-0">
+                            <span className="font-medium">
+                              {getDisplayName(model)}
+                            </span>
+                            {getDisplayName(model) !== model.model_name && (
+                              <p className="text-xs text-muted-foreground font-mono truncate">
+                                {model.model_name}
+                              </p>
+                            )}
+                            {model.litellm_info && getActualModel(model) !== model.model_name && (
+                              <p className="text-[10px] text-muted-foreground/60 font-mono truncate">
+                                → {getActualModel(model)}
+                              </p>
+                            )}
+                          </div>
                         </div>
                       </button>
                     </TableCell>
@@ -805,6 +818,21 @@ export default function ModelManagementPage() {
                   placeholder={t("form.descriptionPlaceholder")}
                   className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
                 />
+              </div>
+
+              {/* icon_url */}
+              <div className="grid gap-2">
+                <Label htmlFor="model-icon">{t("form.iconUrl")}</Label>
+                <div className="flex items-center gap-2">
+                  <ModelIcon iconUrl={form.icon_url.trim() || null} modelName={form.model_name} size={24} />
+                  <Input
+                    id="model-icon"
+                    value={form.icon_url}
+                    onChange={(e) => handleFormChange("icon_url", e.target.value)}
+                    placeholder={t("form.iconUrlPlaceholder")}
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">{t("form.iconUrlHint")}</p>
               </div>
 
               {/* status */}
