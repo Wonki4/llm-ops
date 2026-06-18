@@ -8,6 +8,7 @@ import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
+import { ModelTable, type ModelTableRow } from "@/components/model-table";
 import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -72,10 +73,6 @@ function StatusBadge({ status }: { status: ModelStatus }) {
       {status}
     </span>
   );
-}
-
-function formatTokenCost(cost: number | null): string {
-  return cost != null ? `$ ${(cost * 1_000_000).toFixed(2)}` : "-";
 }
 
 function formatBudget(spend: number, maxBudget: number | null, unlimitedLabel: string): string {
@@ -1582,12 +1579,17 @@ export default function TeamDetailPage({
   if (!data) return null;
 
   const { team, my_keys, is_admin, my_membership } = data;
-  const enrichedTeamModels = team.models
-    .map((modelName) => ({
-      modelName,
-      model: modelsByName.get(modelName) ?? null,
-    }))
-    .filter(({ model }) => model?.catalog);
+  // Rows for the team's models tab, matching the model dashboard table.
+  // all-proxy / no explicit models = access to every model (LiteLLM default).
+  const teamHasAllModels =
+    team.models.includes("all-proxy-models") || team.models.length === 0;
+  const teamModelRows: ModelTableRow[] = teamHasAllModels
+    ? (allModels ?? [])
+        .filter((m) => m.catalog && m.catalog.visible !== false)
+        .map((m) => ({ name: m.model_name, model: m }))
+    : team.models
+        .filter((m) => m !== "all-proxy-models")
+        .map((name) => ({ name, model: modelsByName.get(name) ?? null }));
 
   return (
     <div className="space-y-6">
@@ -1758,54 +1760,14 @@ export default function TeamDetailPage({
 
         <TabsContent value="models" className="mt-6 space-y-4">
           <h2 className="text-lg font-semibold">{t("availableModelsTab")}</h2>
-          {enrichedTeamModels.length === 0 ? (
+          {teamModelRows.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8">
               <Boxes className="size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">{t("noModelsAssigned")}</p>
             </div>
           ) : (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("colModelName")}</TableHead>
-                    <TableHead>{t("colStatus")}</TableHead>
-                    <TableHead className="hidden lg:table-cell">{t("colCost")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {enrichedTeamModels.map(({ modelName, model }) => {
-                    if (!model) return null;
-
-                    const displayName = model.catalog?.display_name || model.model_name || modelName;
-                    const inputCost = model.litellm_info?.model_info?.input_cost_per_token ?? null;
-                    const outputCost = model.litellm_info?.model_info?.output_cost_per_token ?? null;
-
-                    return (
-                      <TableRow key={modelName}>
-                        <TableCell>
-                          <button
-                            type="button"
-                            onClick={() => setDetailModel(model)}
-                            className="flex cursor-pointer items-center gap-2 text-left font-medium hover:underline"
-                          >
-                            <ModelIcon
-                              iconUrl={model.catalog?.icon_url}
-                              provider={model.litellm_info?.model_info?.litellm_provider}
-                              modelName={model.model_name}
-                            />
-                            {displayName}
-                          </button>
-                        </TableCell>
-                        <TableCell>{model.catalog ? <StatusBadge status={model.catalog.status} /> : "-"}</TableCell>
-                        <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                          I: {formatTokenCost(inputCost)} / O: {formatTokenCost(outputCost)} per 1M tokens
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+            <div className="rounded-lg border">
+              <ModelTable rows={teamModelRows} />
             </div>
           )}
         </TabsContent>
