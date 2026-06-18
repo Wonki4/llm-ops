@@ -519,7 +519,7 @@ function EditorPane({
               type="checkbox"
               checked={isPublished}
               onChange={(e) => onPublishedChange(e.target.checked)}
-              className="size-4 rounded border-gray-300"
+              className="size-4 rounded border-input"
             />
             {t("labelPublish")}
           </label>
@@ -528,7 +528,7 @@ function EditorPane({
               type="checkbox"
               checked={isPinned}
               onChange={(e) => onPinnedChange(e.target.checked)}
-              className="size-4 rounded border-gray-300"
+              className="size-4 rounded border-input"
             />
             <Pin className="size-3.5 text-amber-500" />
             {t("badgePinned")}
@@ -538,7 +538,7 @@ function EditorPane({
               type="checkbox"
               checked={isFeatured}
               onChange={(e) => onFeaturedChange(e.target.checked)}
-              className="size-4 rounded border-gray-300"
+              className="size-4 rounded border-input"
             />
             <Star className="size-3.5 text-yellow-500" />
             {t("badgeFeatured")}
