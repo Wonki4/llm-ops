@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/dialog";
 import type { JoinRequestStatus, RequestType, TeamJoinRequest } from "@/types";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
   const t = useTranslations("requests");
@@ -55,7 +55,7 @@ function TypeBadge({ type }: { type: RequestType }) {
 }
 
 function formatDate(dateStr: string, localeTag: string) {
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
