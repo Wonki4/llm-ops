@@ -33,7 +33,7 @@ import {
 import { Label } from "@/components/ui/label";
 import type { TeamJoinRequest, JoinRequestStatus, RequestType } from "@/types";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
   const t = useTranslations("adminRequests");
@@ -66,7 +66,7 @@ function TypeBadge({ type }: { type: RequestType }) {
 }
 
 function formatDate(dateStr: string, localeTag: string) {
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

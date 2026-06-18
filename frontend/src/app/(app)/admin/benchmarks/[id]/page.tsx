@@ -6,7 +6,7 @@ import { Loader2, ArrowLeft, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useBenchmark, useCancelBenchmark } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
 
 function formatDateTime(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString(localeTag, {
+  return parseServerDate(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

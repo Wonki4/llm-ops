@@ -4,7 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useMe, useModelStatusHistory } from "@/hooks/use-api";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelCacheSection } from "@/components/model-cache-section";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
@@ -48,7 +48,7 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
 
 function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -57,7 +57,7 @@ function formatDate(dateStr: string | null | undefined, localeTag: string): stri
 
 function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString(localeTag, {
+  return parseServerDate(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

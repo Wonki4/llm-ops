@@ -186,15 +186,15 @@
       "type": "file"
     },
     {
-      "path": "frontend/messages/ko.json",
-      "accessCount": 3,
-      "lastAccessed": 1782103936767,
+      "path": "frontend/src/components/model-detail-sheet.tsx",
+      "accessCount": 4,
+      "lastAccessed": 1782104594936,
       "type": "file"
     },
     {
-      "path": "frontend/src/components/model-detail-sheet.tsx",
-      "accessCount": 2,
-      "lastAccessed": 1782055887469,
+      "path": "frontend/messages/ko.json",
+      "accessCount": 3,
+      "lastAccessed": 1782103936767,
       "type": "file"
     },
     {
