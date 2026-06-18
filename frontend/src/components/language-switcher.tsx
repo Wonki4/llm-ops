@@ -48,8 +48,8 @@ export function LanguageSwitcher() {
 
   return (
     <div className="flex items-center gap-1 px-1">
-      <Languages className="h-3.5 w-3.5 text-gray-400" />
-      <div className="flex flex-1 rounded-md border bg-white overflow-hidden">
+      <Languages className="h-3.5 w-3.5 text-muted-foreground" />
+      <div className="flex flex-1 rounded-md border bg-background overflow-hidden">
         {OPTIONS.map((opt) => (
           <button
             key={opt.value}
@@ -58,9 +58,10 @@ export function LanguageSwitcher() {
             onClick={() => change(opt.value)}
             className={cn(
               "flex-1 px-2 py-1 text-xs font-medium transition-colors",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
               opt.value === current
-                ? "bg-gray-900 text-white"
-                : "text-gray-600 hover:bg-gray-50",
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent hover:text-foreground",
               pending && "opacity-60 cursor-wait",
             )}
           >

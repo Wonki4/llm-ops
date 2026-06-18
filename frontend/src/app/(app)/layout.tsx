@@ -6,7 +6,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen">
       <LocaleSync />
       <AppSidebar />
-      <main className="flex-1 overflow-auto bg-gray-50 p-6">{children}</main>
+      <main className="flex-1 overflow-auto bg-muted/30 p-6">{children}</main>
     </div>
   );
 }

@@ -430,7 +430,7 @@ export default function BudgetManagementPage() {
                   <TableHead className="w-10">
                     <input
                       type="checkbox"
-                      className="size-4 rounded border-gray-300"
+                      className="size-4 rounded border-input"
                       checked={data.budgets.length > 0 && data.budgets.every((b) => selected.has(b.budget_id))}
                       onChange={toggleSelectAll}
                     />
@@ -460,7 +460,7 @@ export default function BudgetManagementPage() {
                         <TableCell onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            className="size-4 rounded border-gray-300"
+                            className="size-4 rounded border-input"
                             checked={selected.has(b.budget_id)}
                             onChange={() => toggleSelect(b.budget_id)}
                           />
