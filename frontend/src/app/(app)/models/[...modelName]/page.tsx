@@ -39,8 +39,8 @@ function StatCard({ label, value, sub }: { label: string; value: React.ReactNode
     <Card>
       <CardContent className="p-4">
         <div className="text-xs font-medium text-muted-foreground">{label}</div>
-        <div className="mt-1 text-xl font-semibold tabular-nums">{value}</div>
-        {sub && <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>}
+        <div className="mt-1 flex min-h-8 items-center text-xl font-semibold tabular-nums">{value}</div>
+        <div className="mt-0.5 min-h-4 text-xs text-muted-foreground">{sub}</div>
       </CardContent>
     </Card>
   );
@@ -258,12 +258,12 @@ export default function ModelDetailPage() {
         />
       </div>
 
-      <Tabs defaultValue="performance" className="w-full">
+      <Tabs defaultValue="info" className="w-full">
         <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
+          <TabsTrigger value="info" className="flex-none px-1">모델 정보</TabsTrigger>
+          <TabsTrigger value="pricing" className="flex-none px-1">가격 상세</TabsTrigger>
           <TabsTrigger value="performance" className="flex-none px-1">성능 상세</TabsTrigger>
           <TabsTrigger value="accuracy" className="flex-none px-1">정확도</TabsTrigger>
-          <TabsTrigger value="pricing" className="flex-none px-1">가격 상세</TabsTrigger>
-          <TabsTrigger value="info" className="flex-none px-1">모델 정보</TabsTrigger>
         </TabsList>
         <TabsContent value="performance" className="mt-4">
           <Card>
