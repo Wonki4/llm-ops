@@ -8,6 +8,7 @@ import type {
   DiscoverTeam,
   TeamDetail,
   TeamMembersResponse,
+  TeamUsageResponse,
   ApiKey,
   ModelWithCatalog,
   ModelCatalog,
@@ -57,6 +58,14 @@ export const queryKeys = {
     sortBy: string,
     sortDir: string,
   ) => ["teams", teamId, "members", { page, pageSize, search, sortBy, sortDir }] as const,
+  teamUsage: (
+    teamId: string,
+    startDate: string,
+    endDate: string,
+    granularity: string,
+    sortBy: string,
+    sortDir: string,
+  ) => ["teams", teamId, "usage", { startDate, endDate, granularity, sortBy, sortDir }] as const,
 };
 
 // ─── User ────────────────────────────────────────────────────
@@ -106,6 +115,30 @@ export function useTeamMembers(
     queryFn: () =>
       apiFetch<TeamMembersResponse>(`/api/teams/${teamId}/members?${params.toString()}`),
     enabled: enabled && !!teamId,
+  });
+}
+
+export function useTeamUsage(
+  teamId: string,
+  startDate: string,
+  endDate: string,
+  granularity: "day" | "month" = "day",
+  sortBy: "user_id" | "total_tokens" | "api_requests" | "spend" = "spend",
+  sortDir: "asc" | "desc" = "desc",
+  enabled: boolean = true,
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  params.set("granularity", granularity);
+  params.set("sort_by", sortBy);
+  params.set("sort_dir", sortDir);
+
+  return useQuery({
+    queryKey: queryKeys.teamUsage(teamId, startDate, endDate, granularity, sortBy, sortDir),
+    queryFn: () =>
+      apiFetch<TeamUsageResponse>(`/api/teams/${teamId}/usage?${params.toString()}`),
+    enabled: enabled && !!teamId && !!startDate && !!endDate,
   });
 }
 

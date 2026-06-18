@@ -966,7 +966,17 @@
     "unitDay": "일",
     "unitHour": "시간",
     "unitMinute": "분",
-    "unitSecond": "초"
+    "unitSecond": "초",
+    "tabUsage": "사용량",
+    "colTokens": "토큰",
+    "colRequests": "요청 수",
+    "usagePresetToday": "오늘",
+    "usagePreset7d": "최근 7일",
+    "usagePresetMonth": "이번 달",
+    "usagePreset30d": "최근 30일",
+    "usageStart": "시작일",
+    "usageEnd": "종료일",
+    "usageEmpty": "선택한 기간에 사용량 데이터가 없습니다."
   },
   "auth": {
     "loginSubtitle": "사번으로 로그인하세요",

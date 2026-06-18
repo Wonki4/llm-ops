@@ -4,7 +4,7 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
@@ -684,6 +684,188 @@ function TeamSettingsTab({
         {updateSettings.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
         {tc("save")}
       </Button>
+    </div>
+  );
+}
+
+function toDateInput(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+type UsagePreset = "today" | "7d" | "month" | "30d" | "custom";
+
+function presetRange(preset: UsagePreset): { start: string; end: string } | null {
+  if (preset === "custom") return null;
+  const now = new Date();
+  const end = toDateInput(now);
+  if (preset === "today") return { start: end, end };
+  if (preset === "7d") {
+    const s = new Date(now);
+    s.setDate(s.getDate() - 6);
+    return { start: toDateInput(s), end };
+  }
+  if (preset === "30d") {
+    const s = new Date(now);
+    s.setDate(s.getDate() - 29);
+    return { start: toDateInput(s), end };
+  }
+  // month: first day of current month
+  const s = new Date(now.getFullYear(), now.getMonth(), 1);
+  return { start: toDateInput(s), end };
+}
+
+function UsageTab({ teamId }: { teamId: string }) {
+  const t = useTranslations("teamDetail");
+  const localeTag = useLocaleTag();
+  const [preset, setPreset] = useState<UsagePreset>("30d");
+  const initial = presetRange("30d")!;
+  const [startDate, setStartDate] = useState(initial.start);
+  const [endDate, setEndDate] = useState(initial.end);
+  const [sortField, setSortField] = useState<"user_id" | "total_tokens" | "api_requests" | "spend">("spend");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const applyPreset = (p: UsagePreset) => {
+    setPreset(p);
+    const r = presetRange(p);
+    if (r) {
+      setStartDate(r.start);
+      setEndDate(r.end);
+    }
+  };
+
+  const granularity: "day" | "month" = preset === "month" ? "month" : "day";
+  const { data, isLoading } = useTeamUsage(teamId, startDate, endDate, granularity, sortField, sortDir);
+
+  const toggleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("desc");
+    }
+  };
+  const sortMark = (field: typeof sortField) =>
+    sortField === field ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+
+  const PRESETS: { value: UsagePreset; label: string }[] = [
+    { value: "today", label: t("usagePresetToday") },
+    { value: "7d", label: t("usagePreset7d") },
+    { value: "month", label: t("usagePresetMonth") },
+    { value: "30d", label: t("usagePreset30d") },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex gap-1">
+          {PRESETS.map((p) => (
+            <Button
+              key={p.value}
+              variant={preset === p.value ? "default" : "outline"}
+              size="sm"
+              onClick={() => applyPreset(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">{t("usageStart")}</label>
+            <Input
+              type="date"
+              value={startDate}
+              max={endDate}
+              className="h-9 w-[150px]"
+              onChange={(e) => {
+                setPreset("custom");
+                setStartDate(e.target.value);
+              }}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">{t("usageEnd")}</label>
+            <Input
+              type="date"
+              value={endDate}
+              min={startDate}
+              className="h-9 w-[150px]"
+              onChange={(e) => {
+                setPreset("custom");
+                setEndDate(e.target.value);
+              }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Totals */}
+      {data && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-lg border p-3">
+            <div className="text-xs text-muted-foreground">{t("colRequests")}</div>
+            <div className="text-xl font-bold tabular-nums">{data.totals.api_requests.toLocaleString(localeTag)}</div>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="text-xs text-muted-foreground">{t("colTokens")}</div>
+            <div className="text-xl font-bold tabular-nums">{data.totals.total_tokens.toLocaleString(localeTag)}</div>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="text-xs text-muted-foreground">{t("colUsage")}</div>
+            <div className="text-xl font-bold tabular-nums">${data.totals.spend.toFixed(2)}</div>
+          </div>
+        </div>
+      )}
+
+      {/* Per-user table */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : !data || data.members.length === 0 ? (
+        <div className="rounded-md border border-dashed p-8 text-center text-sm text-muted-foreground">
+          {t("usageEmpty")}
+        </div>
+      ) : (
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{t("colUserId")}</TableHead>
+                <TableHead className="text-right">
+                  <button type="button" className="hover:text-foreground" onClick={() => toggleSort("api_requests")}>
+                    {t("colRequests")}{sortMark("api_requests")}
+                  </button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <button type="button" className="hover:text-foreground" onClick={() => toggleSort("total_tokens")}>
+                    {t("colTokens")}{sortMark("total_tokens")}
+                  </button>
+                </TableHead>
+                <TableHead className="text-right">
+                  <button type="button" className="hover:text-foreground" onClick={() => toggleSort("spend")}>
+                    {t("colUsage")}{sortMark("spend")}
+                  </button>
+                </TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {data.members.map((m) => (
+                <TableRow key={m.user_id}>
+                  <TableCell className="font-medium">{m.user_id}</TableCell>
+                  <TableCell className="text-right tabular-nums">{m.api_requests.toLocaleString(localeTag)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{m.total_tokens.toLocaleString(localeTag)}</TableCell>
+                  <TableCell className="text-right tabular-nums">${m.spend.toFixed(2)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1406,6 +1588,7 @@ export default function TeamDetailPage({
           <TabsTrigger value="keys">{t("tabMyKeys")}</TabsTrigger>
           <TabsTrigger value="models">{t("tabModels")}</TabsTrigger>
           {is_admin && <TabsTrigger value="members">{t("tabMembers")}</TabsTrigger>}
+          {is_admin && <TabsTrigger value="usage">{t("tabUsage")}</TabsTrigger>}
           {is_admin && <TabsTrigger value="settings">{t("tabSettings")}</TabsTrigger>}
         </TabsList>
 
@@ -1590,6 +1773,12 @@ export default function TeamDetailPage({
         {is_admin && (
           <TabsContent value="members" className="mt-6">
             <MembersTab teamId={teamId} />
+          </TabsContent>
+        )}
+
+        {is_admin && (
+          <TabsContent value="usage" className="mt-6">
+            <UsageTab teamId={teamId} />
           </TabsContent>
         )}
 

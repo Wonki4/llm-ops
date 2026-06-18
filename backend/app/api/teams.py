@@ -485,6 +485,124 @@ async def list_team_members(
     return {"members": members, "total": total, "page": page, "page_size": page_size}
 
 
+_USAGE_SORT_COLUMNS = {
+    "user_id": "user_id",
+    "total_tokens": "total_tokens",
+    "api_requests": "api_requests",
+    "spend": "spend",
+}
+
+
+@router.get("/{team_id}/usage")
+async def team_usage_by_member(
+    team_id: str,
+    start_date: str,
+    end_date: str,
+    granularity: str = "day",
+    sort_by: str = "spend",
+    sort_dir: str = "desc",
+    user: CustomUser = Depends(get_current_user),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Per-member usage (requests / tokens / spend) for a team over a date range.
+
+    Aggregated from LiteLLM_DailyUserSpend, scoped to THIS team's keys so a
+    member's usage in other teams is excluded. `start_date`/`end_date` are
+    inclusive `YYYY-MM-DD` strings (the table stores date as a string).
+    `granularity` (day|month) controls the time-series breakdown returned
+    alongside the per-member totals. Team admin or super user only.
+    """
+    await require_team_admin(user, team_id, litellm_db)
+
+    if sort_by not in _USAGE_SORT_COLUMNS:
+        raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
+    if granularity not in ("day", "month"):
+        raise HTTPException(status_code=400, detail="granularity must be 'day' or 'month'")
+    direction = "DESC" if sort_dir.lower() == "desc" else "ASC"
+    sort_column = _USAGE_SORT_COLUMNS[sort_by]
+
+    # Map this team's keys -> owning user_id so usage is attributed per member
+    # (DailyUserSpend has no team_id; we scope by the team's api_keys).
+    keys_result = await litellm_db.execute(
+        text('SELECT token, user_id FROM "LiteLLM_VerificationToken" WHERE team_id = :team_id'),
+        {"team_id": team_id},
+    )
+    token_to_user = {r["token"]: r["user_id"] for r in keys_result.mappings()}
+    if not token_to_user:
+        return {"members": [], "series": [], "totals": {"total_tokens": 0, "api_requests": 0, "spend": 0.0}}
+
+    params = {
+        "tokens": list(token_to_user.keys()),
+        "start": start_date,
+        "end": end_date,
+    }
+
+    # Per-key aggregation, then fold into per-user in Python (api_key -> user_id).
+    per_key = await litellm_db.execute(
+        text(
+            "SELECT api_key, "
+            "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(api_requests) AS api_requests, "
+            "       SUM(spend) AS spend "
+            'FROM "LiteLLM_DailyUserSpend" '
+            "WHERE api_key = ANY(:tokens) AND date >= :start AND date <= :end "
+            "GROUP BY api_key"
+        ),
+        params,
+    )
+    by_user: dict[str, dict] = {}
+    for r in per_key.mappings():
+        uid = token_to_user.get(r["api_key"])
+        if uid is None:
+            continue
+        acc = by_user.setdefault(uid, {"total_tokens": 0, "api_requests": 0, "spend": 0.0})
+        acc["total_tokens"] += int(r["total_tokens"] or 0)
+        acc["api_requests"] += int(r["api_requests"] or 0)
+        acc["spend"] += float(r["spend"] or 0)
+
+    members = [
+        {"user_id": uid, **vals}
+        for uid, vals in by_user.items()
+    ]
+    reverse = direction == "DESC"
+    members.sort(
+        key=lambda m: (m[sort_column], m["user_id"]),
+        reverse=reverse,
+    )
+
+    totals = {
+        "total_tokens": sum(m["total_tokens"] for m in members),
+        "api_requests": sum(m["api_requests"] for m in members),
+        "spend": sum(m["spend"] for m in members),
+    }
+
+    # Time series for the team (day or month bucket) for an optional trend chart.
+    bucket_expr = "date" if granularity == "day" else "LEFT(date, 7)"
+    series_result = await litellm_db.execute(
+        text(
+            f"SELECT {bucket_expr} AS bucket, "
+            "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(api_requests) AS api_requests, "
+            "       SUM(spend) AS spend "
+            'FROM "LiteLLM_DailyUserSpend" '
+            "WHERE api_key = ANY(:tokens) AND date >= :start AND date <= :end "
+            f"GROUP BY {bucket_expr} ORDER BY bucket ASC"
+        ),
+        params,
+    )
+    series = [
+        {
+            "bucket": r["bucket"],
+            "total_tokens": int(r["total_tokens"] or 0),
+            "api_requests": int(r["api_requests"] or 0),
+            "spend": float(r["spend"] or 0),
+        }
+        for r in series_result.mappings()
+    ]
+
+    return {"members": members, "series": series, "totals": totals}
+
+
 class ChangeRoleRequest(BaseModel):
     user_id: str
     role: str  # "admin" or "member"
