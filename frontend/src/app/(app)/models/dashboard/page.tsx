@@ -11,11 +11,9 @@ import {
   X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
 
 import { useModels, useMyTeams } from "@/hooks/use-api";
-import { ModelIcon } from "@/components/model-icon";
-import { ModalityValue } from "@/components/model-modality";
+import { ModelTable } from "@/components/model-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -26,21 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
-import type {
-  ModelStatus,
-  ModelWithCatalog,
-  ModelCatalog,
-  Team,
-} from "@/types";
+import type { ModelStatus, ModelWithCatalog, Team } from "@/types";
 
 // ─── Constants ────────────────────────────────────────────────
 
@@ -54,85 +39,7 @@ const STATUS_OPTIONS: { value: ModelStatus }[] = [
   { value: "deprecated" },
 ];
 
-const STATUS_STYLES: Record<ModelStatus, string> = {
-  testing:
-    "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-  prerelease:
-    "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
-  lts: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-  deprecating:
-    "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
-  deprecated:
-    "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-};
-
-const STATUS_INDEX: Record<ModelStatus, number> = {
-  testing: 0,
-  prerelease: 1,
-  lts: 2,
-  deprecating: 3,
-  deprecated: 4,
-};
-
 // ─── Helpers ──────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: ModelStatus }) {
-  const tms = useTranslations("modelStatus");
-  return <Badge className={STATUS_STYLES[status]}>{tms(status)}</Badge>;
-}
-
-function formatDate(dateStr: string | null | undefined, localeTag: string): string {
-  if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
-
-function formatCost(cost: number | null | undefined): string {
-  if (cost == null) return "-";
-  if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
-}
-
-/** Context window = max input tokens (falling back to max tokens), as "N tok". */
-function formatContext(model: ModelWithCatalog | null): string {
-  const info = model?.litellm_info?.model_info;
-  const ctx = info?.max_input_tokens ?? info?.max_tokens ?? null;
-  return ctx != null ? `${ctx.toLocaleString()} tok` : "-";
-}
-
-function getNextTransition(catalog: ModelCatalog | null): { date: string; status: ModelStatus } | null {
-  if (!catalog?.status_schedule) return null;
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const currentStatusIndex = STATUS_INDEX[catalog.status];
-  let nextDate: string | null = null;
-  let nextStatus: ModelStatus | null = null;
-  let nextTimestamp = Number.POSITIVE_INFINITY;
-
-  for (const { value } of STATUS_OPTIONS) {
-    if (STATUS_INDEX[value] <= currentStatusIndex) continue;
-
-    const dateStr = catalog.status_schedule[value];
-    if (!dateStr) continue;
-
-    const parsed = new Date(`${dateStr}T00:00:00`);
-    const timestamp = parsed.getTime();
-
-    if (Number.isNaN(timestamp) || parsed <= today) continue;
-    if (timestamp < nextTimestamp) {
-      nextTimestamp = timestamp;
-      nextDate = dateStr;
-      nextStatus = value;
-    }
-  }
-
-  return nextDate && nextStatus ? { date: nextDate, status: nextStatus } : null;
-}
 
 /** A team has "all models" access when it lists the all-proxy sentinel or has no
  * explicit models (LiteLLM treats an empty list as no restriction). */
@@ -152,7 +59,6 @@ type ModelRow = { name: string; model: ModelWithCatalog | null };
 // ─── Main Component ───────────────────────────────────────────
 
 export default function ModelDashboardPage() {
-  const localeTag = useLocaleTag();
   const t = useTranslations("modelsDashboard");
 
   // Data fetching
@@ -373,87 +279,7 @@ export default function ModelDashboardPage() {
                       </p>
                     </div>
                   ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead className="min-w-[200px]">{t("table.modelName")}</TableHead>
-                          <TableHead className="w-[100px]">{t("table.status")}</TableHead>
-                          <TableHead className="whitespace-nowrap">{t("table.modality")}</TableHead>
-                          <TableHead>{t("table.inputCost")}</TableHead>
-                          <TableHead>{t("table.outputCost")}</TableHead>
-                          <TableHead className="w-[120px]">{t("table.context")}</TableHead>
-                          <TableHead className="w-[170px]">{t("table.nextTransition")}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {teamRows.map(({ name, model }) => (
-                          <TableRow key={name}>
-                            <TableCell>
-                              {model ? (
-                                <Link
-                                  href={`/models/${model.model_name.split("/").map(encodeURIComponent).join("/")}`}
-                                  className="flex items-center gap-2 text-left hover:underline"
-                                >
-                                  <ModelIcon
-                                    iconUrl={model.catalog?.icon_url}
-                                    provider={model.litellm_info?.model_info?.litellm_provider}
-                                    modelName={model.model_name}
-                                  />
-                                  <div className="max-w-[280px] truncate text-sm font-medium">
-                                    {model.catalog?.display_name ?? model.model_name}
-                                  </div>
-                                </Link>
-                              ) : (
-                                <div className="flex items-center gap-2">
-                                  <ModelIcon modelName={name} />
-                                  <div className="max-w-[280px] truncate text-sm font-medium text-muted-foreground">
-                                    {name}
-                                  </div>
-                                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-                                    {t("byTeam.notDeployed")}
-                                  </Badge>
-                                </div>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {model?.catalog ? (
-                                <StatusBadge status={model.catalog.status} />
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="whitespace-nowrap">
-                              {model?.litellm_info ? (
-                                <ModalityValue info={model.litellm_info.model_info} size="size-4" />
-                              ) : (
-                                <span className="text-xs text-muted-foreground">-</span>
-                              )}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground">
-                              {formatCost(model?.litellm_info?.model_info?.input_cost_per_token)}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground">
-                              {formatCost(model?.litellm_info?.model_info?.output_cost_per_token)}
-                            </TableCell>
-                            <TableCell className="font-mono text-xs text-muted-foreground">
-                              {formatContext(model)}
-                            </TableCell>
-                            <TableCell>
-                              {(() => {
-                                const next = getNextTransition(model?.catalog ?? null);
-                                if (!next) return <span className="text-sm">-</span>;
-                                return (
-                                  <div className="flex items-center gap-1.5 whitespace-nowrap">
-                                    <span className="text-sm">{formatDate(next.date, localeTag)}</span>
-                                    <StatusBadge status={next.status} />
-                                  </div>
-                                );
-                              })()}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                    <ModelTable rows={teamRows} />
                   )}
                 </div>
               </>
