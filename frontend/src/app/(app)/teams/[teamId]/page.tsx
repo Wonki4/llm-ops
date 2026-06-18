@@ -532,6 +532,7 @@ function OverviewTab({
 
 function TeamSettingsTab({
   teamId,
+  description,
   defaultMemberBudget,
   membershipDuration,
   defaultTpmLimit,
@@ -541,6 +542,7 @@ function TeamSettingsTab({
   modelOptions,
 }: {
   teamId: string;
+  description: string | null;
   defaultMemberBudget: number | null;
   membershipDuration: string | null;
   defaultTpmLimit: number | null;
@@ -554,6 +556,7 @@ function TeamSettingsTab({
   const tm = useTranslations("modelLimits");
   const updateSettings = useUpdateTeamSettings();
   const { data: portalSettings } = usePortalSettings();
+  const [desc, setDesc] = useState(description || "");
   const [defaultBudget, setDefaultBudget] = useState(
     defaultMemberBudget != null ? String(defaultMemberBudget) : ""
   );
@@ -568,6 +571,7 @@ function TeamSettingsTab({
       {
         teamId,
         body: {
+          description: desc.trim() || null,
           default_member_budget: defaultBudget ? Number(defaultBudget) : null,
           membership_duration: duration || null,
           default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
@@ -586,6 +590,25 @@ function TeamSettingsTab({
   return (
     <div className="space-y-6 max-w-2xl">
       <h2 className="text-lg font-semibold">{t("settingsTitle")}</h2>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("settingsDescriptionCard")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <textarea
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+              placeholder={t("settingsDescriptionPlaceholder")}
+              rows={3}
+              maxLength={500}
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none resize-y"
+            />
+            <p className="text-xs text-muted-foreground">{t("settingsDescriptionHint")}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1586,6 +1609,9 @@ export default function TeamDetailPage({
               </Badge>
             )}
           </div>
+          {team.description && (
+            <p className="mt-1 text-sm text-muted-foreground whitespace-pre-line">{team.description}</p>
+          )}
         </div>
       </div>
 
@@ -1800,6 +1826,7 @@ export default function TeamDetailPage({
           <TabsContent value="settings" className="mt-6">
             <TeamSettingsTab
               teamId={teamId}
+              description={team.description ?? null}
               defaultMemberBudget={data.default_member_budget ?? null}
               membershipDuration={data.membership_duration ?? null}
               defaultTpmLimit={data.default_tpm_limit ?? null}

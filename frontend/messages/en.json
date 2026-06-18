@@ -1071,7 +1071,10 @@
     "usagePreset30d": "Last 30 days",
     "usageStart": "Start",
     "usageEnd": "End",
-    "usageEmpty": "No usage data for the selected range."
+    "usageEmpty": "No usage data for the selected range.",
+    "settingsDescriptionCard": "Team description",
+    "settingsDescriptionPlaceholder": "Describe this team (optional)",
+    "settingsDescriptionHint": "Shown on the list, discover, and detail pages. Max 500 chars."
   },
   "auth": {
     "loginSubtitle": "Sign in with your employee ID",
