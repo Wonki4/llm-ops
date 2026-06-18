@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 
 import { useMe, useModelStatusHistory } from "@/hooks/use-api";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
+import { ModelIcon } from "@/components/model-icon";
 import { ModelCacheSection } from "@/components/model-cache-section";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import {
@@ -129,6 +130,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         <SheetHeader className="px-6 pt-6 pb-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
+              <ModelIcon iconUrl={catalog?.icon_url} provider={provider} modelName={model?.model_name} size={24} />
               <SheetTitle>{catalog?.display_name ?? model?.model_name ?? t("defaultTitle")}</SheetTitle>
               {catalog && <Badge className={STATUS_STYLES[catalog.status]}>{tms(catalog.status)}</Badge>}
             </div>
