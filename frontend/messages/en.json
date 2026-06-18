@@ -37,6 +37,11 @@
     "adminSectionLabel": "Admin",
     "logout": "Log out"
   },
+  "theme": {
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
   "teams": {
     "title": "My Teams",
     "subtitle": "View the teams you belong to",
