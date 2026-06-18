@@ -159,6 +159,7 @@ export default function MyRequestsPage() {
                     <TableHead>{t("colContent")}</TableHead>
                     <TableHead>{t("colStatus")}</TableHead>
                     <TableHead>{t("colRequestedAt")}</TableHead>
+                    <TableHead>{t("colReviewedBy")}</TableHead>
                     <TableHead>{t("colReviewComment")}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -192,6 +193,16 @@ export default function MyRequestsPage() {
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {formatDate(req.created_at, localeTag)}
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {req.status !== "pending" && req.reviewed_by ? (
+                          <span>
+                            {req.reviewed_by}
+                            <span className="text-muted-foreground/60"> · {formatDate(req.updated_at, localeTag)}</span>
+                          </span>
+                        ) : (
+                          "-"
+                        )}
                       </TableCell>
                       <TableCell className="max-w-[200px]">
                         <button
@@ -263,6 +274,15 @@ export default function MyRequestsPage() {
                     <span className="text-muted-foreground">{t("budgetAmount")}</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
+                    </span>
+                  </>
+                )}
+                {detailRequest.status !== "pending" && detailRequest.reviewed_by && (
+                  <>
+                    <span className="text-muted-foreground">{t("colReviewedBy")}</span>
+                    <span className="font-medium">
+                      {detailRequest.reviewed_by}
+                      <span className="font-normal text-muted-foreground"> · {formatDate(detailRequest.updated_at, localeTag)}</span>
                     </span>
                   </>
                 )}

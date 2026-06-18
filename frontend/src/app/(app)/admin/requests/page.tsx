@@ -250,6 +250,7 @@ export default function AdminRequestsPage() {
                     <TableHead>{t("colContent")}</TableHead>
                     <TableHead>{t("colStatus")}</TableHead>
                     <TableHead>{t("colRequestedAt")}</TableHead>
+                    <TableHead>{t("colReviewedBy")}</TableHead>
                     <TableHead>{t("colAction")}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -285,6 +286,16 @@ export default function AdminRequestsPage() {
                         <StatusBadge status={req.status} />
                       </TableCell>
                       <TableCell>{formatDate(req.created_at, localeTag)}</TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {req.status !== "pending" && req.reviewed_by ? (
+                          <span>
+                            {req.reviewed_by}
+                            <span className="text-muted-foreground/60"> · {formatDate(req.updated_at, localeTag)}</span>
+                          </span>
+                        ) : (
+                          "-"
+                        )}
+                      </TableCell>
                       <TableCell>
                         {req.status === "pending" ? (
                           <div className="flex gap-2">
@@ -375,6 +386,15 @@ export default function AdminRequestsPage() {
                     <span className="text-muted-foreground">{t("budgetAmount")}</span>
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
+                    </span>
+                  </>
+                )}
+                {detailRequest.status !== "pending" && detailRequest.reviewed_by && (
+                  <>
+                    <span className="text-muted-foreground">{t("colReviewedBy")}</span>
+                    <span className="font-medium">
+                      {detailRequest.reviewed_by}
+                      <span className="font-normal text-muted-foreground"> · {formatDate(detailRequest.updated_at, localeTag)}</span>
                     </span>
                   </>
                 )}
