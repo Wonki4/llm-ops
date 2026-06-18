@@ -12,6 +12,12 @@ const inter = localFont({
   display: "swap",
 });
 
+const jetbrainsMono = localFont({
+  src: "./fonts/JetBrainsMono.woff2",
+  variable: "--font-jetbrains-mono",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "LLM Ops",
   description: "LLM Ops Team and Model Management",
@@ -23,7 +29,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <body className={inter.className}>
+      <body className={`${inter.className} ${inter.variable} ${jetbrainsMono.variable}`}>
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>
             {children}
