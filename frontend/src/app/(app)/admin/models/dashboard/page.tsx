@@ -17,7 +17,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 import { useModels, useAllModelStatusHistory } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -122,7 +122,7 @@ function StatusBadge({ status }: { status: ModelStatus }) {
 
 function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -136,7 +136,7 @@ function formatCost(cost: number | null | undefined): string {
 }
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslations>, localeTag: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const diff = Date.now() - parseServerDate(dateStr).getTime();
   const minutes = Math.floor(diff / 60000);
   if (minutes < 1) return t("relativeTime.justNow");
   if (minutes < 60) return t("relativeTime.minutesAgo", { count: minutes });
