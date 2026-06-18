@@ -30,6 +30,18 @@ async def _get_membership_duration(db: AsyncSession, team_id: str) -> str | None
     return result.scalar() or None
 
 
+async def _get_team_descriptions(db: AsyncSession, team_ids: list[str]) -> dict[str, str]:
+    """Batch-fetch team descriptions from portal settings. Returns {team_id: text}."""
+    if not team_ids:
+        return {}
+    key_to_tid = {f"team:{tid}:description": tid for tid in team_ids}
+    result = await db.execute(
+        text("SELECT key, value FROM custom_portal_settings WHERE key = ANY(:keys)"),
+        {"keys": list(key_to_tid.keys())},
+    )
+    return {key_to_tid[r["key"]]: r["value"] for r in result.mappings()}
+
+
 async def _get_team_default_limits(db: AsyncSession, team_id: str) -> dict[str, int | None]:
     """Get team-scoped default TPM/RPM limits from portal settings. None when unset."""
     result = await db.execute(
@@ -147,6 +159,10 @@ async def list_my_teams(
         hidden = await _get_hidden_teams(db)
         teams = [t for t in teams if t["team_id"] not in hidden]
 
+    descriptions = await _get_team_descriptions(db, [t["team_id"] for t in teams])
+    for t in teams:
+        t["description"] = descriptions.get(t["team_id"])
+
     return {"teams": teams}
 
 
@@ -208,6 +224,10 @@ async def discover_teams(
             "is_member": is_member,
             "has_pending_request": team_id in pending_team_ids,
         })
+
+    descriptions = await _get_team_descriptions(db, [t["team_id"] for t in teams])
+    for t in teams:
+        t["description"] = descriptions.get(t["team_id"])
 
     return {"teams": teams}
 
@@ -294,6 +314,7 @@ async def get_team_detail(
         "team": {
             "team_id": row["team_id"],
             "team_alias": row["team_alias"],
+            "description": (await _get_team_descriptions(db, [team_id])).get(team_id),
             "max_budget": row["max_budget"],
             "spend": float(row["spend"]),
             "budget_duration": row["budget_duration"],
@@ -883,6 +904,7 @@ class UpdateTeamSettingsRequest(BaseModel):
     # write — so a change here is retroactive. An empty dict clears them.
     model_tpm_limit: dict[str, int] | None = None
     model_rpm_limit: dict[str, int] | None = None
+    description: str | None = None
 
 
 @router.put("/{team_id}/settings")
@@ -920,6 +942,7 @@ async def update_team_settings(
         "membership_duration": f"team:{team_id}:membership_duration",
         "default_tpm_limit": f"team:{team_id}:default_tpm_limit",
         "default_rpm_limit": f"team:{team_id}:default_rpm_limit",
+        "description": f"team:{team_id}:description",
     }
     for field, key in portal_setting_keys.items():
         if field not in updates:
