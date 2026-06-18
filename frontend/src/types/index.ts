@@ -18,6 +18,7 @@ export interface User {
 export interface Team {
   team_id: string;
   team_alias: string;
+  description?: string | null;
   max_budget: number | null;
   spend: number;
   budget_duration: string | null;
