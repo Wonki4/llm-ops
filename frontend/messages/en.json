@@ -966,7 +966,17 @@
     "unitDay": "d",
     "unitHour": "h",
     "unitMinute": "m",
-    "unitSecond": "s"
+    "unitSecond": "s",
+    "tabUsage": "Usage",
+    "colTokens": "Tokens",
+    "colRequests": "Requests",
+    "usagePresetToday": "Today",
+    "usagePreset7d": "Last 7 days",
+    "usagePresetMonth": "This month",
+    "usagePreset30d": "Last 30 days",
+    "usageStart": "Start",
+    "usageEnd": "End",
+    "usageEmpty": "No usage data for the selected range."
   },
   "auth": {
     "loginSubtitle": "Sign in with your employee ID",
