@@ -300,6 +300,28 @@ export interface TeamMembersResponse {
   page_size: number;
 }
 
+// ─── Team Usage ───────────────────────────────────────────────
+
+export interface UsageMember {
+  user_id: string;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface UsageSeriesPoint {
+  bucket: string;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface TeamUsageResponse {
+  members: UsageMember[];
+  series: UsageSeriesPoint[];
+  totals: { total_tokens: number; api_requests: number; spend: number };
+}
+
 // ─── Redis Catalog ────────────────────────────────────────────
 
 export interface RedisCatalogEntry {
