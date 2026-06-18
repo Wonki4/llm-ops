@@ -36,6 +36,11 @@
     "adminSectionLabel": "관리자",
     "logout": "로그아웃"
   },
+  "theme": {
+    "light": "라이트",
+    "dark": "다크",
+    "system": "시스템"
+  },
   "teams": {
     "title": "내 팀",
     "subtitle": "소속된 팀 목록을 확인하세요",

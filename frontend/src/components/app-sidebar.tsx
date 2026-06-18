@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { UserRole } from "@/types";
 
 type NavItem = {
@@ -57,7 +58,7 @@ export function AppSidebar() {
   const userRole: UserRole = me?.role ?? "user";
 
   return (
-    <aside className="flex h-full w-64 flex-col border-r bg-white">
+    <aside className="flex h-full w-64 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center border-b px-4">
         <Link href="/" className="flex items-center gap-2 font-bold text-lg">
           <LayoutDashboard className="h-5 w-5" />
@@ -89,8 +90,8 @@ export function AppSidebar() {
                 className={cn(
                   "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                   isActive
-                    ? "bg-gray-100 text-gray-900"
-                    : "text-gray-600 hover:bg-gray-50 hover:text-gray-900",
+                    ? "bg-primary/10 text-primary"
+                    : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 )}
               >
                 <item.icon className="h-4 w-4" />
@@ -105,10 +106,10 @@ export function AppSidebar() {
               {admin.length > 0 && (
                 <>
                   <div className="mt-5 mb-2 flex items-center gap-2 px-3">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {t("adminSectionLabel")}
                     </span>
-                    <div className="h-px flex-1 bg-gray-200" />
+                    <div className="h-px flex-1 bg-sidebar-border" />
                   </div>
                   <div className="space-y-1">{admin.map(renderLink)}</div>
                 </>
@@ -118,13 +119,14 @@ export function AppSidebar() {
         })()}
       </nav>
       <div className="border-t p-3 space-y-2">
-        <p className="text-xs text-gray-500 truncate px-1">
+        <p className="text-xs text-muted-foreground truncate px-1">
           {me?.user_id || ""}
         </p>
+        <ThemeToggle />
         <LanguageSwitcher />
         <a
           href="/api/auth/logout"
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <LogOut className="h-4 w-4" />
           {t("logout")}

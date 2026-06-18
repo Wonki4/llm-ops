@@ -273,9 +273,9 @@ export default function ModelDashboardPage() {
                     key={team.team_id}
                     type="button"
                     onClick={() => selectTeam(team.team_id)}
-                    className={`flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left last:border-b-0 transition-colors ${
+                    className={`flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
                       active
-                        ? "bg-muted font-medium"
+                        ? "bg-primary/10 font-medium text-primary"
                         : "hover:bg-muted/50"
                     }`}
                   >
@@ -328,7 +328,7 @@ export default function ModelDashboardPage() {
                           type="button"
                           onClick={() => setQuery("")}
                           aria-label={t("filters.reset")}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                           <X className="size-3.5" />
                         </button>
