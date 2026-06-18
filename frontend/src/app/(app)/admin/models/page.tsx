@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 import {
   useModels,
@@ -102,7 +102,7 @@ function formatContextLength(tokens: number | null | undefined): string {
 
 function formatDate(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -111,7 +111,7 @@ function formatDate(dateStr: string | null | undefined, localeTag: string): stri
 
 function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",

@@ -51,12 +51,12 @@ import {
 } from "lucide-react";
 import type { ApiKey } from "@/types";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 /* ── helpers (same as team detail page) ── */
 
 function formatDate(dateStr: string, localeTag: string): string {
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "short",
     day: "numeric",

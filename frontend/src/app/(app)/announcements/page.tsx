@@ -19,7 +19,7 @@ import {
   Star,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useLocaleTag } from "@/lib/locale";
+import { useLocaleTag, parseServerDate } from "@/lib/locale";
 
 import {
   useAnnouncements,
@@ -45,7 +45,7 @@ import { cn } from "@/lib/utils";
 
 function formatDateTime(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleString(localeTag, {
+  return parseServerDate(dateStr).toLocaleString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -56,7 +56,7 @@ function formatDateTime(dateStr: string | null, localeTag: string): string {
 
 function formatDateShort(dateStr: string | null, localeTag: string): string {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString(localeTag, {
+  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
