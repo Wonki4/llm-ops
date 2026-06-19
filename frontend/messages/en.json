@@ -1012,7 +1012,8 @@
     "running": "Running",
     "succeeded": "Succeeded",
     "failed": "Failed",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "provisioning": "Provisioning"
   },
   "benchmarkForm": {
     "pageTitle": "Run a benchmark",
@@ -1069,7 +1070,11 @@
     "deploymentNone": "— none (use a registered alias) —",
     "deploymentHint": "Benchmark a portal-managed serving deployment directly (recommended). Only Ready deployments are listed.",
     "modelHintDisabled": "Ignored while a serving deployment is selected.",
-    "errorTargetRequired": "Select a serving deployment or a model alias."
+    "errorTargetRequired": "Select a serving deployment or a model alias.",
+    "ephemeralLabel": "Run as ephemeral copy (auto-delete after)",
+    "ephemeralHint": "Clone the selected deployment into a throwaway serving, benchmark it, then tear it down. Requires a serving deployment as the template.",
+    "servingOverridesLabel": "Serving overrides (JSON, optional)",
+    "servingOverridesHint": "Override the cloned serving, e.g. {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}"
   },
   "benchmarkCompare": {
     "pageTitle": "Compare benchmarks",

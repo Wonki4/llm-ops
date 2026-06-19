@@ -20,6 +20,12 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.benchmark_manifests import build_job_manifest, job_name_for
+from app.services.benchmark_serving import (
+    build_ephemeral_deployment,
+    ephemeral_manifests,
+    ephemeral_model_name,
+    serving_resource_names,
+)
 from app.services.model_deployment_manifests import k8s_resource_names
 
 logger = logging.getLogger(__name__)
@@ -48,6 +54,17 @@ class CreateBenchmarkRequest(BaseModel):
         None,
         description="Portal-managed serving deployment to benchmark directly (preferred). "
         "When set, the runner hits the deployment's Service URL, not the LiteLLM proxy.",
+    )
+    ephemeral: bool = Field(
+        False,
+        description="Clone deployment_id into a throwaway serving, benchmark it, then "
+        "tear it down. Requires deployment_id as the template.",
+    )
+    serving_overrides: dict | None = Field(
+        None,
+        description="Overrides applied to the cloned serving (ephemeral only): "
+        "image, model_path, replicas, gpu_count, gpu_type, gpu_resource_key, "
+        "cpu_request/limit, memory_request/limit, vllm_extra_args, env, node_selector.",
     )
     tool: str = Field(..., description="vllm_serving | sglang_serving | lm_eval")
     params: dict = Field(default_factory=dict, description="Tool-specific args, stored verbatim")
@@ -87,6 +104,8 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "params": r.params,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
         "serving_snapshot": r.serving_snapshot,
+        "ephemeral": r.ephemeral,
+        "serving_torn_down": r.serving_torn_down,
         "status": r.status,
         "k8s_job_name": r.k8s_job_name,
         "k8s_namespace": r.k8s_namespace,
@@ -149,6 +168,60 @@ async def create_benchmark(
     kind = TOOL_TO_KIND[body.tool]
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
     image = body.image or DEFAULT_BENCH_IMAGE
+
+    # Ephemeral mode: clone a template deployment into a throwaway serving. The
+    # reconciler waits for it to become ready, creates the bench Job, then tears
+    # the serving down. The Job is NOT created here.
+    if body.ephemeral:
+        if not body.deployment_id:
+            raise HTTPException(status_code=400, detail="ephemeral requires deployment_id (template)")
+        try:
+            tmpl_id = uuid.UUID(body.deployment_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid deployment_id")
+        base = (
+            await db.execute(
+                select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id)
+            )
+        ).scalar_one_or_none()
+        if not base:
+            raise HTTPException(status_code=404, detail="Template deployment not found")
+
+        run = CustomBenchmarkRun(
+            id=uuid.uuid4(),
+            model_name=base.model_name,
+            tool=body.tool,
+            kind=kind,
+            params=body.params,
+            status="provisioning",
+            k8s_namespace=namespace,
+            deployment_id=base.id,
+            ephemeral=True,
+            bench_image=image,
+            created_by=user.user_id,
+        )
+        name = ephemeral_model_name(run.id)
+        eph = build_ephemeral_deployment(
+            base, name=name, namespace=namespace, overrides=body.serving_overrides
+        )
+        run.serving_k8s_name = name
+        run.serving_snapshot = _serving_snapshot(eph)
+        run.k8s_job_name = job_name_for(run.id)
+        db.add(run)
+        await db.flush()
+        await db.refresh(run)
+        try:
+            await k8s.create_or_patch(namespace, ephemeral_manifests(eph))
+        except K8sNotConfigured as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:
+            logger.exception("Ephemeral serving create failed for benchmark %s", run.id)
+            run.status = "failed"
+            run.error_message = f"Ephemeral serving create failed: {e}"
+            run.serving_torn_down = True
+            await db.flush()
+            raise HTTPException(status_code=502, detail="Failed to provision serving; check logs")
+        return _serialize(run)
 
     # Resolve the target: a portal-managed serving deployment (preferred — the
     # runner hits its Service directly) or a LiteLLM alias (legacy).
@@ -250,6 +323,16 @@ async def cancel_benchmark(
             raise HTTPException(status_code=503, detail=str(e))
         except Exception:
             logger.exception("K8s Job delete failed for benchmark %s", run.id)
+
+    # Tear down the throwaway serving on cancel too.
+    if run.ephemeral and run.serving_k8s_name and not run.serving_torn_down and run.k8s_namespace:
+        try:
+            await k8s.delete(run.k8s_namespace, serving_resource_names(run.serving_k8s_name))
+            run.serving_torn_down = True
+        except K8sNotConfigured:
+            pass
+        except Exception:
+            logger.exception("Ephemeral serving delete failed for benchmark %s", run.id)
 
     run.status = "cancelled"
     await db.flush()

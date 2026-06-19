@@ -53,6 +53,8 @@ export default function NewBenchmarkPage() {
   const createMutation = useCreateBenchmark();
 
   const [deploymentId, setDeploymentId] = useState("");
+  const [ephemeral, setEphemeral] = useState(false);
+  const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
   const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
@@ -162,6 +164,27 @@ export default function NewBenchmarkPage() {
     // Prefer a portal-managed serving deployment (hit directly); else a LiteLLM alias.
     if (deploymentId) {
       body.deployment_id = deploymentId;
+      if (ephemeral) {
+        body.ephemeral = true;
+        const text = servingOverridesText.trim();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+              toast.error(t("errorExtrasNotObject"));
+              return;
+            }
+            body.serving_overrides = parsed as Record<string, unknown>;
+          } catch (err) {
+            toast.error(
+              t("errorExtrasJsonInvalid", {
+                message: err instanceof Error ? err.message : String(err),
+              }),
+            );
+            return;
+          }
+        }
+      }
     } else {
       body.model_name = modelName.trim();
     }
@@ -224,6 +247,39 @@ export default function NewBenchmarkPage() {
                 </p>
               )}
             </div>
+
+            {deploymentId && (
+              <div className="space-y-2 rounded-md border border-dashed p-3">
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 rounded border-input"
+                    checked={ephemeral}
+                    onChange={(e) => setEphemeral(e.target.checked)}
+                  />
+                  <span>
+                    {t("ephemeralLabel")}
+                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                      {t("ephemeralHint")}
+                    </span>
+                  </span>
+                </label>
+                {ephemeral && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
+                    <textarea
+                      id="serving_overrides"
+                      rows={3}
+                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
+                      value={servingOverridesText}
+                      onChange={(e) => setServingOverridesText(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="space-y-1.5">
               <Label htmlFor="model_name">{t("modelLabel")}</Label>

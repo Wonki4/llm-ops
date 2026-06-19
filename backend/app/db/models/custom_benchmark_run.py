@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,6 +33,19 @@ class CustomBenchmarkRun(CustomBase):
         UUID(as_uuid=True), nullable=True, index=True
     )
     serving_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Ephemeral mode: the run provisions a throwaway serving (cloned from the
+    # deployment named by deployment_id, with serving_snapshot as the effective
+    # spec), benchmarks it, then tears it down. status starts at `provisioning`.
+    # serving_k8s_name is the base name of the temp Deployment/Service; bench_image
+    # is the runner image the reconciler uses once the serving is ready.
+    ephemeral: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    serving_k8s_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    bench_image: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    serving_torn_down: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending", index=True
     )
