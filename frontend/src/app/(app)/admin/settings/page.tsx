@@ -18,6 +18,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ClusterSettingsTab } from "@/components/cluster-settings-tab";
 
 export default function PortalSettingsPage() {
   const t = useTranslations("settings");
@@ -91,6 +93,17 @@ export default function PortalSettingsPage() {
     );
   };
 
+  const saveButton = (
+    <Button onClick={handleSave} disabled={updateMutation.isPending}>
+      {updateMutation.isPending ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Save className="size-4" />
+      )}
+      {tc("save")}
+    </Button>
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
@@ -108,286 +121,297 @@ export default function PortalSettingsPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="size-4" />
-            {t("apiKeyLimitsTitle")}
-          </CardTitle>
-          <CardDescription>
-            {t("apiKeyLimitsDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="tpm-limit">{t("tpmLabel")}</Label>
-              <Input
-                id="tpm-limit"
-                type="number"
-                min="0"
-                value={tpmLimit}
-                onChange={(e) => setTpmLimit(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="rpm-limit">{t("rpmLabel")}</Label>
-              <Input
-                id="rpm-limit"
-                type="number"
-                min="0"
-                value={rpmLimit}
-                onChange={(e) => setRpmLimit(e.target.value)}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="general" className="w-full">
+        <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
+          <TabsTrigger value="general" className="flex-none px-1">{t("tabGeneral")}</TabsTrigger>
+          <TabsTrigger value="teams" className="flex-none px-1">{t("tabTeams")}</TabsTrigger>
+          <TabsTrigger value="clusters" className="flex-none px-1">{t("tabClusters")}</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Settings className="size-4" />
-            {t("autoRegisterTitle")}
-          </CardTitle>
-          <CardDescription>
-            {t("autoRegisterDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Base team */}
-          <div className="space-y-2">
-            <Label htmlFor="default-team-id">{t("defaultTeamLabel")}</Label>
-            <Input
-              id="default-team-id"
-              value={defaultTeamId}
-              onChange={(e) => setDefaultTeamId(e.target.value)}
-              placeholder={t("defaultTeamPlaceholder")}
-            />
-            <p className="text-xs text-muted-foreground">
-              {t("defaultTeamHelp")}
-            </p>
-          </div>
-
-          <div className="border-t pt-4 space-y-3">
-            <div>
-              <Label>{t("extraTeamRulesLabel")}</Label>
-              <p className="text-xs text-muted-foreground mt-1">
-                {t("extraTeamRulesHelp")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder={t("prefixPlaceholder")}
-                value={newRulePrefix}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRulePrefix(e.target.value)}
-                className="w-32"
-              />
-              <Input
-                placeholder={t("teamIdPlaceholder")}
-                value={newRuleTeams}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRuleTeams(e.target.value)}
-                className="flex-1"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
-                onClick={() => {
-                  const teams = newRuleTeams.split(",").map((t_: string) => t_.trim()).filter(Boolean);
-                  if (teams.length === 0) return;
-                  const updated: DefaultTeamRule[] = [
-                    ...(teamRules || []),
-                    { prefix: newRulePrefix.trim().toUpperCase(), teams },
-                  ];
-                  updateTeamRules.mutate(updated, {
-                    onSuccess: () => {
-                      toast.success(t("ruleAddSuccess"));
-                      setNewRulePrefix("");
-                      setNewRuleTeams("");
-                    },
-                    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                  });
-                }}
-              >
-                <Plus className="size-4" />
-                {t("addButton")}
-              </Button>
-            </div>
-            {teamRules && teamRules.length > 0 ? (
-              <div className="space-y-2">
-                {teamRules.map((rule: DefaultTeamRule, idx: number) => (
-                  <div key={idx} className="flex items-center gap-2 rounded-md border p-2">
-                    <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
-                    <div className="flex flex-wrap gap-1 flex-1">
-                      {rule.teams.map((teamId: string) => (
-                        <Badge key={teamId} variant="secondary">{teamId}</Badge>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-full p-1 hover:bg-muted"
-                      onClick={() => {
-                        const updated = teamRules.filter((_: DefaultTeamRule, i: number) => i !== idx);
-                        updateTeamRules.mutate(updated, {
-                          onSuccess: () => toast.success(t("ruleDeleteSuccess")),
-                          onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("deleteFailed")),
-                        });
-                      }}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                ))}
+        {/* ── 일반 ── */}
+        <TabsContent value="general" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Settings className="size-4" />
+                {t("apiKeyLimitsTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("apiKeyLimitsDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="tpm-limit">{t("tpmLabel")}</Label>
+                  <Input
+                    id="tpm-limit"
+                    type="number"
+                    min="0"
+                    value={tpmLimit}
+                    onChange={(e) => setTpmLimit(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="rpm-limit">{t("rpmLabel")}</Label>
+                  <Input
+                    id="rpm-limit"
+                    type="number"
+                    min="0"
+                    value={rpmLimit}
+                    onChange={(e) => setRpmLimit(e.target.value)}
+                  />
+                </div>
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noExtraRules")}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <EyeOff className="size-4" />
-            {t("hideTeamsTitle")}
-          </CardTitle>
-          <CardDescription>
-            {t("hideTeamsDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Input
-              placeholder={t("hiddenTeamPlaceholder")}
-              value={newHiddenTeamId}
-              onChange={(e) => setNewHiddenTeamId(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (!newHiddenTeamId.trim()) return;
-                  const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
-                  updateHiddenTeams.mutate(updated, {
-                    onSuccess: () => {
-                      toast.success(t("teamHideSuccess"));
-                      setNewHiddenTeamId("");
-                    },
-                    onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                  });
-                }
-              }}
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!newHiddenTeamId.trim() || updateHiddenTeams.isPending}
-              onClick={() => {
-                if (!newHiddenTeamId.trim()) return;
-                const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
-                updateHiddenTeams.mutate(updated, {
-                  onSuccess: () => {
-                    toast.success(t("teamHideSuccess"));
-                    setNewHiddenTeamId("");
-                  },
-                  onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                });
-              }}
-            >
-              <Plus className="size-4" />
-              {t("addButton")}
-            </Button>
-          </div>
-          {hiddenTeams && hiddenTeams.length > 0 ? (
-            <div className="flex flex-wrap gap-2">
-              {hiddenTeams.map((teamId) => (
-                <Badge key={teamId} variant="secondary" className="gap-1 pr-1">
-                  {teamId}
-                  <button
-                    type="button"
-                    className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Settings className="size-4" />
+                {t("cacheCatalogTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("cacheCatalogDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={suffixInput}
+                  onChange={(e) => setSuffixInput(e.target.value)}
+                  placeholder={t("newSuffixPlaceholder")}
+                  className="h-9"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddSuffix();
+                    }
+                  }}
+                />
+                <Button size="sm" onClick={handleAddSuffix} disabled={updateCatalogList.isPending}>
+                  <Plus className="size-3.5" />
+                  {t("addButton")}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {catalogs.length > 0 ? (
+                  catalogs.map((c) => (
+                    <div key={c} className="flex items-center justify-between rounded-md border px-3 py-2">
+                      <span className="text-sm font-mono">{c}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="text-destructive hover:text-destructive"
+                        disabled={catalogs.length <= 1}
+                        onClick={() => handleRemoveSuffix(c)}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noSuffixes")}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {saveButton}
+        </TabsContent>
+
+        {/* ── 팀 ── */}
+        <TabsContent value="teams" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <Settings className="size-4" />
+                {t("autoRegisterTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("autoRegisterDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Base team */}
+              <div className="space-y-2">
+                <Label htmlFor="default-team-id">{t("defaultTeamLabel")}</Label>
+                <Input
+                  id="default-team-id"
+                  value={defaultTeamId}
+                  onChange={(e) => setDefaultTeamId(e.target.value)}
+                  placeholder={t("defaultTeamPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t("defaultTeamHelp")}
+                </p>
+              </div>
+
+              <div className="border-t pt-4 space-y-3">
+                <div>
+                  <Label>{t("extraTeamRulesLabel")}</Label>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t("extraTeamRulesHelp")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder={t("prefixPlaceholder")}
+                    value={newRulePrefix}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRulePrefix(e.target.value)}
+                    className="w-32"
+                  />
+                  <Input
+                    placeholder={t("teamIdPlaceholder")}
+                    value={newRuleTeams}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRuleTeams(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
                     onClick={() => {
-                      const updated = hiddenTeams.filter((id) => id !== teamId);
-                      updateHiddenTeams.mutate(updated, {
-                        onSuccess: () => toast.success(t("teamUnhideSuccess")),
-                        onError: (err) => toast.error(err instanceof Error ? err.message : t("removeFailed")),
+                      const teams = newRuleTeams.split(",").map((t_: string) => t_.trim()).filter(Boolean);
+                      if (teams.length === 0) return;
+                      const updated: DefaultTeamRule[] = [
+                        ...(teamRules || []),
+                        { prefix: newRulePrefix.trim().toUpperCase(), teams },
+                      ];
+                      updateTeamRules.mutate(updated, {
+                        onSuccess: () => {
+                          toast.success(t("ruleAddSuccess"));
+                          setNewRulePrefix("");
+                          setNewRuleTeams("");
+                        },
+                        onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("addFailed")),
                       });
                     }}
                   >
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">{t("noHiddenTeams")}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Settings className="size-4" />
-            {t("cacheCatalogTitle")}
-          </CardTitle>
-          <CardDescription>
-            {t("cacheCatalogDescription")}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Input
-              value={suffixInput}
-              onChange={(e) => setSuffixInput(e.target.value)}
-              placeholder={t("newSuffixPlaceholder")}
-              className="h-9"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  handleAddSuffix();
-                }
-              }}
-            />
-            <Button size="sm" onClick={handleAddSuffix} disabled={updateCatalogList.isPending}>
-              <Plus className="size-3.5" />
-              {t("addButton")}
-            </Button>
-          </div>
-          <div className="space-y-2">
-            {catalogs.length > 0 ? (
-              catalogs.map((c) => (
-                <div key={c} className="flex items-center justify-between rounded-md border px-3 py-2">
-                  <span className="text-sm font-mono">{c}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    className="text-destructive hover:text-destructive"
-                    disabled={catalogs.length <= 1}
-                    onClick={() => handleRemoveSuffix(c)}
-                  >
-                    <X className="size-3.5" />
+                    <Plus className="size-4" />
+                    {t("addButton")}
                   </Button>
                 </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("noSuffixes")}</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+                {teamRules && teamRules.length > 0 ? (
+                  <div className="space-y-2">
+                    {teamRules.map((rule: DefaultTeamRule, idx: number) => (
+                      <div key={idx} className="flex items-center gap-2 rounded-md border p-2">
+                        <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
+                        <div className="flex flex-wrap gap-1 flex-1">
+                          {rule.teams.map((teamId: string) => (
+                            <Badge key={teamId} variant="secondary">{teamId}</Badge>
+                          ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded-full p-1 hover:bg-muted"
+                          onClick={() => {
+                            const updated = teamRules.filter((_: DefaultTeamRule, i: number) => i !== idx);
+                            updateTeamRules.mutate(updated, {
+                              onSuccess: () => toast.success(t("ruleDeleteSuccess")),
+                              onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("deleteFailed")),
+                            });
+                          }}
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t("noExtraRules")}</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
-      <Button
-        onClick={handleSave}
-        disabled={updateMutation.isPending}
-      >
-        {updateMutation.isPending ? (
-          <Loader2 className="size-4 animate-spin" />
-        ) : (
-          <Save className="size-4" />
-        )}
-        {tc("save")}
-      </Button>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                <EyeOff className="size-4" />
+                {t("hideTeamsTitle")}
+              </CardTitle>
+              <CardDescription>
+                {t("hideTeamsDescription")}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder={t("hiddenTeamPlaceholder")}
+                  value={newHiddenTeamId}
+                  onChange={(e) => setNewHiddenTeamId(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (!newHiddenTeamId.trim()) return;
+                      const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
+                      updateHiddenTeams.mutate(updated, {
+                        onSuccess: () => {
+                          toast.success(t("teamHideSuccess"));
+                          setNewHiddenTeamId("");
+                        },
+                        onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
+                      });
+                    }
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!newHiddenTeamId.trim() || updateHiddenTeams.isPending}
+                  onClick={() => {
+                    if (!newHiddenTeamId.trim()) return;
+                    const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
+                    updateHiddenTeams.mutate(updated, {
+                      onSuccess: () => {
+                        toast.success(t("teamHideSuccess"));
+                        setNewHiddenTeamId("");
+                      },
+                      onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
+                    });
+                  }}
+                >
+                  <Plus className="size-4" />
+                  {t("addButton")}
+                </Button>
+              </div>
+              {hiddenTeams && hiddenTeams.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {hiddenTeams.map((teamId) => (
+                    <Badge key={teamId} variant="secondary" className="gap-1 pr-1">
+                      {teamId}
+                      <button
+                        type="button"
+                        className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                        onClick={() => {
+                          const updated = hiddenTeams.filter((id) => id !== teamId);
+                          updateHiddenTeams.mutate(updated, {
+                            onSuccess: () => toast.success(t("teamUnhideSuccess")),
+                            onError: (err) => toast.error(err instanceof Error ? err.message : t("removeFailed")),
+                          });
+                        }}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("noHiddenTeams")}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {saveButton}
+        </TabsContent>
+
+        {/* ── 클러스터 ── */}
+        <TabsContent value="clusters" className="mt-4">
+          <ClusterSettingsTab />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -24,13 +24,14 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.k8s import K8sClient, K8sNotConfigured
+from app.clients.k8s import K8sNotConfigured
 from app.clients.litellm import LiteLLMClient
 from app.clients.slack import send_deployment_event_notification
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
 from app.db.session import async_session_factory
+from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import k8s_resource_names
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,6 @@ async def reconcile_once() -> dict:
     transitions = 0
     registered = 0
 
-    k8s = K8sClient()
     litellm = LiteLLMClient()
     try:
         async with async_session_factory() as db:
@@ -158,6 +158,7 @@ async def reconcile_once() -> dict:
             for dep in deployments:
                 polled += 1
                 names = k8s_resource_names(dep)
+                k8s = await k8s_for_cluster(db, dep.cluster_id)
                 try:
                     observed = await k8s.read_deployment_status(dep.namespace, names["deployment"])
                 except K8sNotConfigured:

@@ -7,24 +7,27 @@ loop (`reconcile_benchmarks`) polls Job status and persists the result blob.
 import logging
 import uuid
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client
+from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.benchmark_manifests import build_job_manifest, job_name_for
+from app.services.clusters import k8s_for_cluster
+from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job, job_name_for
 from app.services.benchmark_serving import (
     build_ephemeral_deployment,
     ephemeral_manifests,
     ephemeral_model_name,
     serving_resource_names,
+    serving_target_url,
 )
 from app.services.model_deployment_manifests import k8s_resource_names
 
@@ -68,6 +71,9 @@ class CreateBenchmarkRequest(BaseModel):
     )
     tool: str = Field(..., description="vllm_serving | sglang_serving | lm_eval")
     params: dict = Field(default_factory=dict, description="Tool-specific args, stored verbatim")
+    cluster_id: str | None = Field(
+        None, description="Registered K8s cluster to run on; None = portal default"
+    )
     namespace: str | None = None
     image: str | None = None
 
@@ -92,7 +98,53 @@ def _serving_snapshot(dep: CustomModelDeployment) -> dict:
         },
         "node_selector": dict(dep.node_selector or {}),
         "namespace": dep.namespace,
+        "pvc_name": dep.pvc_name,
+        "pvc_mount_path": dep.pvc_mount_path,
     }
+
+
+def _build_bench_job(
+    run: CustomBenchmarkRun,
+    *,
+    deployment: "CustomModelDeployment | None",
+    target_base: str,
+    api_key: str,
+    image_override: str | None,
+) -> dict:
+    """Pick the manifest for a run: performance → official `vllm bench serve`
+    (on a vLLM image), accuracy → the lm-eval runner image. Shared by create
+    and preview so the YAML preview is exactly what runs.
+    """
+    params = run.params or {}
+    if deployment is not None:
+        served_model = deployment.model_path
+        pvc_name, pvc_mount = deployment.pvc_name, deployment.pvc_mount_path
+        perf_default_image = deployment.image
+    else:
+        served_model = run.model_name
+        pvc_name, pvc_mount = None, None
+        perf_default_image = settings.vllm_bench_image
+
+    if run.kind == "performance":
+        tokenizer = params.get("tokenizer") or served_model
+        return build_vllm_bench_job(
+            run,
+            image=image_override or perf_default_image,
+            target_base_url=target_base,
+            api_key=api_key,
+            served_model=served_model,
+            tokenizer=tokenizer,
+            pvc_name=pvc_name,
+            pvc_mount_path=pvc_mount,
+        )
+    # accuracy (lm-eval): bench_model None for a LiteLLM alias target.
+    return build_job_manifest(
+        run,
+        image=image_override or DEFAULT_BENCH_IMAGE,
+        target_base_url=target_base,
+        api_key=api_key,
+        bench_model=deployment.model_path if deployment is not None else None,
+    )
 
 
 def _serialize(r: CustomBenchmarkRun) -> dict:
@@ -102,6 +154,7 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "tool": r.tool,
         "kind": r.kind,
         "params": r.params,
+        "cluster_id": str(r.cluster_id) if r.cluster_id else None,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
         "serving_snapshot": r.serving_snapshot,
         "ephemeral": r.ephemeral,
@@ -161,13 +214,14 @@ async def create_benchmark(
     body: CreateBenchmarkRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     if body.tool not in ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
     kind = TOOL_TO_KIND[body.tool]
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
     image = body.image or DEFAULT_BENCH_IMAGE
+    cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    k8s = await k8s_for_cluster(db, cluster_uuid)
 
     # Ephemeral mode: clone a template deployment into a throwaway serving. The
     # reconciler waits for it to become ready, creates the bench Job, then tears
@@ -194,10 +248,13 @@ async def create_benchmark(
             kind=kind,
             params=body.params,
             status="provisioning",
+            cluster_id=cluster_uuid,
             k8s_namespace=namespace,
             deployment_id=base.id,
             ephemeral=True,
-            bench_image=image,
+            # Perf runs `vllm bench serve` (needs a vLLM image) → reuse the
+            # serving's own image; accuracy keeps the lm-eval runner image.
+            bench_image=(body.image or base.image) if kind == "performance" else image,
             created_by=user.user_id,
         )
         name = ephemeral_model_name(run.id)
@@ -255,6 +312,7 @@ async def create_benchmark(
         kind=kind,
         params=body.params,
         status="pending",
+        cluster_id=cluster_uuid,
         k8s_namespace=namespace,
         deployment_id=deployment.id if deployment else None,
         serving_snapshot=serving_snapshot,
@@ -269,19 +327,17 @@ async def create_benchmark(
     if deployment is not None:
         svc = k8s_resource_names(deployment)["service"]
         target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-        bench_model = deployment.model_path
         api_key = "EMPTY"  # vLLM/SGLang OpenAI servers ignore auth by default
     else:
         target_base = settings.litellm_base_url.rstrip("/")
-        bench_model = None
         api_key = settings.litellm_admin_api_key
 
-    manifest = build_job_manifest(
+    manifest = _build_bench_job(
         run,
-        image=image,
-        target_base_url=target_base,
+        deployment=deployment,
+        target_base=target_base,
         api_key=api_key,
-        bench_model=bench_model,
+        image_override=body.image or None,
     )
     try:
         await k8s.create_job(namespace, manifest)
@@ -298,12 +354,125 @@ async def create_benchmark(
     return _serialize(run)
 
 
+_SENSITIVE_ENV = ("api_key", "apikey", "token", "secret", "password")
+
+
+def _redact(obj):
+    """Mask env values whose name looks sensitive, for safe YAML previews."""
+    if isinstance(obj, dict):
+        name = obj.get("name")
+        if "value" in obj and isinstance(name, str) and any(s in name.lower() for s in _SENSITIVE_ENV):
+            return {**obj, "value": "***"}
+        return {k: _redact(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
+
+
+@router.post("/preview")
+async def preview_benchmark(
+    body: CreateBenchmarkRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Render the exact K8s manifests this run would apply — no DB/K8s writes.
+
+    Powers the live YAML preview on the run form. Sensitive env values
+    (API keys / tokens) are masked.
+    """
+    if body.tool not in ALLOWED_TOOLS:
+        raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
+    kind = TOOL_TO_KIND[body.tool]
+    namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
+
+    run = CustomBenchmarkRun(
+        id=uuid.uuid4(),
+        model_name=body.model_name or "<model>",
+        tool=body.tool,
+        kind=kind,
+        params=body.params,
+        status="pending",
+        k8s_namespace=namespace,
+        created_by=user.user_id,
+    )
+    run.k8s_job_name = job_name_for(run.id)
+    manifests: list[dict] = []
+
+    if body.ephemeral:
+        if not body.deployment_id:
+            return {"manifests": [], "note": "ephemeral_needs_deployment"}
+        try:
+            tmpl_id = uuid.UUID(body.deployment_id)
+        except ValueError:
+            return {"manifests": [], "note": "invalid_deployment"}
+        base = (
+            await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id))
+        ).scalar_one_or_none()
+        if not base:
+            return {"manifests": [], "note": "deployment_not_found"}
+        name = ephemeral_model_name(run.id)
+        eph = build_ephemeral_deployment(base, name=name, namespace=namespace, overrides=body.serving_overrides)
+        run.model_name = base.model_name
+        manifests.extend(ephemeral_manifests(eph))
+        manifests.append(
+            _build_bench_job(
+                run,
+                deployment=eph,
+                target_base=serving_target_url(name, namespace),
+                api_key="EMPTY",
+                image_override=body.image or None,
+            )
+        )
+    else:
+        deployment: CustomModelDeployment | None = None
+        if body.deployment_id:
+            try:
+                dep_id = uuid.UUID(body.deployment_id)
+            except ValueError:
+                return {"manifests": [], "note": "invalid_deployment"}
+            deployment = (
+                await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == dep_id))
+            ).scalar_one_or_none()
+            if not deployment:
+                return {"manifests": [], "note": "deployment_not_found"}
+        if deployment is None and not body.model_name:
+            return {"manifests": [], "note": "target_required"}
+
+        if deployment is not None:
+            run.model_name = deployment.model_name
+            run.k8s_namespace = body.namespace or deployment.namespace
+            svc = k8s_resource_names(deployment)["service"]
+            target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
+            api_key = "EMPTY"
+        else:
+            target_base = settings.litellm_base_url.rstrip("/")
+            api_key = settings.litellm_admin_api_key
+        manifests.append(
+            _build_bench_job(
+                run,
+                deployment=deployment,
+                target_base=target_base,
+                api_key=api_key,
+                image_override=body.image or None,
+            )
+        )
+
+    out = [
+        {
+            "kind": m.get("kind", "?"),
+            "name": m.get("metadata", {}).get("name", "?"),
+            "yaml": yaml.safe_dump(_redact(m), sort_keys=False, default_flow_style=False),
+        }
+        for m in manifests
+    ]
+    return {"manifests": out, "note": None}
+
+
 @router.post("/{run_id}/cancel")
 async def cancel_benchmark(
     run_id: str,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     try:
         rid = uuid.UUID(run_id)
@@ -315,6 +484,8 @@ async def cancel_benchmark(
         raise HTTPException(status_code=404, detail="Benchmark run not found")
     if run.status in ("succeeded", "failed", "cancelled"):
         return _serialize(run)
+
+    k8s = await k8s_for_cluster(db, run.cluster_id)
 
     if run.k8s_job_name and run.k8s_namespace:
         try:

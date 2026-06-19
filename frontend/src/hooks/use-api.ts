@@ -33,6 +33,8 @@ import type {
   BenchmarkListResponse,
   CreateBenchmarkRequest,
   ModelDeployment,
+  K8sClusterSummary,
+  ClusterTestResult,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1036,5 +1038,104 @@ export function useCreateBenchmark() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["benchmarks"] }),
+  });
+}
+
+// ─── K8s Clusters (admin) ──────────────────────────────────────────
+
+export interface CreateK8sClusterBody {
+  name: string;
+  context: string;
+  namespace?: string;
+  kubeconfig: string;
+  description?: string | null;
+  is_default?: boolean;
+}
+
+export type UpdateK8sClusterBody = Partial<CreateK8sClusterBody>;
+
+export function useK8sClusters() {
+  return useQuery({
+    queryKey: ["k8s-clusters"],
+    queryFn: () =>
+      apiFetch<{ clusters: K8sClusterSummary[] }>("/api/admin/k8s-clusters").then(
+        (r) => r.clusters,
+      ),
+  });
+}
+
+export function useCreateK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateK8sClusterBody) =>
+      apiFetch<K8sClusterSummary>("/api/admin/k8s-clusters", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+export function useUpdateK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateK8sClusterBody }) =>
+      apiFetch<K8sClusterSummary>(`/api/admin/k8s-clusters/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+export function useDeleteK8sCluster() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/admin/k8s-clusters/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
+  });
+}
+
+// ─── Benchmark manifest preview ────────────────────────────────────
+
+export interface BenchmarkPreviewManifest {
+  kind: string;
+  name: string;
+  yaml: string;
+}
+
+export interface BenchmarkPreviewResponse {
+  manifests: BenchmarkPreviewManifest[];
+  note: string | null;
+}
+
+/** Render the exact K8s manifests a benchmark run would apply (no writes). */
+export function useBenchmarkPreview() {
+  return useMutation({
+    mutationFn: (body: CreateBenchmarkRequest) =>
+      apiFetch<BenchmarkPreviewResponse>("/api/benchmarks/preview", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
+/** Test an unsaved kubeconfig+context (before the cluster is created). */
+export function useTestK8sCluster() {
+  return useMutation({
+    mutationFn: (body: { kubeconfig: string; context: string }) =>
+      apiFetch<ClusterTestResult>("/api/admin/k8s-clusters/test", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
+/** Test a stored cluster's connection by id. */
+export function useTestSavedK8sCluster() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ClusterTestResult>(`/api/admin/k8s-clusters/${id}/test`, { method: "POST" }),
   });
 }

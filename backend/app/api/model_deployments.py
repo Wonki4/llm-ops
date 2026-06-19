@@ -14,10 +14,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client
+from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ DEFAULT_VLLM_IMAGE = "vllm/vllm-openai:latest"
 
 class CreateDeploymentRequest(BaseModel):
     model_name: str
+    cluster_id: str | None = None  # registered K8s cluster; None = portal default
     namespace: str = "default"
     image: str = DEFAULT_VLLM_IMAGE
     replicas: int = Field(1, ge=0)
@@ -75,6 +77,7 @@ def _serialize(d: CustomModelDeployment) -> dict:
     return {
         "id": str(d.id),
         "model_name": d.model_name,
+        "cluster_id": str(d.cluster_id) if d.cluster_id else None,
         "namespace": d.namespace,
         "image": d.image,
         "replicas": d.replicas,
@@ -134,16 +137,18 @@ async def create_deployment(
     body: CreateDeploymentRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     # Uniqueness on model_name
     existing = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Deployment for '{body.model_name}' already exists")
 
+    k8s = await k8s_for_cluster(db, body.cluster_id)
+
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=body.model_name,
+        cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
         namespace=body.namespace,
         image=body.image,
         replicas=body.replicas,
@@ -189,7 +194,6 @@ async def update_deployment(
     body: UpdateDeploymentRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     """Update mutable fields and reapply K8s manifests (rolls Deployment).
 
@@ -200,6 +204,7 @@ async def update_deployment(
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
 
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(dep, field, value)
@@ -225,13 +230,13 @@ async def delete_deployment(
     deployment_id: str,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    k8s: K8sClient = Depends(get_k8s_client),
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
 
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
     try:
         await k8s.delete(dep.namespace, k8s_resource_names(dep))
     except K8sNotConfigured as e:

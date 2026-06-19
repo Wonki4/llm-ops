@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     admin_groups: list[str] = []
 
     session_secret_key: str = "change-me-in-production-must-be-32-bytes"
+    encryption_key: str = ""  # Fernet key for at-rest secrets; derived from session_secret_key if empty
     session_cookie_name: str = "litellm_session"
     session_cookie_secure: bool = False
     session_cookie_domain: str = ""
@@ -40,6 +41,10 @@ class Settings(BaseSettings):
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
     k8s_default_namespace: str = "default"
+
+    # Image used to run `vllm bench serve` for performance benchmarks when the
+    # target isn't a portal-managed serving deployment (which reuses its own image).
+    vllm_bench_image: str = "vllm/vllm-openai:latest"
 
     slack_webhook_url: str = ""
     cors_origins: list[str] = ["http://localhost:3002"]
