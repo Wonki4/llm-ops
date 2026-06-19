@@ -93,8 +93,71 @@ async def _one_request(
     }
 
 
+async def _warmup(
+    client: httpx.AsyncClient,
+    *,
+    model: str,
+    prompt: str,
+    max_tokens: int,
+    temperature: float,
+    ignore_eos: bool,
+    params: dict,
+) -> dict:
+    """Send throwaway requests until latency stabilizes — just enough to reach
+    steady-state, so the measured phase excludes ramp-up.
+
+    Adaptive by default: keep going until the rolling mean of per-request
+    latency changes < `warmup_threshold` between consecutive windows (or the
+    max cap is hit). Set `warmup_requests` to force a fixed count instead.
+    Warm-up requests are discarded from the result.
+    """
+    fixed = params.get("warmup_requests")
+    min_n = max(1, int(params.get("warmup_min_requests", 3)))
+    max_n = max(min_n, int(params.get("warmup_max_requests", 20)))
+    window = max(2, int(params.get("warmup_window", 3)))
+    threshold = float(params.get("warmup_threshold", 0.1))
+
+    async def one() -> float | None:
+        try:
+            m = await _one_request(
+                client, model=model, prompt=prompt, max_tokens=max_tokens,
+                temperature=temperature, ignore_eos=ignore_eos,
+            )
+            return m["total_s"]
+        except Exception as e:  # noqa: BLE001
+            print(f"warmup error: {e}", file=sys.stderr)
+            return None
+
+    if fixed is not None:
+        n = max(0, int(fixed))
+        for _ in range(n):
+            await one()
+        return {"mode": "fixed", "requests": n, "converged": None}
+
+    done = 0
+    totals: list[float] = []
+    prev_window_mean: float | None = None
+    converged = False
+    while done < max_n:
+        t = await one()
+        done += 1
+        if t is not None:
+            totals.append(t)
+        if done >= min_n and len(totals) >= window:
+            cur = statistics.fmean(totals[-window:])
+            if prev_window_mean and abs(cur - prev_window_mean) / prev_window_mean < threshold:
+                converged = True
+                break
+            prev_window_mean = cur
+    return {"mode": "adaptive", "requests": done, "converged": converged}
+
+
 async def run_performance(*, model: str, base_url: str, api_key: str, params: dict) -> dict:
-    """Concurrent-load benchmark — same shape as vllm/sglang benchmark_serving.
+    """Cold-start → warm-up → steady-state concurrent-load benchmark.
+
+    The steady-state metrics are the headline result; `cold_start` (first
+    inference after the server reports ready) and `warmup` are recorded
+    alongside so ramp-up cost is visible but doesn't pollute the comparison.
 
     Unknown keys in `params` are silently accepted (stored at the API layer for
     audit / reproducibility) so users can ship extra params via the form's
@@ -118,27 +181,46 @@ async def run_performance(*, model: str, base_url: str, api_key: str, params: di
     sem = asyncio.Semaphore(concurrency)
     samples: list[dict[str, float]] = []
     errors = 0
-
-    async def worker():
-        nonlocal errors
-        async with sem:
-            try:
-                m = await _one_request(
-                    client,
-                    model=model,
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    ignore_eos=ignore_eos,
-                )
-                samples.append(m)
-            except Exception as e:  # noqa: BLE001
-                errors += 1
-                print(f"request error: {e}", file=sys.stderr)
+    cold_start: dict[str, float] | None = None
 
     timeout = httpx.Timeout(60.0, connect=10.0)
     headers = {"Authorization": f"Bearer {api_key}"}
     async with httpx.AsyncClient(base_url=base_url, headers=headers, timeout=timeout) as client:
+
+        async def worker():
+            nonlocal errors
+            async with sem:
+                try:
+                    m = await _one_request(
+                        client,
+                        model=model,
+                        prompt=prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        ignore_eos=ignore_eos,
+                    )
+                    samples.append(m)
+                except Exception as e:  # noqa: BLE001
+                    errors += 1
+                    print(f"request error: {e}", file=sys.stderr)
+
+        # ❶ Cold start — first inference after ready is slowest (CUDA graph
+        # capture, first compile). Record it; don't count it in steady metrics.
+        try:
+            cold_start = await _one_request(
+                client, model=model, prompt=prompt, max_tokens=max_tokens,
+                temperature=temperature, ignore_eos=ignore_eos,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"cold-start error: {e}", file=sys.stderr)
+
+        # ❷ Warm-up — discard until latency stabilizes.
+        warmup_info = await _warmup(
+            client, model=model, prompt=prompt, max_tokens=max_tokens,
+            temperature=temperature, ignore_eos=ignore_eos, params=params,
+        )
+
+        # ❸ Steady-state — the measured benchmark.
         wall_start = time.perf_counter()
         if request_rate is None:
             await asyncio.gather(*(worker() for _ in range(num_prompts)))
@@ -195,6 +277,16 @@ async def run_performance(*, model: str, base_url: str, api_key: str, params: di
             "p90": pct(totals, 90),
             "p99": pct(totals, 99),
         },
+        "cold_start": (
+            {
+                "ttft_s": cold_start["ttft_s"],
+                "total_s": cold_start["total_s"],
+                "output_tokens": cold_start["output_tokens"],
+            }
+            if cold_start
+            else None
+        ),
+        "warmup": warmup_info,
     }
 
 
