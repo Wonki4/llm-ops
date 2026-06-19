@@ -26,27 +26,25 @@ const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
 type Direction = "higher" | "lower";
 type MetricSpec = { key: string; path: (string | number)[]; direction: Direction };
 
+// Keys emitted by `vllm bench serve` result.json (throughput in req|tok/s,
+// latencies in ms). Flat schema — one path segment each.
 const PERF_METRICS: MetricSpec[] = [
-  { key: "throughput_req_per_s", path: ["throughput_req_per_s"], direction: "higher" },
-  { key: "throughput_output_tok_per_s", path: ["throughput_output_tok_per_s"], direction: "higher" },
+  { key: "request_throughput", path: ["request_throughput"], direction: "higher" },
+  { key: "output_throughput", path: ["output_throughput"], direction: "higher" },
+  { key: "total_token_throughput", path: ["total_token_throughput"], direction: "higher" },
+  { key: "completed", path: ["completed"], direction: "higher" },
   { key: "total_output_tokens", path: ["total_output_tokens"], direction: "higher" },
-  { key: "successful", path: ["successful"], direction: "higher" },
-  { key: "errors", path: ["errors"], direction: "lower" },
-  { key: "wall_time_s", path: ["wall_time_s"], direction: "lower" },
-  { key: "ttft_s.mean", path: ["ttft_s", "mean"], direction: "lower" },
-  { key: "ttft_s.p50", path: ["ttft_s", "p50"], direction: "lower" },
-  { key: "ttft_s.p90", path: ["ttft_s", "p90"], direction: "lower" },
-  { key: "ttft_s.p99", path: ["ttft_s", "p99"], direction: "lower" },
-  { key: "tpot_s.mean", path: ["tpot_s", "mean"], direction: "lower" },
-  { key: "tpot_s.p50", path: ["tpot_s", "p50"], direction: "lower" },
-  { key: "tpot_s.p90", path: ["tpot_s", "p90"], direction: "lower" },
-  { key: "tpot_s.p99", path: ["tpot_s", "p99"], direction: "lower" },
-  { key: "total_s.mean", path: ["total_s", "mean"], direction: "lower" },
-  { key: "total_s.p50", path: ["total_s", "p50"], direction: "lower" },
-  { key: "total_s.p90", path: ["total_s", "p90"], direction: "lower" },
-  { key: "total_s.p99", path: ["total_s", "p99"], direction: "lower" },
-  { key: "cold_start.ttft_s", path: ["cold_start", "ttft_s"], direction: "lower" },
-  { key: "cold_start.total_s", path: ["cold_start", "total_s"], direction: "lower" },
+  { key: "duration", path: ["duration"], direction: "lower" },
+  { key: "mean_ttft_ms", path: ["mean_ttft_ms"], direction: "lower" },
+  { key: "median_ttft_ms", path: ["median_ttft_ms"], direction: "lower" },
+  { key: "p99_ttft_ms", path: ["p99_ttft_ms"], direction: "lower" },
+  { key: "mean_tpot_ms", path: ["mean_tpot_ms"], direction: "lower" },
+  { key: "median_tpot_ms", path: ["median_tpot_ms"], direction: "lower" },
+  { key: "p99_tpot_ms", path: ["p99_tpot_ms"], direction: "lower" },
+  { key: "mean_itl_ms", path: ["mean_itl_ms"], direction: "lower" },
+  { key: "p99_itl_ms", path: ["p99_itl_ms"], direction: "lower" },
+  { key: "mean_e2el_ms", path: ["mean_e2el_ms"], direction: "lower" },
+  { key: "p99_e2el_ms", path: ["p99_e2el_ms"], direction: "lower" },
 ];
 
 // Serving config attributes shown side-by-side (the "same resources" axis).

@@ -21,15 +21,12 @@ class K8sNotConfigured(RuntimeError):
     """Raised when the portal has no kubeconfig wired up."""
 
 
-async def _api_client() -> client.ApiClient:
-    if not settings.kubeconfig_path:
-        raise K8sNotConfigured("APP_KUBECONFIG_PATH is empty; K8s features disabled")
-    await config.load_kube_config(config_file=settings.kubeconfig_path)
-    return client.ApiClient()
-
-
 class K8sClient:
     """Thin wrapper that opens a fresh ApiClient per call.
+
+    By default it loads the portal's mounted kubeconfig (``APP_KUBECONFIG_PATH``).
+    Pass an in-memory kubeconfig dict + context to target a specific registered
+    cluster instead — see ``app.services.clusters.k8s_for_cluster``.
 
     kubernetes-asyncio shares a session per ApiClient; reusing across requests
     is fragile inside FastAPI's event loop, so we open and close on each
@@ -37,9 +34,25 @@ class K8sClient:
     (rare admin actions + ~60s reconciler).
     """
 
+    def __init__(self, kubeconfig: dict | None = None, context: str | None = None) -> None:
+        self._kubeconfig = kubeconfig
+        self._context = context
+
+    async def _api_client(self) -> client.ApiClient:
+        if self._kubeconfig is not None:
+            cfg = client.Configuration()
+            await config.load_kube_config_from_dict(
+                config_dict=self._kubeconfig, context=self._context, client_configuration=cfg
+            )
+            return client.ApiClient(configuration=cfg)
+        if not settings.kubeconfig_path:
+            raise K8sNotConfigured("APP_KUBECONFIG_PATH is empty; K8s features disabled")
+        await config.load_kube_config(config_file=settings.kubeconfig_path)
+        return client.ApiClient()
+
     async def create_or_patch(self, namespace: str, manifests: list[dict]) -> None:
         """Apply a list of K8s manifests. Creates new resources, patches existing."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
@@ -76,7 +89,7 @@ class K8sClient:
 
     async def delete(self, namespace: str, names: dict[str, str]) -> None:
         """Delete the per-deployment trio. names = {'deployment': X, 'service': Y, 'ingress': Z}."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
@@ -102,7 +115,7 @@ class K8sClient:
 
         Raises ApiException(404) when the deployment doesn't exist.
         """
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             dep = await apps.read_namespaced_deployment_status(name=name, namespace=namespace)
@@ -116,7 +129,7 @@ class K8sClient:
             await api_client.close()
 
     async def read_service_cluster_ip(self, namespace: str, name: str) -> str | None:
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             core = client.CoreV1Api(api_client)
             try:
@@ -133,7 +146,7 @@ class K8sClient:
 
     async def create_job(self, namespace: str, manifest: dict) -> None:
         """Create a K8s Job. Raises ApiException(409) if name collides."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             batch = client.BatchV1Api(api_client)
             await batch.create_namespaced_job(namespace=namespace, body=manifest)
@@ -145,7 +158,7 @@ class K8sClient:
 
         Raises ApiException(404) when the Job is gone.
         """
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             batch = client.BatchV1Api(api_client)
             job = await batch.read_namespaced_job_status(name=name, namespace=namespace)
@@ -167,7 +180,7 @@ class K8sClient:
         Used to harvest the runner's stdout JSON result. Returns empty string
         when no pods are found (e.g. Job spawned but pod not yet scheduled).
         """
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             core = client.CoreV1Api(api_client)
             pods = await core.list_namespaced_pod(
@@ -190,7 +203,7 @@ class K8sClient:
 
     async def delete_job(self, namespace: str, name: str) -> None:
         """Delete the Job and its pods. 404 swallowed (idempotent)."""
-        api_client = await _api_client()
+        api_client = await self._api_client()
         try:
             batch = client.BatchV1Api(api_client)
             try:
@@ -208,3 +221,22 @@ class K8sClient:
 
 def get_k8s_client() -> K8sClient:
     return K8sClient()
+
+
+async def probe_cluster(kubeconfig: dict, context: str) -> str:
+    """Connect to a cluster using an in-memory kubeconfig dict + context.
+
+    Returns the cluster's server version string (e.g. "v1.29.4"). Raises on
+    connection / auth failure. Used by the clusters settings "test connection"
+    action; does not touch the portal's own mounted kubeconfig.
+    """
+    cfg = client.Configuration()
+    await config.load_kube_config_from_dict(
+        config_dict=kubeconfig, context=context, client_configuration=cfg
+    )
+    api_client = client.ApiClient(configuration=cfg)
+    try:
+        info = await client.VersionApi(api_client).get_code()
+        return info.git_version or "unknown"
+    finally:
+        await api_client.close()

@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Loader2, Play } from "lucide-react";
+import { ArrowLeft, FileCode2, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateBenchmark, useModels, useModelDeployments } from "@/hooks/use-api";
+import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview } from "@/hooks/use-api";
 import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,14 +26,15 @@ const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
   lm_eval: "accuracy",
 };
 
+// Maps to `vllm bench serve` flags (--num-prompts, --random-input-len, etc.).
 const DEFAULT_PERF_PARAMS = {
-  num_prompts: 32,
-  concurrency: 8,
-  max_tokens: 128,
-  temperature: 0,
+  num_prompts: 200,
+  random_input_len: 1024,
+  random_output_len: 128,
+  max_concurrency: "",
   request_rate: "",
-  ignore_eos: false,
-  prompt: "Write a short paragraph explaining the difference between TCP and UDP.",
+  ignore_eos: true,
+  tokenizer: "",
 };
 
 const DEFAULT_ACCURACY_PARAMS = {
@@ -50,9 +51,12 @@ export default function NewBenchmarkPage() {
   const router = useRouter();
   const { data: models, isLoading: modelsLoading } = useModels();
   const { data: deployments } = useModelDeployments();
+  const { data: clusters } = useK8sClusters();
   const createMutation = useCreateBenchmark();
+  const previewMutation = useBenchmarkPreview();
 
   const [deploymentId, setDeploymentId] = useState("");
+  const [clusterId, setClusterId] = useState("");
   const [ephemeral, setEphemeral] = useState(false);
   const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
@@ -82,16 +86,20 @@ export default function NewBenchmarkPage() {
     if (kind === "performance") {
       const params: Record<string, unknown> = {
         num_prompts: perfParams.num_prompts,
-        concurrency: perfParams.concurrency,
-        max_tokens: perfParams.max_tokens,
-        temperature: perfParams.temperature,
-        prompt: perfParams.prompt,
+        random_input_len: perfParams.random_input_len,
+        random_output_len: perfParams.random_output_len,
       };
+      if (perfParams.max_concurrency !== "") {
+        params.max_concurrency = Number(perfParams.max_concurrency);
+      }
       if (perfParams.request_rate !== "") {
         params.request_rate = Number(perfParams.request_rate);
       }
       if (perfParams.ignore_eos) {
         params.ignore_eos = true;
+      }
+      if (perfParams.tokenizer.trim() !== "") {
+        params.tokenizer = perfParams.tokenizer.trim();
       }
       return params;
     }
@@ -133,6 +141,53 @@ export default function NewBenchmarkPage() {
       };
     }
   };
+
+  // Best-effort body for the live YAML preview (never throws on bad JSON).
+  const previewBody = useMemo((): CreateBenchmarkRequest | null => {
+    if (!deploymentId && !modelName.trim()) return null;
+    const extras = parseExtras();
+    const body: CreateBenchmarkRequest = {
+      tool,
+      params: { ...buildNamedParams(), ...(extras.ok ? extras.value : {}) },
+    };
+    if (deploymentId) {
+      body.deployment_id = deploymentId;
+      if (ephemeral) {
+        body.ephemeral = true;
+        const text = servingOverridesText.trim();
+        if (text) {
+          try {
+            const parsed = JSON.parse(text);
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              body.serving_overrides = parsed as Record<string, unknown>;
+            }
+          } catch {
+            /* ignore — preview stays on last valid input */
+          }
+        }
+      }
+    } else {
+      body.model_name = modelName.trim();
+    }
+    if (clusterId) body.cluster_id = clusterId;
+    if (namespace.trim()) body.namespace = namespace.trim();
+    if (image.trim()) body.image = image.trim();
+    return body;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    deploymentId, modelName, tool, perfParams, accParams, extraParamsText,
+    ephemeral, servingOverridesText, clusterId, namespace, image,
+  ]);
+
+  const previewKey = previewBody ? JSON.stringify(previewBody) : "";
+  const runPreview = previewMutation.mutate;
+  useEffect(() => {
+    if (!previewKey) return;
+    const id = setTimeout(() => runPreview(JSON.parse(previewKey)), 400);
+    return () => clearTimeout(id);
+  }, [previewKey, runPreview]);
+
+  const previewManifests = previewMutation.data?.manifests ?? [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,6 +243,7 @@ export default function NewBenchmarkPage() {
     } else {
       body.model_name = modelName.trim();
     }
+    if (clusterId) body.cluster_id = clusterId;
     if (namespace.trim()) body.namespace = namespace.trim();
     if (image.trim()) body.image = image.trim();
 
@@ -202,7 +258,7 @@ export default function NewBenchmarkPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-6xl">
       <div>
         <Link
           href="/admin/benchmarks"
@@ -215,12 +271,32 @@ export default function NewBenchmarkPage() {
         <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+      <form onSubmit={handleSubmit} className="space-y-5 lg:col-span-3">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("target")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="cluster">{t("clusterLabel")}</Label>
+              <select
+                id="cluster"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={clusterId}
+                onChange={(e) => setClusterId(e.target.value)}
+              >
+                <option value="">{t("clusterDefault")}</option>
+                {(clusters ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                    {c.is_default ? " ★" : ""}
+                    {c.api_server ? ` — ${c.api_server}` : ""}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground">{t("clusterHint")}</p>
+            </div>
             <div className="space-y-1.5">
               <Label htmlFor="deployment">{t("deploymentLabel")}</Label>
               <select
@@ -405,6 +481,43 @@ export default function NewBenchmarkPage() {
           </Button>
         </div>
       </form>
+
+      <aside className="lg:col-span-2 lg:sticky lg:top-6">
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileCode2 className="size-4" />
+              {t("previewTitle")}
+              {previewMutation.isPending && (
+                <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+              )}
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">{t("previewHint")}</p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {previewManifests.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-6 text-center">
+                {t("previewEmpty")}
+              </p>
+            ) : (
+              previewManifests.map((m, i) => (
+                <div key={i} className="rounded-md border overflow-hidden">
+                  <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5">
+                    <span className="text-xs font-semibold">{m.kind}</span>
+                    <span className="text-xs font-mono text-muted-foreground truncate">
+                      {m.name}
+                    </span>
+                  </div>
+                  <pre className="max-h-[28rem] overflow-auto bg-muted/20 p-3 text-xs leading-relaxed">
+                    <code className="font-mono">{m.yaml}</code>
+                  </pre>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </aside>
+      </div>
     </div>
   );
 }
@@ -428,30 +541,28 @@ function PerfParamsFields({
           onChange={(v) => onChange({ ...params, num_prompts: v })}
           min={1}
         />
+        <OptionalNumberField
+          id="max_concurrency"
+          label={t("maxConcurrencyLabel")}
+          hint={t("maxConcurrencyHint")}
+          value={params.max_concurrency}
+          onChange={(v) => onChange({ ...params, max_concurrency: v })}
+        />
         <NumberField
-          id="concurrency"
-          label={t("concurrencyLabel")}
-          hint={t("concurrencyHint")}
-          value={params.concurrency}
-          onChange={(v) => onChange({ ...params, concurrency: v })}
+          id="random_input_len"
+          label={t("randomInputLenLabel")}
+          hint={t("randomInputLenHint")}
+          value={params.random_input_len}
+          onChange={(v) => onChange({ ...params, random_input_len: v })}
           min={1}
         />
         <NumberField
-          id="max_tokens"
-          label={t("maxTokensLabel")}
-          hint={t("maxTokensHint")}
-          value={params.max_tokens}
-          onChange={(v) => onChange({ ...params, max_tokens: v })}
+          id="random_output_len"
+          label={t("randomOutputLenLabel")}
+          hint={t("randomOutputLenHint")}
+          value={params.random_output_len}
+          onChange={(v) => onChange({ ...params, random_output_len: v })}
           min={1}
-        />
-        <NumberField
-          id="temperature"
-          label={t("temperatureLabel")}
-          hint={t("temperatureHint")}
-          value={params.temperature}
-          onChange={(v) => onChange({ ...params, temperature: v })}
-          step="0.1"
-          min={0}
         />
         <OptionalNumberField
           id="request_rate"
@@ -474,17 +585,14 @@ function PerfParamsFields({
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="prompt">{t("promptLabel")}</Label>
-        <textarea
-          id="prompt"
-          rows={4}
-          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-          value={params.prompt}
-          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-            onChange({ ...params, prompt: e.target.value })
-          }
+        <Label htmlFor="tokenizer">{t("tokenizerLabel")}</Label>
+        <Input
+          id="tokenizer"
+          placeholder={t("tokenizerPlaceholder")}
+          value={params.tokenizer}
+          onChange={(e) => onChange({ ...params, tokenizer: e.target.value })}
         />
-        <p className="text-xs text-muted-foreground">{t("promptHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("tokenizerHint")}</p>
       </div>
     </>
   );

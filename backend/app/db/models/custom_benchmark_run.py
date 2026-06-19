@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -24,6 +24,14 @@ class CustomBenchmarkRun(CustomBase):
     tool: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Which registered K8s cluster the run executes on. Null = portal default
+    # (mounted kubeconfig). RESTRICT: a cluster can't be deleted while in use.
+    cluster_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_k8s_cluster.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     # When the run targets a portal-managed serving deployment (vLLM/SGLang),
     # `deployment_id` links to custom_model_deployment and `serving_snapshot`
     # freezes that serving's config (image, args, env, resources, gpu, node

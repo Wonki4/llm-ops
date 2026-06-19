@@ -20,8 +20,10 @@ from sqlalchemy import select
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.session import async_session_factory
-from app.services.benchmark_manifests import build_job_manifest
+from app.config import settings
+from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
+from app.services.clusters import k8s_for_cluster
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +104,27 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
 
     if ready:
         snap = run.serving_snapshot or {}
-        manifest = build_job_manifest(
-            run,
-            image=run.bench_image or DEFAULT_BENCH_IMAGE,
-            target_base_url=serving_target_url(run.serving_k8s_name, run.k8s_namespace),
-            api_key="EMPTY",
-            bench_model=snap.get("model_path"),
-        )
+        target = serving_target_url(run.serving_k8s_name, run.k8s_namespace)
+        if run.kind == "performance":
+            params = run.params or {}
+            manifest = build_vllm_bench_job(
+                run,
+                image=run.bench_image or settings.vllm_bench_image,
+                target_base_url=target,
+                api_key="EMPTY",
+                served_model=snap.get("model_path"),
+                tokenizer=params.get("tokenizer") or snap.get("model_path"),
+                pvc_name=snap.get("pvc_name"),
+                pvc_mount_path=snap.get("pvc_mount_path"),
+            )
+        else:
+            manifest = build_job_manifest(
+                run,
+                image=run.bench_image or DEFAULT_BENCH_IMAGE,
+                target_base_url=target,
+                api_key="EMPTY",
+                bench_model=snap.get("model_path"),
+            )
         await k8s.create_job(run.k8s_namespace, manifest)
         run.status = "pending"
         run.started_at = _now()
@@ -166,7 +182,6 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
 async def reconcile_once() -> dict:
     polled = 0
     transitions = 0
-    k8s = K8sClient()
     try:
         async with async_session_factory() as db:
             # ❶ Drive provisioning → running → terminal.
@@ -177,6 +192,7 @@ async def reconcile_once() -> dict:
             )
             for run in result.scalars().all():
                 polled += 1
+                k8s = await k8s_for_cluster(db, run.cluster_id)
                 try:
                     if run.status == "provisioning":
                         transitions += await _drive_provisioning(k8s, run)
@@ -199,6 +215,7 @@ async def reconcile_once() -> dict:
                 )
             )
             for run in sweep.scalars().all():
+                k8s = await k8s_for_cluster(db, run.cluster_id)
                 await _teardown_serving(k8s, run)
 
             await db.commit()

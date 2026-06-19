@@ -468,6 +468,7 @@ export interface BenchmarkListResponse {
 
 export interface CreateBenchmarkRequest {
   model_name?: string;
+  cluster_id?: string;
   deployment_id?: string;
   ephemeral?: boolean;
   serving_overrides?: Record<string, unknown>;
@@ -492,4 +493,25 @@ export interface ModelDeployment {
   node_selector: Record<string, string> | null;
   model_path: string;
   image: string;
+}
+
+/** Registered K8s cluster — masked (never includes the kubeconfig). */
+export interface K8sClusterSummary {
+  id: string;
+  name: string;
+  context: string;
+  namespace: string;
+  api_server: string | null;
+  is_default: boolean;
+  description: string | null;
+  has_kubeconfig: boolean;
+  created_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ClusterTestResult {
+  ok: boolean;
+  server_version: string | null;
+  message: string;
 }

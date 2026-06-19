@@ -124,28 +124,28 @@ function KVTable({ rows }: { rows: Array<[string, string]> }) {
 }
 
 function PerfDetailTab({ perf }: { perf: ModelSummary["performance"] }) {
-  const r = perf?.result ?? null;
-  if (!r) return <EmptyTab text="아직 성능 벤치마크 결과가 없습니다." />;
-  const ttft = get(r, "ttft_s");
-  const tpot = get(r, "tpot_s");
-  const total = get(r, "total_s");
+  const raw = perf?.result ?? null;
+  if (!raw) return <EmptyTab text="아직 성능 벤치마크 결과가 없습니다." />;
+  // Stored result wraps the runner output under `metrics`; `vllm bench serve`
+  // emits a flat schema (throughput in req|tok/s, latencies in ms).
+  const r =
+    raw && typeof raw === "object" && "metrics" in (raw as Record<string, unknown>)
+      ? (raw as Record<string, unknown>).metrics
+      : raw;
   const rows: Array<[string, string]> = [
-    ["Throughput (output)", fmt(get(r, "throughput_output_tok_per_s"), 1, " tok/s")],
-    ["Throughput (requests)", fmt(get(r, "throughput_req_per_s"), 2, " req/s")],
+    ["Throughput (output)", fmt(get(r, "output_throughput"), 1, " tok/s")],
+    ["Throughput (requests)", fmt(get(r, "request_throughput"), 2, " req/s")],
+    ["Total token throughput", fmt(get(r, "total_token_throughput"), 1, " tok/s")],
+    ["Completed", fmt(get(r, "completed"), 0)],
     ["Total output tokens", fmt(get(r, "total_output_tokens"), 0)],
-    ["TTFT mean", fmt(get(ttft, "mean"), 3, " s")],
-    ["TTFT p50", fmt(get(ttft, "p50"), 3, " s")],
-    ["TTFT p90", fmt(get(ttft, "p90"), 3, " s")],
-    ["TTFT p99", fmt(get(ttft, "p99"), 3, " s")],
-    ["TPOT mean", fmt(get(tpot, "mean"), 4, " s")],
-    ["TPOT p50", fmt(get(tpot, "p50"), 4, " s")],
-    ["TPOT p90", fmt(get(tpot, "p90"), 4, " s")],
-    ["TPOT p99", fmt(get(tpot, "p99"), 4, " s")],
+    ["Duration", fmt(get(r, "duration"), 2, " s")],
+    ["TTFT mean", fmt(get(r, "mean_ttft_ms"), 1, " ms")],
+    ["TTFT p99", fmt(get(r, "p99_ttft_ms"), 1, " ms")],
+    ["TPOT mean", fmt(get(r, "mean_tpot_ms"), 2, " ms")],
+    ["TPOT p99", fmt(get(r, "p99_tpot_ms"), 2, " ms")],
+    ["ITL mean", fmt(get(r, "mean_itl_ms"), 2, " ms")],
+    ["E2E mean", fmt(get(r, "mean_e2el_ms"), 1, " ms")],
   ];
-  if (total && typeof total === "object") {
-    rows.push(["Total p50", fmt(get(total, "p50"), 3, " s")]);
-    rows.push(["Total p99", fmt(get(total, "p99"), 3, " s")]);
-  }
   return (
     <div className="space-y-3">
       <MeasuredAt tool={perf?.tool} at={perf?.finished_at} />

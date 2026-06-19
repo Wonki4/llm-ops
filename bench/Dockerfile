@@ -1,7 +1,8 @@
-# Benchmark runner image for llmops portal.
-# Drives vllm/sglang-style perf tests + lm-eval-harness accuracy runs against
-# a LiteLLM proxy endpoint. Spawned as a K8s Job by the portal backend;
-# entrypoint reads BENCH_* env vars (see services/benchmark_manifests.py).
+# Accuracy benchmark runner image for llmops portal.
+# Drives lm-eval-harness accuracy runs against a LiteLLM/OpenAI endpoint.
+# (Performance runs use the official `vllm bench serve` on a vLLM image —
+# see services/benchmark_manifests.py::build_vllm_bench_job.)
+# Spawned as a K8s Job by the portal backend; entrypoint reads BENCH_* env vars.
 FROM python:3.11-slim
 
 WORKDIR /app
