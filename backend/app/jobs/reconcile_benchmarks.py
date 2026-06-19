@@ -20,10 +20,26 @@ from sqlalchemy import select
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.session import async_session_factory
+from app.services.benchmark_manifests import build_job_manifest
+from app.services.benchmark_serving import serving_resource_names, serving_target_url
 
 logger = logging.getLogger(__name__)
 
 RESULT_MARKER = "<<<RESULT>>>"
+TERMINAL = ("succeeded", "failed", "cancelled")
+# A serving loading weights from a PVC can take a while to report ready.
+PROVISION_TIMEOUT_S = 1800
+DEFAULT_BENCH_IMAGE = "llmops-benchmark:latest"
+
+
+def _now():
+    return datetime.now(UTC)
+
+
+def _age_s(run: CustomBenchmarkRun) -> float:
+    if not run.created_at:
+        return 0.0
+    return (_now() - run.created_at).total_seconds()
 
 
 def _parse_result(logs: str) -> dict | None:
@@ -51,67 +67,139 @@ def _failure_message(conditions: list[dict]) -> str | None:
     return None
 
 
+async def _teardown_serving(k8s: K8sClient, run: CustomBenchmarkRun) -> None:
+    """Delete a run's throwaway serving. Leaves serving_torn_down False on
+    failure so a later pass retries."""
+    if not run.serving_k8s_name or not run.k8s_namespace:
+        run.serving_torn_down = True
+        return
+    try:
+        await k8s.delete(run.k8s_namespace, serving_resource_names(run.serving_k8s_name))
+    except Exception:  # noqa: BLE001 — incl. K8sNotConfigured; retry next pass
+        logger.exception("Ephemeral serving teardown failed for benchmark %s", run.id)
+        return
+    run.serving_torn_down = True
+    logger.info("Tore down ephemeral serving for benchmark %s", run.id)
+
+
+async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
+    """Gate a provisioning run: once its serving is ready, create the bench Job."""
+    if not run.serving_k8s_name or not run.k8s_namespace:
+        run.status = "failed"
+        run.error_message = "ephemeral run missing serving info"
+        run.finished_at = _now()
+        return 1
+
+    names = serving_resource_names(run.serving_k8s_name)
+    try:
+        ds = await k8s.read_deployment_status(run.k8s_namespace, names["deployment"])
+        ready = ds["ready"] >= 1
+    except ApiException as e:
+        if e.status == 404:
+            ready = False
+        else:
+            raise
+
+    if ready:
+        snap = run.serving_snapshot or {}
+        manifest = build_job_manifest(
+            run,
+            image=run.bench_image or DEFAULT_BENCH_IMAGE,
+            target_base_url=serving_target_url(run.serving_k8s_name, run.k8s_namespace),
+            api_key="EMPTY",
+            bench_model=snap.get("model_path"),
+        )
+        await k8s.create_job(run.k8s_namespace, manifest)
+        run.status = "pending"
+        run.started_at = _now()
+        return 1
+
+    if _age_s(run) > PROVISION_TIMEOUT_S:
+        run.status = "failed"
+        run.error_message = "Serving did not become ready within the provisioning timeout"
+        run.finished_at = _now()
+        return 1
+    return 0
+
+
+async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
+    """Poll a pending/running run's K8s Job and map it to a terminal status."""
+    if not run.k8s_job_name or not run.k8s_namespace:
+        return 0
+    try:
+        observed = await k8s.read_job_status(run.k8s_namespace, run.k8s_job_name)
+    except ApiException as e:
+        if e.status == 404:
+            run.status = "failed"
+            run.error_message = "K8s Job missing from cluster"
+            run.finished_at = _now()
+            return 1
+        logger.exception("K8s Job status read failed for benchmark %s", run.id)
+        return 0
+
+    active, succeeded, failed = observed["active"], observed["succeeded"], observed["failed"]
+    transitions = 0
+    if run.status == "pending" and (active or succeeded or failed):
+        run.status = "running"
+        run.started_at = run.started_at or _now()
+        transitions += 1
+
+    if succeeded > 0:
+        parsed = _parse_result(await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name))
+        run.status = "succeeded"
+        run.result = parsed
+        if parsed is None:
+            run.error_message = "Runner finished without emitting RESULT marker"
+        run.finished_at = _now()
+        transitions += 1
+    elif failed > 0:
+        parsed = _parse_result(await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name))
+        run.status = "failed"
+        run.error_message = _failure_message(observed["conditions"]) or "Job failed"
+        if parsed is not None:
+            run.result = parsed
+        run.finished_at = _now()
+        transitions += 1
+    return transitions
+
+
 async def reconcile_once() -> dict:
     polled = 0
     transitions = 0
     k8s = K8sClient()
     try:
         async with async_session_factory() as db:
+            # ❶ Drive provisioning → running → terminal.
             result = await db.execute(
                 select(CustomBenchmarkRun).where(
-                    CustomBenchmarkRun.status.in_(("pending", "running"))
+                    CustomBenchmarkRun.status.in_(("provisioning", "pending", "running"))
                 )
             )
-            runs = result.scalars().all()
-            for run in runs:
+            for run in result.scalars().all():
                 polled += 1
-                if not run.k8s_job_name or not run.k8s_namespace:
-                    continue
                 try:
-                    observed = await k8s.read_job_status(run.k8s_namespace, run.k8s_job_name)
+                    if run.status == "provisioning":
+                        transitions += await _drive_provisioning(k8s, run)
+                    else:
+                        transitions += await _drive_job(k8s, run)
                 except K8sNotConfigured:
                     logger.warning("K8s not configured; skipping benchmark reconciler pass")
                     return {"polled": 0, "transitions": 0, "skipped": True}
-                except ApiException as e:
-                    if e.status == 404:
-                        # Job was GCed or never landed; mark as failed.
-                        run.status = "failed"
-                        run.error_message = "K8s Job missing from cluster"
-                        run.finished_at = datetime.now(UTC)
-                        transitions += 1
-                        continue
-                    logger.exception("K8s Job status read failed for benchmark %s", run.id)
-                    continue
+                # Tear the temp serving down as soon as the run is terminal.
+                if run.ephemeral and not run.serving_torn_down and run.status in TERMINAL:
+                    await _teardown_serving(k8s, run)
 
-                active = observed["active"]
-                succeeded = observed["succeeded"]
-                failed = observed["failed"]
-                conditions = observed["conditions"]
-
-                if run.status == "pending" and (active or succeeded or failed):
-                    run.status = "running"
-                    run.started_at = datetime.now(UTC)
-                    transitions += 1
-
-                if succeeded > 0:
-                    logs = await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name)
-                    parsed = _parse_result(logs)
-                    run.status = "succeeded"
-                    run.result = parsed
-                    if parsed is None:
-                        run.error_message = "Runner finished without emitting RESULT marker"
-                    run.finished_at = datetime.now(UTC)
-                    transitions += 1
-                elif failed > 0:
-                    logs = await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name)
-                    run.status = "failed"
-                    run.error_message = _failure_message(conditions) or "Job failed"
-                    # Even on failure we keep a partial result if the runner managed to emit one.
-                    parsed = _parse_result(logs)
-                    if parsed is not None:
-                        run.result = parsed
-                    run.finished_at = datetime.now(UTC)
-                    transitions += 1
+            # ❷ Safety sweep — ephemeral runs that finished but still hold a
+            #    serving (e.g. teardown failed earlier or worker restarted).
+            sweep = await db.execute(
+                select(CustomBenchmarkRun).where(
+                    CustomBenchmarkRun.ephemeral.is_(True),
+                    CustomBenchmarkRun.serving_torn_down.is_(False),
+                    CustomBenchmarkRun.status.in_(TERMINAL),
+                )
+            )
+            for run in sweep.scalars().all():
+                await _teardown_serving(k8s, run)
 
             await db.commit()
     except Exception:

@@ -412,6 +412,7 @@ export interface UpdateAnnouncementRequest {
 export type BenchmarkTool = "vllm_serving" | "sglang_serving" | "lm_eval";
 export type BenchmarkKind = "performance" | "accuracy";
 export type BenchmarkStatus =
+  | "provisioning"
   | "pending"
   | "running"
   | "succeeded"
@@ -445,6 +446,8 @@ export interface BenchmarkRun {
   model_name: string;
   deployment_id: string | null;
   serving_snapshot: ServingSnapshot | null;
+  ephemeral: boolean;
+  serving_torn_down: boolean;
   tool: BenchmarkTool;
   kind: BenchmarkKind;
   params: Record<string, unknown>;
@@ -466,6 +469,8 @@ export interface BenchmarkListResponse {
 export interface CreateBenchmarkRequest {
   model_name?: string;
   deployment_id?: string;
+  ephemeral?: boolean;
+  serving_overrides?: Record<string, unknown>;
   tool: BenchmarkTool;
   params: Record<string, unknown>;
   namespace?: string;
