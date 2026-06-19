@@ -1063,7 +1063,12 @@
     "submitSuccess": "Benchmark started.",
     "submitFail": "Failed to start benchmark",
     "errorModelRequired": "Pick a model first.",
-    "errorTasksRequired": "Enter at least one task."
+    "errorTasksRequired": "Enter at least one task.",
+    "deploymentLabel": "Serving deployment",
+    "deploymentNone": "— none (use a registered alias) —",
+    "deploymentHint": "Benchmark a portal-managed serving deployment directly (recommended). Only Ready deployments are listed.",
+    "modelHintDisabled": "Ignored while a serving deployment is selected.",
+    "errorTargetRequired": "Select a serving deployment or a model alias."
   },
   "benchmarkCompare": {
     "pageTitle": "Compare benchmarks",
@@ -1084,6 +1089,8 @@
     "accuracyMetrics": "Accuracy metrics",
     "metric": "Metric",
     "perfLegend": "Throughput rows: higher is better. Latency (TTFT / TPOT / total) rows: lower is better.",
-    "accuracyLegend": "Higher value is highlighted as best; this assumes the metric is a score (higher = better)."
+    "accuracyLegend": "Higher value is highlighted as best; this assumes the metric is a score (higher = better).",
+    "serving": "Serving config",
+    "servingLegend": "Bold = differs across runs. Identical resource rows confirm a same-hardware comparison."
   }
 }

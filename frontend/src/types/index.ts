@@ -418,9 +418,33 @@ export type BenchmarkStatus =
   | "failed"
   | "cancelled";
 
+export interface ServingResources {
+  gpu_count: number;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+}
+
+/** Frozen serving config captured on a benchmark run (the deployment it tested). */
+export interface ServingSnapshot {
+  engine: string;
+  image: string;
+  model_path: string;
+  vllm_extra_args: string[];
+  env: Record<string, string>;
+  replicas: number;
+  resources: ServingResources;
+  node_selector: Record<string, string>;
+  namespace: string;
+}
+
 export interface BenchmarkRun {
   id: string;
   model_name: string;
+  deployment_id: string | null;
+  serving_snapshot: ServingSnapshot | null;
   tool: BenchmarkTool;
   kind: BenchmarkKind;
   params: Record<string, unknown>;
@@ -440,9 +464,27 @@ export interface BenchmarkListResponse {
 }
 
 export interface CreateBenchmarkRequest {
-  model_name: string;
+  model_name?: string;
+  deployment_id?: string;
   tool: BenchmarkTool;
   params: Record<string, unknown>;
   namespace?: string;
   image?: string;
+}
+
+/** Portal-managed serving deployment (subset used by the benchmark UI). */
+export interface ModelDeployment {
+  id: string;
+  model_name: string;
+  status: string;
+  ready_replicas: number;
+  gpu_count: number;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+  node_selector: Record<string, string> | null;
+  model_path: string;
+  image: string;
 }

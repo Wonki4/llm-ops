@@ -32,6 +32,7 @@ import type {
   BenchmarkRun,
   BenchmarkListResponse,
   CreateBenchmarkRequest,
+  ModelDeployment,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -945,6 +946,18 @@ export function useDeleteAnnouncement() {
     mutationFn: (id: string) =>
       apiFetch<{ status: string }>(`/api/announcements/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["announcements"] }),
+  });
+}
+
+// ─── Model Deployments (serving) ─────────────────────────────
+
+export function useModelDeployments() {
+  return useQuery({
+    queryKey: ["model-deployments"],
+    queryFn: () =>
+      apiFetch<{ deployments: ModelDeployment[] }>("/api/model-deployments").then(
+        (r) => r.deployments,
+      ),
   });
 }
 
