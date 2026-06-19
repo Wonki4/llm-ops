@@ -7,7 +7,7 @@ import { ArrowLeft, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateBenchmark, useModels } from "@/hooks/use-api";
+import { useCreateBenchmark, useModels, useModelDeployments } from "@/hooks/use-api";
 import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,8 +49,10 @@ export default function NewBenchmarkPage() {
   const tc = useTranslations("common");
   const router = useRouter();
   const { data: models, isLoading: modelsLoading } = useModels();
+  const { data: deployments } = useModelDeployments();
   const createMutation = useCreateBenchmark();
 
+  const [deploymentId, setDeploymentId] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
   const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
@@ -66,6 +68,13 @@ export default function NewBenchmarkPage() {
     if (!models) return [] as string[];
     return Array.from(new Set(models.map((m) => m.model_name))).sort();
   }, [models]);
+
+  // Only Ready serving deployments can be benchmarked directly.
+  const readyDeployments = useMemo(
+    () => (deployments ?? []).filter((d) => d.ready_replicas > 0),
+    [deployments],
+  );
+  const selectedDeployment = readyDeployments.find((d) => d.id === deploymentId) ?? null;
 
   const buildNamedParams = (): Record<string, unknown> => {
     if (kind === "performance") {
@@ -125,8 +134,8 @@ export default function NewBenchmarkPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!modelName.trim()) {
-      toast.error(t("errorModelRequired"));
+    if (!deploymentId && !modelName.trim()) {
+      toast.error(t("errorTargetRequired"));
       return;
     }
     if (kind === "accuracy") {
@@ -146,11 +155,16 @@ export default function NewBenchmarkPage() {
     }
 
     const body: CreateBenchmarkRequest = {
-      model_name: modelName.trim(),
       tool,
       // Extras override named so users can correct any field via JSON.
       params: { ...buildNamedParams(), ...extras.value },
     };
+    // Prefer a portal-managed serving deployment (hit directly); else a LiteLLM alias.
+    if (deploymentId) {
+      body.deployment_id = deploymentId;
+    } else {
+      body.model_name = modelName.trim();
+    }
     if (namespace.trim()) body.namespace = namespace.trim();
     if (image.trim()) body.image = image.trim();
 
@@ -185,13 +199,40 @@ export default function NewBenchmarkPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
+              <Label htmlFor="deployment">{t("deploymentLabel")}</Label>
+              <select
+                id="deployment"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                value={deploymentId}
+                onChange={(e) => setDeploymentId(e.target.value)}
+              >
+                <option value="">{t("deploymentNone")}</option>
+                {readyDeployments.map((d) => {
+                  const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
+                  return (
+                    <option key={d.id} value={d.id}>
+                      {d.model_name} — {d.gpu_count}×{gpu}
+                      {d.memory_limit ? ` · ${d.memory_limit}` : ""}
+                    </option>
+                  );
+                })}
+              </select>
+              <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
+              {selectedDeployment && (
+                <p className="font-mono text-xs text-muted-foreground">
+                  {selectedDeployment.model_path}
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1.5">
               <Label htmlFor="model_name">{t("modelLabel")}</Label>
               <select
                 id="model_name"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
                 value={modelName}
                 onChange={(e) => setModelName(e.target.value)}
-                disabled={modelsLoading}
+                disabled={modelsLoading || !!deploymentId}
               >
                 <option value="">{t("modelPlaceholder")}</option>
                 {modelOptions.map((m) => (
@@ -200,7 +241,9 @@ export default function NewBenchmarkPage() {
                   </option>
                 ))}
               </select>
-              <p className="text-xs text-muted-foreground">{t("modelHint")}</p>
+              <p className="text-xs text-muted-foreground">
+                {deploymentId ? t("modelHintDisabled") : t("modelHint")}
+              </p>
             </div>
 
             <div className="space-y-1.5">

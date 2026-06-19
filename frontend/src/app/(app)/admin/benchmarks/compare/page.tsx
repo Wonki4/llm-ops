@@ -8,7 +8,7 @@ import { useTranslations } from "next-intl";
 
 import { useBenchmarkBulk } from "@/hooks/use-api";
 import { useLocaleTag } from "@/lib/locale";
-import type { BenchmarkRun } from "@/types";
+import type { BenchmarkRun, ServingSnapshot } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,24 @@ const PERF_METRICS: MetricSpec[] = [
   { key: "total_s.p50", path: ["total_s", "p50"], direction: "lower" },
   { key: "total_s.p90", path: ["total_s", "p90"], direction: "lower" },
   { key: "total_s.p99", path: ["total_s", "p99"], direction: "lower" },
+  { key: "cold_start.ttft_s", path: ["cold_start", "ttft_s"], direction: "lower" },
+  { key: "cold_start.total_s", path: ["cold_start", "total_s"], direction: "lower" },
+];
+
+// Serving config attributes shown side-by-side (the "same resources" axis).
+const SERVING_ATTRS: { key: string; get: (s: ServingSnapshot) => string }[] = [
+  { key: "engine", get: (s) => s.engine },
+  { key: "image", get: (s) => s.image },
+  { key: "model_path", get: (s) => s.model_path },
+  {
+    key: "gpu",
+    get: (s) =>
+      `${s.resources.gpu_count}× ${s.node_selector?.["gpu-type"] ?? s.resources.gpu_resource_key}`,
+  },
+  { key: "cpu", get: (s) => s.resources.cpu_limit ?? s.resources.cpu_request ?? "-" },
+  { key: "memory", get: (s) => s.resources.memory_limit ?? s.resources.memory_request ?? "-" },
+  { key: "replicas", get: (s) => String(s.replicas) },
+  { key: "vllm_args", get: (s) => (s.vllm_extra_args || []).join(" ") || "-" },
 ];
 
 function getAt(obj: unknown, path: (string | number)[]): unknown {
@@ -306,6 +324,55 @@ function CompareInner() {
         </CardContent>
       </Card>
 
+      {ordered.some((r) => r.serving_snapshot) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("serving")}</CardTitle>
+          </CardHeader>
+          <CardContent className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4 font-medium text-muted-foreground w-40">
+                    {t("attribute")}
+                  </th>
+                  {ordered.map((r) => (
+                    <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
+                      {r.model_name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {SERVING_ATTRS.map(({ key, get }) => {
+                  const values = ordered.map((r) =>
+                    r.serving_snapshot ? get(r.serving_snapshot) : "-",
+                  );
+                  const allSame = values.every((v) => v === values[0]);
+                  return (
+                    <Row key={key} label={<span className="font-mono text-xs">{key}</span>}>
+                      {ordered.map((r, i) => (
+                        <Cell key={r.id}>
+                          <span
+                            className={cn(
+                              "font-mono text-xs break-all",
+                              !allSame && "font-semibold text-primary",
+                            )}
+                          >
+                            {values[i]}
+                          </span>
+                        </Cell>
+                      ))}
+                    </Row>
+                  );
+                })}
+              </tbody>
+            </table>
+            <p className="text-xs text-muted-foreground mt-3">{t("servingLegend")}</p>
+          </CardContent>
+        </Card>
+      )}
+
       {allPerf && (
         <Card>
           <CardHeader>
@@ -328,7 +395,8 @@ function CompareInner() {
               <tbody>
                 {PERF_METRICS.map(({ key, path, direction }) => {
                   const values = ordered.map((r) => {
-                    const v = getAt(r.result, path);
+                    const metrics = (r.result as { metrics?: unknown } | null)?.metrics ?? null;
+                    const v = getAt(metrics, path);
                     return typeof v === "number" ? v : null;
                   });
                   const { bestIdx, worstIdx } = pickBestWorst(values, direction);

@@ -1063,7 +1063,12 @@
     "submitSuccess": "벤치마크가 시작되었습니다.",
     "submitFail": "벤치마크 시작 실패",
     "errorModelRequired": "모델을 먼저 선택하세요.",
-    "errorTasksRequired": "Task를 최소 한 개 이상 입력하세요."
+    "errorTasksRequired": "Task를 최소 한 개 이상 입력하세요.",
+    "deploymentLabel": "서빙 디플로이먼트",
+    "deploymentNone": "— 없음 (등록된 별칭 사용) —",
+    "deploymentHint": "포털이 관리하는 서빙 디플로이먼트를 직접 벤치마크 (권장). Ready 상태만 표시됩니다.",
+    "modelHintDisabled": "서빙 디플로이먼트 선택 시 무시됩니다.",
+    "errorTargetRequired": "서빙 디플로이먼트 또는 모델 별칭을 선택하세요."
   },
   "benchmarkCompare": {
     "pageTitle": "벤치마크 비교",
@@ -1084,6 +1089,8 @@
     "accuracyMetrics": "정확도 지표",
     "metric": "지표",
     "perfLegend": "처리량 항목: 큰 값이 좋음. 지연(TTFT / TPOT / total) 항목: 작은 값이 좋음.",
-    "accuracyLegend": "큰 값을 최고로 강조합니다 (지표가 점수형(높을수록 좋음)이라는 가정)."
+    "accuracyLegend": "큰 값을 최고로 강조합니다 (지표가 점수형(높을수록 좋음)이라는 가정).",
+    "serving": "서빙 구성",
+    "servingLegend": "굵게 = 런 간 차이. 자원 행이 동일하면 같은 하드웨어 비교임을 뜻합니다."
   }
 }
