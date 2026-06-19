@@ -149,6 +149,45 @@ export default function AdminBenchmarkDetailPage({
         </CardContent>
       </Card>
 
+      {run.serving_snapshot && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("serving")}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <Row label="Engine" value={run.serving_snapshot.engine} />
+            <Row label="Image" value={run.serving_snapshot.image} mono />
+            <Row label="Model" value={run.serving_snapshot.model_path} mono />
+            <Row
+              label="GPU"
+              value={`${run.serving_snapshot.resources.gpu_count}× ${
+                run.serving_snapshot.node_selector?.["gpu-type"] ??
+                run.serving_snapshot.resources.gpu_resource_key
+              }`}
+            />
+            <Row
+              label="CPU"
+              value={
+                run.serving_snapshot.resources.cpu_limit ??
+                run.serving_snapshot.resources.cpu_request ??
+                "-"
+              }
+            />
+            <Row
+              label="Memory"
+              value={
+                run.serving_snapshot.resources.memory_limit ??
+                run.serving_snapshot.resources.memory_request ??
+                "-"
+              }
+            />
+            {run.serving_snapshot.vllm_extra_args.length > 0 && (
+              <Row label="vLLM args" value={run.serving_snapshot.vllm_extra_args.join(" ")} mono />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("params")}</CardTitle>

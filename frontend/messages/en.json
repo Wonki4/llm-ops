@@ -1004,7 +1004,8 @@
     "cancel": "Cancel run",
     "confirmCancel": "Cancel this benchmark run? The K8s Job will be deleted.",
     "cancelSuccess": "Benchmark cancelled.",
-    "cancelFail": "Failed to cancel benchmark"
+    "cancelFail": "Failed to cancel benchmark",
+    "serving": "Serving config"
   },
   "benchmarkStatus": {
     "pending": "Pending",
