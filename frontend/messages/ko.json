@@ -1004,7 +1004,8 @@
     "cancel": "실행 취소",
     "confirmCancel": "이 벤치마크 실행을 취소할까요? K8s Job이 삭제됩니다.",
     "cancelSuccess": "벤치마크가 취소되었습니다.",
-    "cancelFail": "벤치마크 취소 실패"
+    "cancelFail": "벤치마크 취소 실패",
+    "serving": "서빙 구성"
   },
   "benchmarkStatus": {
     "pending": "대기 중",
