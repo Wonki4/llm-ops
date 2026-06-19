@@ -24,6 +24,15 @@ class CustomBenchmarkRun(CustomBase):
     tool: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # When the run targets a portal-managed serving deployment (vLLM/SGLang),
+    # `deployment_id` links to custom_model_deployment and `serving_snapshot`
+    # freezes that serving's config (image, args, env, resources, gpu, node
+    # selector) at run time so results stay comparable even if the deployment
+    # is later edited or deleted. Null for legacy "hit the LiteLLM alias" runs.
+    deployment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    serving_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending", index=True
     )
