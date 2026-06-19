@@ -23,6 +23,7 @@ def build_job_manifest(
     image: str,
     target_base_url: str,
     api_key: str,
+    bench_model: str | None = None,
     backoff_limit: int = 0,
     ttl_seconds_after_finished: int = 7 * 24 * 3600,
 ) -> dict:
@@ -69,7 +70,7 @@ def build_job_manifest(
                             "env": [
                                 {"name": "BENCH_TOOL", "value": run.tool},
                                 {"name": "BENCH_KIND", "value": run.kind},
-                                {"name": "BENCH_MODEL", "value": run.model_name},
+                                {"name": "BENCH_MODEL", "value": bench_model or run.model_name},
                                 {"name": "BENCH_TARGET_URL", "value": target_base_url},
                                 {"name": "BENCH_API_KEY", "value": api_key},
                                 {"name": "BENCH_PARAMS_JSON", "value": json.dumps(run.params)},
