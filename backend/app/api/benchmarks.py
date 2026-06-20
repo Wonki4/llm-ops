@@ -17,11 +17,17 @@ from app.auth.deps import require_super_user
 from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.clusters import k8s_for_cluster
-from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job, job_name_for
+from app.services.benchmark_manifests import (
+    build_job_manifest,
+    build_vllm_bench_job,
+    job_name_for,
+    pvc_pair_incomplete,
+    resolve_bench_pvc,
+)
 from app.services.benchmark_serving import (
     build_ephemeral_deployment,
     ephemeral_manifests,
@@ -29,6 +35,7 @@ from app.services.benchmark_serving import (
     serving_resource_names,
     serving_target_url,
 )
+from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import k8s_resource_names
 
 logger = logging.getLogger(__name__)
@@ -110,6 +117,8 @@ def _build_bench_job(
     target_base: str,
     api_key: str,
     image_override: str | None,
+    cluster_default_pvc_name: str | None = None,
+    cluster_default_pvc_mount_path: str | None = None,
 ) -> dict:
     """Pick the manifest for a run: performance → official `vllm bench serve`
     (on a vLLM image), accuracy → the lm-eval runner image. Shared by create
@@ -118,12 +127,16 @@ def _build_bench_job(
     params = run.params or {}
     if deployment is not None:
         served_model = deployment.model_path
-        pvc_name, pvc_mount = deployment.pvc_name, deployment.pvc_mount_path
         perf_default_image = deployment.image
     else:
         served_model = run.model_name
-        pvc_name, pvc_mount = None, None
         perf_default_image = settings.vllm_bench_image
+    pvc_name, pvc_mount = resolve_bench_pvc(
+        deployment,
+        params,
+        default_name=cluster_default_pvc_name,
+        default_mount_path=cluster_default_pvc_mount_path,
+    )
 
     if run.kind == "performance":
         tokenizer = params.get("tokenizer") or served_model
@@ -145,6 +158,25 @@ def _build_bench_job(
         api_key=api_key,
         bench_model=deployment.model_path if deployment is not None else None,
     )
+
+
+async def _cluster_pvc_defaults(
+    db: AsyncSession, cluster_uuid: uuid.UUID | None
+) -> tuple[str | None, str | None]:
+    """Default (PVC claim name, mount path) for the run's registered cluster.
+
+    Returns (None, None) for the portal default cluster or an unknown id.
+    """
+    if cluster_uuid is None:
+        return None, None
+    row = (
+        await db.execute(
+            select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_uuid)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None, None
+    return row.default_pvc_name, row.default_pvc_mount_path
 
 
 def _serialize(r: CustomBenchmarkRun) -> dict:
@@ -221,6 +253,11 @@ async def create_benchmark(
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
     image = body.image or DEFAULT_BENCH_IMAGE
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    if pvc_pair_incomplete(body.params.get("pvc_name"), body.params.get("pvc_mount_path")):
+        raise HTTPException(
+            status_code=400,
+            detail="pvc_name and pvc_mount_path must be set together",
+        )
     k8s = await k8s_for_cluster(db, cluster_uuid)
 
     # Ephemeral mode: clone a template deployment into a throwaway serving. The
@@ -332,12 +369,15 @@ async def create_benchmark(
         target_base = settings.litellm_base_url.rstrip("/")
         api_key = settings.litellm_admin_api_key
 
+    cl_pvc_name, cl_pvc_mount = await _cluster_pvc_defaults(db, cluster_uuid)
     manifest = _build_bench_job(
         run,
         deployment=deployment,
         target_base=target_base,
         api_key=api_key,
         image_override=body.image or None,
+        cluster_default_pvc_name=cl_pvc_name,
+        cluster_default_pvc_mount_path=cl_pvc_mount,
     )
     try:
         await k8s.create_job(namespace, manifest)
@@ -447,6 +487,9 @@ async def preview_benchmark(
         else:
             target_base = settings.litellm_base_url.rstrip("/")
             api_key = settings.litellm_admin_api_key
+        cl_pvc_name, cl_pvc_mount = await _cluster_pvc_defaults(
+            db, uuid.UUID(body.cluster_id) if body.cluster_id else None
+        )
         manifests.append(
             _build_bench_job(
                 run,
@@ -454,6 +497,8 @@ async def preview_benchmark(
                 target_base=target_base,
                 api_key=api_key,
                 image_override=body.image or None,
+                cluster_default_pvc_name=cl_pvc_name,
+                cluster_default_pvc_mount_path=cl_pvc_mount,
             )
         )
 

@@ -504,6 +504,8 @@ export interface K8sClusterSummary {
   api_server: string | null;
   is_default: boolean;
   description: string | null;
+  default_pvc_name: string | null;
+  default_pvc_mount_path: string | null;
   has_kubeconfig: boolean;
   created_by: string | null;
   created_at: string | null;

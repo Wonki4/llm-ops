@@ -27,6 +27,10 @@ class CustomK8sCluster(CustomBase):
     )
     kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Optional default model-weights PVC for benchmarks against a raw model_name.
+    # Both nullable; a per-run override (params) takes precedence. Non-secret.
+    default_pvc_name: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    default_pvc_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_default: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

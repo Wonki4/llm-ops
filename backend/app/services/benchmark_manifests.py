@@ -9,13 +9,46 @@ from __future__ import annotations
 import json
 import shlex
 import uuid
+from typing import TYPE_CHECKING
 
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
+
+if TYPE_CHECKING:
+    from app.db.models.custom_model_deployment import CustomModelDeployment
 
 
 def job_name_for(run_id: uuid.UUID) -> str:
     """Deterministic Job name from a run id. K8s names ≤ 63 chars, lowercase."""
     return f"bench-{str(run_id)[:32]}"
+
+
+def pvc_pair_incomplete(name: str | None, mount_path: str | None) -> bool:
+    """True when exactly one of (claim name, mount path) is set.
+
+    A PVC mount needs both; callers reject an incomplete pair with a 400.
+    """
+    return bool(name) != bool(mount_path)
+
+
+def resolve_bench_pvc(
+    deployment: CustomModelDeployment | None,
+    params: dict | None,
+    *,
+    default_name: str | None = None,
+    default_mount_path: str | None = None,
+) -> tuple[str | None, str | None]:
+    """Pick the PVC (claim name, mount path) for a performance benchmark.
+
+    Precedence: a targeted serving deployment's own PVC → a per-run override in
+    ``params`` (``pvc_name`` / ``pvc_mount_path``) → the cluster's default PVC →
+    none. Empty strings are normalised to None.
+    """
+    if deployment is not None:
+        return deployment.pvc_name, deployment.pvc_mount_path
+    p = params or {}
+    name = (p.get("pvc_name") or default_name) or None
+    mount = (p.get("pvc_mount_path") or default_mount_path) or None
+    return name, mount
 
 
 def build_vllm_bench_job(

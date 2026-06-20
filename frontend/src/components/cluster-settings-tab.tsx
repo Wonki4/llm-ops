@@ -41,6 +41,8 @@ type FormState = {
   kubeconfig: string;
   description: string;
   is_default: boolean;
+  default_pvc_name: string;
+  default_pvc_mount_path: string;
 };
 
 const EMPTY: FormState = {
@@ -50,6 +52,8 @@ const EMPTY: FormState = {
   kubeconfig: "",
   description: "",
   is_default: false,
+  default_pvc_name: "",
+  default_pvc_mount_path: "",
 };
 
 export function ClusterSettingsTab() {
@@ -84,6 +88,8 @@ export function ClusterSettingsTab() {
       kubeconfig: "", // masked — empty keeps existing
       description: c.description ?? "",
       is_default: c.is_default,
+      default_pvc_name: c.default_pvc_name ?? "",
+      default_pvc_mount_path: c.default_pvc_mount_path ?? "",
     });
     setTestResult(null);
     setDialogOpen(true);
@@ -110,6 +116,12 @@ export function ClusterSettingsTab() {
       toast.error(t("kubeconfigRequired"));
       return;
     }
+    const pvcName = form.default_pvc_name.trim();
+    const pvcMount = form.default_pvc_mount_path.trim();
+    if (!!pvcName !== !!pvcMount) {
+      toast.error(t("pvcPairRequired"));
+      return;
+    }
 
     if (editing) {
       const body: Record<string, unknown> = {
@@ -118,6 +130,8 @@ export function ClusterSettingsTab() {
         namespace: form.namespace,
         description: form.description,
         is_default: form.is_default,
+        default_pvc_name: pvcName,
+        default_pvc_mount_path: pvcMount,
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
       updateMut.mutate(
@@ -138,6 +152,8 @@ export function ClusterSettingsTab() {
         kubeconfig: form.kubeconfig,
         description: form.description || null,
         is_default: form.is_default,
+        default_pvc_name: pvcName || null,
+        default_pvc_mount_path: pvcMount || null,
       };
       createMut.mutate(body, {
         onSuccess: () => {
@@ -324,6 +340,26 @@ export function ClusterSettingsTab() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
                 placeholder={t("descriptionPlaceholder")}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>{t("defaultPvcLabel")}</Label>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  id="cluster-pvc-name"
+                  value={form.default_pvc_name}
+                  onChange={(e) => setForm({ ...form, default_pvc_name: e.target.value })}
+                  placeholder={t("pvcNamePlaceholder")}
+                />
+                <Input
+                  id="cluster-pvc-mount"
+                  value={form.default_pvc_mount_path}
+                  onChange={(e) =>
+                    setForm({ ...form, default_pvc_mount_path: e.target.value })
+                  }
+                  placeholder={t("pvcMountPlaceholder")}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">{t("defaultPvcHint")}</p>
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
