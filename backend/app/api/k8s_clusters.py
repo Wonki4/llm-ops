@@ -23,6 +23,7 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import crypto
+from app.services.benchmark_manifests import pvc_pair_incomplete
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,8 @@ class CreateClusterRequest(BaseModel):
     kubeconfig: str
     description: str | None = None
     is_default: bool = False
+    default_pvc_name: str | None = None
+    default_pvc_mount_path: str | None = None
 
 
 class UpdateClusterRequest(BaseModel):
@@ -45,6 +48,8 @@ class UpdateClusterRequest(BaseModel):
     kubeconfig: str | None = None  # omitted/empty = keep existing
     description: str | None = None
     is_default: bool | None = None
+    default_pvc_name: str | None = None
+    default_pvc_mount_path: str | None = None
 
 
 class TestClusterRequest(BaseModel):
@@ -92,6 +97,8 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "api_server": c.api_server,
         "is_default": c.is_default,
         "description": c.description,
+        "default_pvc_name": c.default_pvc_name,
+        "default_pvc_mount_path": c.default_pvc_mount_path,
         "has_kubeconfig": bool(c.kubeconfig_encrypted),
         "created_by": c.created_by,
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -131,6 +138,12 @@ async def create_cluster(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Cluster '{body.name}' already exists")
 
+    if pvc_pair_incomplete(body.default_pvc_name, body.default_pvc_mount_path):
+        raise HTTPException(
+            status_code=400,
+            detail="default_pvc_name and default_pvc_mount_path must be set together",
+        )
+
     _parsed, api_server = _parse_kubeconfig(body.kubeconfig, body.context)
 
     cluster = CustomK8sCluster(
@@ -142,6 +155,8 @@ async def create_cluster(
         api_server=api_server,
         is_default=body.is_default,
         description=body.description,
+        default_pvc_name=body.default_pvc_name or None,
+        default_pvc_mount_path=body.default_pvc_mount_path or None,
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -176,6 +191,15 @@ async def update_cluster(
         cluster.description = body.description
     if body.context is not None:
         cluster.context = body.context
+    if body.default_pvc_name is not None:
+        cluster.default_pvc_name = body.default_pvc_name or None
+    if body.default_pvc_mount_path is not None:
+        cluster.default_pvc_mount_path = body.default_pvc_mount_path or None
+    if pvc_pair_incomplete(cluster.default_pvc_name, cluster.default_pvc_mount_path):
+        raise HTTPException(
+            status_code=400,
+            detail="default_pvc_name and default_pvc_mount_path must be set together",
+        )
 
     # Re-validate + re-parse api_server when kubeconfig or context changes.
     new_kubeconfig = body.kubeconfig if (body.kubeconfig or "").strip() else None
