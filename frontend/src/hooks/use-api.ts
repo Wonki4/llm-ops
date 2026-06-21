@@ -1228,6 +1228,10 @@ export interface CreateLlmdStackBody {
   argocd_connection_id: string;
   namespace?: string;
   replicas?: number;
+  model_server_type?: string;
+  target_port?: number;
+  endpoint_selector?: string | null;
+  values_override?: Record<string, unknown>;
 }
 
 export type UpdateLlmdStackBody = Partial<
@@ -1291,6 +1295,10 @@ export interface PreviewLlmdStackBody {
   target_model_name?: string;
   namespace?: string;
   replicas?: number;
+  model_server_type?: string;
+  target_port?: number;
+  endpoint_selector?: string | null;
+  values_override?: Record<string, unknown>;
 }
 
 export function useLlmdStackPreview() {

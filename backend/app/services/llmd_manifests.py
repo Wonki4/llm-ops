@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from app.services.model_deployment_manifests import LABEL_MODEL, VLLM_PORT
+from app.services.model_deployment_manifests import LABEL_MODEL
 
 if TYPE_CHECKING:
     from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -26,27 +26,44 @@ def argo_app_name_for(name: str) -> str:
     return f"llmd-{safe}"
 
 
+def deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge ``override`` into a copy of ``base`` (override wins)."""
+    out = dict(base)
+    for key, val in (override or {}).items():
+        if isinstance(val, dict) and isinstance(out.get(key), dict):
+            out[key] = deep_merge(out[key], val)
+        else:
+            out[key] = val
+    return out
+
+
 def build_llmd_values(stack: CustomLlmdStack, *, image_registry: str) -> dict:
     """Helm values for the gateway-api-inference-extension ``standalone`` chart.
 
     That chart deploys the EPP / inference scheduler (the prefix-cache-aware
     router) in front of **already-running** model servers — it does not provision
-    vLLM itself. The router selects the target model's pods by label
-    (``llm-ops/model-name``, set by the portal's deployment manifests) on the vLLM
-    port. ``replicas`` is the EPP replica count; the image registry is pinned for
-    air-gap.
+    vLLM itself. The router selects the model server pods by ``endpointSelector``
+    (a ``key=value`` label string; defaults to the portal's
+    ``llm-ops/model-name=<target>`` label) on ``targetPorts``.
+
+    A minimal, correct base is generated from the structured fields, then the
+    stack's ``values_override`` is deep-merged on top so any chart option can be
+    set.
     """
-    return {
+    selector = stack.endpoint_selector or f"{LABEL_MODEL}={stack.target_model_name}"
+    base = {
         "inferenceExtension": {
             "replicas": stack.replicas,
             "image": {"registry": image_registry},
-        },
-        "inferencePool": {
-            "modelServerProtocol": "http",
-            "targetPortNumber": VLLM_PORT,
-            "modelServers": {"matchLabels": {LABEL_MODEL: stack.target_model_name}},
+            "endpointsServer": {
+                "createInferencePool": False,
+                "endpointSelector": selector,
+                "targetPorts": stack.target_port,
+                "modelServerType": stack.model_server_type,
+            },
         },
     }
+    return deep_merge(base, stack.values_override or {})
 
 
 def build_argo_application(
