@@ -14,6 +14,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { JsonEditor } from "@/components/json-editor";
+import { LabelSelectorInput } from "@/components/label-selector-input";
 
 type EditState = {
   namespace: string;
@@ -170,18 +172,20 @@ export default function LlmdPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="llmd-selector">{t("endpointSelector")}</Label>
-                <Input id="llmd-selector" value={form.endpoint_selector} onChange={(e) => setForm({ ...form, endpoint_selector: e.target.value })} placeholder={t("endpointSelectorPlaceholder")} />
+                <Label>{t("endpointSelector")}</Label>
+                <LabelSelectorInput
+                  value={form.endpoint_selector}
+                  onChange={(v) => setForm({ ...form, endpoint_selector: v })}
+                  addLabel={t("addLabel")}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="llmd-override">{t("valuesOverride")}</Label>
-                <textarea
+                <JsonEditor
                   id="llmd-override"
                   value={form.values_override}
-                  onChange={(e) => setForm({ ...form, values_override: e.target.value })}
+                  onChange={(v) => setForm({ ...form, values_override: v })}
                   placeholder={t("valuesOverridePlaceholder")}
-                  className="w-full min-h-28 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  spellCheck={false}
                 />
               </div>
             </div>

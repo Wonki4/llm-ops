@@ -12,6 +12,7 @@ import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { JsonEditor } from "@/components/json-editor";
 import { Label } from "@/components/ui/label";
 
 const TOOL_OPTIONS: BenchmarkTool[] = [
@@ -358,13 +359,12 @@ export default function NewBenchmarkPage() {
                 {ephemeral && (
                   <div className="space-y-1.5">
                     <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
-                    <textarea
+                    <JsonEditor
                       id="serving_overrides"
-                      rows={3}
-                      className="flex w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
                       value={servingOverridesText}
-                      onChange={(e) => setServingOverridesText(e.target.value)}
+                      onChange={setServingOverridesText}
+                      placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
+                      minHeight="min-h-20"
                     />
                     <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
                   </div>
@@ -438,16 +438,11 @@ export default function NewBenchmarkPage() {
           </CardHeader>
           <CardContent className="space-y-2">
             <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
-            <textarea
+            <JsonEditor
               id="extra_params"
-              rows={5}
-              spellCheck={false}
-              placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
-              className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
               value={extraParamsText}
-              onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                setExtraParamsText(e.target.value)
-              }
+              onChange={setExtraParamsText}
+              placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
             />
             <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
           </CardContent>
