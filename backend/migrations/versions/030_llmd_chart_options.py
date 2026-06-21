@@ -4,16 +4,16 @@ Adds the model-server selector / type / port and a free-form values override
 (deep-merged into the generated chart values), so operators can set any chart
 option.
 
-Revision ID: 029_llmd_chart_options
-Revises: 028_llmd_target_model
+Revision ID: 030_llmd_chart_options
+Revises: 029_llmd_target_model
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "029_llmd_chart_options"
-down_revision = "028_llmd_target_model"
+revision = "030_llmd_chart_options"
+down_revision = "029_llmd_target_model"
 branch_labels = None
 depends_on = None
 

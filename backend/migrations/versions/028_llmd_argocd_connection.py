@@ -2,16 +2,16 @@
 
 Adds nullable FK custom_llmd_stack.argocd_connection_id -> custom_argocd_connection.
 
-Revision ID: 027_llmd_argocd_connection
-Revises: 026_argocd_connection
+Revision ID: 028_llmd_argocd_connection
+Revises: 027_argocd_connection
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "027_llmd_argocd_connection"
-down_revision = "026_argocd_connection"
+revision = "028_llmd_argocd_connection"
+down_revision = "027_argocd_connection"
 branch_labels = None
 depends_on = None
 

@@ -1,15 +1,15 @@
 """llm-d serving stacks (ArgoCD-managed).
 
-Revision ID: 025_llmd_stack
-Revises: 022_bench_deploy_cluster
+Revision ID: 026_llmd_stack
+Revises: 025_model_icon_url
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "025_llmd_stack"
-down_revision = "022_bench_deploy_cluster"
+revision = "026_llmd_stack"
+down_revision = "025_model_icon_url"
 branch_labels = None
 depends_on = None
 
