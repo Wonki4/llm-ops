@@ -1,15 +1,15 @@
 """Registered ArgoCD connections (server URL + encrypted API token).
 
-Revision ID: 026_argocd_connection
-Revises: 025_llmd_stack
+Revision ID: 027_argocd_connection
+Revises: 026_llmd_stack
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "026_argocd_connection"
-down_revision = "025_llmd_stack"
+revision = "027_argocd_connection"
+down_revision = "026_llmd_stack"
 branch_labels = None
 depends_on = None
 

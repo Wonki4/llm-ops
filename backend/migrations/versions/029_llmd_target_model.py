@@ -4,15 +4,15 @@ The gateway-api-inference-extension standalone chart routes to already-running
 model servers, so a stack references an existing model rather than provisioning
 one: rename model_ref -> target_model_name and drop the served-name / GPU columns.
 
-Revision ID: 028_llmd_target_model
-Revises: 027_llmd_argocd_connection
+Revision ID: 029_llmd_target_model
+Revises: 028_llmd_argocd_connection
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "028_llmd_target_model"
-down_revision = "027_llmd_argocd_connection"
+revision = "029_llmd_target_model"
+down_revision = "028_llmd_argocd_connection"
 branch_labels = None
 depends_on = None
 
