@@ -49,11 +49,13 @@ class Settings(BaseSettings):
     # llm-d stack (ArgoCD-deployed). Air-gap: internal chart repo + image registry.
     # Isolation: every Application is scoped to a dedicated AppProject so it can
     # never affect other projects' apps.
-    llmd_chart_repo: str = "oci://internal-registry.local/charts"
-    llmd_chart_name: str = "llm-d-stack"
-    llmd_chart_version: str = "0.7.0"
-    llmd_image_registry: str = "internal-registry.local"
-    llmd_hf_secret_name: str = "llm-d-hf-token"
+    # gateway-api-inference-extension "standalone" chart = the EPP / inference
+    # scheduler (prefix-cache-aware router). Air-gap: mirror the chart + EPP image
+    # to an internal registry and override these.
+    llmd_chart_repo: str = "oci://registry.k8s.io/gateway-api-inference-extension/charts"
+    llmd_chart_name: str = "standalone"
+    llmd_chart_version: str = "v1.5.0"
+    llmd_image_registry: str = "registry.k8s.io"
     argo_project: str = "llm-d"
 
     slack_webhook_url: str = ""

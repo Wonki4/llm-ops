@@ -3,6 +3,40 @@
 **Date:** 2026-06-21
 **Branch:** `feat/llmd-stack-menu` (new feature branch off `main`)
 
+## Update (2026-06-21): ArgoCD connection registry + REST API
+
+The portal connects to ArgoCD as a **first-class registered connection** (a
+settings menu mirroring the K8s cluster tab), and manages Applications through
+**ArgoCD's REST API** — not by applying an `Application` CR via `K8sClient`. This
+supersedes the "apply CR to `argocd_namespace`" mechanism below.
+
+- **New entity `custom_argocd_connection`** (migration before the llm-d API):
+  `id, name(unique), server_url, token_encrypted (Fernet, via existing
+  `app/services/crypto.py`), insecure_skip_verify(bool), is_default(bool),
+  description, created/updated_by, timestamps`. The token is **masked on read**
+  (never returned); list/get expose `has_token` only. A **connection test** calls
+  ArgoCD `GET /api/v1/session/userinfo` (or `/api/version`).
+- **New ArgoCD REST client** `app/clients/argocd.py` (httpx, bearer token, TLS
+  verify toggle): `create_application(app)`, `get_application(name)` (None on
+  404), `delete_application(name)`, `version()` / `userinfo()` for the test.
+  Application CRUD maps to `POST/GET/DELETE /api/v1/applications`.
+- **New CRUD API** `/api/admin/argocd-connections` (super-user, masked,
+  `/test` + `/{id}/test`) — mirrors `app/api/k8s_clusters.py`.
+- **Settings UI**: a new **ArgoCD** tab in `/admin/settings` (alongside
+  일반/팀/클러스터) with a `argocd-settings-tab.tsx` component modeled on
+  `cluster-settings-tab.tsx` (list, add/edit with masked token, connection test,
+  delete).
+- **llm-d stack** gains `argocd_connection_id` (FK → custom_argocd_connection).
+  The llm-d API builds the same Argo Application **body** (`build_argo_application`)
+  but sends it via the ArgoCD REST client of the chosen connection; status is read
+  live from `get_application`. The `cluster_id` column becomes an optional
+  Application-destination hint (MVP destination stays in-cluster).
+- `argocd_namespace` setting is no longer used for apply; the connection's
+  `server_url` + token replace it.
+
+The sections below are the original (CR-via-K8sClient) design, kept for context;
+the data model / flow above governs.
+
 ## Problem
 
 The portal serves models by applying raw K8s manifests (Deployment/Service/
@@ -117,3 +151,24 @@ Status is **not** stored — it is read live from the Application CR.
   destinations are later work.
 - No status reconciler — if a stack's cluster is unreachable, status shows
   `Unknown` until the next query.
+
+## Update (2026-06-21): standalone chart + target an existing model
+
+The Application now deploys the **`gateway-api-inference-extension` `standalone`
+chart** (`oci://registry.k8s.io/gateway-api-inference-extension/charts/standalone`,
+`v1.5.0`) — the **EPP / inference scheduler (prefix-cache-aware router) only**.
+It does **not** provision vLLM; it routes to **already-running** model servers.
+
+- A stack now references an **existing model** (`target_model_name`, an existing
+  portal deployment's `model_name`) instead of provisioning one. Migration `028`
+  renames `model_ref → target_model_name` and drops `served_model_name`,
+  `gpu_count`, `gpu_resource_key`.
+- `build_llmd_values` emits the standalone chart's schema:
+  `inferenceExtension.{replicas,image.registry}` +
+  `inferencePool.{modelServerProtocol:http, targetPortNumber:8000,
+  modelServers.matchLabels:{llm-ops/model-name: <target>}}` — the router selects
+  the existing model's pods by the portal's deployment label.
+- Air-gap: `registry.k8s.io` is the out-of-box default; mirror the chart + EPP
+  image internally and override `llmd_chart_repo` / `llmd_image_registry`.
+- The vLLM model servers themselves are deployed by the existing model-deployment
+  flow (or separately), not by this stack.

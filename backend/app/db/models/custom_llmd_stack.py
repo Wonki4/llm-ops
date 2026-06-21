@@ -19,8 +19,9 @@ class CustomLlmdStack(CustomBase):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
-    model_ref: Mapped[str] = mapped_column(String(512), nullable=False)
-    served_model_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    # The already-running model the EPP router targets (an existing deployment's
+    # model_name; the router selects its pods by the llm-ops/model-name label).
+    target_model_name: Mapped[str] = mapped_column(String(256), nullable=False)
     cluster_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("custom_k8s_cluster.id", ondelete="RESTRICT"),
@@ -36,11 +37,8 @@ class CustomLlmdStack(CustomBase):
     )
     namespace: Mapped[str] = mapped_column(String(128), nullable=False, default="default", server_default="default")
     argo_app_name: Mapped[str] = mapped_column(String(253), nullable=False)
+    # EPP / inference-scheduler replica count.
     replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
-    gpu_resource_key: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="nvidia.com/gpu", server_default="nvidia.com/gpu"
-    )
     values_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -10,6 +10,7 @@ import { useTranslations } from "next-intl";
 import {
   useCreateLlmdStack,
   useArgocdConnections,
+  useModelDeployments,
   useLlmdStackPreview,
   type CreateLlmdStackBody,
   type PreviewLlmdStackBody,
@@ -22,45 +23,36 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 type FormState = {
   name: string;
-  model_ref: string;
-  served_model_name: string;
+  target_model_name: string;
   argocd_connection_id: string;
   namespace: string;
   replicas: number;
-  gpu_count: number;
-  gpu_resource_key: string;
 };
 
 const EMPTY: FormState = {
   name: "",
-  model_ref: "",
-  served_model_name: "",
+  target_model_name: "",
   argocd_connection_id: "",
   namespace: "default",
   replicas: 1,
-  gpu_count: 1,
-  gpu_resource_key: "nvidia.com/gpu",
 };
 
 export default function NewLlmdStackPage() {
   const t = useTranslations("llmd");
   const router = useRouter();
   const { data: connections } = useArgocdConnections();
+  const { data: deployments } = useModelDeployments();
   const createMut = useCreateLlmdStack();
   const previewMut = useLlmdStackPreview();
   const [form, setForm] = useState<FormState>(EMPTY);
   const [manifests, setManifests] = useState<LlmdPreviewManifest[]>([]);
 
-  // Live "how this deploys" preview — the ArgoCD Application YAML, debounced.
   const previewBody = useMemo<PreviewLlmdStackBody>(
     () => ({
       name: form.name,
-      model_ref: form.model_ref,
-      served_model_name: form.served_model_name,
+      target_model_name: form.target_model_name,
       namespace: form.namespace,
       replicas: form.replicas,
-      gpu_count: form.gpu_count,
-      gpu_resource_key: form.gpu_resource_key,
     }),
     [form],
   );
@@ -76,7 +68,7 @@ export default function NewLlmdStackPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name.trim() || !form.model_ref.trim() || !form.served_model_name.trim()) {
+    if (!form.name.trim() || !form.target_model_name) {
       toast.error(t("nameModelRequired"));
       return;
     }
@@ -86,13 +78,10 @@ export default function NewLlmdStackPage() {
     }
     const body: CreateLlmdStackBody = {
       name: form.name,
-      model_ref: form.model_ref,
-      served_model_name: form.served_model_name,
+      target_model_name: form.target_model_name,
       argocd_connection_id: form.argocd_connection_id,
       namespace: form.namespace,
       replicas: form.replicas,
-      gpu_count: form.gpu_count,
-      gpu_resource_key: form.gpu_resource_key,
     };
     createMut.mutate(body, {
       onSuccess: () => {
@@ -131,15 +120,20 @@ export default function NewLlmdStackPage() {
                 <Label htmlFor="llmd-name">{t("name")}</Label>
                 <Input id="llmd-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-model">{t("modelRef")}</Label>
-                  <Input id="llmd-model" value={form.model_ref} onChange={(e) => setForm({ ...form, model_ref: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-served">{t("servedName")}</Label>
-                  <Input id="llmd-served" value={form.served_model_name} onChange={(e) => setForm({ ...form, served_model_name: e.target.value })} />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="llmd-model">{t("targetModel")}</Label>
+                <select
+                  id="llmd-model"
+                  value={form.target_model_name}
+                  onChange={(e) => setForm({ ...form, target_model_name: e.target.value })}
+                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                >
+                  <option value="">{t("targetModelPlaceholder")}</option>
+                  {(deployments ?? []).map((d) => (
+                    <option key={d.id} value={d.model_name}>{d.model_name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t("targetModelHint")}</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="llmd-conn">{t("connection")}</Label>
@@ -163,16 +157,6 @@ export default function NewLlmdStackPage() {
                 <div className="space-y-2">
                   <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
                   <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-gpu">{t("gpuCount")}</Label>
-                  <Input id="llmd-gpu" type="number" min={0} value={form.gpu_count} onChange={(e) => setForm({ ...form, gpu_count: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-gpukey">{t("gpuResourceKey")}</Label>
-                  <Input id="llmd-gpukey" value={form.gpu_resource_key} onChange={(e) => setForm({ ...form, gpu_resource_key: e.target.value })} />
                 </div>
               </div>
             </CardContent>

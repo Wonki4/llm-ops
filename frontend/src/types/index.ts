@@ -546,15 +546,12 @@ export interface ArgocdTestResult {
 export interface LlmdStackSummary {
   id: string;
   name: string;
-  model_ref: string;
-  served_model_name: string;
+  target_model_name: string;
   argocd_connection_id: string | null;
   cluster_id: string | null;
   namespace: string;
   argo_app_name: string;
   replicas: number;
-  gpu_count: number;
-  gpu_resource_key: string;
   sync_status: string;
   health_status: string;
   status_message: string | null;

@@ -1224,17 +1224,14 @@ export function useTestSavedArgocdConnection() {
 
 export interface CreateLlmdStackBody {
   name: string;
-  model_ref: string;
-  served_model_name: string;
+  target_model_name: string;
   argocd_connection_id: string;
   namespace?: string;
   replicas?: number;
-  gpu_count?: number;
-  gpu_resource_key?: string;
 }
 
 export type UpdateLlmdStackBody = Partial<
-  Omit<CreateLlmdStackBody, "name" | "model_ref" | "argocd_connection_id">
+  Omit<CreateLlmdStackBody, "name" | "target_model_name" | "argocd_connection_id">
 >;
 
 export function useLlmdStacks() {
@@ -1291,12 +1288,9 @@ interface LlmdPreviewResponse {
 
 export interface PreviewLlmdStackBody {
   name?: string;
-  model_ref?: string;
-  served_model_name?: string;
+  target_model_name?: string;
   namespace?: string;
   replicas?: number;
-  gpu_count?: number;
-  gpu_resource_key?: string;
 }
 
 export function useLlmdStackPreview() {

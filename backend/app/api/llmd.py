@@ -33,31 +33,22 @@ router = APIRouter(prefix="/api/admin/llmd-stacks", tags=["llmd-stacks"])
 
 class CreateLlmdStackRequest(BaseModel):
     name: str
-    model_ref: str
-    served_model_name: str
+    target_model_name: str  # an existing model deployment the router targets
     argocd_connection_id: str
     namespace: str = "default"
     replicas: int = 1
-    gpu_count: int = 1
-    gpu_resource_key: str = "nvidia.com/gpu"
 
 
 class UpdateLlmdStackRequest(BaseModel):
-    served_model_name: str | None = None
     namespace: str | None = None
     replicas: int | None = None
-    gpu_count: int | None = None
-    gpu_resource_key: str | None = None
 
 
 class PreviewLlmdStackRequest(BaseModel):
     name: str = ""
-    model_ref: str = ""
-    served_model_name: str = ""
+    target_model_name: str = ""
     namespace: str = "default"
     replicas: int = 1
-    gpu_count: int = 1
-    gpu_resource_key: str = "nvidia.com/gpu"
 
 
 def _argo_status(obj: dict | None) -> dict:
@@ -73,9 +64,7 @@ def _argo_status(obj: dict | None) -> dict:
 
 
 def _values_for(stack: CustomLlmdStack) -> dict:
-    return build_llmd_values(
-        stack, image_registry=settings.llmd_image_registry, hf_secret_name=settings.llmd_hf_secret_name
-    )
+    return build_llmd_values(stack, image_registry=settings.llmd_image_registry)
 
 
 def _application_for(stack: CustomLlmdStack) -> dict:
@@ -124,15 +113,12 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
     return {
         "id": str(stack.id),
         "name": stack.name,
-        "model_ref": stack.model_ref,
-        "served_model_name": stack.served_model_name,
+        "target_model_name": stack.target_model_name,
         "argocd_connection_id": str(stack.argocd_connection_id) if stack.argocd_connection_id else None,
         "cluster_id": str(stack.cluster_id) if stack.cluster_id else None,
         "namespace": stack.namespace,
         "argo_app_name": stack.argo_app_name,
         "replicas": stack.replicas,
-        "gpu_count": stack.gpu_count,
-        "gpu_resource_key": stack.gpu_resource_key,
         "created_by": stack.created_by,
         "created_at": stack.created_at.isoformat() if stack.created_at else None,
         "updated_at": stack.updated_at.isoformat() if stack.updated_at else None,
@@ -162,14 +148,11 @@ async def create_stack(
     stack = CustomLlmdStack(
         id=uuid.uuid4(),
         name=body.name,
-        model_ref=body.model_ref,
-        served_model_name=body.served_model_name,
+        target_model_name=body.target_model_name,
         argocd_connection_id=conn.id,
         namespace=body.namespace,
         argo_app_name=argo_app_name_for(body.name),
         replicas=body.replicas,
-        gpu_count=body.gpu_count,
-        gpu_resource_key=body.gpu_resource_key,
         values_snapshot={},
         created_by=user.user_id,
         updated_by=user.user_id,
@@ -195,17 +178,12 @@ async def preview_stack(
 ) -> dict:
     """Render the ArgoCD Application this stack would create — no DB/ArgoCD writes."""
     stack = types.SimpleNamespace(
-        model_ref=body.model_ref or "<model>",
-        served_model_name=body.served_model_name or "<served-name>",
+        target_model_name=body.target_model_name or "<existing-model>",
         namespace=body.namespace or "default",
         replicas=body.replicas,
-        gpu_count=body.gpu_count,
-        gpu_resource_key=body.gpu_resource_key,
         argo_app_name=argo_app_name_for(body.name or "stack"),
     )
-    values = build_llmd_values(
-        stack, image_registry=settings.llmd_image_registry, hf_secret_name=settings.llmd_hf_secret_name
-    )
+    values = build_llmd_values(stack, image_registry=settings.llmd_image_registry)
     app_body = build_argo_application(
         stack,
         chart_repo=settings.llmd_chart_repo,
@@ -235,16 +213,10 @@ async def update_stack(
     if not stack:
         raise HTTPException(status_code=404, detail="Stack not found")
 
-    if body.served_model_name is not None:
-        stack.served_model_name = body.served_model_name
     if body.namespace is not None:
         stack.namespace = body.namespace
     if body.replicas is not None:
         stack.replicas = body.replicas
-    if body.gpu_count is not None:
-        stack.gpu_count = body.gpu_count
-    if body.gpu_resource_key is not None:
-        stack.gpu_resource_key = body.gpu_resource_key
     stack.values_snapshot = _values_for(stack)
     stack.updated_by = user.user_id
     await db.flush()

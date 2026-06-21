@@ -16,11 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 type EditState = {
-  served_model_name: string;
   namespace: string;
   replicas: number;
-  gpu_count: number;
-  gpu_resource_key: string;
 };
 
 export default function LlmdPage() {
@@ -35,11 +32,8 @@ export default function LlmdPage() {
   const openEdit = (s: LlmdStackSummary) => {
     setEditing(s);
     setForm({
-      served_model_name: s.served_model_name,
       namespace: s.namespace,
       replicas: s.replicas,
-      gpu_count: s.gpu_count,
-      gpu_resource_key: s.gpu_resource_key,
     });
   };
 
@@ -91,7 +85,7 @@ export default function LlmdPage() {
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5 space-x-2 font-mono">
-                    <span>{s.model_ref}</span><span>ns: {s.namespace}</span><span>x{s.replicas}</span>
+                    <span>→ {s.target_model_name}</span><span>ns: {s.namespace}</span><span>x{s.replicas}</span>
                   </div>
                   {s.status_message && <p className="text-xs text-muted-foreground mt-1">{s.status_message}</p>}
                 </div>
@@ -114,10 +108,6 @@ export default function LlmdPage() {
           <DialogHeader><DialogTitle>{t("editTitle")}</DialogTitle></DialogHeader>
           {form && (
             <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="llmd-served">{t("servedName")}</Label>
-                <Input id="llmd-served" value={form.served_model_name} onChange={(e) => setForm({ ...form, served_model_name: e.target.value })} />
-              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="llmd-ns">{t("namespace")}</Label>
@@ -126,16 +116,6 @@ export default function LlmdPage() {
                 <div className="space-y-2">
                   <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
                   <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-gpu">{t("gpuCount")}</Label>
-                  <Input id="llmd-gpu" type="number" min={0} value={form.gpu_count} onChange={(e) => setForm({ ...form, gpu_count: Number(e.target.value) })} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="llmd-gpukey">{t("gpuResourceKey")}</Label>
-                  <Input id="llmd-gpukey" value={form.gpu_resource_key} onChange={(e) => setForm({ ...form, gpu_resource_key: e.target.value })} />
                 </div>
               </div>
             </div>
