@@ -1,7 +1,30 @@
-# Benchmark PVC mount (cluster default + per-run override)
+# Benchmark model-weights mount (cluster default + per-run override)
 
 **Date:** 2026-06-20
 **Branch:** `feat/multi-k8s-cluster-settings`
+
+## Update (2026-06-21): NFS instead of a referenced PVC
+
+The benchmark mount now attaches an **inline NFS volume** rather than referencing
+a pre-created PVC. The rest of the design (cluster default + per-run override,
+benchmarks only, manual tokenizer path, precedence, both-or-neither validation)
+is unchanged — only the volume type and field set differ.
+
+- Cluster columns: `default_nfs_server` / `default_nfs_path` /
+  `default_nfs_mount_path` (migration `024_cluster_default_nfs`, drops the `023`
+  `default_pvc_*` columns). All nullable, non-secret.
+- Per-run override `params` keys: `nfs_server` / `nfs_path` / `nfs_mount_path`.
+- `build_vllm_bench_job` emits `volumes: [{name: model-weights, nfs: {server,
+  path, readOnly: true}}]`. A **deployment** target still mounts its own PVC
+  (`deployment.pvc_name` / `pvc_mount_path`) — unchanged; the NFS path applies
+  only to raw `model_name` targets.
+- Validation: server + export path + mount path are all-or-nothing (else 400).
+- Resolution precedence (raw model_name): run override (`params`) → cluster
+  default → none.
+
+The PVC-based design below is kept as historical context.
+
+---
 
 ## Problem
 
