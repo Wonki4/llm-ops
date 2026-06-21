@@ -14,25 +14,25 @@ from app.services.llmd_manifests import (
 def test_model_has_expected_columns():
     cols = set(CustomLlmdStack.__table__.columns.keys())
     assert {
-        "id", "name", "model_ref", "served_model_name", "cluster_id",
-        "namespace", "argo_app_name", "replicas", "gpu_count",
-        "gpu_resource_key", "values_snapshot", "created_by", "updated_by",
-        "created_at", "updated_at",
+        "id", "name", "target_model_name", "argocd_connection_id", "cluster_id",
+        "namespace", "argo_app_name", "replicas", "values_snapshot",
+        "created_by", "updated_by", "created_at", "updated_at",
     } <= cols
+    # Retargeted at an existing model — no provisioning columns.
+    assert not ({"served_model_name", "gpu_count", "gpu_resource_key", "model_ref"} & cols)
 
 
-def test_llmd_settings_internal_defaults():
+def test_llmd_settings_target_standalone_chart():
     assert settings.argo_project == "llm-d"
-    assert settings.llmd_hf_secret_name
-    assert "registry.k8s.io" not in settings.llmd_chart_repo
+    assert settings.llmd_chart_name == "standalone"
+    assert settings.llmd_chart_version == "v1.5.0"
+    assert "gateway-api-inference-extension" in settings.llmd_chart_repo
 
 
 def _stack(**kw):
     base = dict(
-        id=uuid.uuid4(), name="my-stack", model_ref="facebook/opt-125m",
-        served_model_name="opt-125m", namespace="llmd-my-stack", replicas=2,
-        gpu_count=1, gpu_resource_key="nvidia.com/gpu",
-        argo_app_name="llmd-my-stack",
+        id=uuid.uuid4(), name="my-stack", target_model_name="opt-125m",
+        namespace="llmd-my-stack", replicas=2, argo_app_name="llmd-my-stack",
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -42,13 +42,14 @@ def test_argo_app_name_is_sanitised():
     assert argo_app_name_for("My_Stack.1") == "llmd-my-stack-1"
 
 
-def test_build_values_uses_internal_registry_and_secret():
-    v = build_llmd_values(_stack(), image_registry="reg.local", hf_secret_name="hf")
-    assert v["model"] == {"id": "facebook/opt-125m", "servedName": "opt-125m"}
-    assert v["replicas"] == 2
-    assert v["resources"]["gpu"] == {"count": 1, "resourceKey": "nvidia.com/gpu"}
-    assert v["image"]["registry"] == "reg.local"
-    assert v["hfTokenSecret"] == "hf"
+def test_build_values_target_standalone_chart_schema():
+    v = build_llmd_values(_stack(), image_registry="reg.local")
+    # EPP / inference scheduler config:
+    assert v["inferenceExtension"]["replicas"] == 2
+    assert v["inferenceExtension"]["image"]["registry"] == "reg.local"
+    # Routes to the existing model's pods by the portal's deployment label.
+    assert v["inferencePool"]["modelServers"]["matchLabels"] == {"llm-ops/model-name": "opt-125m"}
+    assert v["inferencePool"]["targetPortNumber"] == 8000
 
 
 def test_build_application_is_isolated_to_project_and_namespace():

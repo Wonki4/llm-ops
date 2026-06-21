@@ -12,6 +12,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
+from app.services.model_deployment_manifests import LABEL_MODEL, VLLM_PORT
+
 if TYPE_CHECKING:
     from app.db.models.custom_llmd_stack import CustomLlmdStack
 
@@ -24,15 +26,26 @@ def argo_app_name_for(name: str) -> str:
     return f"llmd-{safe}"
 
 
-def build_llmd_values(stack: CustomLlmdStack, *, image_registry: str, hf_secret_name: str) -> dict:
-    """Per-model Helm values for the internal llm-d chart."""
+def build_llmd_values(stack: CustomLlmdStack, *, image_registry: str) -> dict:
+    """Helm values for the gateway-api-inference-extension ``standalone`` chart.
+
+    That chart deploys the EPP / inference scheduler (the prefix-cache-aware
+    router) in front of **already-running** model servers — it does not provision
+    vLLM itself. The router selects the target model's pods by label
+    (``llm-ops/model-name``, set by the portal's deployment manifests) on the vLLM
+    port. ``replicas`` is the EPP replica count; the image registry is pinned for
+    air-gap.
+    """
     return {
-        "model": {"id": stack.model_ref, "servedName": stack.served_model_name},
-        "replicas": stack.replicas,
-        "resources": {"gpu": {"count": stack.gpu_count, "resourceKey": stack.gpu_resource_key}},
-        "image": {"registry": image_registry},
-        "hfTokenSecret": hf_secret_name,
-        "namespace": stack.namespace,
+        "inferenceExtension": {
+            "replicas": stack.replicas,
+            "image": {"registry": image_registry},
+        },
+        "inferencePool": {
+            "modelServerProtocol": "http",
+            "targetPortNumber": VLLM_PORT,
+            "modelServers": {"matchLabels": {LABEL_MODEL: stack.target_model_name}},
+        },
     }
 
 
