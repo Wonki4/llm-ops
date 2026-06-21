@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from app.api import (
     admin_users,
     announcements,
+    argocd_connections,
     auth,
     benchmarks,
     budgets,
@@ -70,6 +71,7 @@ app.include_router(announcements.router)
 app.include_router(model_deployments.router)
 app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
+app.include_router(argocd_connections.router)
 
 
 @app.exception_handler(Exception)

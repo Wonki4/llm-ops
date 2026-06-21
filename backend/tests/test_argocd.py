@@ -47,6 +47,27 @@ async def test_version_reads_capitalised_key():
     assert await client.version() == "v2.11.0"
 
 
+# ── connections API serialization masks the token ────────────────────────────
+
+import types  # noqa: E402
+import uuid  # noqa: E402
+
+from app.api.argocd_connections import _serialize  # noqa: E402
+
+
+def test_connection_serialize_masks_token():
+    conn = types.SimpleNamespace(
+        id=uuid.uuid4(), name="prod-argo", server_url="https://argo.local",
+        token_encrypted="gAAAA-secret-ciphertext", insecure_skip_verify=False,
+        is_default=True, description=None, created_by="admin",
+        created_at=None, updated_at=None,
+    )
+    out = _serialize(conn)
+    assert "token" not in out and "token_encrypted" not in out
+    assert out["has_token"] is True
+    assert "gAAAA-secret-ciphertext" not in str(out)
+
+
 def test_argocd_connection_columns():
     cols = set(CustomArgocdConnection.__table__.columns.keys())
     assert {
