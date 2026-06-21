@@ -1,7 +1,7 @@
 """llm-d serving stacks (ArgoCD-managed).
 
 Revision ID: 025_llmd_stack
-Revises: 024_cluster_default_nfs
+Revises: 022_bench_deploy_cluster
 """
 
 import sqlalchemy as sa
@@ -9,7 +9,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "025_llmd_stack"
-down_revision = "024_cluster_default_nfs"
+down_revision = "022_bench_deploy_cluster"
 branch_labels = None
 depends_on = None
 
