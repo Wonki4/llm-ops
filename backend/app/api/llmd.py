@@ -37,11 +37,19 @@ class CreateLlmdStackRequest(BaseModel):
     argocd_connection_id: str
     namespace: str = "default"
     replicas: int = 1
+    model_server_type: str = "vllm"
+    target_port: int = 8000
+    endpoint_selector: str | None = None  # null = derive from target_model_name
+    values_override: dict = {}
 
 
 class UpdateLlmdStackRequest(BaseModel):
     namespace: str | None = None
     replicas: int | None = None
+    model_server_type: str | None = None
+    target_port: int | None = None
+    endpoint_selector: str | None = None
+    values_override: dict | None = None
 
 
 class PreviewLlmdStackRequest(BaseModel):
@@ -49,6 +57,10 @@ class PreviewLlmdStackRequest(BaseModel):
     target_model_name: str = ""
     namespace: str = "default"
     replicas: int = 1
+    model_server_type: str = "vllm"
+    target_port: int = 8000
+    endpoint_selector: str | None = None
+    values_override: dict = {}
 
 
 def _argo_status(obj: dict | None) -> dict:
@@ -119,6 +131,10 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "namespace": stack.namespace,
         "argo_app_name": stack.argo_app_name,
         "replicas": stack.replicas,
+        "model_server_type": stack.model_server_type,
+        "target_port": stack.target_port,
+        "endpoint_selector": stack.endpoint_selector,
+        "values_override": stack.values_override,
         "created_by": stack.created_by,
         "created_at": stack.created_at.isoformat() if stack.created_at else None,
         "updated_at": stack.updated_at.isoformat() if stack.updated_at else None,
@@ -153,6 +169,10 @@ async def create_stack(
         namespace=body.namespace,
         argo_app_name=argo_app_name_for(body.name),
         replicas=body.replicas,
+        model_server_type=body.model_server_type,
+        target_port=body.target_port,
+        endpoint_selector=body.endpoint_selector,
+        values_override=body.values_override or {},
         values_snapshot={},
         created_by=user.user_id,
         updated_by=user.user_id,
@@ -181,6 +201,10 @@ async def preview_stack(
         target_model_name=body.target_model_name or "<existing-model>",
         namespace=body.namespace or "default",
         replicas=body.replicas,
+        model_server_type=body.model_server_type,
+        target_port=body.target_port,
+        endpoint_selector=body.endpoint_selector,
+        values_override=body.values_override or {},
         argo_app_name=argo_app_name_for(body.name or "stack"),
     )
     values = build_llmd_values(stack, image_registry=settings.llmd_image_registry)
@@ -217,6 +241,14 @@ async def update_stack(
         stack.namespace = body.namespace
     if body.replicas is not None:
         stack.replicas = body.replicas
+    if body.model_server_type is not None:
+        stack.model_server_type = body.model_server_type
+    if body.target_port is not None:
+        stack.target_port = body.target_port
+    if body.endpoint_selector is not None:
+        stack.endpoint_selector = body.endpoint_selector or None
+    if body.values_override is not None:
+        stack.values_override = body.values_override
     stack.values_snapshot = _values_for(stack)
     stack.updated_by = user.user_id
     await db.flush()

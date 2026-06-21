@@ -552,6 +552,10 @@ export interface LlmdStackSummary {
   namespace: string;
   argo_app_name: string;
   replicas: number;
+  model_server_type: string;
+  target_port: number;
+  endpoint_selector: string | null;
+  values_override: Record<string, unknown>;
   sync_status: string;
   health_status: string;
   status_message: string | null;

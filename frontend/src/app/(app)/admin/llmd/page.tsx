@@ -18,7 +18,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 type EditState = {
   namespace: string;
   replicas: number;
+  model_server_type: string;
+  target_port: number;
+  endpoint_selector: string;
+  values_override: string;
 };
+
+const MODEL_SERVER_TYPES = ["vllm", "sglang", "triton-tensorrt-llm", "trtllm-serve"];
 
 export default function LlmdPage() {
   const t = useTranslations("llmd");
@@ -34,13 +40,41 @@ export default function LlmdPage() {
     setForm({
       namespace: s.namespace,
       replicas: s.replicas,
+      model_server_type: s.model_server_type,
+      target_port: s.target_port,
+      endpoint_selector: s.endpoint_selector ?? "",
+      values_override: Object.keys(s.values_override ?? {}).length
+        ? JSON.stringify(s.values_override, null, 2)
+        : "",
     });
   };
 
   const handleSave = () => {
     if (!editing || !form) return;
+    let override: Record<string, unknown> = {};
+    try {
+      const tx = form.values_override.trim();
+      if (tx) {
+        const parsed = JSON.parse(tx);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error();
+        override = parsed as Record<string, unknown>;
+      }
+    } catch {
+      toast.error(t("overrideInvalid"));
+      return;
+    }
     updateMut.mutate(
-      { id: editing.id, body: form },
+      {
+        id: editing.id,
+        body: {
+          namespace: form.namespace,
+          replicas: form.replicas,
+          model_server_type: form.model_server_type,
+          target_port: form.target_port,
+          endpoint_selector: form.endpoint_selector || null,
+          values_override: override,
+        },
+      },
       {
         onSuccess: () => { toast.success(t("updateSuccess")); setEditing(null); },
         onError: (e) => toast.error(e instanceof Error ? e.message : t("saveFailed")),
@@ -117,6 +151,38 @@ export default function LlmdPage() {
                   <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
                   <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-mstype">{t("modelServerType")}</Label>
+                  <select
+                    id="llmd-mstype"
+                    value={form.model_server_type}
+                    onChange={(e) => setForm({ ...form, model_server_type: e.target.value })}
+                    className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {MODEL_SERVER_TYPES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-port">{t("targetPort")}</Label>
+                  <Input id="llmd-port" type="number" min={1} value={form.target_port} onChange={(e) => setForm({ ...form, target_port: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="llmd-selector">{t("endpointSelector")}</Label>
+                <Input id="llmd-selector" value={form.endpoint_selector} onChange={(e) => setForm({ ...form, endpoint_selector: e.target.value })} placeholder={t("endpointSelectorPlaceholder")} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="llmd-override">{t("valuesOverride")}</Label>
+                <textarea
+                  id="llmd-override"
+                  value={form.values_override}
+                  onChange={(e) => setForm({ ...form, values_override: e.target.value })}
+                  placeholder={t("valuesOverridePlaceholder")}
+                  className="w-full min-h-28 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  spellCheck={false}
+                />
               </div>
             </div>
           )}

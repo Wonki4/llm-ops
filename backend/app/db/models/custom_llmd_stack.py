@@ -39,6 +39,15 @@ class CustomLlmdStack(CustomBase):
     argo_app_name: Mapped[str] = mapped_column(String(253), nullable=False)
     # EPP / inference-scheduler replica count.
     replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # Standalone-chart routing options (overridable).
+    model_server_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="vllm", server_default="vllm"
+    )
+    target_port: Mapped[int] = mapped_column(Integer, nullable=False, default=8000, server_default="8000")
+    # Label selector for the model server pods; null = derive from target_model_name.
+    endpoint_selector: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Free-form Helm values deep-merged over the generated base (full control).
+    values_override: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     values_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

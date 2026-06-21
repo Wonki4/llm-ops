@@ -27,6 +27,10 @@ type FormState = {
   argocd_connection_id: string;
   namespace: string;
   replicas: number;
+  model_server_type: string;
+  target_port: number;
+  endpoint_selector: string;
+  values_override: string; // raw JSON, deep-merged into the generated values
 };
 
 const EMPTY: FormState = {
@@ -35,7 +39,23 @@ const EMPTY: FormState = {
   argocd_connection_id: "",
   namespace: "default",
   replicas: 1,
+  model_server_type: "vllm",
+  target_port: 8000,
+  endpoint_selector: "",
+  values_override: "",
 };
+
+const MODEL_SERVER_TYPES = ["vllm", "sglang", "triton-tensorrt-llm", "trtllm-serve"];
+
+function parseOverride(text: string): Record<string, unknown> {
+  const t = text.trim();
+  if (!t) return {};
+  const parsed = JSON.parse(t);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("must be a JSON object");
+  }
+  return parsed as Record<string, unknown>;
+}
 
 export default function NewLlmdStackPage() {
   const t = useTranslations("llmd");
@@ -47,15 +67,24 @@ export default function NewLlmdStackPage() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [manifests, setManifests] = useState<LlmdPreviewManifest[]>([]);
 
-  const previewBody = useMemo<PreviewLlmdStackBody>(
-    () => ({
+  const previewBody = useMemo<PreviewLlmdStackBody>(() => {
+    let override: Record<string, unknown> = {};
+    try {
+      override = parseOverride(form.values_override);
+    } catch {
+      /* keep last valid preview while the JSON is mid-edit */
+    }
+    return {
       name: form.name,
       target_model_name: form.target_model_name,
       namespace: form.namespace,
       replicas: form.replicas,
-    }),
-    [form],
-  );
+      model_server_type: form.model_server_type,
+      target_port: form.target_port,
+      endpoint_selector: form.endpoint_selector || null,
+      values_override: override,
+    };
+  }, [form]);
   const previewKey = JSON.stringify(previewBody);
   const runPreview = previewMut.mutate;
   useEffect(() => {
@@ -76,12 +105,23 @@ export default function NewLlmdStackPage() {
       toast.error(t("connectionRequired"));
       return;
     }
+    let override: Record<string, unknown>;
+    try {
+      override = parseOverride(form.values_override);
+    } catch {
+      toast.error(t("overrideInvalid"));
+      return;
+    }
     const body: CreateLlmdStackBody = {
       name: form.name,
       target_model_name: form.target_model_name,
       argocd_connection_id: form.argocd_connection_id,
       namespace: form.namespace,
       replicas: form.replicas,
+      model_server_type: form.model_server_type,
+      target_port: form.target_port,
+      endpoint_selector: form.endpoint_selector || null,
+      values_override: override,
     };
     createMut.mutate(body, {
       onSuccess: () => {
@@ -158,6 +198,45 @@ export default function NewLlmdStackPage() {
                   <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
                   <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
                 </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-mstype">{t("modelServerType")}</Label>
+                  <select
+                    id="llmd-mstype"
+                    value={form.model_server_type}
+                    onChange={(e) => setForm({ ...form, model_server_type: e.target.value })}
+                    className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  >
+                    {MODEL_SERVER_TYPES.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-port">{t("targetPort")}</Label>
+                  <Input id="llmd-port" type="number" min={1} value={form.target_port} onChange={(e) => setForm({ ...form, target_port: Number(e.target.value) })} />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="llmd-selector">{t("endpointSelector")}</Label>
+                <Input
+                  id="llmd-selector"
+                  value={form.endpoint_selector}
+                  onChange={(e) => setForm({ ...form, endpoint_selector: e.target.value })}
+                  placeholder={t("endpointSelectorPlaceholder")}
+                />
+                <p className="text-xs text-muted-foreground">{t("endpointSelectorHint")}</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="llmd-override">{t("valuesOverride")}</Label>
+                <textarea
+                  id="llmd-override"
+                  value={form.values_override}
+                  onChange={(e) => setForm({ ...form, values_override: e.target.value })}
+                  placeholder={t("valuesOverridePlaceholder")}
+                  className="w-full min-h-28 rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-muted-foreground">{t("valuesOverrideHint")}</p>
               </div>
             </CardContent>
           </Card>
