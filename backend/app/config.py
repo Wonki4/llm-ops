@@ -46,6 +46,16 @@ class Settings(BaseSettings):
     # target isn't a portal-managed serving deployment (which reuses its own image).
     vllm_bench_image: str = "vllm/vllm-openai:latest"
 
+    # llm-d stack (ArgoCD-deployed). Air-gap: internal chart repo + image registry.
+    # Isolation: every Application is scoped to a dedicated AppProject so it can
+    # never affect other projects' apps.
+    llmd_chart_repo: str = "oci://internal-registry.local/charts"
+    llmd_chart_name: str = "llm-d-stack"
+    llmd_chart_version: str = "0.7.0"
+    llmd_image_registry: str = "internal-registry.local"
+    llmd_hf_secret_name: str = "llm-d-hf-token"
+    argo_project: str = "llm-d"
+
     slack_webhook_url: str = ""
     cors_origins: list[str] = ["http://localhost:3002"]
     debug: bool = False
