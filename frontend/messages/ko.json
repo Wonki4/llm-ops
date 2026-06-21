@@ -1068,6 +1068,10 @@
   "llmd": {
     "title": "llm-d 스택",
     "description": "ArgoCD로 배포되는 prefix-cache-aware 서빙 스택.",
+    "backToList": "스택 목록으로",
+    "pageTitle": "새 llm-d 스택",
+    "pageDescription": "모델에 대해 prefix-cache-aware 서빙 스택을 ArgoCD로 배포합니다.",
+    "create": "스택 생성",
     "addButton": "스택 추가",
     "empty": "아직 llm-d 스택이 없습니다.",
     "name": "이름",
