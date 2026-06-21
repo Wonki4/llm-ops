@@ -56,6 +56,33 @@ DEFAULT_BENCH_IMAGE = "llmops-benchmark:latest"
 DEFAULT_BENCH_NAMESPACE = "default"
 
 
+class _BlockStringDumper(yaml.SafeDumper):
+    """YAML dumper that renders multi-line strings as literal blocks (``|``).
+
+    Keeps the benchmark Job's shell script readable in the preview (one command
+    per line) instead of PyYAML's default folded single-quoted scalar that wraps
+    mid-argument.
+    """
+
+
+def _represent_str_block(dumper: yaml.Dumper, data: str):
+    style = "|" if "\n" in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+_BlockStringDumper.add_representer(str, _represent_str_block)
+
+
+def _dump_manifest_yaml(manifest: dict) -> str:
+    return yaml.dump(
+        manifest,
+        Dumper=_BlockStringDumper,
+        sort_keys=False,
+        default_flow_style=False,
+        width=4096,
+    )
+
+
 class CreateBenchmarkRequest(BaseModel):
     model_name: str | None = Field(
         None, description="LiteLLM-registered alias (legacy mode; ignored when deployment_id is set)"
@@ -506,7 +533,7 @@ async def preview_benchmark(
         {
             "kind": m.get("kind", "?"),
             "name": m.get("metadata", {}).get("name", "?"),
-            "yaml": yaml.safe_dump(_redact(m), sort_keys=False, default_flow_style=False),
+            "yaml": _dump_manifest_yaml(_redact(m)),
         }
         for m in manifests
     ]
