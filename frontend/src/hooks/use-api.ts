@@ -35,6 +35,9 @@ import type {
   ModelDeployment,
   K8sClusterSummary,
   ClusterTestResult,
+  ArgocdConnectionSummary,
+  ArgocdTestResult,
+  LlmdStackSummary,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1141,5 +1144,136 @@ export function useTestSavedK8sCluster() {
   return useMutation({
     mutationFn: (id: string) =>
       apiFetch<ClusterTestResult>(`/api/admin/k8s-clusters/${id}/test`, { method: "POST" }),
+  });
+}
+
+// ─── ArgoCD connections ────────────────────────────────────────────
+
+export interface CreateArgocdConnectionBody {
+  name: string;
+  server_url: string;
+  token: string;
+  insecure_skip_verify?: boolean;
+  description?: string | null;
+  is_default?: boolean;
+}
+
+export type UpdateArgocdConnectionBody = Partial<CreateArgocdConnectionBody>;
+
+export function useArgocdConnections() {
+  return useQuery({
+    queryKey: ["argocd-connections"],
+    queryFn: () =>
+      apiFetch<{ connections: ArgocdConnectionSummary[] }>("/api/admin/argocd-connections").then(
+        (r) => r.connections,
+      ),
+  });
+}
+
+export function useCreateArgocdConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateArgocdConnectionBody) =>
+      apiFetch<ArgocdConnectionSummary>("/api/admin/argocd-connections", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
+  });
+}
+
+export function useUpdateArgocdConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateArgocdConnectionBody }) =>
+      apiFetch<ArgocdConnectionSummary>(`/api/admin/argocd-connections/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
+  });
+}
+
+export function useDeleteArgocdConnection() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/admin/argocd-connections/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
+  });
+}
+
+export function useTestArgocdConnection() {
+  return useMutation({
+    mutationFn: (body: { server_url: string; token: string; insecure_skip_verify: boolean }) =>
+      apiFetch<ArgocdTestResult>("/api/admin/argocd-connections/test", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}
+
+export function useTestSavedArgocdConnection() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<ArgocdTestResult>(`/api/admin/argocd-connections/${id}/test`, { method: "POST" }),
+  });
+}
+
+// ─── llm-d stacks ────────────────────────────────────────────
+
+export interface CreateLlmdStackBody {
+  name: string;
+  model_ref: string;
+  served_model_name: string;
+  argocd_connection_id: string;
+  namespace?: string;
+  replicas?: number;
+  gpu_count?: number;
+  gpu_resource_key?: string;
+}
+
+export type UpdateLlmdStackBody = Partial<
+  Omit<CreateLlmdStackBody, "name" | "model_ref" | "argocd_connection_id">
+>;
+
+export function useLlmdStacks() {
+  return useQuery({
+    queryKey: ["llmd-stacks"],
+    queryFn: () =>
+      apiFetch<{ stacks: LlmdStackSummary[] }>("/api/admin/llmd-stacks").then((r) => r.stacks),
+  });
+}
+
+export function useCreateLlmdStack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateLlmdStackBody) =>
+      apiFetch<LlmdStackSummary>("/api/admin/llmd-stacks", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llmd-stacks"] }),
+  });
+}
+
+export function useUpdateLlmdStack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateLlmdStackBody }) =>
+      apiFetch<LlmdStackSummary>(`/api/admin/llmd-stacks/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llmd-stacks"] }),
+  });
+}
+
+export function useDeleteLlmdStack() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/admin/llmd-stacks/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["llmd-stacks"] }),
   });
 }
