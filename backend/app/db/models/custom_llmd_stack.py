@@ -27,6 +27,13 @@ class CustomLlmdStack(CustomBase):
         nullable=True,
         index=True,
     )
+    # Which registered ArgoCD connection manages this stack's Application.
+    argocd_connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_argocd_connection.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     namespace: Mapped[str] = mapped_column(String(128), nullable=False, default="default", server_default="default")
     argo_app_name: Mapped[str] = mapped_column(String(253), nullable=False)
     replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
