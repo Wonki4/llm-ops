@@ -1,18 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Loader2, Plus, Pencil, Trash2, Network } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import {
-  useLlmdStacks,
-  useCreateLlmdStack,
-  useUpdateLlmdStack,
-  useDeleteLlmdStack,
-  useArgocdConnections,
-  type CreateLlmdStackBody,
-} from "@/hooks/use-api";
+import { useLlmdStacks, useUpdateLlmdStack, useDeleteLlmdStack } from "@/hooks/use-api";
 import type { LlmdStackSummary } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,82 +15,43 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
-type FormState = {
-  name: string;
-  model_ref: string;
+type EditState = {
   served_model_name: string;
-  argocd_connection_id: string;
   namespace: string;
   replicas: number;
   gpu_count: number;
   gpu_resource_key: string;
 };
 
-const EMPTY: FormState = {
-  name: "",
-  model_ref: "",
-  served_model_name: "",
-  argocd_connection_id: "",
-  namespace: "default",
-  replicas: 1,
-  gpu_count: 1,
-  gpu_resource_key: "nvidia.com/gpu",
-};
-
 export default function LlmdPage() {
   const t = useTranslations("llmd");
   const { data: stacks, isLoading } = useLlmdStacks();
-  const { data: connections } = useArgocdConnections();
-  const createMut = useCreateLlmdStack();
   const updateMut = useUpdateLlmdStack();
   const deleteMut = useDeleteLlmdStack();
 
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<LlmdStackSummary | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY);
+  const [form, setForm] = useState<EditState | null>(null);
 
-  const openCreate = () => { setEditing(null); setForm(EMPTY); setDialogOpen(true); };
   const openEdit = (s: LlmdStackSummary) => {
     setEditing(s);
     setForm({
-      name: s.name, model_ref: s.model_ref, served_model_name: s.served_model_name,
-      argocd_connection_id: s.argocd_connection_id ?? "", namespace: s.namespace,
-      replicas: s.replicas, gpu_count: s.gpu_count, gpu_resource_key: s.gpu_resource_key,
+      served_model_name: s.served_model_name,
+      namespace: s.namespace,
+      replicas: s.replicas,
+      gpu_count: s.gpu_count,
+      gpu_resource_key: s.gpu_resource_key,
     });
-    setDialogOpen(true);
   };
 
   const handleSave = () => {
-    if (!form.name.trim() || !form.model_ref.trim() || !form.served_model_name.trim()) {
-      toast.error(t("nameModelRequired"));
-      return;
-    }
-    if (!editing && !form.argocd_connection_id) {
-      toast.error(t("connectionRequired"));
-      return;
-    }
-    if (editing) {
-      updateMut.mutate(
-        { id: editing.id, body: {
-          served_model_name: form.served_model_name, namespace: form.namespace,
-          replicas: form.replicas, gpu_count: form.gpu_count, gpu_resource_key: form.gpu_resource_key,
-        } },
-        {
-          onSuccess: () => { toast.success(t("updateSuccess")); setDialogOpen(false); },
-          onError: (e) => toast.error(e instanceof Error ? e.message : t("saveFailed")),
-        },
-      );
-    } else {
-      const body: CreateLlmdStackBody = {
-        name: form.name, model_ref: form.model_ref, served_model_name: form.served_model_name,
-        argocd_connection_id: form.argocd_connection_id, namespace: form.namespace,
-        replicas: form.replicas, gpu_count: form.gpu_count, gpu_resource_key: form.gpu_resource_key,
-      };
-      createMut.mutate(body, {
-        onSuccess: () => { toast.success(t("createSuccess")); setDialogOpen(false); },
+    if (!editing || !form) return;
+    updateMut.mutate(
+      { id: editing.id, body: form },
+      {
+        onSuccess: () => { toast.success(t("updateSuccess")); setEditing(null); },
         onError: (e) => toast.error(e instanceof Error ? e.message : t("saveFailed")),
-      });
-    }
+      },
+    );
   };
 
   const handleDelete = (s: LlmdStackSummary) => {
@@ -107,8 +62,6 @@ export default function LlmdPage() {
     });
   };
 
-  const saving = createMut.isPending || updateMut.isPending;
-
   return (
     <Card>
       <CardHeader>
@@ -117,7 +70,9 @@ export default function LlmdPage() {
             <CardTitle className="text-base flex items-center gap-2"><Network className="size-4" />{t("title")}</CardTitle>
             <CardDescription>{t("description")}</CardDescription>
           </div>
-          <Button size="sm" onClick={openCreate}><Plus className="size-4" />{t("addButton")}</Button>
+          <Link href="/admin/llmd/new">
+            <Button size="sm"><Plus className="size-4" />{t("addButton")}</Button>
+          </Link>
         </div>
       </CardHeader>
       <CardContent>
@@ -154,62 +109,41 @@ export default function LlmdPage() {
         )}
       </CardContent>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{editing ? t("editTitle") : t("addTitle")}</DialogTitle></DialogHeader>
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
-            <div className="space-y-2">
-              <Label htmlFor="llmd-name">{t("name")}</Label>
-              <Input id="llmd-name" value={form.name} disabled={!!editing} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="llmd-model">{t("modelRef")}</Label>
-                <Input id="llmd-model" value={form.model_ref} disabled={!!editing} onChange={(e) => setForm({ ...form, model_ref: e.target.value })} />
-              </div>
+          <DialogHeader><DialogTitle>{t("editTitle")}</DialogTitle></DialogHeader>
+          {form && (
+            <div className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="llmd-served">{t("servedName")}</Label>
                 <Input id="llmd-served" value={form.served_model_name} onChange={(e) => setForm({ ...form, served_model_name: e.target.value })} />
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="llmd-conn">{t("connection")}</Label>
-              <select
-                id="llmd-conn"
-                disabled={!!editing}
-                value={form.argocd_connection_id}
-                onChange={(e) => setForm({ ...form, argocd_connection_id: e.target.value })}
-                className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-              >
-                <option value="">{t("connectionPlaceholder")}</option>
-                {(connections ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="llmd-ns">{t("namespace")}</Label>
-                <Input id="llmd-ns" value={form.namespace} onChange={(e) => setForm({ ...form, namespace: e.target.value })} />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-ns">{t("namespace")}</Label>
+                  <Input id="llmd-ns" value={form.namespace} onChange={(e) => setForm({ ...form, namespace: e.target.value })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
+                  <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="llmd-replicas">{t("replicas")}</Label>
-                <Input id="llmd-replicas" type="number" min={1} value={form.replicas} onChange={(e) => setForm({ ...form, replicas: Number(e.target.value) })} />
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-gpu">{t("gpuCount")}</Label>
+                  <Input id="llmd-gpu" type="number" min={0} value={form.gpu_count} onChange={(e) => setForm({ ...form, gpu_count: Number(e.target.value) })} />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-gpukey">{t("gpuResourceKey")}</Label>
+                  <Input id="llmd-gpukey" value={form.gpu_resource_key} onChange={(e) => setForm({ ...form, gpu_resource_key: e.target.value })} />
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label htmlFor="llmd-gpu">{t("gpuCount")}</Label>
-                <Input id="llmd-gpu" type="number" min={0} value={form.gpu_count} onChange={(e) => setForm({ ...form, gpu_count: Number(e.target.value) })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="llmd-gpukey">{t("gpuResourceKey")}</Label>
-                <Input id="llmd-gpukey" value={form.gpu_resource_key} onChange={(e) => setForm({ ...form, gpu_resource_key: e.target.value })} />
-              </div>
-            </div>
-          </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>{t("cancel")}</Button>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving && <Loader2 className="size-4 animate-spin" />}{t("save")}
+            <Button variant="outline" onClick={() => setEditing(null)}>{t("cancel")}</Button>
+            <Button onClick={handleSave} disabled={updateMut.isPending}>
+              {updateMut.isPending && <Loader2 className="size-4 animate-spin" />}{t("save")}
             </Button>
           </DialogFooter>
         </DialogContent>
