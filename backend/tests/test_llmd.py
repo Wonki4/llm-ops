@@ -81,3 +81,19 @@ def test_argo_status_unknown_when_missing():
     from app.api.llmd import _argo_status
 
     assert _argo_status(None) == {"sync_status": "Unknown", "health_status": "Unknown", "status_message": None}
+
+
+def test_preview_yaml_renders_application_round_trip():
+    import yaml
+
+    from app.services.yaml_block import dump_block_yaml
+
+    app = build_argo_application(
+        _stack(), chart_repo="oci://reg.local/charts", chart_name="llm-d-stack",
+        chart_version="0.7.0", values={"replicas": 2}, project="llm-d",
+    )
+    text = dump_block_yaml(app)
+    assert "kind: Application" in text
+    assert "project: llm-d" in text
+    # Valid YAML that round-trips to the same object.
+    assert yaml.safe_load(text) == app
