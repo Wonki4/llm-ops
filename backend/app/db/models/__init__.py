@@ -1,3 +1,4 @@
+from app.db.models.custom_argocd_connection import CustomArgocdConnection
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_catalog import CustomModelCatalog
@@ -14,4 +15,5 @@ __all__ = [
     "CustomTrustedSystem",
     "CustomK8sCluster",
     "CustomLlmdStack",
+    "CustomArgocdConnection",
 ]
