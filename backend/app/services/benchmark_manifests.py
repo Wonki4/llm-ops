@@ -9,12 +9,8 @@ from __future__ import annotations
 import json
 import shlex
 import uuid
-from typing import TYPE_CHECKING
 
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
-
-if TYPE_CHECKING:
-    from app.db.models.custom_model_deployment import CustomModelDeployment
 
 
 def job_name_for(run_id: uuid.UUID) -> str:
@@ -22,33 +18,38 @@ def job_name_for(run_id: uuid.UUID) -> str:
     return f"bench-{str(run_id)[:32]}"
 
 
-def pvc_pair_incomplete(name: str | None, mount_path: str | None) -> bool:
-    """True when exactly one of (claim name, mount path) is set.
+def nfs_fields_incomplete(
+    server: str | None, path: str | None, mount_path: str | None
+) -> bool:
+    """True when some — but not all — of the NFS fields are set.
 
-    A PVC mount needs both; callers reject an incomplete pair with a 400.
+    An NFS mount needs server + export path + mount path together; callers reject
+    a partial set with a 400.
     """
-    return bool(name) != bool(mount_path)
+    flags = (bool(server), bool(path), bool(mount_path))
+    return any(flags) and not all(flags)
 
 
-def resolve_bench_pvc(
-    deployment: CustomModelDeployment | None,
+def resolve_bench_nfs(
     params: dict | None,
     *,
-    default_name: str | None = None,
+    default_server: str | None = None,
+    default_path: str | None = None,
     default_mount_path: str | None = None,
-) -> tuple[str | None, str | None]:
-    """Pick the PVC (claim name, mount path) for a performance benchmark.
+) -> tuple[str | None, str | None, str | None]:
+    """Pick the NFS mount (server, export path, mount path) for a benchmark
+    against a raw model_name.
 
-    Precedence: a targeted serving deployment's own PVC → a per-run override in
-    ``params`` (``pvc_name`` / ``pvc_mount_path``) → the cluster's default PVC →
-    none. Empty strings are normalised to None.
+    Precedence: a per-run override in ``params`` (``nfs_server`` / ``nfs_path`` /
+    ``nfs_mount_path``) → the cluster's default NFS → none. Empty strings are
+    normalised to None. (Deployment targets mount their own PVC, handled
+    separately.)
     """
-    if deployment is not None:
-        return deployment.pvc_name, deployment.pvc_mount_path
     p = params or {}
-    name = (p.get("pvc_name") or default_name) or None
-    mount = (p.get("pvc_mount_path") or default_mount_path) or None
-    return name, mount
+    server = (p.get("nfs_server") or default_server) or None
+    path = (p.get("nfs_path") or default_path) or None
+    mount = (p.get("nfs_mount_path") or default_mount_path) or None
+    return server, path, mount
 
 
 # Params consumed explicitly above or used only by the portal (not CLI flags).
@@ -62,8 +63,9 @@ _NON_CLI_PARAMS = frozenset(
         "max_concurrency",
         "ignore_eos",
         "tokenizer",
-        "pvc_name",
-        "pvc_mount_path",
+        "nfs_server",
+        "nfs_path",
+        "nfs_mount_path",
     }
 )
 
@@ -78,6 +80,9 @@ def build_vllm_bench_job(
     tokenizer: str | None = None,
     pvc_name: str | None = None,
     pvc_mount_path: str | None = None,
+    nfs_server: str | None = None,
+    nfs_path: str | None = None,
+    nfs_mount_path: str | None = None,
     backoff_limit: int = 0,
     ttl_seconds_after_finished: int = 7 * 24 * 3600,
 ) -> dict:
@@ -140,11 +145,16 @@ def build_vllm_bench_job(
     emit = 'echo "<<<RESULT>>>{\\"metrics\\": $(tr -d \'\\n\' < /tmp/r.json)}"'
     script = f"set -e\n{bench_cmd}\n{emit}\n"
 
+    # Model-weights volume: a deployment target reuses its own PVC; a raw
+    # model_name target attaches an NFS export directly (no pre-created PVC).
     volumes = []
     volume_mounts = []
     if pvc_name and pvc_mount_path:
         volumes.append({"name": "model-weights", "persistentVolumeClaim": {"claimName": pvc_name, "readOnly": True}})
         volume_mounts.append({"name": "model-weights", "mountPath": pvc_mount_path, "readOnly": True})
+    elif nfs_server and nfs_path and nfs_mount_path:
+        volumes.append({"name": "model-weights", "nfs": {"server": nfs_server, "path": nfs_path, "readOnly": True}})
+        volume_mounts.append({"name": "model-weights", "mountPath": nfs_mount_path, "readOnly": True})
 
     return {
         "apiVersion": "batch/v1",

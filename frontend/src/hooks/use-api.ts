@@ -1050,8 +1050,9 @@ export interface CreateK8sClusterBody {
   kubeconfig: string;
   description?: string | null;
   is_default?: boolean;
-  default_pvc_name?: string | null;
-  default_pvc_mount_path?: string | null;
+  default_nfs_server?: string | null;
+  default_nfs_path?: string | null;
+  default_nfs_mount_path?: string | null;
 }
 
 export type UpdateK8sClusterBody = Partial<CreateK8sClusterBody>;

@@ -25,8 +25,8 @@ from app.services.benchmark_manifests import (
     build_job_manifest,
     build_vllm_bench_job,
     job_name_for,
-    pvc_pair_incomplete,
-    resolve_bench_pvc,
+    nfs_fields_incomplete,
+    resolve_bench_nfs,
 )
 from app.services.benchmark_serving import (
     build_ephemeral_deployment,
@@ -144,26 +144,32 @@ def _build_bench_job(
     target_base: str,
     api_key: str,
     image_override: str | None,
-    cluster_default_pvc_name: str | None = None,
-    cluster_default_pvc_mount_path: str | None = None,
+    cluster_default_nfs_server: str | None = None,
+    cluster_default_nfs_path: str | None = None,
+    cluster_default_nfs_mount_path: str | None = None,
 ) -> dict:
     """Pick the manifest for a run: performance → official `vllm bench serve`
     (on a vLLM image), accuracy → the lm-eval runner image. Shared by create
     and preview so the YAML preview is exactly what runs.
     """
     params = run.params or {}
+    # Model-weights mount: a deployment target reuses its own PVC; a raw
+    # model_name target attaches an NFS export (run override → cluster default).
+    pvc_name = pvc_mount = None
+    nfs_server = nfs_path = nfs_mount = None
     if deployment is not None:
         served_model = deployment.model_path
         perf_default_image = deployment.image
+        pvc_name, pvc_mount = deployment.pvc_name, deployment.pvc_mount_path
     else:
         served_model = run.model_name
         perf_default_image = settings.vllm_bench_image
-    pvc_name, pvc_mount = resolve_bench_pvc(
-        deployment,
-        params,
-        default_name=cluster_default_pvc_name,
-        default_mount_path=cluster_default_pvc_mount_path,
-    )
+        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
+            params,
+            default_server=cluster_default_nfs_server,
+            default_path=cluster_default_nfs_path,
+            default_mount_path=cluster_default_nfs_mount_path,
+        )
 
     if run.kind == "performance":
         tokenizer = params.get("tokenizer") or served_model
@@ -176,6 +182,9 @@ def _build_bench_job(
             tokenizer=tokenizer,
             pvc_name=pvc_name,
             pvc_mount_path=pvc_mount,
+            nfs_server=nfs_server,
+            nfs_path=nfs_path,
+            nfs_mount_path=nfs_mount,
         )
     # accuracy (lm-eval): bench_model None for a LiteLLM alias target.
     return build_job_manifest(
@@ -187,23 +196,23 @@ def _build_bench_job(
     )
 
 
-async def _cluster_pvc_defaults(
+async def _cluster_nfs_defaults(
     db: AsyncSession, cluster_uuid: uuid.UUID | None
-) -> tuple[str | None, str | None]:
-    """Default (PVC claim name, mount path) for the run's registered cluster.
+) -> tuple[str | None, str | None, str | None]:
+    """Default NFS (server, export path, mount path) for the run's cluster.
 
-    Returns (None, None) for the portal default cluster or an unknown id.
+    Returns (None, None, None) for the portal default cluster or an unknown id.
     """
     if cluster_uuid is None:
-        return None, None
+        return None, None, None
     row = (
         await db.execute(
             select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_uuid)
         )
     ).scalar_one_or_none()
     if row is None:
-        return None, None
-    return row.default_pvc_name, row.default_pvc_mount_path
+        return None, None, None
+    return row.default_nfs_server, row.default_nfs_path, row.default_nfs_mount_path
 
 
 def _serialize(r: CustomBenchmarkRun) -> dict:
@@ -280,10 +289,14 @@ async def create_benchmark(
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
     image = body.image or DEFAULT_BENCH_IMAGE
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
-    if pvc_pair_incomplete(body.params.get("pvc_name"), body.params.get("pvc_mount_path")):
+    if nfs_fields_incomplete(
+        body.params.get("nfs_server"),
+        body.params.get("nfs_path"),
+        body.params.get("nfs_mount_path"),
+    ):
         raise HTTPException(
             status_code=400,
-            detail="pvc_name and pvc_mount_path must be set together",
+            detail="nfs_server, nfs_path and nfs_mount_path must be set together",
         )
     k8s = await k8s_for_cluster(db, cluster_uuid)
 
@@ -396,15 +409,16 @@ async def create_benchmark(
         target_base = settings.litellm_base_url.rstrip("/")
         api_key = settings.litellm_admin_api_key
 
-    cl_pvc_name, cl_pvc_mount = await _cluster_pvc_defaults(db, cluster_uuid)
+    cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(db, cluster_uuid)
     manifest = _build_bench_job(
         run,
         deployment=deployment,
         target_base=target_base,
         api_key=api_key,
         image_override=body.image or None,
-        cluster_default_pvc_name=cl_pvc_name,
-        cluster_default_pvc_mount_path=cl_pvc_mount,
+        cluster_default_nfs_server=cl_nfs_server,
+        cluster_default_nfs_path=cl_nfs_path,
+        cluster_default_nfs_mount_path=cl_nfs_mount,
     )
     try:
         await k8s.create_job(namespace, manifest)
@@ -514,7 +528,7 @@ async def preview_benchmark(
         else:
             target_base = settings.litellm_base_url.rstrip("/")
             api_key = settings.litellm_admin_api_key
-        cl_pvc_name, cl_pvc_mount = await _cluster_pvc_defaults(
+        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(
             db, uuid.UUID(body.cluster_id) if body.cluster_id else None
         )
         manifests.append(
@@ -524,8 +538,9 @@ async def preview_benchmark(
                 target_base=target_base,
                 api_key=api_key,
                 image_override=body.image or None,
-                cluster_default_pvc_name=cl_pvc_name,
-                cluster_default_pvc_mount_path=cl_pvc_mount,
+                cluster_default_nfs_server=cl_nfs_server,
+                cluster_default_nfs_path=cl_nfs_path,
+                cluster_default_nfs_mount_path=cl_nfs_mount,
             )
         )
 
