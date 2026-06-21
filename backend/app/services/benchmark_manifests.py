@@ -51,6 +51,23 @@ def resolve_bench_pvc(
     return name, mount
 
 
+# Params consumed explicitly above or used only by the portal (not CLI flags).
+# Everything else in `params` is passed through to `vllm bench serve`.
+_NON_CLI_PARAMS = frozenset(
+    {
+        "random_input_len",
+        "random_output_len",
+        "num_prompts",
+        "request_rate",
+        "max_concurrency",
+        "ignore_eos",
+        "tokenizer",
+        "pvc_name",
+        "pvc_mount_path",
+    }
+)
+
+
 def build_vllm_bench_job(
     run: CustomBenchmarkRun,
     *,
@@ -98,6 +115,23 @@ def build_vllm_bench_job(
         args += ["--max-concurrency", str(int(p["max_concurrency"]))]
     if p.get("ignore_eos"):
         args += ["--ignore-eos"]
+
+    # Pass any remaining params through as `vllm bench serve` flags
+    # (underscores → dashes), so the form's "extra parameters" actually reach the
+    # CLI. Skip keys we already emit, infra-only keys, and empty values. A bool
+    # True becomes a bare flag; collisions with an explicit flag are left alone.
+    used_flags = {a for a in args if a.startswith("--")}
+    for key, val in p.items():
+        if key in _NON_CLI_PARAMS or val in (None, ""):
+            continue
+        flag = "--" + key.replace("_", "-")
+        if flag in used_flags:
+            continue
+        if isinstance(val, bool):
+            if val:
+                args.append(flag)
+        else:
+            args += [flag, str(val)]
 
     bench_cmd = " ".join(shlex.quote(a) for a in args)
     # vllm bench serve prints a summary table + writes /tmp/r.json. We collapse
