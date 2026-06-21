@@ -1277,3 +1277,34 @@ export function useDeleteLlmdStack() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["llmd-stacks"] }),
   });
 }
+
+export interface LlmdPreviewManifest {
+  kind: string;
+  name: string;
+  yaml: string;
+}
+
+interface LlmdPreviewResponse {
+  manifests: LlmdPreviewManifest[];
+  note: string | null;
+}
+
+export interface PreviewLlmdStackBody {
+  name?: string;
+  model_ref?: string;
+  served_model_name?: string;
+  namespace?: string;
+  replicas?: number;
+  gpu_count?: number;
+  gpu_resource_key?: string;
+}
+
+export function useLlmdStackPreview() {
+  return useMutation({
+    mutationFn: (body: PreviewLlmdStackBody) =>
+      apiFetch<LlmdPreviewResponse>("/api/admin/llmd-stacks/preview", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  });
+}

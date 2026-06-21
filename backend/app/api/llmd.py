@@ -7,6 +7,7 @@ AppProject + namespace so they cannot affect other projects' apps.
 """
 
 import logging
+import types
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -23,6 +24,7 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import crypto
 from app.services.llmd_manifests import argo_app_name_for, build_argo_application, build_llmd_values
+from app.services.yaml_block import dump_block_yaml
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,16 @@ class UpdateLlmdStackRequest(BaseModel):
     replicas: int | None = None
     gpu_count: int | None = None
     gpu_resource_key: str | None = None
+
+
+class PreviewLlmdStackRequest(BaseModel):
+    name: str = ""
+    model_ref: str = ""
+    served_model_name: str = ""
+    namespace: str = "default"
+    replicas: int = 1
+    gpu_count: int = 1
+    gpu_resource_key: str = "nvidia.com/gpu"
 
 
 def _argo_status(obj: dict | None) -> dict:
@@ -174,6 +186,40 @@ async def create_stack(
     await db.commit()
     await db.refresh(stack)
     return _serialize(stack, await _live_status(db, stack))
+
+
+@router.post("/preview")
+async def preview_stack(
+    body: PreviewLlmdStackRequest,
+    user: CustomUser = Depends(require_super_user),
+) -> dict:
+    """Render the ArgoCD Application this stack would create — no DB/ArgoCD writes."""
+    stack = types.SimpleNamespace(
+        model_ref=body.model_ref or "<model>",
+        served_model_name=body.served_model_name or "<served-name>",
+        namespace=body.namespace or "default",
+        replicas=body.replicas,
+        gpu_count=body.gpu_count,
+        gpu_resource_key=body.gpu_resource_key,
+        argo_app_name=argo_app_name_for(body.name or "stack"),
+    )
+    values = build_llmd_values(
+        stack, image_registry=settings.llmd_image_registry, hf_secret_name=settings.llmd_hf_secret_name
+    )
+    app_body = build_argo_application(
+        stack,
+        chart_repo=settings.llmd_chart_repo,
+        chart_name=settings.llmd_chart_name,
+        chart_version=settings.llmd_chart_version,
+        values=values,
+        project=settings.argo_project,
+    )
+    return {
+        "manifests": [
+            {"kind": "Application", "name": stack.argo_app_name, "yaml": dump_block_yaml(app_body)},
+        ],
+        "note": None,
+    }
 
 
 @router.put("/{stack_id}")
