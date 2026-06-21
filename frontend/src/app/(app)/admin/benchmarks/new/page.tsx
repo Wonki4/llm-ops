@@ -35,9 +35,10 @@ const DEFAULT_PERF_PARAMS = {
   request_rate: "",
   ignore_eos: true,
   tokenizer: "",
-  // PVC override for a raw model_name target (deployment targets carry their own).
-  pvc_name: "",
-  pvc_mount_path: "",
+  // NFS override for a raw model_name target (deployment targets carry their own PVC).
+  nfs_server: "",
+  nfs_path: "",
+  nfs_mount_path: "",
 };
 
 const DEFAULT_ACCURACY_PARAMS = {
@@ -104,13 +105,16 @@ export default function NewBenchmarkPage() {
       if (perfParams.tokenizer.trim() !== "") {
         params.tokenizer = perfParams.tokenizer.trim();
       }
-      // PVC override only applies to a raw model_name target; deployment targets
+      // NFS override only applies to a raw model_name target; deployment targets
       // mount their own PVC.
-      if (!deploymentId && perfParams.pvc_name.trim() !== "") {
-        params.pvc_name = perfParams.pvc_name.trim();
+      if (!deploymentId && perfParams.nfs_server.trim() !== "") {
+        params.nfs_server = perfParams.nfs_server.trim();
       }
-      if (!deploymentId && perfParams.pvc_mount_path.trim() !== "") {
-        params.pvc_mount_path = perfParams.pvc_mount_path.trim();
+      if (!deploymentId && perfParams.nfs_path.trim() !== "") {
+        params.nfs_path = perfParams.nfs_path.trim();
+      }
+      if (!deploymentId && perfParams.nfs_mount_path.trim() !== "") {
+        params.nfs_mount_path = perfParams.nfs_mount_path.trim();
       }
       return params;
     }
@@ -417,7 +421,7 @@ export default function NewBenchmarkPage() {
               <PerfParamsFields
                 params={perfParams}
                 onChange={setPerfParams}
-                showPvcOverride={!deploymentId}
+                showNfsOverride={!deploymentId}
               />
             ) : (
               <AccuracyParamsFields
@@ -537,11 +541,11 @@ export default function NewBenchmarkPage() {
 function PerfParamsFields({
   params,
   onChange,
-  showPvcOverride,
+  showNfsOverride,
 }: {
   params: typeof DEFAULT_PERF_PARAMS;
   onChange: (next: typeof DEFAULT_PERF_PARAMS) => void;
-  showPvcOverride: boolean;
+  showNfsOverride: boolean;
 }) {
   const t = useTranslations("benchmarkForm");
   return (
@@ -608,24 +612,30 @@ function PerfParamsFields({
         />
         <p className="text-xs text-muted-foreground">{t("tokenizerHint")}</p>
       </div>
-      {showPvcOverride && (
+      {showNfsOverride && (
         <div className="space-y-1.5">
-          <Label>{t("pvcOverrideLabel")}</Label>
+          <Label>{t("nfsOverrideLabel")}</Label>
+          <Input
+            id="nfs_server"
+            placeholder={t("nfsServerPlaceholder")}
+            value={params.nfs_server}
+            onChange={(e) => onChange({ ...params, nfs_server: e.target.value })}
+          />
           <div className="grid grid-cols-2 gap-3">
             <Input
-              id="pvc_name"
-              placeholder={t("pvcNamePlaceholder")}
-              value={params.pvc_name}
-              onChange={(e) => onChange({ ...params, pvc_name: e.target.value })}
+              id="nfs_path"
+              placeholder={t("nfsPathPlaceholder")}
+              value={params.nfs_path}
+              onChange={(e) => onChange({ ...params, nfs_path: e.target.value })}
             />
             <Input
-              id="pvc_mount_path"
-              placeholder={t("pvcMountPlaceholder")}
-              value={params.pvc_mount_path}
-              onChange={(e) => onChange({ ...params, pvc_mount_path: e.target.value })}
+              id="nfs_mount_path"
+              placeholder={t("nfsMountPlaceholder")}
+              value={params.nfs_mount_path}
+              onChange={(e) => onChange({ ...params, nfs_mount_path: e.target.value })}
             />
           </div>
-          <p className="text-xs text-muted-foreground">{t("pvcOverrideHint")}</p>
+          <p className="text-xs text-muted-foreground">{t("nfsOverrideHint")}</p>
         </div>
       )}
     </>

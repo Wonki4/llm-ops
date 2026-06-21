@@ -41,8 +41,9 @@ type FormState = {
   kubeconfig: string;
   description: string;
   is_default: boolean;
-  default_pvc_name: string;
-  default_pvc_mount_path: string;
+  default_nfs_server: string;
+  default_nfs_path: string;
+  default_nfs_mount_path: string;
 };
 
 const EMPTY: FormState = {
@@ -52,8 +53,9 @@ const EMPTY: FormState = {
   kubeconfig: "",
   description: "",
   is_default: false,
-  default_pvc_name: "",
-  default_pvc_mount_path: "",
+  default_nfs_server: "",
+  default_nfs_path: "",
+  default_nfs_mount_path: "",
 };
 
 export function ClusterSettingsTab() {
@@ -88,8 +90,9 @@ export function ClusterSettingsTab() {
       kubeconfig: "", // masked — empty keeps existing
       description: c.description ?? "",
       is_default: c.is_default,
-      default_pvc_name: c.default_pvc_name ?? "",
-      default_pvc_mount_path: c.default_pvc_mount_path ?? "",
+      default_nfs_server: c.default_nfs_server ?? "",
+      default_nfs_path: c.default_nfs_path ?? "",
+      default_nfs_mount_path: c.default_nfs_mount_path ?? "",
     });
     setTestResult(null);
     setDialogOpen(true);
@@ -116,10 +119,12 @@ export function ClusterSettingsTab() {
       toast.error(t("kubeconfigRequired"));
       return;
     }
-    const pvcName = form.default_pvc_name.trim();
-    const pvcMount = form.default_pvc_mount_path.trim();
-    if (!!pvcName !== !!pvcMount) {
-      toast.error(t("pvcPairRequired"));
+    const nfsServer = form.default_nfs_server.trim();
+    const nfsPath = form.default_nfs_path.trim();
+    const nfsMount = form.default_nfs_mount_path.trim();
+    const nfsSet = [nfsServer, nfsPath, nfsMount].filter(Boolean).length;
+    if (nfsSet !== 0 && nfsSet !== 3) {
+      toast.error(t("nfsFieldsRequired"));
       return;
     }
 
@@ -130,8 +135,9 @@ export function ClusterSettingsTab() {
         namespace: form.namespace,
         description: form.description,
         is_default: form.is_default,
-        default_pvc_name: pvcName,
-        default_pvc_mount_path: pvcMount,
+        default_nfs_server: nfsServer,
+        default_nfs_path: nfsPath,
+        default_nfs_mount_path: nfsMount,
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
       updateMut.mutate(
@@ -152,8 +158,9 @@ export function ClusterSettingsTab() {
         kubeconfig: form.kubeconfig,
         description: form.description || null,
         is_default: form.is_default,
-        default_pvc_name: pvcName || null,
-        default_pvc_mount_path: pvcMount || null,
+        default_nfs_server: nfsServer || null,
+        default_nfs_path: nfsPath || null,
+        default_nfs_mount_path: nfsMount || null,
       };
       createMut.mutate(body, {
         onSuccess: () => {
@@ -342,24 +349,30 @@ export function ClusterSettingsTab() {
               />
             </div>
             <div className="space-y-2">
-              <Label>{t("defaultPvcLabel")}</Label>
+              <Label>{t("defaultNfsLabel")}</Label>
+              <Input
+                id="cluster-nfs-server"
+                value={form.default_nfs_server}
+                onChange={(e) => setForm({ ...form, default_nfs_server: e.target.value })}
+                placeholder={t("nfsServerPlaceholder")}
+              />
               <div className="grid grid-cols-2 gap-3">
                 <Input
-                  id="cluster-pvc-name"
-                  value={form.default_pvc_name}
-                  onChange={(e) => setForm({ ...form, default_pvc_name: e.target.value })}
-                  placeholder={t("pvcNamePlaceholder")}
+                  id="cluster-nfs-path"
+                  value={form.default_nfs_path}
+                  onChange={(e) => setForm({ ...form, default_nfs_path: e.target.value })}
+                  placeholder={t("nfsPathPlaceholder")}
                 />
                 <Input
-                  id="cluster-pvc-mount"
-                  value={form.default_pvc_mount_path}
+                  id="cluster-nfs-mount"
+                  value={form.default_nfs_mount_path}
                   onChange={(e) =>
-                    setForm({ ...form, default_pvc_mount_path: e.target.value })
+                    setForm({ ...form, default_nfs_mount_path: e.target.value })
                   }
-                  placeholder={t("pvcMountPlaceholder")}
+                  placeholder={t("nfsMountPlaceholder")}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">{t("defaultPvcHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("defaultNfsHint")}</p>
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input

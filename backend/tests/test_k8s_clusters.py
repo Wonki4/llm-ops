@@ -14,8 +14,8 @@ from app.api.k8s_clusters import _parse_kubeconfig
 from app.services import crypto
 from app.services.benchmark_manifests import (
     build_vllm_bench_job,
-    pvc_pair_incomplete,
-    resolve_bench_pvc,
+    nfs_fields_incomplete,
+    resolve_bench_nfs,
 )
 
 SAMPLE_KUBECONFIG = """
@@ -87,51 +87,35 @@ def test_parse_kubeconfig_not_a_kubeconfig_raises_400():
     assert exc.value.status_code == 400
 
 
-# ── PVC resolution / validation ──────────────────────────────────────────────
+# ── NFS resolution / validation ──────────────────────────────────────────────
 
-def _dep(name, mount):
-    return types.SimpleNamespace(pvc_name=name, pvc_mount_path=mount)
-
-
-def test_pvc_pair_incomplete():
-    assert pvc_pair_incomplete(None, None) is False
-    assert pvc_pair_incomplete("weights", "/models") is False
-    assert pvc_pair_incomplete("", "") is False
-    assert pvc_pair_incomplete("weights", None) is True
-    assert pvc_pair_incomplete(None, "/models") is True
+def test_nfs_fields_incomplete():
+    assert nfs_fields_incomplete(None, None, None) is False
+    assert nfs_fields_incomplete("nfs.local", "/export", "/models") is False
+    assert nfs_fields_incomplete("", "", "") is False
+    assert nfs_fields_incomplete("nfs.local", None, None) is True
+    assert nfs_fields_incomplete("nfs.local", "/export", None) is True
+    assert nfs_fields_incomplete(None, "/export", "/models") is True
 
 
-def test_resolve_pvc_deployment_wins():
-    # A targeted deployment's PVC beats both the run override and cluster default.
-    name, mount = resolve_bench_pvc(
-        _dep("dep-pvc", "/dep"),
-        {"pvc_name": "run-pvc", "pvc_mount_path": "/run"},
-        default_name="cl-pvc",
-        default_mount_path="/cl",
+def test_resolve_nfs_run_override_beats_cluster_default():
+    out = resolve_bench_nfs(
+        {"nfs_server": "run.nfs", "nfs_path": "/run", "nfs_mount_path": "/m"},
+        default_server="cl.nfs", default_path="/cl", default_mount_path="/cm",
     )
-    assert (name, mount) == ("dep-pvc", "/dep")
+    assert out == ("run.nfs", "/run", "/m")
 
 
-def test_resolve_pvc_run_override_beats_cluster_default():
-    name, mount = resolve_bench_pvc(
-        None,
-        {"pvc_name": "run-pvc", "pvc_mount_path": "/run"},
-        default_name="cl-pvc",
-        default_mount_path="/cl",
+def test_resolve_nfs_falls_back_to_cluster_default():
+    out = resolve_bench_nfs(
+        {}, default_server="cl.nfs", default_path="/cl", default_mount_path="/cm"
     )
-    assert (name, mount) == ("run-pvc", "/run")
+    assert out == ("cl.nfs", "/cl", "/cm")
 
 
-def test_resolve_pvc_falls_back_to_cluster_default():
-    name, mount = resolve_bench_pvc(
-        None, {}, default_name="cl-pvc", default_mount_path="/cl"
-    )
-    assert (name, mount) == ("cl-pvc", "/cl")
-
-
-def test_resolve_pvc_none_when_nothing_set():
-    assert resolve_bench_pvc(None, {}) == (None, None)
-    assert resolve_bench_pvc(None, None) == (None, None)
+def test_resolve_nfs_none_when_nothing_set():
+    assert resolve_bench_nfs({}) == (None, None, None)
+    assert resolve_bench_nfs(None) == (None, None, None)
 
 
 def _perf_run():
@@ -141,19 +125,30 @@ def _perf_run():
     )
 
 
-def test_vllm_bench_job_mounts_pvc_when_set():
+def test_vllm_bench_job_mounts_nfs_when_set():
     job = build_vllm_bench_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
         served_model="m", tokenizer="/models/m",
-        pvc_name="weights", pvc_mount_path="/models",
+        nfs_server="nfs.local", nfs_path="/export/models", nfs_mount_path="/models",
     )
     spec = job["spec"]["template"]["spec"]
-    assert any(v["name"] == "model-weights" for v in spec["volumes"])
+    vol = next(v for v in spec["volumes"] if v["name"] == "model-weights")
+    assert vol["nfs"] == {"server": "nfs.local", "path": "/export/models", "readOnly": True}
     mount = spec["containers"][0]["volumeMounts"][0]
     assert mount["mountPath"] == "/models" and mount["readOnly"] is True
 
 
-def test_vllm_bench_job_no_pvc_when_unset():
+def test_vllm_bench_job_mounts_pvc_for_deployment_target():
+    # Deployment targets still mount their own PVC (unchanged by the NFS switch).
+    job = build_vllm_bench_job(
+        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        served_model="m", pvc_name="weights", pvc_mount_path="/models",
+    )
+    vol = job["spec"]["template"]["spec"]["volumes"][0]
+    assert vol["persistentVolumeClaim"]["claimName"] == "weights"
+
+
+def test_vllm_bench_job_no_volume_when_unset():
     job = build_vllm_bench_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
         served_model="m",
@@ -183,11 +178,12 @@ def test_extra_params_pass_through_as_flags():
 
 def test_extra_params_skip_reserved_infra_and_collisions():
     script = _bench_script(
-        {"num_prompts": 50, "seed": 42, "pvc_name": "weights", "pvc_mount_path": "/m"}
+        {"num_prompts": 50, "seed": 42, "nfs_server": "nfs.local", "nfs_path": "/m",
+         "nfs_mount_path": "/models"}
     )
     assert script.count("--num-prompts") == 1 and "--num-prompts 50" in script
     assert script.count("--seed") == 1 and "--seed 0" in script  # explicit flag wins
-    assert "--pvc-name" not in script  # infra-only, never a CLI flag
+    assert "--nfs-server" not in script  # infra-only, never a CLI flag
 
 
 def test_extra_params_false_bool_omitted():
