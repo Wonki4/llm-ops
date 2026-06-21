@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClusterSettingsTab } from "@/components/cluster-settings-tab";
+import { ArgocdSettingsTab } from "@/components/argocd-settings-tab";
 
 export default function PortalSettingsPage() {
   const t = useTranslations("settings");
@@ -126,6 +127,7 @@ export default function PortalSettingsPage() {
           <TabsTrigger value="general" className="flex-none px-1">{t("tabGeneral")}</TabsTrigger>
           <TabsTrigger value="teams" className="flex-none px-1">{t("tabTeams")}</TabsTrigger>
           <TabsTrigger value="clusters" className="flex-none px-1">{t("tabClusters")}</TabsTrigger>
+          <TabsTrigger value="argocd" className="flex-none px-1">{t("tabArgocd")}</TabsTrigger>
         </TabsList>
 
         {/* ── 일반 ── */}
@@ -410,6 +412,11 @@ export default function PortalSettingsPage() {
         {/* ── 클러스터 ── */}
         <TabsContent value="clusters" className="mt-4">
           <ClusterSettingsTab />
+        </TabsContent>
+
+        {/* ── ArgoCD ── */}
+        <TabsContent value="argocd" className="mt-4">
+          <ArgocdSettingsTab />
         </TabsContent>
       </Tabs>
     </div>
