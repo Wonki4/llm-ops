@@ -1218,3 +1218,94 @@ git commit -m "llm-d: admin page, nav entry, i18n"
 **Type consistency:** `LlmdStackSummary` fields (Task 6) match `_serialize` output (Task 5) including `sync_status`/`health_status`/`status_message`. Hook names (`useLlmdStacks` etc.) are used identically in Task 7. `CreateLlmdStackBody` matches `CreateLlmdStackRequest`. `argo_app_name` set in Task 5 via `argo_app_name_for` (Task 3).
 
 **Note for implementer:** local verification stops at unit tests + typecheck — there is no ArgoCD/GPU cluster here (same constraint as the multi-cluster work). A live sync must be validated on a real cluster.
+
+---
+
+## REVISION (2026-06-21): ArgoCD connection registry + REST API
+
+Per the spec addendum, the portal manages Applications via **ArgoCD's REST API**
+through a registered **ArgoCD connection** (settings menu like the cluster tab),
+not by applying an Application CR. Reuses `app/services/crypto.py` (Fernet) and
+mirrors `app/api/k8s_clusters.py` + `frontend/src/components/cluster-settings-tab.tsx`.
+
+**Task 4 (K8sClient CustomObjects) is DROPPED** — not needed.
+
+**Revised execution order:** Task 1 (done) → 1b → A → B → C → D → 2 → 3 → 5' → 6' → 7'.
+
+### Task 1b: add `argocd_connection_id` to `custom_llmd_stack`
+- Create migration `026_llmd_argocd_connection.py` (down_revision `025_llmd_stack`)
+  adding nullable FK `argocd_connection_id` UUID → `custom_argocd_connection.id`
+  ON DELETE RESTRICT — **created in Task A's migration order: A's table must
+  exist first**, so sequence A before 1b OR fold this column into Task A's table
+  creation is impossible (different table). Order: **A (creates connection table) → 1b (adds FK)**.
+- Add `argocd_connection_id` mapped_column to `CustomLlmdStack`.
+- Test: column present in `CustomLlmdStack.__table__.columns`.
+
+### Task A: `custom_argocd_connection` model + migration
+- Files: `backend/app/db/models/custom_argocd_connection.py`,
+  `migrations/versions/026_argocd_connection.py` (down_revision `025_llmd_stack`),
+  register in `__init__.py`. (Then Task 1b migration `027` adds the FK column.)
+- Columns: `id, name(unique,128), server_url(512), token_encrypted(Text),
+  insecure_skip_verify(bool default false), is_default(bool default false),
+  description(Text null), created_by, updated_by, created_at, updated_at`.
+- Test: columns present; pattern = `custom_k8s_cluster.py`.
+
+### Task B: ArgoCD REST client `app/clients/argocd.py`
+- `class ArgoCDClient` ctor `(server_url, token, *, insecure_skip_verify=False)`.
+- Methods (httpx.AsyncClient, `Authorization: Bearer <token>`, `verify=not insecure`):
+  - `async def version() -> str` — `GET /api/version` → `.version`.
+  - `async def userinfo() -> dict` — `GET /api/v1/session/userinfo` (test).
+  - `async def create_application(body: dict) -> None` — `POST /api/v1/applications`.
+  - `async def get_application(name: str) -> dict | None` — `GET /api/v1/applications/{name}`; None on 404.
+  - `async def delete_application(name: str, *, cascade=True) -> None` — `DELETE`; ignore 404.
+- `async def probe_argocd(server_url, token, insecure) -> str` — connection test → returns version.
+- Test: with `respx`/`httpx.MockTransport`, assert 404→None for get_application and correct URL/headers for create. (Mirror the mock style in Task 4's old test.)
+
+### Task C: ArgoCD connections CRUD API `/api/admin/argocd-connections`
+- File `backend/app/api/argocd_connections.py`; register in `main.py`.
+- Mirror `k8s_clusters.py`: `CreateArgocdConnectionRequest{name, server_url, token,
+  insecure_skip_verify=False, description?, is_default=False}`,
+  `UpdateArgocdConnectionRequest{... token optional = keep existing ...}`.
+  `_serialize` masks the token → returns `has_token`, never `token`.
+  Endpoints: `GET ""`, `POST ""` (encrypt token via `crypto.encrypt`), `PUT/{id}`,
+  `DELETE/{id}`, `POST /test` (unsaved), `POST /{id}/test` (stored) → `probe_argocd`.
+  Single default via an `_unset_other_defaults` helper (copy from k8s_clusters).
+- Test: `_serialize` never contains `token`/`token_encrypted`; crypto round-trip.
+
+### Task D: Settings UI — ArgoCD tab
+- `frontend/src/components/argocd-settings-tab.tsx` modeled on
+  `cluster-settings-tab.tsx` (list, add/edit dialog with masked token field
+  "변경하려면 새로 붙여넣기", insecure checkbox, **연결 테스트**, delete).
+- Add a 4th tab in `admin/settings/page.tsx`: `<TabsTrigger value="argocd">` +
+  `<TabsContent>` rendering `<ArgocdSettingsTab/>`.
+- `use-api.ts` hooks `useArgocdConnections/useCreate/Update/Delete/Test/TestSaved`,
+  `type ArgocdConnectionSummary` in `types/index.ts`, i18n `settings.argocd.*`
+  (+ `tabArgocd`) in en.json/ko.json (symmetric keys).
+
+### Task 2' (revised): config
+- Keep `llmd_chart_repo/name/version`, `llmd_image_registry`, `llmd_hf_secret_name`.
+- **Remove** `argocd_namespace` (unused now). Test updated accordingly.
+
+### Task 3 (unchanged): builders
+- `build_argo_application` keeps producing the Application body; drop the
+  `argocd_namespace` parameter (the REST API path doesn't need metadata.namespace;
+  ArgoCD assigns it). Adjust signature to drop `argocd_namespace` and the
+  `metadata.namespace` line. Update test accordingly.
+
+### Task 5' (revised): llm-d API uses the ArgoCD connection
+- `CreateLlmdStackRequest` gains `argocd_connection_id: str` (required).
+- Resolve the connection row → decrypt token → `ArgoCDClient(server_url, token,
+  insecure_skip_verify=...)`. create/update → `create_application(body)`;
+  delete → `delete_application(name)`; status → `get_application(name)` → `_argo_status`.
+- Drop all `k8s_for_cluster` / CustomObjects usage for llm-d.
+- `_serialize` adds `argocd_connection_id`.
+
+### Task 6'/7' (revised): frontend
+- `LlmdStackSummary` + `CreateLlmdStackBody` gain `argocd_connection_id`.
+- The llm-d page Add dialog gets an **ArgoCD connection** picker
+  (`useArgocdConnections`) — required.
+
+**Self-review of revision:** ArgoCD connection (A–D) fully precedes llm-d API
+(5'). Token is masked everywhere (Task C `_serialize`, Task D masked field).
+crypto reused, not reinvented. Migration chain: 025 → 026 (argocd table) → 027
+(llmd argocd_connection_id FK). Single head after each.
