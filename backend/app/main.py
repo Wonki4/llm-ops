@@ -20,6 +20,7 @@ from app.api import (
     external,
     k8s_clusters,
     keys,
+    llmd,
     me,
     model_deployments,
     models_catalog,
@@ -72,6 +73,7 @@ app.include_router(model_deployments.router)
 app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
 app.include_router(argocd_connections.router)
+app.include_router(llmd.router)
 
 
 @app.exception_handler(Exception)
