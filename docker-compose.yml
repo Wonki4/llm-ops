@@ -137,6 +137,9 @@ services:
       APP_CA_CERT_PATH: "${APP_CA_CERT_PATH:-}"
     env_file:
       - .env
+    volumes:
+      # Same mounted kubeconfig as the backend; the worker reconciles K8s state.
+      - "${KUBECONFIG_HOST_PATH:-/dev/null}:/etc/kube/config:ro"
     depends_on:
       backend:
         condition: service_healthy
