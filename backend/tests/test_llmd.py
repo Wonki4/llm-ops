@@ -68,3 +68,16 @@ def test_build_application_is_isolated_to_project_and_namespace():
     assert src["targetRevision"] == "0.7.0"
     assert src["helm"]["valuesObject"] == {"replicas": 2}
     assert app["spec"]["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True}
+
+
+def test_argo_status_extracts_sync_and_health():
+    from app.api.llmd import _argo_status
+
+    obj = {"status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy", "message": "ok"}}}
+    assert _argo_status(obj) == {"sync_status": "Synced", "health_status": "Healthy", "status_message": "ok"}
+
+
+def test_argo_status_unknown_when_missing():
+    from app.api.llmd import _argo_status
+
+    assert _argo_status(None) == {"sync_status": "Unknown", "health_status": "Unknown", "status_message": None}
