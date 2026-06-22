@@ -78,3 +78,66 @@ async def test_config_defined_model_is_skipped_not_updated(monkeypatch):
     assert "cfg1" not in updated_ids, "config-defined model must not be updated (LiteLLM 400s)"
     assert updated_ids == ["db1"], "only the DB-stored model should be updated"
     assert result["errors"] == 0
+
+
+def _null_default_catalog(name: str) -> CustomModelCatalog:
+    return CustomModelCatalog(
+        model_name=name,
+        default_input_cost_per_token=None,
+        default_output_cost_per_token=None,
+    )
+
+
+def _deployment_with_override(name: str, mid: str, cost: float) -> dict:
+    return {
+        "model_name": name,
+        "model_info": {"id": mid, "db_model": True, "input_cost_per_token": cost},
+        "litellm_params": {"input_cost_per_token": cost, "output_cost_per_token": cost},
+    }
+
+
+@pytest.mark.asyncio
+async def test_null_default_flags_instead_of_pushing_none(monkeypatch):
+    """No rule + null default + an active override -> flag missing_default, don't
+    push None. LiteLLM ignores a null cost on /model/update, so pushing None is a
+    no-op that only churns reloads; the price can't be reverted without a default.
+    """
+    monkeypatch.setattr(
+        job, "async_session_factory", lambda: _FakeSession([], [_null_default_catalog("m")])
+    )
+    fake = MagicMock()
+    # The model currently carries a rule-applied override (2e-06).
+    fake.get_model_info = AsyncMock(return_value=[_deployment_with_override("m", "m1", 2e-06)])
+    fake.update_model = AsyncMock(return_value={})
+    monkeypatch.setattr(job, "LiteLLMClient", MagicMock(return_value=fake))
+
+    result = await job.apply_cost_schedule()
+
+    fake.update_model.assert_not_awaited()
+    assert result["missing_default"] == 1
+    assert result["deployments_updated"] == 0
+
+
+@pytest.mark.asyncio
+async def test_null_default_is_idempotent_when_already_cleared(monkeypatch):
+    """No rule + null default + no override left -> nothing to do (no reload churn)."""
+    monkeypatch.setattr(
+        job, "async_session_factory", lambda: _FakeSession([], [_null_default_catalog("m")])
+    )
+    fake = MagicMock()
+    # No override in litellm_params; base price lives in model_info only.
+    fake.get_model_info = AsyncMock(
+        return_value=[
+            {
+                "model_name": "m",
+                "model_info": {"id": "m1", "db_model": True, "input_cost_per_token": 9e-06},
+                "litellm_params": {},
+            }
+        ]
+    )
+    fake.update_model = AsyncMock(return_value={})
+    monkeypatch.setattr(job, "LiteLLMClient", MagicMock(return_value=fake))
+
+    await job.apply_cost_schedule()
+
+    fake.update_model.assert_not_awaited()
