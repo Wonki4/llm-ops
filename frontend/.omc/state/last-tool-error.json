@@ -1,7 +1,0 @@
-{
-  "tool_name": "Read",
-  "tool_input_preview": "{\"file_path\":\"/Users/wongibaek/Documents/litellm-ops/frontend/theme-light.png\"}",
-  "error": "File does not exist. Note: your current working directory is /Users/wongibaek/Documents/litellm-ops/frontend.",
-  "timestamp": "2026-06-18T17:36:25.464Z",
-  "retry_count": 1
-}

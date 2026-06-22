@@ -12,3 +12,11 @@ gateway/.ruff_cache/
 gateway/**/__pycache__/
 gateway/**/*.pyc
 frontend/.next/
+
+# Agent/tooling state — must never be committed
+.omc/
+**/.omc/
+.playwright-mcp/
+# Python caches anywhere in the tree
+__pycache__/
+*.pyc
