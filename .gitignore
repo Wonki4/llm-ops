@@ -20,3 +20,7 @@ frontend/.next/
 # Python caches anywhere in the tree
 __pycache__/
 *.pyc
+backups/
+
+# vendored LiteLLM source clone (reference only; we run the official image)
+litellm/

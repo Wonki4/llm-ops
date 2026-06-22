@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
-import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -531,37 +530,34 @@ function TeamSettingsTab({
   teamId,
   description,
   defaultMemberBudget,
+  defaultMemberTpm,
+  defaultMemberRpm,
   membershipDuration,
   defaultTpmLimit,
   defaultRpmLimit,
-  modelTpmLimit,
-  modelRpmLimit,
-  modelOptions,
 }: {
   teamId: string;
   description: string | null;
   defaultMemberBudget: number | null;
+  defaultMemberTpm: number | null;
+  defaultMemberRpm: number | null;
   membershipDuration: string | null;
   defaultTpmLimit: number | null;
   defaultRpmLimit: number | null;
-  modelTpmLimit: Record<string, number> | null;
-  modelRpmLimit: Record<string, number> | null;
-  modelOptions: ModelOption[];
 }) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
-  const tm = useTranslations("modelLimits");
   const updateSettings = useUpdateTeamSettings();
   const { data: portalSettings } = usePortalSettings();
   const [desc, setDesc] = useState(description || "");
   const [defaultBudget, setDefaultBudget] = useState(
     defaultMemberBudget != null ? String(defaultMemberBudget) : ""
   );
+  const [memberTpm, setMemberTpm] = useState(defaultMemberTpm != null ? String(defaultMemberTpm) : "");
+  const [memberRpm, setMemberRpm] = useState(defaultMemberRpm != null ? String(defaultMemberRpm) : "");
   const [duration, setDuration] = useState(membershipDuration || "");
   const [tpmLimit, setTpmLimit] = useState(defaultTpmLimit != null ? String(defaultTpmLimit) : "");
   const [rpmLimit, setRpmLimit] = useState(defaultRpmLimit != null ? String(defaultRpmLimit) : "");
-  const [modelTpm, setModelTpm] = useState<Record<string, number>>(modelTpmLimit ?? {});
-  const [modelRpm, setModelRpm] = useState<Record<string, number>>(modelRpmLimit ?? {});
 
   const handleSave = () => {
     updateSettings.mutate(
@@ -570,11 +566,11 @@ function TeamSettingsTab({
         body: {
           description: desc.trim() || null,
           default_member_budget: defaultBudget ? Number(defaultBudget) : null,
+          default_member_tpm_limit: memberTpm.trim() === "" ? null : Number(memberTpm),
+          default_member_rpm_limit: memberRpm.trim() === "" ? null : Number(memberRpm),
           membership_duration: duration || null,
           default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
           default_rpm_limit: rpmLimit ? Number(rpmLimit) : null,
-          model_tpm_limit: modelTpm,
-          model_rpm_limit: modelRpm,
         },
       },
       {
@@ -626,6 +622,33 @@ function TeamSettingsTab({
               {t("settingsDefaultBudgetHint")}
             </p>
           </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t("settingsMemberTpmLabel")}</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={memberTpm}
+                onChange={(e) => setMemberTpm(e.target.value)}
+                placeholder={t("settingsMemberRateLimitPlaceholder")}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">{t("settingsMemberRpmLabel")}</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={memberRpm}
+                onChange={(e) => setMemberRpm(e.target.value)}
+                placeholder={t("settingsMemberRateLimitPlaceholder")}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">{t("settingsMemberRateLimitHint")}</p>
         </CardContent>
       </Card>
 
@@ -667,24 +690,6 @@ function TeamSettingsTab({
               : ""}
             {t("settingsTpmRpmHintSuffix")}
           </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{tm("title")}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <ModelLimitEditor
-            initialTpm={modelTpmLimit}
-            initialRpm={modelRpmLimit}
-            models={modelOptions}
-            onChange={(tpm, rpm) => {
-              setModelTpm(tpm);
-              setModelRpm(rpm);
-            }}
-          />
-          <p className="text-xs text-muted-foreground">{tm("teamRetroHint")}</p>
         </CardContent>
       </Card>
 
@@ -1000,8 +1005,10 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [tpmInput, setTpmInput] = useState("");
   const [rpmInput, setRpmInput] = useState("");
   const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; currentIsAdmin: boolean } | null>(null);
-  const [budgetChangeTarget, setBudgetChangeTarget] = useState<{ userId: string; currentBudget: number | null } | null>(null);
+  const [budgetChangeTarget, setBudgetChangeTarget] = useState<{ userId: string; currentBudget: number | null; currentTpm: number | null; currentRpm: number | null } | null>(null);
   const [budgetAmount, setBudgetAmount] = useState("");
+  const [budgetTpm, setBudgetTpm] = useState("");
+  const [budgetRpm, setBudgetRpm] = useState("");
   const [expiryTarget, setExpiryTarget] = useState<{ userId: string; currentExpiry: string | null } | null>(null);
   const [expiryDate, setExpiryDate] = useState("");
   const [sortField, setSortField] = useState<"user_id" | "spend" | "budget" | "key_count">("user_id");
@@ -1087,6 +1094,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                       {t("colBudget")} {sortField === "budget" ? (sortDir === "asc" ? "↑" : "↓") : ""}
                     </button>
                   </TableHead>
+                  <TableHead className="hidden md:table-cell">{t("colRateLimit")}</TableHead>
                   <TableHead className="hidden md:table-cell">{t("colExpiry")}</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1170,8 +1178,10 @@ function MembersTab({ teamId }: { teamId: string }) {
                               className="h-6 px-2 text-xs text-muted-foreground"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setBudgetChangeTarget({ userId: member.user_id, currentBudget: member.total_max_budget });
+                                setBudgetChangeTarget({ userId: member.user_id, currentBudget: member.total_max_budget, currentTpm: member.total_tpm_limit, currentRpm: member.total_rpm_limit });
                                 setBudgetAmount(member.total_max_budget != null ? String(member.total_max_budget) : "");
+                                setBudgetTpm(member.total_tpm_limit != null ? String(member.total_tpm_limit) : "");
+                                setBudgetRpm(member.total_rpm_limit != null ? String(member.total_rpm_limit) : "");
                               }}
                             >
                               {t("actionChange")}
@@ -1181,6 +1191,13 @@ function MembersTab({ teamId }: { teamId: string }) {
                         <TableCell className="hidden sm:table-cell">
                           <span className="text-sm text-muted-foreground">
                             {member.total_max_budget === null ? t("unlimited") : `$${member.total_max_budget.toFixed(2)}`}
+                          </span>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          <span className="text-sm text-muted-foreground">
+                            {member.total_tpm_limit == null && member.total_rpm_limit == null
+                              ? t("unlimited")
+                              : `${member.total_tpm_limit?.toLocaleString() ?? "∞"} / ${member.total_rpm_limit?.toLocaleString() ?? "∞"}`}
                           </span>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
@@ -1207,7 +1224,7 @@ function MembersTab({ teamId }: { teamId: string }) {
                       </TableRow>
                       {isExpanded && member.keys.length > 0 && (
                         <TableRow>
-                          <TableCell colSpan={7} className="bg-muted/30 p-0">
+                          <TableCell colSpan={8} className="bg-muted/30 p-0">
                             <div className="space-y-2 px-8 py-3">
                               {member.keys.map((key) => (
                                 <div
@@ -1345,7 +1362,7 @@ function MembersTab({ teamId }: { teamId: string }) {
       </Dialog>
 
       {/* Budget Change Dialog */}
-      <Dialog open={!!budgetChangeTarget} onOpenChange={(open) => { if (!open) { setBudgetChangeTarget(null); setBudgetAmount(""); } }}>
+      <Dialog open={!!budgetChangeTarget} onOpenChange={(open) => { if (!open) { setBudgetChangeTarget(null); setBudgetAmount(""); setBudgetTpm(""); setBudgetRpm(""); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("budgetChangeTitle")}</DialogTitle>
@@ -1380,9 +1397,34 @@ function MembersTab({ teamId }: { teamId: string }) {
                 onChange={(e) => setBudgetAmount(e.target.value)}
               />
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium">{t("memberTpmLabel")}</label>
+                <Input
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder={t("memberRateLimitPlaceholder")}
+                  value={budgetTpm}
+                  onChange={(e) => setBudgetTpm(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">{t("memberRpmLabel")}</label>
+                <Input
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder={t("memberRateLimitPlaceholder")}
+                  value={budgetRpm}
+                  onChange={(e) => setBudgetRpm(e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">{t("memberRateLimitHint")}</p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setBudgetChangeTarget(null); setBudgetAmount(""); }}>
+            <Button variant="outline" onClick={() => { setBudgetChangeTarget(null); setBudgetAmount(""); setBudgetTpm(""); setBudgetRpm(""); }}>
               {tc("cancel")}
             </Button>
             <Button
@@ -1390,12 +1432,20 @@ function MembersTab({ teamId }: { teamId: string }) {
               onClick={() => {
                 if (!budgetChangeTarget) return;
                 changeBudgetMutation.mutate(
-                  { teamId, userId: budgetChangeTarget.userId, maxBudget: Number(budgetAmount) },
+                  {
+                    teamId,
+                    userId: budgetChangeTarget.userId,
+                    maxBudget: Number(budgetAmount),
+                    tpmLimit: budgetTpm.trim() === "" ? null : Number(budgetTpm),
+                    rpmLimit: budgetRpm.trim() === "" ? null : Number(budgetRpm),
+                  },
                   {
                     onSuccess: () => {
                       toast.success(t("budgetChangeSuccess"));
                       setBudgetChangeTarget(null);
                       setBudgetAmount("");
+                      setBudgetTpm("");
+                      setBudgetRpm("");
                     },
                     onError: (err) => toast.error(err instanceof Error ? err.message : t("budgetChangeFail")),
                   },
@@ -1867,19 +1917,11 @@ export default function TeamDetailPage({
               teamId={teamId}
               description={team.description ?? null}
               defaultMemberBudget={data.default_member_budget ?? null}
+              defaultMemberTpm={data.default_member_tpm_limit ?? null}
+              defaultMemberRpm={data.default_member_rpm_limit ?? null}
               membershipDuration={data.membership_duration ?? null}
               defaultTpmLimit={data.default_tpm_limit ?? null}
               defaultRpmLimit={data.default_rpm_limit ?? null}
-              modelTpmLimit={data.model_tpm_limit ?? null}
-              modelRpmLimit={data.model_rpm_limit ?? null}
-              modelOptions={(
-                (data.team.models ?? []).includes("all-proxy-models")
-                  ? (allModels?.map((m) => m.model_name) ?? [])
-                  : (data.team.models ?? []).filter((m) => m !== "all-proxy-models")
-              ).map((name) => ({
-                value: name,
-                label: modelsByName.get(name)?.catalog?.display_name || name,
-              }))}
             />
           </TabsContent>
         )}

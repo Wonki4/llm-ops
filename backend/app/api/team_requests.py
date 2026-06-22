@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user
 from app.auth.permissions import require_team_admin
+from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.clients.slack import send_slack_notification
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest, JoinRequestStatus
 from app.db.models.custom_user import CustomUser, GlobalRole
@@ -209,6 +210,7 @@ async def approve_request(
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Approve a request. Must be team admin or super user."""
     result = await db.execute(select(CustomTeamJoinRequest).where(CustomTeamJoinRequest.id == uuid.UUID(request_id)))
@@ -297,42 +299,15 @@ async def approve_request(
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
     elif req.request_type == "budget":
-        # Find an existing budget with the exact requested max_budget
-        existing_budget = await litellm_db.execute(
-            text(
-                'SELECT budget_id FROM "LiteLLM_BudgetTable" '
-                "WHERE max_budget = :max_budget LIMIT 1"
-            ),
-            {"max_budget": req.requested_budget},
-        )
-        existing_row = existing_budget.mappings().first()
-
-        if existing_row:
-            target_budget_id = existing_row["budget_id"]
-        else:
-            # Create new budget entry
-            import uuid as _uuid
-            target_budget_id = str(_uuid.uuid4())
-            await litellm_db.execute(
-                text(
-                    'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
-                    "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
-                ),
-                {
-                    "budget_id": target_budget_id,
-                    "max_budget": req.requested_budget,
-                    "created_by": user.user_id,
-                    "updated_by": user.user_id,
-                },
-            )
-
-        # Point the user's membership to the target budget
-        await litellm_db.execute(
-            text(
-                'UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id '
-                "WHERE user_id = :user_id AND team_id = :team_id"
-            ),
-            {"budget_id": target_budget_id, "user_id": req.requester_id, "team_id": req.team_id},
+        # Delegate to LiteLLM /team/member_update — same path as a manual
+        # per-member budget change (teams.change_member_budget). LiteLLM
+        # clone-on-writes a dedicated budget row for this member, so approving
+        # two requests for the same amount never makes them share one row (the
+        # previous reuse-by-amount SQL silently did).
+        await litellm.update_team_member(
+            req.team_id,
+            req.requester_id,
+            max_budget_in_team=req.requested_budget,
         )
 
     req.status = JoinRequestStatus.APPROVED

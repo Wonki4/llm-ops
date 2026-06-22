@@ -214,10 +214,10 @@ export function useChangeMemberRole() {
 export function useChangeMemberBudget() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, userId, maxBudget }: { teamId: string; userId: string; maxBudget: number }) =>
+    mutationFn: ({ teamId, userId, maxBudget, tpmLimit, rpmLimit }: { teamId: string; userId: string; maxBudget: number; tpmLimit?: number | null; rpmLimit?: number | null }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/members/${userId}/budget`, {
         method: "PUT",
-        body: JSON.stringify({ max_budget: maxBudget }),
+        body: JSON.stringify({ max_budget: maxBudget, tpm_limit: tpmLimit ?? null, rpm_limit: rpmLimit ?? null }),
       }),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.teamDetail(variables.teamId) });
@@ -273,7 +273,7 @@ export function useUpdateMemberKeyLimits() {
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null; model_tpm_limit?: Record<string, number>; model_rpm_limit?: Record<string, number>; description?: string | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; default_member_tpm_limit?: number | null; default_member_rpm_limit?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null; description?: string | null } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),

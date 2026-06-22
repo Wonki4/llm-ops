@@ -1,5 +1,7 @@
 """Tests for team endpoints."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 
@@ -198,3 +200,61 @@ async def test_discover_teams_sql_includes_usertable_teams(user_client: AsyncCli
     assert resp.status_code == 200
     assert 'FROM "LiteLLM_UserTable" WHERE user_id = :user_id' in captured[1]
     assert "UNNEST(COALESCE(teams, ARRAY[]::text[]))" in captured[1]
+
+
+@pytest.mark.asyncio
+async def test_change_member_budget_delegates_to_member_update(admin_client: AsyncClient, mock_litellm, mock_db):
+    """Per-member budget + TPM/RPM go through LiteLLM /team/member_update.
+
+    LiteLLM clone-on-writes a dedicated budget row for the member, so we no
+    longer touch the BudgetTable with raw SQL (the old path reused any row with
+    a matching amount, silently sharing budgets between members).
+    """
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+    mock_litellm.update_team_member = AsyncMock(return_value={"status": "ok"})
+
+    resp = await admin_client.put(
+        "/api/teams/team-1/members/user002/budget",
+        json={"max_budget": 100.0, "tpm_limit": 5000, "rpm_limit": 60},
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["tpm_limit"] == 5000 and body["rpm_limit"] == 60
+    mock_litellm.update_team_member.assert_awaited_once_with(
+        "team-1",
+        "user002",
+        max_budget_in_team=100.0,
+        tpm_limit=5000,
+        rpm_limit=60,
+    )
+    # Super-user short-circuits require_team_admin, and the budget write is fully
+    # delegated — so the portal performs no raw SQL on the LiteLLM DB.
+    mock_db.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_change_member_budget_omits_unset_limits(admin_client: AsyncClient, mock_litellm, mock_db):
+    """Budget-only edit sends tpm/rpm as None so LiteLLM leaves them untouched."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+    mock_litellm.update_team_member = AsyncMock(return_value={"status": "ok"})
+
+    resp = await admin_client.put(
+        "/api/teams/team-1/members/user002/budget",
+        json={"max_budget": 250.0},
+    )
+
+    assert resp.status_code == 200, resp.text
+    mock_litellm.update_team_member.assert_awaited_once_with(
+        "team-1",
+        "user002",
+        max_budget_in_team=250.0,
+        tpm_limit=None,
+        rpm_limit=None,
+    )

@@ -80,23 +80,41 @@ def _parse_duration(duration_str: str) -> "timedelta | None":
     return None
 
 
-async def _get_default_member_budget(litellm_db: AsyncSession, team_id: str) -> float | None:
-    """Get default member budget from TeamTable metadata -> BudgetTable."""
+async def _get_default_member_limits(litellm_db: AsyncSession, team_id: str) -> dict:
+    """Default member budget + TPM/RPM from TeamTable metadata -> BudgetTable.
+
+    These live on the team's shared default member budget row (the budget_id
+    stored in metadata.team_member_budget_id). They are enforced at the
+    team_member scope ({team_id}:{user_id}), so they apply per-member — across
+    all of a member's keys, not per key — to every member without a dedicated
+    override budget. Returns {"budget", "tpm", "rpm"} with None for unset.
+    """
+    empty = {"budget": None, "tpm": None, "rpm": None}
     result = await litellm_db.execute(
         text("SELECT metadata FROM \"LiteLLM_TeamTable\" WHERE team_id = :team_id"),
         {"team_id": team_id},
     )
     metadata = result.scalar()
     if not metadata or not isinstance(metadata, dict):
-        return None
+        return empty
     budget_id = metadata.get("team_member_budget_id")
     if not budget_id:
-        return None
+        return empty
     budget_result = await litellm_db.execute(
-        text("SELECT max_budget FROM \"LiteLLM_BudgetTable\" WHERE budget_id = :budget_id"),
+        text(
+            "SELECT max_budget, tpm_limit, rpm_limit "
+            "FROM \"LiteLLM_BudgetTable\" WHERE budget_id = :budget_id"
+        ),
         {"budget_id": budget_id},
     )
-    return budget_result.scalar()
+    row = budget_result.mappings().first()
+    if not row:
+        return empty
+    return {
+        "budget": float(row["max_budget"]) if row["max_budget"] is not None else None,
+        "tpm": int(row["tpm_limit"]) if row["tpm_limit"] is not None else None,
+        "rpm": int(row["rpm_limit"]) if row["rpm_limit"] is not None else None,
+    }
 
 
 async def _get_hidden_teams(db: AsyncSession) -> set[str]:
@@ -326,11 +344,11 @@ async def get_team_detail(
             "admin_count": len(all_admins),
         },
         "my_keys": my_keys,
-        "default_member_budget": await _get_default_member_budget(litellm_db, team_id),
+        "default_member_budget": (_dml := await _get_default_member_limits(litellm_db, team_id))["budget"],
+        "default_member_tpm_limit": _dml["tpm"],
+        "default_member_rpm_limit": _dml["rpm"],
         "membership_duration": await _get_membership_duration(db, team_id),
         **(await _get_team_default_limits(db, team_id)),
-        "model_tpm_limit": team_metadata.get("model_tpm_limit") or None,
-        "model_rpm_limit": team_metadata.get("model_rpm_limit") or None,
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -408,6 +426,8 @@ async def list_team_members(
         text(f"""
             SELECT tm.user_id, tm.spend AS membership_spend,
                    b.max_budget AS membership_max_budget,
+                   b.tpm_limit AS membership_tpm_limit,
+                   b.rpm_limit AS membership_rpm_limit,
                    COALESCE(kc.key_count, 0) AS key_count
             FROM "LiteLLM_TeamMembership" tm
             LEFT JOIN "LiteLLM_BudgetTable" b ON tm.budget_id = b.budget_id
@@ -429,6 +449,8 @@ async def list_team_members(
         r["user_id"]: {
             "spend": float(r["membership_spend"] or 0),
             "max_budget": float(r["membership_max_budget"]) if r["membership_max_budget"] is not None else None,
+            "tpm_limit": int(r["membership_tpm_limit"]) if r["membership_tpm_limit"] is not None else None,
+            "rpm_limit": int(r["membership_rpm_limit"]) if r["membership_rpm_limit"] is not None else None,
         }
         for r in paged_rows
     }
@@ -488,7 +510,7 @@ async def list_team_members(
     members = []
     for uid in paged_ids:
         user_keys = keys_by_user.get(uid, [])
-        budget = membership_budget.get(uid, {"spend": 0, "max_budget": None})
+        budget = membership_budget.get(uid, {"spend": 0, "max_budget": None, "tpm_limit": None, "rpm_limit": None})
         expiry = expiry_map.get(uid)
         members.append(
             {
@@ -497,6 +519,8 @@ async def list_team_members(
                 "key_count": len(user_keys),
                 "total_spend": budget["spend"],
                 "total_max_budget": budget["max_budget"],
+                "total_tpm_limit": budget.get("tpm_limit"),
+                "total_rpm_limit": budget.get("rpm_limit"),
                 "expires_at": expiry["expires_at"] if expiry else None,
                 "expiry_status": expiry["status"] if expiry else None,
                 "keys": user_keys,
@@ -750,6 +774,8 @@ async def change_member_role(
 
 class ChangeBudgetRequest(BaseModel):
     max_budget: float
+    tpm_limit: int | None = None
+    rpm_limit: int | None = None
 
 
 @router.put("/{team_id}/members/{member_id}/budget")
@@ -758,50 +784,38 @@ async def change_member_budget(
     member_id: str,
     body: ChangeBudgetRequest,
     user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """Change a team member's budget. Requires team admin or super user."""
+    """Set a team member's per-member budget (and optional TPM/RPM limits).
+
+    Delegates to LiteLLM's /team/member_update, which clone-on-writes a
+    dedicated budget row for this member when the membership still shares the
+    team's default budget. That keeps each member's budget and rate limits
+    isolated — editing one member never bleeds into others (the previous
+    implementation reused any budget row with a matching amount, so two members
+    set to the same budget silently shared one row). The tpm/rpm limits are
+    enforced on a per-(team, user) counter, so they hold across all of the
+    member's keys rather than multiplying per key. Requires team admin or super
+    user.
+    """
     await require_team_admin(user, team_id, litellm_db)
 
-    # Find or create budget with the target max_budget
-    existing_budget = await litellm_db.execute(
-        text(
-            'SELECT budget_id FROM "LiteLLM_BudgetTable" '
-            "WHERE max_budget = :max_budget LIMIT 1"
-        ),
-        {"max_budget": body.max_budget},
+    await litellm.update_team_member(
+        team_id,
+        member_id,
+        max_budget_in_team=body.max_budget,
+        tpm_limit=body.tpm_limit,
+        rpm_limit=body.rpm_limit,
     )
-    existing_row = existing_budget.mappings().first()
 
-    if existing_row:
-        target_budget_id = existing_row["budget_id"]
-    else:
-        import uuid as _uuid
-        target_budget_id = str(_uuid.uuid4())
-        await litellm_db.execute(
-            text(
-                'INSERT INTO "LiteLLM_BudgetTable" (budget_id, max_budget, created_by, updated_by) '
-                "VALUES (:budget_id, :max_budget, :created_by, :updated_by)"
-            ),
-            {
-                "budget_id": target_budget_id,
-                "max_budget": body.max_budget,
-                "created_by": user.user_id,
-                "updated_by": user.user_id,
-            },
-        )
-
-    # Point the member's membership to the target budget
-    await litellm_db.execute(
-        text(
-            'UPDATE "LiteLLM_TeamMembership" SET budget_id = :budget_id '
-            "WHERE user_id = :user_id AND team_id = :team_id"
-        ),
-        {"budget_id": target_budget_id, "user_id": member_id, "team_id": team_id},
-    )
-    await litellm_db.commit()
-
-    return {"status": "changed", "user_id": member_id, "max_budget": body.max_budget}
+    return {
+        "status": "changed",
+        "user_id": member_id,
+        "max_budget": body.max_budget,
+        "tpm_limit": body.tpm_limit,
+        "rpm_limit": body.rpm_limit,
+    }
 
 
 class UpdateMemberKeyLimitsRequest(BaseModel):
@@ -950,14 +964,14 @@ async def remove_team_member(
 
 class UpdateTeamSettingsRequest(BaseModel):
     default_member_budget: float | None = None
+    # Per-member default TPM/RPM, stored on the team's shared default member
+    # budget (team_member scope). Distinct from default_tpm_limit/rpm_limit
+    # below, which seed a new KEY's limits at generation time.
+    default_member_tpm_limit: int | None = None
+    default_member_rpm_limit: int | None = None
     membership_duration: str | None = None  # e.g. "90d", "180d", "365d"
     default_tpm_limit: int | None = None
     default_rpm_limit: int | None = None
-    # Per-model limits stored on the team (LiteLLM_TeamTable.metadata). These
-    # apply at runtime to ALL existing + future keys in the team — no per-key
-    # write — so a change here is retroactive. An empty dict clears them.
-    model_tpm_limit: dict[str, int] | None = None
-    model_rpm_limit: dict[str, int] | None = None
     description: str | None = None
 
 
@@ -977,31 +991,20 @@ async def update_team_settings(
     if not updates:
         return {"status": "unchanged"}
 
-    # Set team_member_budget via LiteLLM API
+    # Default member budget + per-member TPM/RPM all live on the team's shared
+    # default member budget row (team_member scope). Send them together via
+    # /team/update so LiteLLM writes them onto that one budget row; they then
+    # apply per-member (across all of a member's keys) to everyone without a
+    # dedicated override budget.
+    member_budget_kwargs: dict = {}
     if "default_member_budget" in updates:
-        await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
-
-    # Per-model limits live in LiteLLM_TeamTable.metadata. IMPORTANT: passing
-    # model_tpm_limit/model_rpm_limit to /team/update makes LiteLLM REPLACE the
-    # whole metadata dict, which would wipe team_member_budget_id (set just above)
-    # and any other key. Read the current metadata and send it back merged so the
-    # member-budget link and everything else survive.
-    model_limit_kwargs: dict = {}
-    if "model_tpm_limit" in updates:
-        model_limit_kwargs["model_tpm_limit"] = updates["model_tpm_limit"] or {}
-    if "model_rpm_limit" in updates:
-        model_limit_kwargs["model_rpm_limit"] = updates["model_rpm_limit"] or {}
-    if model_limit_kwargs:
-        # Fresh snapshot so we observe the team_member_budget_id written above.
-        await litellm_db.rollback()
-        meta_row = await litellm_db.execute(
-            text('SELECT metadata FROM "LiteLLM_TeamTable" WHERE team_id = :tid'),
-            {"tid": team_id},
-        )
-        current_meta = meta_row.scalar()
-        if not isinstance(current_meta, dict):
-            current_meta = {}
-        await litellm.update_team(team_id, metadata={**current_meta, **model_limit_kwargs})
+        member_budget_kwargs["team_member_budget"] = updates["default_member_budget"]
+    if "default_member_tpm_limit" in updates:
+        member_budget_kwargs["team_member_tpm_limit"] = updates["default_member_tpm_limit"]
+    if "default_member_rpm_limit" in updates:
+        member_budget_kwargs["team_member_rpm_limit"] = updates["default_member_rpm_limit"]
+    if member_budget_kwargs:
+        await litellm.update_team(team_id, **member_budget_kwargs)
 
     # Store team-scoped portal settings (membership_duration, default TPM/RPM).
     portal_setting_keys = {

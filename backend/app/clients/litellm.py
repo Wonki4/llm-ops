@@ -59,6 +59,36 @@ class LiteLLMClient:
             json={"team_id": team_id, "user_id": user_id},
         )
 
+    async def update_team_member(
+        self,
+        team_id: str,
+        user_id: str,
+        *,
+        max_budget_in_team: float | None = None,
+        tpm_limit: int | None = None,
+        rpm_limit: int | None = None,
+    ) -> dict:
+        """Set a team member's per-member budget and rate limits via /team/member_update.
+
+        The limits are scoped to this (team, user): the proxy enforces tpm/rpm
+        on a ``{team_id}:{user_id}`` counter, so they hold across all of the
+        member's keys in the team (not multiplied per key). LiteLLM
+        clone-on-writes a dedicated budget row when the membership still points
+        at the team's shared default budget, so the change only affects this
+        member — never the others sharing the default.
+
+        Only non-None fields are sent (LiteLLM merges, leaving omitted fields
+        untouched).
+        """
+        payload: dict[str, Any] = {"team_id": team_id, "user_id": user_id}
+        if max_budget_in_team is not None:
+            payload["max_budget_in_team"] = max_budget_in_team
+        if tpm_limit is not None:
+            payload["tpm_limit"] = tpm_limit
+        if rpm_limit is not None:
+            payload["rpm_limit"] = rpm_limit
+        return await self._request("POST", "/team/member_update", json=payload)
+
     # ──── Key endpoints ────
     async def generate_key(
         self,
