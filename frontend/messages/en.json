@@ -545,7 +545,7 @@
     }
   },
   "modelCostSchedule": {
-    "description": "Token cost per timezone (KST). Falls back to catalog default cost when no rule matches.",
+    "description": "Token cost by time of day. Falls back to catalog default cost when no rule matches.",
     "addRule": "Add Rule",
     "noRules": "No rules registered.",
     "rule": {
@@ -553,10 +553,10 @@
       "inactive": "Inactive"
     },
     "form": {
-      "daysKst": "Days of Week (KST)",
+      "daysKst": "Days of Week",
       "daySpanningHint": "Day-spanning (e.g. 22→6) applies until early next morning based on start day",
-      "startHour": "Start (KST, 0-23)",
-      "endHour": "End (KST, 1-24)",
+      "startHour": "Start (0-23)",
+      "endHour": "End (1-24)",
       "inputCost": "Input cost (USD / 1M tokens)",
       "outputCost": "Output cost (USD / 1M tokens)",
       "priority": "Priority (higher = preferred)",
@@ -564,8 +564,8 @@
     },
     "validation": {
       "selectDays": "Please select at least one day.",
-      "invalidStartHour": "Start hour (KST) must be 0-23.",
-      "invalidEndHour": "End hour (KST) must be 1-24.",
+      "invalidStartHour": "Start hour must be 0-23.",
+      "invalidEndHour": "End hour must be 1-24.",
       "sameStartEnd": "Start and end hours cannot be the same.",
       "invalidInputCost": "Input cost must be 0 or greater.",
       "invalidOutputCost": "Output cost must be 0 or greater."

@@ -150,7 +150,7 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
               {summary.cost_schedule.map((s, i) => (
                 <TableRow key={i}>
                   <TableCell>
-                    {s.hour_start_utc}:00–{s.hour_end_utc}:00
+                    {s.hour_start_local}:00–{s.hour_end_local}:00
                   </TableCell>
                   <TableCell>{s.days_of_week.join(", ")}</TableCell>
                   <TableCell className="tabular-nums">{pricePerM(s.input_cost_per_token)}</TableCell>

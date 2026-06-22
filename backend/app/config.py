@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     # is applied within seconds of HH:00 — not up to a full interval late.
     cost_schedule_interval_seconds: int = 300
 
+    # Wall-clock timezone that time-of-day cost rules are authored in. Rules store
+    # local days/hours; the worker converts `now` into this zone before matching,
+    # so what an admin picks is exactly what's stored and displayed (no UTC round
+    # trip). IANA name, e.g. "Asia/Seoul" (KST), "UTC", "America/New_York".
+    schedule_timezone: str = "Asia/Seoul"
+
     frontend_url: str = "http://localhost:3002"
 
     redis_url: str = "redis://localhost:6379/0"

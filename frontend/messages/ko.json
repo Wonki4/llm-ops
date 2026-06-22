@@ -545,7 +545,7 @@
     }
   },
   "modelCostSchedule": {
-    "description": "시간대(KST) 별 토큰 단가. 매칭 룰 없으면 카탈로그의 기본 단가로 복귀.",
+    "description": "시간대별 토큰 단가. 매칭 룰 없으면 카탈로그 기본 단가로 복귀.",
     "addRule": "룰 추가",
     "noRules": "등록된 룰이 없습니다.",
     "rule": {
@@ -553,10 +553,10 @@
       "inactive": "비활성"
     },
     "form": {
-      "daysKst": "요일 (KST)",
+      "daysKst": "요일",
       "daySpanningHint": "day-spanning(예: 22→6)은 시작 요일 기준으로 다음 날 새벽까지 적용",
-      "startHour": "시작 (KST, 0-23)",
-      "endHour": "종료 (KST, 1-24)",
+      "startHour": "시작 (0-23)",
+      "endHour": "종료 (1-24)",
       "inputCost": "입력 단가 (USD / 1M tokens)",
       "outputCost": "출력 단가 (USD / 1M tokens)",
       "priority": "우선순위 (높을수록 우선)",
@@ -564,8 +564,8 @@
     },
     "validation": {
       "selectDays": "요일을 1개 이상 선택하세요.",
-      "invalidStartHour": "시작 시각(KST)은 0-23이어야 합니다.",
-      "invalidEndHour": "종료 시각(KST)은 1-24이어야 합니다.",
+      "invalidStartHour": "시작 시각은 0-23이어야 합니다.",
+      "invalidEndHour": "종료 시각은 1-24이어야 합니다.",
       "sameStartEnd": "시작과 종료 시각이 같을 수 없습니다.",
       "invalidInputCost": "입력 단가는 0 이상이어야 합니다.",
       "invalidOutputCost": "출력 단가는 0 이상이어야 합니다."

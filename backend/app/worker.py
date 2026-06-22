@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from app.config import Settings
+from app.config import settings
 from app.jobs.apply_cost_schedule import cost_schedule_loop
 from app.jobs.auto_deprecate import deprecation_loop
 from app.jobs.expire_memberships import membership_expiry_loop
@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     logger.info("Starting background worker...")
-    settings = Settings()
     await asyncio.gather(
         deprecation_loop(interval_seconds=300),
         membership_expiry_loop(interval_seconds=3600),
