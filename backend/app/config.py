@@ -29,6 +29,12 @@ class Settings(BaseSettings):
     session_cookie_samesite: str = "lax"
     session_max_age: int = 86400 * 14
 
+    # How often the worker re-evaluates time-of-day cost rules. Rules are
+    # hour-granular, so this is the max lateness of a price transition; the loop
+    # also aligns to the interval boundary so an on-the-hour change lands within
+    # seconds of the hour, not up to a full interval late.
+    cost_schedule_interval_seconds: int = 60
+
     frontend_url: str = "http://localhost:3002"
 
     redis_url: str = "redis://localhost:6379/0"
