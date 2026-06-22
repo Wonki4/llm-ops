@@ -258,3 +258,56 @@ async def test_change_member_budget_omits_unset_limits(admin_client: AsyncClient
         tpm_limit=None,
         rpm_limit=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_member_usage_group_by_model_group_uses_coalesce(admin_client: AsyncClient, mock_litellm, mock_db):
+    """group_by=model_group buckets by the public group, falling back to model
+    (COALESCE(NULLIF(model_group,''), model)) so there are no (unknown) rows."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    captured: list[str] = []
+
+    async def fake_execute(statement, params=None):
+        captured.append(str(statement))
+        if len(captured) == 1:
+            return _FakeMappingsResult([{"token": "sk-x"}])  # member's keys
+        return _FakeMappingsResult([])  # grouped rows
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    resp = await admin_client.get(
+        "/api/teams/team-1/usage/user002/by-model"
+        "?start_date=2026-01-01&end_date=2026-12-31&group_by=model_group"
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert any("COALESCE(NULLIF(model_group, '')" in s for s in captured), captured
+
+
+@pytest.mark.asyncio
+async def test_member_usage_default_groups_by_plain_model(admin_client: AsyncClient, mock_litellm, mock_db):
+    """Default (group_by=model) groups by the raw model column, not model_group."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    captured: list[str] = []
+
+    async def fake_execute(statement, params=None):
+        captured.append(str(statement))
+        if len(captured) == 1:
+            return _FakeMappingsResult([{"token": "sk-x"}])
+        return _FakeMappingsResult([])
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    resp = await admin_client.get(
+        "/api/teams/team-1/usage/user002/by-model?start_date=2026-01-01&end_date=2026-12-31"
+    )
+
+    assert resp.status_code == 200, resp.text
+    grouped_sql = captured[1]
+    assert "GROUP BY model " in grouped_sql and "COALESCE" not in grouped_sql, grouped_sql

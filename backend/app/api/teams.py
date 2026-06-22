@@ -654,15 +654,22 @@ async def team_member_usage_by_model(
     user_id: str,
     start_date: str,
     end_date: str,
+    group_by: str = "model",
     user: CustomUser = Depends(get_current_user),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
     """Per-model usage (requests / tokens / spend) for one member within a team.
 
     Same source and scoping as the team usage endpoint (LiteLLM_DailyUserSpend,
-    restricted to this team's keys), narrowed to the given member and grouped by
-    model. `start_date`/`end_date` are inclusive `YYYY-MM-DD`. Team admin or
-    super user only.
+    restricted to this team's keys), narrowed to the given member. `start_date`/
+    `end_date` are inclusive `YYYY-MM-DD`. Team admin or super user only.
+
+    `group_by` controls the breakdown:
+      - "model" (default): the underlying model recorded in each spend row.
+      - "model_group": the public model-group name, falling back to the model
+        when a row has no group recorded (LiteLLM leaves it empty for some
+        routes), so there are no "(unknown)" buckets.
+    The grouped label is always returned in the `model` field.
     """
     await require_team_admin(user, team_id, litellm_db)
 
@@ -678,21 +685,27 @@ async def team_member_usage_by_model(
     if not tokens:
         return {"user_id": user_id, "models": []}
 
+    # Whitelisted grouping expression (never interpolate raw user input).
+    group_expr = (
+        "COALESCE(NULLIF(model_group, ''), model)"
+        if group_by == "model_group"
+        else "model"
+    )
     rows = await litellm_db.execute(
         text(
-            "SELECT model, "
+            f"SELECT {group_expr} AS label, "
             "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
             "       SUM(api_requests) AS api_requests, "
             "       SUM(spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" '
             "WHERE api_key = ANY(:tokens) AND date >= :start AND date <= :end "
-            "GROUP BY model ORDER BY spend DESC"
+            f"GROUP BY {group_expr} ORDER BY spend DESC"
         ),
         {"tokens": tokens, "start": start_date, "end": end_date},
     )
     models = [
         {
-            "model": r["model"] or "(unknown)",
+            "model": r["label"] or "(unknown)",
             "total_tokens": int(r["total_tokens"] or 0),
             "api_requests": int(r["api_requests"] or 0),
             "spend": float(r["spend"] or 0),

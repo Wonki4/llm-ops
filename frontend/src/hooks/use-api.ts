@@ -160,20 +160,23 @@ export interface TeamMemberModelUsageResponse {
   models: TeamMemberModelUsage[];
 }
 
-/** Per-model usage breakdown for a single team member over a date range. */
+/** Usage breakdown for a single team member over a date range, grouped by
+ *  model (default) or model group. */
 export function useTeamMemberUsageByModel(
   teamId: string,
   userId: string,
   startDate: string,
   endDate: string,
+  groupBy: "model" | "model_group" = "model",
   enabled: boolean = true,
 ) {
   const params = new URLSearchParams();
   params.set("start_date", startDate);
   params.set("end_date", endDate);
+  params.set("group_by", groupBy);
 
   return useQuery({
-    queryKey: ["teams", teamId, "usage", "by-model", userId, { startDate, endDate }] as const,
+    queryKey: ["teams", teamId, "usage", "by-model", userId, { startDate, endDate, groupBy }] as const,
     queryFn: () =>
       apiFetch<TeamMemberModelUsageResponse>(
         `/api/teams/${teamId}/usage/${encodeURIComponent(userId)}/by-model?${params.toString()}`,
