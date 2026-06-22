@@ -1090,6 +1090,9 @@
     "settingsDescriptionPlaceholder": "Describe this team (optional)",
     "settingsDescriptionHint": "Shown on the list, discover, and detail pages. Max 500 chars.",
     "colModel": "Model",
+    "colModelGroup": "Model group",
+    "groupByModel": "Model",
+    "groupByModelGroup": "Model group",
     "usageByModelEmpty": "No model usage in this period."
   },
   "auth": {

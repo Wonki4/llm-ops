@@ -1090,6 +1090,9 @@
     "settingsDescriptionPlaceholder": "팀에 대한 설명을 입력하세요 (선택)",
     "settingsDescriptionHint": "목록·탐색·상세 화면에 표시됩니다. 최대 500자.",
     "colModel": "모델",
+    "colModelGroup": "모델 그룹",
+    "groupByModel": "모델",
+    "groupByModelGroup": "모델 그룹",
     "usageByModelEmpty": "이 기간 모델 사용 내역이 없습니다."
   },
   "auth": {
