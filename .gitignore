@@ -1,5 +1,7 @@
 .env
 *.png
+# Bundled provider/model brand logos must be tracked (air-gapped: no CDN).
+!frontend/public/model-logos/*.png
 tmp/
 backend/.pytest_cache/
 backend/.ruff_cache/
