@@ -12,6 +12,7 @@ from sqlalchemy import select, func as sa_func, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
+from app.config import settings
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.clients.redis import (
     catalog_delete as redis_delete,
@@ -564,8 +565,8 @@ async def model_summary(
     cost_schedule = [
         {
             "days_of_week": s.days_of_week,
-            "hour_start_utc": s.hour_start_utc,
-            "hour_end_utc": s.hour_end_utc,
+            "hour_start_local": s.hour_start_local,
+            "hour_end_local": s.hour_end_local,
             "input_cost_per_token": s.input_cost_per_token,
             "output_cost_per_token": s.output_cost_per_token,
             "priority": s.priority,
@@ -660,8 +661,9 @@ def _serialize_cost_schedule(r: CustomModelCostSchedule) -> dict:
         "id": str(r.id),
         "model_name": r.model_name,
         "days_of_week": list(r.days_of_week),
-        "hour_start_utc": r.hour_start_utc,
-        "hour_end_utc": r.hour_end_utc,
+        "hour_start_local": r.hour_start_local,
+        "hour_end_local": r.hour_end_local,
+        "timezone": settings.schedule_timezone,
         "input_cost_per_token": r.input_cost_per_token,
         "output_cost_per_token": r.output_cost_per_token,
         "priority": r.priority,
@@ -674,9 +676,9 @@ def _serialize_cost_schedule(r: CustomModelCostSchedule) -> dict:
 
 
 class CostScheduleRequest(BaseModel):
-    days_of_week: list[int]  # 1..7 ISO weekdays
-    hour_start_utc: int  # 0..23
-    hour_end_utc: int  # 1..24; <= start means day-spanning
+    days_of_week: list[int]  # 1..7 ISO weekdays (in the schedule timezone)
+    hour_start_local: int  # 0..23, local wall-clock hour
+    hour_end_local: int  # 1..24; <= start means day-spanning
     input_cost_per_token: float
     output_cost_per_token: float
     priority: int = 0
@@ -686,12 +688,12 @@ class CostScheduleRequest(BaseModel):
 def _validate_cost_schedule(body: CostScheduleRequest) -> None:
     if not body.days_of_week or any(d < 1 or d > 7 for d in body.days_of_week):
         raise HTTPException(status_code=400, detail="days_of_week must be non-empty ints in 1..7")
-    if body.hour_start_utc < 0 or body.hour_start_utc > 23:
-        raise HTTPException(status_code=400, detail="hour_start_utc must be in 0..23")
-    if body.hour_end_utc < 1 or body.hour_end_utc > 24:
-        raise HTTPException(status_code=400, detail="hour_end_utc must be in 1..24")
-    if body.hour_start_utc == body.hour_end_utc:
-        raise HTTPException(status_code=400, detail="hour_start_utc and hour_end_utc must differ")
+    if body.hour_start_local < 0 or body.hour_start_local > 23:
+        raise HTTPException(status_code=400, detail="hour_start_local must be in 0..23")
+    if body.hour_end_local < 1 or body.hour_end_local > 24:
+        raise HTTPException(status_code=400, detail="hour_end_local must be in 1..24")
+    if body.hour_start_local == body.hour_end_local:
+        raise HTTPException(status_code=400, detail="hour_start_local and hour_end_local must differ")
     if body.input_cost_per_token < 0 or body.output_cost_per_token < 0:
         raise HTTPException(status_code=400, detail="costs must be non-negative")
 
@@ -775,8 +777,8 @@ async def create_cost_schedule(
         id=uuid.uuid4(),
         model_name=model_name,
         days_of_week=sorted(set(body.days_of_week)),
-        hour_start_utc=body.hour_start_utc,
-        hour_end_utc=body.hour_end_utc,
+        hour_start_local=body.hour_start_local,
+        hour_end_local=body.hour_end_local,
         input_cost_per_token=body.input_cost_per_token,
         output_cost_per_token=body.output_cost_per_token,
         priority=body.priority,
@@ -806,8 +808,8 @@ async def update_cost_schedule(
         raise HTTPException(status_code=404, detail="Rule not found")
     await _snapshot_default_cost_if_missing(db, litellm, rule.model_name)
     rule.days_of_week = sorted(set(body.days_of_week))
-    rule.hour_start_utc = body.hour_start_utc
-    rule.hour_end_utc = body.hour_end_utc
+    rule.hour_start_local = body.hour_start_local
+    rule.hour_end_local = body.hour_end_local
     rule.input_cost_per_token = body.input_cost_per_token
     rule.output_cost_per_token = body.output_cost_per_token
     rule.priority = body.priority

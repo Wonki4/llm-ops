@@ -17,9 +17,10 @@ import { Badge } from "@/components/ui/badge";
 interface CostRule {
   id: string;
   model_name: string;
-  days_of_week: number[]; // 1=Mon..7=Sun
-  hour_start_utc: number;
-  hour_end_utc: number;
+  days_of_week: number[]; // 1=Mon..7=Sun, in the schedule timezone
+  hour_start_local: number;
+  hour_end_local: number;
+  timezone: string; // IANA name the hours/days are authored in (e.g. Asia/Seoul)
   input_cost_per_token: number;
   output_cost_per_token: number;
   priority: number;
@@ -35,35 +36,10 @@ interface CostScheduleResponse {
   rules: CostRule[];
 }
 
-// ─── KST/UTC conversion helpers ─────────────────────────────────
-// KST is UTC+9, no DST. Convert hour displays only.
-
-function utcHourToKst(hourUtc: number): number {
-  return (hourUtc + 9) % 24;
-}
-
-function kstHourToUtc(hourKst: number): number {
-  return (hourKst - 9 + 24) % 24;
-}
-
-/** Convert (ISO weekday 1..7 in UTC, hour_utc) → KST weekday by adjusting day if hour rolls over. */
-function utcDayHourToKst(daysUtc: number[], hourUtc: number): { days: number[]; hourKst: number } {
-  // Adding 9h might roll the day forward.
-  const rolled = hourUtc + 9 >= 24;
-  const hourKst = (hourUtc + 9) % 24;
-  if (!rolled) return { days: [...daysUtc].sort(), hourKst };
-  const days = daysUtc.map((d) => (d % 7) + 1).sort(); // d+1 with wrap 7→1
-  return { days, hourKst };
-}
-
-/** Reverse: KST inputs → UTC for storage. */
-function kstDayHourToUtc(daysKst: number[], hourKst: number): { days: number[]; hourUtc: number } {
-  const rolledBack = hourKst - 9 < 0;
-  const hourUtc = (hourKst - 9 + 24) % 24;
-  if (!rolledBack) return { days: [...daysKst].sort(), hourUtc };
-  const days = daysKst.map((d) => ((d - 2 + 7) % 7) + 1).sort(); // d-1 with wrap 1→7
-  return { days, hourUtc };
-}
+// Rules are authored, stored, and displayed in the schedule timezone
+// (settings.schedule_timezone on the backend, surfaced as rule.timezone). The
+// backend converts the current time into that zone when matching, so no UTC
+// round-trip is needed here — what you pick is exactly what's stored.
 
 // ─── Hooks ──────────────────────────────────────────────────────
 
@@ -78,8 +54,8 @@ function useCostSchedule(modelName: string | null) {
 
 interface RuleBody {
   days_of_week: number[];
-  hour_start_utc: number;
-  hour_end_utc: number;
+  hour_start_local: number;
+  hour_end_local: number;
   input_cost_per_token: number;
   output_cost_per_token: number;
   priority: number;
@@ -159,12 +135,10 @@ function ruleToForm(rule: CostRule | null): FormState {
       enabled: true,
     };
   }
-  const start = utcDayHourToKst(rule.days_of_week, rule.hour_start_utc);
-  const end = utcDayHourToKst(rule.days_of_week, rule.hour_end_utc);
   return {
-    daysKst: start.days,
-    hourStartKst: String(start.hourKst),
-    hourEndKst: String(end.hourKst === 0 && rule.hour_end_utc === 24 ? 24 : end.hourKst),
+    daysKst: [...rule.days_of_week].sort((a, b) => a - b),
+    hourStartKst: String(rule.hour_start_local),
+    hourEndKst: String(rule.hour_end_local),
     inputCost: toPerMillion(rule.input_cost_per_token),
     outputCost: toPerMillion(rule.output_cost_per_token),
     priority: String(rule.priority),
@@ -186,13 +160,10 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
   if (!Number.isFinite(outCostPerMillion) || outCostPerMillion < 0)
     return t("validation.invalidOutputCost");
 
-  const startConv = kstDayHourToUtc(form.daysKst, hs);
-  // end uses 24 to mean "exclusive end of day" — keep that and convert separately.
-  const heUtcRaw = he === 24 ? 24 : (he - 9 + 24) % 24;
   return {
-    days_of_week: startConv.days,
-    hour_start_utc: startConv.hourUtc,
-    hour_end_utc: heUtcRaw,
+    days_of_week: [...form.daysKst].sort((a, b) => a - b),
+    hour_start_local: hs,
+    hour_end_local: he,
     input_cost_per_token: inCostPerMillion / PER_MILLION,
     output_cost_per_token: outCostPerMillion / PER_MILLION,
     priority: Number(form.priority) || 0,
@@ -379,8 +350,8 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
     return <RuleForm modelName={modelName} rule={rule} onDone={() => setEditing(false)} />;
   }
 
-  const startKst = utcHourToKst(rule.hour_start_utc);
-  const endKst = rule.hour_end_utc === 24 ? 24 : utcHourToKst(rule.hour_end_utc);
+  const startHour = rule.hour_start_local;
+  const endHour = rule.hour_end_local;
   const dayNames = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
   const dayLabels = rule.days_of_week.map((d) => dayNames[d - 1]).join(", ");
 
@@ -401,7 +372,7 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
               {dayLabels}
             </Badge>
             <span className="text-xs font-mono">
-              {String(startKst).padStart(2, "0")}:00–{String(endKst).padStart(2, "0")}:00 KST
+              {String(startHour).padStart(2, "0")}:00–{String(endHour).padStart(2, "0")}:00 {rule.timezone}
             </span>
             <Badge variant={rule.enabled ? "default" : "secondary"} className="text-[10px]">
               {rule.enabled ? t("rule.active") : t("rule.inactive")}

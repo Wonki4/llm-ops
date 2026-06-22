@@ -791,8 +791,8 @@ export interface ModelSummary {
   litellm_info: Record<string, unknown> | null;
   cost_schedule: Array<{
     days_of_week: number[];
-    hour_start_utc: number;
-    hour_end_utc: number;
+    hour_start_local: number;
+    hour_end_local: number;
     input_cost_per_token: number;
     output_cost_per_token: number;
     priority: number;

@@ -12,9 +12,11 @@ import asyncio
 import logging
 import time
 from datetime import UTC, datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
 
+from app.config import settings
 from app.clients.litellm import LiteLLMClient
 from app.db.models.custom_model_catalog import CustomModelCatalog
 from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
@@ -23,12 +25,23 @@ from app.db.session import async_session_factory
 logger = logging.getLogger(__name__)
 
 
-def _rule_matches(rule: CustomModelCostSchedule, now: datetime) -> bool:
-    """True when `now` falls inside this rule's UTC window for the right weekday.
+def schedule_tz() -> ZoneInfo:
+    """The configured schedule timezone, falling back to UTC if unknown."""
+    name = settings.schedule_timezone or "UTC"
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("Unknown schedule_timezone %r; falling back to UTC", name)
+        return ZoneInfo("UTC")
 
-    Day-spanning rules (hour_end_utc <= hour_start_utc) are interpreted as:
-      - active from `hour_start_utc` on a day in `days_of_week`
-      - through `hour_end_utc` of the following day
+
+def _rule_matches(rule: CustomModelCostSchedule, now: datetime) -> bool:
+    """True when local `now` falls inside this rule's window for the right weekday.
+
+    `now` must already be in the schedule timezone. Day-spanning rules
+    (hour_end_local <= hour_start_local) are interpreted as:
+      - active from `hour_start_local` on a day in `days_of_week`
+      - through `hour_end_local` of the following day
     """
     days = set(rule.days_of_week or [])
     if not days:
@@ -37,8 +50,8 @@ def _rule_matches(rule: CustomModelCostSchedule, now: datetime) -> bool:
     current_dow = now.isoweekday()  # 1=Mon..7=Sun
     yesterday_dow = ((current_dow - 1 - 1) % 7) + 1
     hour = now.hour
-    start = rule.hour_start_utc
-    end = rule.hour_end_utc
+    start = rule.hour_start_local
+    end = rule.hour_end_local
 
     if end > start:
         return current_dow in days and start <= hour < end
@@ -62,7 +75,8 @@ def _pick_rule(rules: list[CustomModelCostSchedule], now: datetime) -> CustomMod
 
 async def apply_cost_schedule() -> dict:
     """Run one pass: evaluate all rules and push deltas to LiteLLM."""
-    now = datetime.now(UTC)
+    # Rules are authored in the schedule timezone, so match against local time.
+    now = datetime.now(UTC).astimezone(schedule_tz())
     catalogs_processed = 0
     deployments_updated = 0
     errors = 0

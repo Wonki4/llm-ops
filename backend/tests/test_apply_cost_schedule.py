@@ -6,11 +6,14 @@ Focus: the job must not try to edit LiteLLM models that are config-defined
 apply *and* revert — and spammed the worker log every interval.
 """
 
+from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from app.db.models.custom_model_catalog import CustomModelCatalog
+from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.jobs import apply_cost_schedule as job
 
 
@@ -141,3 +144,28 @@ async def test_null_default_is_idempotent_when_already_cleared(monkeypatch):
     await job.apply_cost_schedule()
 
     fake.update_model.assert_not_awaited()
+
+
+def _local_rule(days: list[int], start: int, end: int) -> CustomModelCostSchedule:
+    return CustomModelCostSchedule(
+        model_name="m", days_of_week=days, hour_start_local=start, hour_end_local=end,
+        input_cost_per_token=1e-06, output_cost_per_token=1e-06, priority=0, enabled=True,
+    )
+
+
+def test_rule_matches_uses_local_weekday_no_utc_shift():
+    """A KST Sat+Sun rule matches Sat/Sun and not Fri — no off-by-one day shift.
+
+    Regression for the bug where picking 토일 stored/showed 금토: rules are now
+    matched against `now` already converted to the schedule timezone, so the
+    weekday is taken verbatim (no UTC round-trip that rolled the day back).
+    """
+    kst = ZoneInfo("Asia/Seoul")
+    rule = _local_rule([6, 7], 0, 24)  # Sat+Sun, all day, in KST
+    sat = datetime(2026, 6, 20, 3, 0, tzinfo=kst)  # Saturday (isoweekday 6)
+    sun = datetime(2026, 6, 21, 23, 0, tzinfo=kst)  # Sunday (7)
+    fri = datetime(2026, 6, 19, 3, 0, tzinfo=kst)  # Friday (5)
+    assert sat.isoweekday() == 6 and sun.isoweekday() == 7 and fri.isoweekday() == 5
+    assert job._rule_matches(rule, sat) is True
+    assert job._rule_matches(rule, sun) is True
+    assert job._rule_matches(rule, fri) is False
