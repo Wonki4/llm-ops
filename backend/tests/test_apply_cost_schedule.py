@@ -30,8 +30,10 @@ class _Result:
 
 class _FakeSession:
     def __init__(self, rules, catalogs):
-        # first execute() -> rules, second -> catalogs (matches job order)
+        # first execute() -> rules, second -> catalogs (matches job order). The
+        # write-back session reuses this and just needs execute/commit to no-op.
         self.execute = AsyncMock(side_effect=[_Result(rules), _Result(catalogs)])
+        self.commit = AsyncMock()
 
     async def __aenter__(self):
         return self
@@ -169,3 +171,22 @@ def test_rule_matches_uses_local_weekday_no_utc_shift():
     assert job._rule_matches(rule, sat) is True
     assert job._rule_matches(rule, sun) is True
     assert job._rule_matches(rule, fri) is False
+
+
+@pytest.mark.asyncio
+async def test_no_rule_refreshes_default_from_live_base(monkeypatch):
+    """No rule active + live base differs from the stored default (and isn't a
+    rule price) -> adopt the live cost as the new default, don't push."""
+    monkeypatch.setattr(
+        job, "async_session_factory", lambda: _FakeSession([], [_catalog("m")])  # default 1e-06/2e-06
+    )
+    fake = MagicMock()
+    # Live cost 5e-06/5e-06 — a new base, not one of the model's rule prices.
+    fake.get_model_info = AsyncMock(return_value=[_deployment_with_override("m", "m1", 5e-06)])
+    fake.update_model = AsyncMock(return_value={})
+    monkeypatch.setattr(job, "LiteLLMClient", MagicMock(return_value=fake))
+
+    result = await job.apply_cost_schedule()
+
+    assert result["refreshed_defaults"] == 1
+    fake.update_model.assert_not_awaited()  # model already at its base; no revert push
