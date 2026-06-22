@@ -14,7 +14,7 @@ import time
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import settings
 from app.clients.litellm import LiteLLMClient
@@ -82,6 +82,8 @@ async def apply_cost_schedule() -> dict:
     errors = 0
     skipped_config: set[str] = set()
     missing_default: set[str] = set()
+    # model_name -> (input, output) base cost to write back into the catalog default
+    default_updates: dict[str, tuple[float, float]] = {}
 
     litellm = LiteLLMClient()
 
@@ -168,6 +170,21 @@ async def apply_cost_schedule() -> dict:
                 continue
             current_in = override_in if override_in is not None else info.get("input_cost_per_token")
             current_out = override_out if override_out is not None else info.get("output_cost_per_token")
+
+            # With no rule active, keep the catalog default in sync with the live
+            # base price. If the live cost matches one of this model's rule prices
+            # (and differs from the stored default), it's a not-yet-reverted rule
+            # leftover — fall through to revert it. Otherwise the live cost IS the
+            # base: adopt it as the new default and leave the model as-is.
+            if active_rule is None and catalog is not None and current_in is not None and current_out is not None:
+                rule_pairs = {(r.input_cost_per_token, r.output_cost_per_token) for r in rules}
+                stored = (catalog.default_input_cost_per_token, catalog.default_output_cost_per_token)
+                live = (current_in, current_out)
+                is_leftover_rule = live in rule_pairs and live != stored
+                if not is_leftover_rule and live != stored:
+                    default_updates[model_name] = (current_in, current_out)
+                    continue  # already at base; just record it
+
             if current_in == target_in and current_out == target_out:
                 continue
             try:
@@ -195,6 +212,26 @@ async def apply_cost_schedule() -> dict:
                     mid,
                 )
 
+    # Persist refreshed baselines (live base prices captured while no rule active).
+    if default_updates:
+        async with async_session_factory() as portal_db:
+            for mname, (din, dout) in default_updates.items():
+                await portal_db.execute(
+                    text(
+                        "UPDATE custom_model_catalog "
+                        "SET default_input_cost_per_token = :i, default_output_cost_per_token = :o "
+                        "WHERE model_name = :m"
+                    ),
+                    {"i": din, "o": dout, "m": mname},
+                )
+            await portal_db.commit()
+        logger.info(
+            "Cost schedule: refreshed catalog default cost for %d model(s) from the "
+            "live base price: %s",
+            len(default_updates),
+            ", ".join(sorted(default_updates)),
+        )
+
     if skipped_config:
         logger.warning(
             "Cost schedule: %d model(s) are config-defined in LiteLLM and cannot "
@@ -220,6 +257,7 @@ async def apply_cost_schedule() -> dict:
         "errors": errors,
         "skipped_config": len(skipped_config),
         "missing_default": len(missing_default),
+        "refreshed_defaults": len(default_updates),
     }
 
 
