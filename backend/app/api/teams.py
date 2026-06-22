@@ -927,15 +927,27 @@ async def update_team_settings(
     if "default_member_budget" in updates:
         await litellm.update_team(team_id, team_member_budget=updates["default_member_budget"])
 
-    # Per-model limits → team metadata via LiteLLM (/team/update merges these into
-    # metadata and invalidates the team cache, so all team keys pick them up).
+    # Per-model limits live in LiteLLM_TeamTable.metadata. IMPORTANT: passing
+    # model_tpm_limit/model_rpm_limit to /team/update makes LiteLLM REPLACE the
+    # whole metadata dict, which would wipe team_member_budget_id (set just above)
+    # and any other key. Read the current metadata and send it back merged so the
+    # member-budget link and everything else survive.
     model_limit_kwargs: dict = {}
     if "model_tpm_limit" in updates:
         model_limit_kwargs["model_tpm_limit"] = updates["model_tpm_limit"] or {}
     if "model_rpm_limit" in updates:
         model_limit_kwargs["model_rpm_limit"] = updates["model_rpm_limit"] or {}
     if model_limit_kwargs:
-        await litellm.update_team(team_id, **model_limit_kwargs)
+        # Fresh snapshot so we observe the team_member_budget_id written above.
+        await litellm_db.rollback()
+        meta_row = await litellm_db.execute(
+            text('SELECT metadata FROM "LiteLLM_TeamTable" WHERE team_id = :tid'),
+            {"tid": team_id},
+        )
+        current_meta = meta_row.scalar()
+        if not isinstance(current_meta, dict):
+            current_meta = {}
+        await litellm.update_team(team_id, metadata={**current_meta, **model_limit_kwargs})
 
     # Store team-scoped portal settings (membership_duration, default TPM/RPM).
     portal_setting_keys = {
