@@ -29,11 +29,12 @@ class Settings(BaseSettings):
     session_cookie_samesite: str = "lax"
     session_max_age: int = 86400 * 14
 
-    # How often the worker re-evaluates time-of-day cost rules. Rules are
-    # hour-granular, so this is the max lateness of a price transition; the loop
-    # also aligns to the interval boundary so an on-the-hour change lands within
-    # seconds of the hour, not up to a full interval late.
-    cost_schedule_interval_seconds: int = 60
+    # How often the worker re-evaluates time-of-day cost rules. The loop aligns
+    # each pass to a wall-clock multiple of this interval, so with the 300s
+    # default a pass lands on every :00/:05/.../:55. Rules are hour-granular
+    # (transitions at HH:00, always a 5-min boundary), so an on-the-hour change
+    # is applied within seconds of HH:00 — not up to a full interval late.
+    cost_schedule_interval_seconds: int = 300
 
     frontend_url: str = "http://localhost:3002"
 
