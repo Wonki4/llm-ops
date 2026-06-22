@@ -65,6 +65,7 @@ async def apply_cost_schedule() -> dict:
     catalogs_processed = 0
     deployments_updated = 0
     errors = 0
+    skipped_config: set[str] = set()
 
     litellm = LiteLLMClient()
 
@@ -130,6 +131,12 @@ async def apply_cost_schedule() -> dict:
             mid = info.get("id")
             if not mid:
                 continue
+            # LiteLLM rejects /model/update for config-defined models with a 400
+            # ("Can't edit model. Model in config."). Skip them — both apply and
+            # revert are impossible via the API until the model is stored in the DB.
+            if info.get("db_model") is False:
+                skipped_config.add(model_name)
+                continue
             current_in = params.get("input_cost_per_token") or info.get("input_cost_per_token")
             current_out = params.get("output_cost_per_token") or info.get("output_cost_per_token")
             if current_in == target_in and current_out == target_out:
@@ -159,10 +166,20 @@ async def apply_cost_schedule() -> dict:
                     mid,
                 )
 
+    if skipped_config:
+        logger.warning(
+            "Cost schedule: %d model(s) are config-defined in LiteLLM and cannot "
+            "be updated via the API (time-of-day pricing has no effect): %s. "
+            "Register them in the DB (deploy via the portal / /model/new) to enable.",
+            len(skipped_config),
+            ", ".join(sorted(skipped_config)),
+        )
+
     return {
         "catalogs_processed": catalogs_processed,
         "deployments_updated": deployments_updated,
         "errors": errors,
+        "skipped_config": len(skipped_config),
     }
 
 
