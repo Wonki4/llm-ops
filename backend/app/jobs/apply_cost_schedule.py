@@ -209,12 +209,13 @@ async def apply_cost_schedule() -> dict:
     }
 
 
-async def cost_schedule_loop(interval_seconds: int = 60) -> None:
+async def cost_schedule_loop(interval_seconds: int = 300) -> None:
     """Run the cost schedule evaluator on a fixed cadence.
 
-    Each pass is aligned to the interval boundary (e.g. the top of every minute
-    for the 60s default) so an hour-granular transition like 04:00 is applied
-    within seconds of the boundary rather than up to a full interval late.
+    Each pass is aligned to a wall-clock multiple of the interval (e.g. every
+    :00/:05/.../:55 for the 300s default). Rules are hour-granular, so an
+    on-the-hour transition like 04:00 is caught by the 04:00 pass and applied
+    within seconds of the boundary — not up to a full interval late.
     """
     logger.info("Starting cost schedule worker (interval=%ds, boundary-aligned)", interval_seconds)
     while True:
