@@ -4,7 +4,7 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useTeamMemberUsageByModel, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
@@ -746,6 +746,57 @@ function presetRange(preset: UsagePreset): { start: string; end: string } | null
   return { start: toDateInput(s), end };
 }
 
+function MemberModelUsage({
+  teamId,
+  userId,
+  startDate,
+  endDate,
+}: {
+  teamId: string;
+  userId: string;
+  startDate: string;
+  endDate: string;
+}) {
+  const t = useTranslations("teamDetail");
+  const localeTag = useLocaleTag();
+  const { data, isLoading } = useTeamMemberUsageByModel(teamId, userId, startDate, endDate);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-4">
+        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+  if (!data || data.models.length === 0) {
+    return <div className="px-6 py-3 text-xs text-muted-foreground">{t("usageByModelEmpty")}</div>;
+  }
+  return (
+    <div className="px-6 py-2">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-muted-foreground">
+            <th className="text-left font-normal py-1">{t("colModel")}</th>
+            <th className="text-right font-normal py-1">{t("colRequests")}</th>
+            <th className="text-right font-normal py-1">{t("colTokens")}</th>
+            <th className="text-right font-normal py-1">{t("colUsage")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data.models.map((mm) => (
+            <tr key={mm.model} className="border-t border-border/50">
+              <td className="py-1 font-mono text-xs">{mm.model}</td>
+              <td className="py-1 text-right tabular-nums">{mm.api_requests.toLocaleString(localeTag)}</td>
+              <td className="py-1 text-right tabular-nums">{mm.total_tokens.toLocaleString(localeTag)}</td>
+              <td className="py-1 text-right tabular-nums">${mm.spend.toFixed(2)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function UsageTab({ teamId }: { teamId: string }) {
   const t = useTranslations("teamDetail");
   const localeTag = useLocaleTag();
@@ -755,6 +806,7 @@ function UsageTab({ teamId }: { teamId: string }) {
   const [endDate, setEndDate] = useState(initial.end);
   const [sortField, setSortField] = useState<"user_id" | "total_tokens" | "api_requests" | "spend">("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const applyPreset = (p: UsagePreset) => {
     setPreset(p);
@@ -883,14 +935,39 @@ function UsageTab({ teamId }: { teamId: string }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {data.members.map((m) => (
-                <TableRow key={m.user_id}>
-                  <TableCell className="font-medium">{m.user_id}</TableCell>
-                  <TableCell className="text-right tabular-nums">{m.api_requests.toLocaleString(localeTag)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{m.total_tokens.toLocaleString(localeTag)}</TableCell>
-                  <TableCell className="text-right tabular-nums">${m.spend.toFixed(2)}</TableCell>
-                </TableRow>
-              ))}
+              {data.members.map((m) => {
+                const isOpen = expanded === m.user_id;
+                return (
+                  <Fragment key={m.user_id}>
+                    <TableRow
+                      className="cursor-pointer hover:bg-muted/50"
+                      onClick={() => setExpanded(isOpen ? null : m.user_id)}
+                    >
+                      <TableCell className="font-medium">
+                        <span className="inline-flex items-center gap-1">
+                          <ChevronRight className={`size-3.5 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                          {m.user_id}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{m.api_requests.toLocaleString(localeTag)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{m.total_tokens.toLocaleString(localeTag)}</TableCell>
+                      <TableCell className="text-right tabular-nums">${m.spend.toFixed(2)}</TableCell>
+                    </TableRow>
+                    {isOpen && (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={4} className="bg-muted/30 p-0">
+                          <MemberModelUsage
+                            teamId={teamId}
+                            userId={m.user_id}
+                            startDate={startDate}
+                            endDate={endDate}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
