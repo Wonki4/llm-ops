@@ -1,6 +1,0 @@
-[     747ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/admin/k8s-clusters:0
-[     751ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[     754ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/model-deployments:0
-[     757ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/models:0
-[  338409ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[  338426ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/teams:0

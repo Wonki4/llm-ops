@@ -1,2 +1,0 @@
-[51138028ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/keys:0
-[51138032ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/teams:0

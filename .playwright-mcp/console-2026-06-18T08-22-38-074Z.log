@@ -1,5 +1,0 @@
-[  316700ms] [WARNING] Warning: Missing `Description` or `aria-describedby={undefined}` for {DialogContent}. @ http://localhost:3003/_next/static/chunks/d336cd9ed16cd00a.js:4
-[16087299ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/team-requests:0
-[16087305ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[23817302ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[23817304ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/models/catalog:0

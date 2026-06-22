@@ -1,4 +1,0 @@
-[     932ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[     938ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/models:0
-[  445200ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/me:0
-[  445205ms] [ERROR] Failed to load resource: the server responded with a status of 401 (Unauthorized) @ http://localhost:3003/api/proxy/teams:0
