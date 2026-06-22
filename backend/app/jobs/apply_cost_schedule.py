@@ -10,6 +10,7 @@ For every model that has a configured cost catalog entry:
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -208,9 +209,14 @@ async def apply_cost_schedule() -> dict:
     }
 
 
-async def cost_schedule_loop(interval_seconds: int = 300) -> None:
-    """Run the cost schedule evaluator on a fixed cadence."""
-    logger.info("Starting cost schedule worker (interval=%ds)", interval_seconds)
+async def cost_schedule_loop(interval_seconds: int = 60) -> None:
+    """Run the cost schedule evaluator on a fixed cadence.
+
+    Each pass is aligned to the interval boundary (e.g. the top of every minute
+    for the 60s default) so an hour-granular transition like 04:00 is applied
+    within seconds of the boundary rather than up to a full interval late.
+    """
+    logger.info("Starting cost schedule worker (interval=%ds, boundary-aligned)", interval_seconds)
     while True:
         try:
             result = await apply_cost_schedule()
@@ -223,4 +229,6 @@ async def cost_schedule_loop(interval_seconds: int = 300) -> None:
                 )
         except Exception:
             logger.exception("Error in cost schedule loop")
-        await asyncio.sleep(interval_seconds)
+        # Sleep to the next interval boundary so passes land at predictable
+        # wall-clock times (:00 of each minute for 60s), close to rule edges.
+        await asyncio.sleep(interval_seconds - (time.time() % interval_seconds))
