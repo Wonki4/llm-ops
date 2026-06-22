@@ -1079,7 +1079,9 @@
     "usageEmpty": "No usage data for the selected range.",
     "settingsDescriptionCard": "Team description",
     "settingsDescriptionPlaceholder": "Describe this team (optional)",
-    "settingsDescriptionHint": "Shown on the list, discover, and detail pages. Max 500 chars."
+    "settingsDescriptionHint": "Shown on the list, discover, and detail pages. Max 500 chars.",
+    "colModel": "Model",
+    "usageByModelEmpty": "No model usage in this period."
   },
   "auth": {
     "loginSubtitle": "Sign in with your employee ID",

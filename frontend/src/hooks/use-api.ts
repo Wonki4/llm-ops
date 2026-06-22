@@ -148,6 +148,40 @@ export function useTeamUsage(
   });
 }
 
+export interface TeamMemberModelUsage {
+  model: string;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface TeamMemberModelUsageResponse {
+  user_id: string;
+  models: TeamMemberModelUsage[];
+}
+
+/** Per-model usage breakdown for a single team member over a date range. */
+export function useTeamMemberUsageByModel(
+  teamId: string,
+  userId: string,
+  startDate: string,
+  endDate: string,
+  enabled: boolean = true,
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+
+  return useQuery({
+    queryKey: ["teams", teamId, "usage", "by-model", userId, { startDate, endDate }] as const,
+    queryFn: () =>
+      apiFetch<TeamMemberModelUsageResponse>(
+        `/api/teams/${teamId}/usage/${encodeURIComponent(userId)}/by-model?${params.toString()}`,
+      ),
+    enabled: enabled && !!teamId && !!userId && !!startDate && !!endDate,
+  });
+}
+
 export function useRemoveTeamMember() {
   const qc = useQueryClient();
   return useMutation({

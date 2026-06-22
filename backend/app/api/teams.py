@@ -624,6 +624,60 @@ async def team_usage_by_member(
     return {"members": members, "series": series, "totals": totals}
 
 
+@router.get("/{team_id}/usage/{user_id}/by-model")
+async def team_member_usage_by_model(
+    team_id: str,
+    user_id: str,
+    start_date: str,
+    end_date: str,
+    user: CustomUser = Depends(get_current_user),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Per-model usage (requests / tokens / spend) for one member within a team.
+
+    Same source and scoping as the team usage endpoint (LiteLLM_DailyUserSpend,
+    restricted to this team's keys), narrowed to the given member and grouped by
+    model. `start_date`/`end_date` are inclusive `YYYY-MM-DD`. Team admin or
+    super user only.
+    """
+    await require_team_admin(user, team_id, litellm_db)
+
+    # This team's keys owned by the member (usage is attributed via api_key).
+    keys_result = await litellm_db.execute(
+        text(
+            'SELECT token FROM "LiteLLM_VerificationToken" '
+            "WHERE team_id = :team_id AND user_id = :user_id"
+        ),
+        {"team_id": team_id, "user_id": user_id},
+    )
+    tokens = [r["token"] for r in keys_result.mappings()]
+    if not tokens:
+        return {"user_id": user_id, "models": []}
+
+    rows = await litellm_db.execute(
+        text(
+            "SELECT model, "
+            "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(api_requests) AS api_requests, "
+            "       SUM(spend) AS spend "
+            'FROM "LiteLLM_DailyUserSpend" '
+            "WHERE api_key = ANY(:tokens) AND date >= :start AND date <= :end "
+            "GROUP BY model ORDER BY spend DESC"
+        ),
+        {"tokens": tokens, "start": start_date, "end": end_date},
+    )
+    models = [
+        {
+            "model": r["model"] or "(unknown)",
+            "total_tokens": int(r["total_tokens"] or 0),
+            "api_requests": int(r["api_requests"] or 0),
+            "spend": float(r["spend"] or 0),
+        }
+        for r in rows.mappings()
+    ]
+    return {"user_id": user_id, "models": models}
+
+
 class ChangeRoleRequest(BaseModel):
     user_id: str
     role: str  # "admin" or "member"
