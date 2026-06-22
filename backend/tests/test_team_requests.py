@@ -92,3 +92,40 @@ async def test_list_all_requests_super_user(admin_client: AsyncClient, mock_db):
 
     resp = await admin_client.get("/api/team-requests")
     assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_approve_budget_request_delegates_to_member_update(
+    admin_client: AsyncClient, mock_litellm, mock_db
+):
+    """Budget-increase approval goes through the same LiteLLM /team/member_update
+    path as a manual per-member budget change — unified, with clone-on-write so
+    two approvals for the same amount never share one budget row (the old
+    reuse-by-amount SQL did)."""
+    from app.db.models.custom_team_join_request import JoinRequestStatus
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    req = MagicMock()
+    req.status = JoinRequestStatus.PENDING
+    req.request_type = "budget"
+    req.team_id = "team-1"
+    req.requester_id = "user002"
+    req.requested_budget = 300.0
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = req
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.flush = AsyncMock()
+
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+    mock_litellm.update_team_member = AsyncMock(return_value={"status": "ok"})
+
+    resp = await admin_client.post(
+        "/api/team-requests/00000000-0000-0000-0000-000000000001/approve"
+    )
+
+    assert resp.status_code == 200, resp.text
+    mock_litellm.update_team_member.assert_awaited_once_with(
+        "team-1", "user002", max_budget_in_team=300.0
+    )

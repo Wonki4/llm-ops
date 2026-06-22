@@ -46,11 +46,11 @@ export interface TeamDetail {
   team: Team;
   my_keys: ApiKey[];
   default_member_budget: number | null;
+  default_member_tpm_limit: number | null;
+  default_member_rpm_limit: number | null;
   membership_duration: string | null;
   default_tpm_limit: number | null;
   default_rpm_limit: number | null;
-  model_tpm_limit: Record<string, number> | null;
-  model_rpm_limit: Record<string, number> | null;
   is_admin: boolean;
   my_membership: TeamMembership;
 }
@@ -289,6 +289,8 @@ export interface TeamMember {
   key_count: number;
   total_spend: number;
   total_max_budget: number | null;
+  total_tpm_limit: number | null;
+  total_rpm_limit: number | null;
   expires_at: string | null;
   expiry_status: string | null;
   keys: MemberKey[];
