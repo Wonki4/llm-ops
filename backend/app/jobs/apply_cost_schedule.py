@@ -66,6 +66,7 @@ async def apply_cost_schedule() -> dict:
     deployments_updated = 0
     errors = 0
     skipped_config: set[str] = set()
+    missing_default: set[str] = set()
 
     litellm = LiteLLMClient()
 
@@ -137,8 +138,21 @@ async def apply_cost_schedule() -> dict:
             if info.get("db_model") is False:
                 skipped_config.add(model_name)
                 continue
-            current_in = params.get("input_cost_per_token") or info.get("input_cost_per_token")
-            current_out = params.get("output_cost_per_token") or info.get("output_cost_per_token")
+            # The worker owns the override layer (litellm_params.*_cost_per_token).
+            override_in = params.get("input_cost_per_token")
+            override_out = params.get("output_cost_per_token")
+            if target_in is None and target_out is None:
+                # No catalog default to revert to. LiteLLM's /model/update IGNORES
+                # a None cost (merge semantics: None = "leave unchanged"), so we
+                # cannot clear an existing override here — pushing None is a no-op
+                # that just churns a reload every pass. Flag it instead: the admin
+                # must set a default price so the schedule has a baseline to
+                # restore. (No override yet → genuinely nothing to do.)
+                if override_in is not None or override_out is not None:
+                    missing_default.add(model_name)
+                continue
+            current_in = override_in if override_in is not None else info.get("input_cost_per_token")
+            current_out = override_out if override_out is not None else info.get("output_cost_per_token")
             if current_in == target_in and current_out == target_out:
                 continue
             try:
@@ -175,11 +189,22 @@ async def apply_cost_schedule() -> dict:
             ", ".join(sorted(skipped_config)),
         )
 
+    if missing_default:
+        logger.warning(
+            "Cost schedule: %d model(s) have an active override but no catalog "
+            "default to revert to: %s. LiteLLM ignores a null cost on /model/update, "
+            "so the price stays stuck on the last rule. Set a default price per token "
+            "on the catalog entry so the schedule has a baseline to restore.",
+            len(missing_default),
+            ", ".join(sorted(missing_default)),
+        )
+
     return {
         "catalogs_processed": catalogs_processed,
         "deployments_updated": deployments_updated,
         "errors": errors,
         "skipped_config": len(skipped_config),
+        "missing_default": len(missing_default),
     }
 
 
