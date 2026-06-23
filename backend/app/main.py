@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    admin_usage,
     admin_users,
     announcements,
     argocd_connections,
@@ -68,6 +69,7 @@ app.include_router(portal_settings.router)
 app.include_router(catalog.router)
 app.include_router(external.router)
 app.include_router(admin_users.router)
+app.include_router(admin_usage.router)
 app.include_router(announcements.router)
 app.include_router(model_deployments.router)
 app.include_router(benchmarks.router)

@@ -47,6 +47,7 @@ const navigation: NavItem[] = [
   { key: "adminModels", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
   { key: "adminBudgets", href: "/admin/budgets", icon: DollarSign, roles: ["super_user"] },
   { key: "adminUsers", href: "/admin/users", icon: UserCog, roles: ["super_user"] },
+  { key: "adminUsage", href: "/admin/usage", icon: BarChart3, roles: ["super_user"] },
   { key: "adminBenchmarks", href: "/admin/benchmarks", icon: FlaskConical, roles: ["super_user"] },
   { key: "adminLlmd", href: "/admin/llmd", icon: Network, roles: ["super_user"] },
   { key: "adminSettings", href: "/admin/settings", icon: Settings, roles: ["super_user"] },
