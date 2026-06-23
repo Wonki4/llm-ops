@@ -4,8 +4,10 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useTeamMemberUsageByModel, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
+import { MemberModelUsage } from "@/components/member-model-usage";
+import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
@@ -718,105 +720,6 @@ function TeamSettingsTab({
         {updateSettings.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
         {tc("save")}
       </Button>
-    </div>
-  );
-}
-
-function toDateInput(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
-type UsagePreset = "today" | "7d" | "month" | "30d" | "custom";
-
-function presetRange(preset: UsagePreset): { start: string; end: string } | null {
-  if (preset === "custom") return null;
-  const now = new Date();
-  const end = toDateInput(now);
-  if (preset === "today") return { start: end, end };
-  if (preset === "7d") {
-    const s = new Date(now);
-    s.setDate(s.getDate() - 6);
-    return { start: toDateInput(s), end };
-  }
-  if (preset === "30d") {
-    const s = new Date(now);
-    s.setDate(s.getDate() - 29);
-    return { start: toDateInput(s), end };
-  }
-  // month: first day of current month
-  const s = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { start: toDateInput(s), end };
-}
-
-function MemberModelUsage({
-  teamId,
-  userId,
-  startDate,
-  endDate,
-}: {
-  teamId: string;
-  userId: string;
-  startDate: string;
-  endDate: string;
-}) {
-  const t = useTranslations("teamDetail");
-  const localeTag = useLocaleTag();
-  const [groupBy, setGroupBy] = useState<"model" | "model_group">("model");
-  const { data, isLoading } = useTeamMemberUsageByModel(teamId, userId, startDate, endDate, groupBy);
-
-  const toggle = (
-    <div className="inline-flex rounded-md border border-border p-0.5 text-xs">
-      {(["model", "model_group"] as const).map((g) => (
-        <button
-          key={g}
-          type="button"
-          onClick={() => setGroupBy(g)}
-          className={`rounded px-2 py-0.5 transition-colors ${
-            groupBy === g ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-          }`}
-        >
-          {g === "model" ? t("groupByModel") : t("groupByModelGroup")}
-        </button>
-      ))}
-    </div>
-  );
-
-  return (
-    <div className="px-6 py-2 space-y-2">
-      <div className="flex items-center justify-end">{toggle}</div>
-      {isLoading ? (
-        <div className="flex items-center justify-center py-4">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
-        </div>
-      ) : !data || data.models.length === 0 ? (
-        <div className="py-3 text-xs text-muted-foreground">{t("usageByModelEmpty")}</div>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-muted-foreground">
-              <th className="text-left font-normal py-1">
-                {groupBy === "model_group" ? t("colModelGroup") : t("colModel")}
-              </th>
-              <th className="text-right font-normal py-1">{t("colRequests")}</th>
-              <th className="text-right font-normal py-1">{t("colTokens")}</th>
-              <th className="text-right font-normal py-1">{t("colUsage")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.models.map((mm) => (
-              <tr key={mm.model} className="border-t border-border/50">
-                <td className="py-1 font-mono text-xs">{mm.model}</td>
-                <td className="py-1 text-right tabular-nums">{mm.api_requests.toLocaleString(localeTag)}</td>
-                <td className="py-1 text-right tabular-nums">{mm.total_tokens.toLocaleString(localeTag)}</td>
-                <td className="py-1 text-right tabular-nums">${mm.spend.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }

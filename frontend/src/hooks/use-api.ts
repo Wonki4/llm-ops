@@ -27,6 +27,7 @@ import type {
   RedisCatalogListResponse,
   AdminUserListResponse,
   AdminUserDetail,
+  AdminUsageResponse,
   Announcement,
   CreateAnnouncementRequest,
   UpdateAnnouncementRequest,
@@ -900,6 +901,34 @@ export function useAdminUsers(
   return useQuery({
     queryKey: ["admin-users", { page, pageSize, search, role }],
     queryFn: () => apiFetch<AdminUserListResponse>(`/api/admin/users?${params.toString()}`),
+  });
+}
+
+/** Global per-(user, team) usage over a date range (super user only). */
+export function useAdminUsage(
+  startDate: string,
+  endDate: string,
+  teamId: string,
+  search: string,
+  sortBy: "user_id" | "team" | "total_tokens" | "api_requests" | "spend",
+  sortDir: "asc" | "desc",
+  page: number,
+  pageSize: number,
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  if (teamId) params.set("team_id", teamId);
+  if (search) params.set("search", search);
+  params.set("sort_by", sortBy);
+  params.set("sort_dir", sortDir);
+  params.set("page", String(page));
+  params.set("page_size", String(pageSize));
+
+  return useQuery({
+    queryKey: ["admin-usage", { startDate, endDate, teamId, search, sortBy, sortDir, page, pageSize }],
+    queryFn: () => apiFetch<AdminUsageResponse>(`/api/admin/usage?${params.toString()}`),
+    enabled: !!startDate && !!endDate,
   });
 }
 

@@ -325,6 +325,28 @@ export interface TeamUsageResponse {
   totals: { total_tokens: number; api_requests: number; spend: number };
 }
 
+// ─── Admin Usage (global, per user×team) ──────────────────────
+
+export interface AdminUsageRow {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  team_id: string | null;
+  team_alias: string | null;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface AdminUsageResponse {
+  rows: AdminUsageRow[];
+  totals: { total_tokens: number; api_requests: number; spend: number };
+  teams: { team_id: string; team_alias: string | null }[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 // ─── Redis Catalog ────────────────────────────────────────────
 
 export interface RedisCatalogEntry {
