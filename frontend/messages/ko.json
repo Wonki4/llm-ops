@@ -671,7 +671,11 @@
     "pagination": "총 {total}건 중 {start}–{end}",
     "perPage": "{size}개씩",
     "prev": "이전",
-    "next": "다음"
+    "next": "다음",
+    "viewTable": "표",
+    "viewCalendar": "달력",
+    "calendarToday": "오늘",
+    "calendarMonthTotal": "이번 달 합계"
   },
   "adminUsers": {
     "pageTitle": "사용자 관리",

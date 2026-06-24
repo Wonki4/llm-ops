@@ -1,12 +1,13 @@
 "use client";
 
 import { Fragment, useEffect, useState } from "react";
-import { Search, Loader2, BarChart3, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Search, Loader2, BarChart3, ChevronLeft, ChevronRight, X, CalendarDays, List } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useLocaleTag } from "@/lib/locale";
 
 import { useAdminUsage } from "@/hooks/use-api";
 import { MemberModelUsage } from "@/components/member-model-usage";
+import { UsageCalendar } from "@/components/usage-calendar";
 import { presetRange, type UsagePreset } from "@/lib/usage";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +42,7 @@ export default function AdminUsagePage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [view, setView] = useState<"table" | "calendar">("table");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -58,6 +60,15 @@ export default function AdminUsagePage() {
       setEndDate(r.end);
     }
     setPage(1);
+  };
+
+  // Click a calendar day → drill into that day's per-user×team rows in the table.
+  const handlePickDay = (day: string) => {
+    setPreset("custom");
+    setStartDate(day);
+    setEndDate(day);
+    setPage(1);
+    setView("table");
   };
 
   const { data, isLoading } = useAdminUsage(
@@ -100,7 +111,18 @@ export default function AdminUsagePage() {
         <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
       </div>
 
-      {/* Filters */}
+      {/* View toggle */}
+      <div className="flex items-center gap-1">
+        <Button variant={view === "table" ? "default" : "outline"} size="sm" onClick={() => setView("table")}>
+          <List className="size-4 mr-1" />{t("viewTable")}
+        </Button>
+        <Button variant={view === "calendar" ? "default" : "outline"} size="sm" onClick={() => setView("calendar")}>
+          <CalendarDays className="size-4 mr-1" />{t("viewCalendar")}
+        </Button>
+      </div>
+
+      {/* Date range (table view only) */}
+      {view === "table" && (
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex gap-1">
           {PRESETS.map((p) => (
@@ -145,17 +167,20 @@ export default function AdminUsagePage() {
           </div>
         </div>
       </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
-            placeholder={t("searchPlaceholder")}
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            className="pl-8 h-9"
-          />
-        </div>
+        {view === "table" && (
+          <div className="relative flex-1 max-w-sm">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+            <Input
+              placeholder={t("searchPlaceholder")}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              className="pl-8 h-9"
+            />
+          </div>
+        )}
         <select
           className="h-9 rounded-md border border-input bg-background px-2 text-sm"
           value={teamId}
@@ -188,6 +213,10 @@ export default function AdminUsagePage() {
         )}
       </div>
 
+      {view === "calendar" ? (
+        <UsageCalendar teamId={teamId} onPickDay={handlePickDay} />
+      ) : (
+      <>
       {/* Totals */}
       {data && (
         <div className="grid grid-cols-3 gap-3">
@@ -341,6 +370,8 @@ export default function AdminUsagePage() {
             </div>
           </div>
         </>
+      )}
+      </>
       )}
     </div>
   );
