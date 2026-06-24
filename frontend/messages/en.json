@@ -671,7 +671,11 @@
     "pagination": "{start}–{end} of {total}",
     "perPage": "{size} / page",
     "prev": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "viewTable": "Table",
+    "viewCalendar": "Calendar",
+    "calendarToday": "Today",
+    "calendarMonthTotal": "Month total"
   },
   "adminUsers": {
     "pageTitle": "User Management",

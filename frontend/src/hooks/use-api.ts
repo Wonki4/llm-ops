@@ -28,6 +28,7 @@ import type {
   AdminUserListResponse,
   AdminUserDetail,
   AdminUsageResponse,
+  AdminUsageDailyResponse,
   Announcement,
   CreateAnnouncementRequest,
   UpdateAnnouncementRequest,
@@ -928,6 +929,24 @@ export function useAdminUsage(
   return useQuery({
     queryKey: ["admin-usage", { startDate, endDate, teamId, search, sortBy, sortDir, page, pageSize }],
     queryFn: () => apiFetch<AdminUsageResponse>(`/api/admin/usage?${params.toString()}`),
+    enabled: !!startDate && !!endDate,
+  });
+}
+
+/** Per-day usage totals for the admin usage calendar (super user only). */
+export function useAdminUsageDaily(
+  startDate: string,
+  endDate: string,
+  teamId: string,
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  if (teamId) params.set("team_id", teamId);
+
+  return useQuery({
+    queryKey: ["admin-usage", "daily", { startDate, endDate, teamId }],
+    queryFn: () => apiFetch<AdminUsageDailyResponse>(`/api/admin/usage/daily?${params.toString()}`),
     enabled: !!startDate && !!endDate,
   });
 }

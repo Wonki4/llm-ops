@@ -165,3 +165,58 @@ async def admin_usage_by_user_team(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.get("/daily")
+async def admin_usage_daily(
+    start_date: str,
+    end_date: str,
+    team_id: str | None = None,
+    _admin: CustomUser = Depends(require_super_user),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Per-day usage totals over a date range, for the admin usage calendar.
+
+    Aggregated from LiteLLM_DailyUserSpend (already daily, so no timezone math).
+    With `team_id`, scoped to that team's keys via api_key -> VerificationToken
+    (same attribution as the table view); without it, every team's usage. Super
+    user only. `start_date`/`end_date` are inclusive `YYYY-MM-DD` strings.
+    """
+    params: dict = {"start": start_date, "end": end_date}
+    if team_id:
+        join = 'JOIN "LiteLLM_VerificationToken" vt ON vt.token = d.api_key'
+        where_team = "AND vt.team_id = :team_id"
+        params["team_id"] = team_id
+    else:
+        join = ""
+        where_team = ""
+
+    rows = await litellm_db.execute(
+        text(
+            "SELECT d.date AS date, "
+            "       SUM(d.prompt_tokens + d.completion_tokens) AS total_tokens, "
+            "       SUM(d.api_requests) AS api_requests, "
+            "       SUM(d.spend) AS spend "
+            'FROM "LiteLLM_DailyUserSpend" d '
+            f"{join} "
+            "WHERE d.date >= :start AND d.date <= :end "
+            f"{where_team} "
+            "GROUP BY d.date ORDER BY d.date"
+        ),
+        params,
+    )
+    days = [
+        {
+            "date": r["date"],
+            "total_tokens": int(r["total_tokens"] or 0),
+            "api_requests": int(r["api_requests"] or 0),
+            "spend": float(r["spend"] or 0),
+        }
+        for r in rows.mappings()
+    ]
+    totals = {
+        "total_tokens": sum(d["total_tokens"] for d in days),
+        "api_requests": sum(d["api_requests"] for d in days),
+        "spend": sum(d["spend"] for d in days),
+    }
+    return {"days": days, "totals": totals}

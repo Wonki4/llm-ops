@@ -347,6 +347,18 @@ export interface AdminUsageResponse {
   page_size: number;
 }
 
+export interface AdminUsageDay {
+  date: string;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface AdminUsageDailyResponse {
+  days: AdminUsageDay[];
+  totals: { total_tokens: number; api_requests: number; spend: number };
+}
+
 // ─── Redis Catalog ────────────────────────────────────────────
 
 export interface RedisCatalogEntry {
