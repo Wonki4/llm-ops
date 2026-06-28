@@ -37,20 +37,23 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
-def default_llmd_values(target_model_name: str, *, image_registry: str) -> dict:
-    """The starter ``values.yaml`` shown to the user for a new stack.
+def default_llmd_values(
+    target_model_name: str, *, epp_registry: str, epp_repository: str, epp_tag: str
+) -> dict:
+    """The starter ``values.yaml`` for a new stack: the llm-d **standalone router**.
 
-    A minimal, correct set of values for the gateway-api-inference-extension
-    ``standalone`` chart, which deploys the EPP / inference scheduler (the
-    prefix-cache-aware router) in front of **already-running** model servers — it
-    does not provision vLLM itself. The router selects model-server pods by
-    ``endpointSelector`` (defaults to the portal's ``llm-ops/model-name=<target>``
-    label) on ``targetPorts``. The user edits this freely.
+    The GIE ``standalone`` chart already co-locates an Envoy sidecar with the EPP
+    and ships cache-aware scorers (queue / kv-cache / prefix-cache) in its default
+    EndpointPickerConfig. To get the *llm-d* router we only swap the EPP image to
+    llm-d's (GIE EPP extended with llm-d's routing intelligence); the sidecar and
+    scorers come from chart defaults. The router fronts already-running model
+    servers selected by ``endpointSelector`` on ``targetPorts`` (no InferencePool,
+    no Gateway API provider). The user edits this freely.
     """
     return {
         "inferenceExtension": {
             "replicas": 1,
-            "image": {"registry": image_registry},
+            "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
             "endpointsServer": {
                 "createInferencePool": False,
                 "endpointSelector": f"{LABEL_MODEL}={target_model_name}" if target_model_name else "",

@@ -336,7 +336,10 @@ async def create_stack(
 
     # Empty values.yaml -> fall back to the default template for the target model.
     helm_values = _parse_values_yaml(body.values_yaml) or default_llmd_values(
-        body.target_model_name, image_registry=settings.llmd_image_registry
+        body.target_model_name,
+        epp_registry=settings.llmd_epp_image_registry,
+        epp_repository=settings.llmd_epp_image_repository,
+        epp_tag=settings.llmd_epp_image_tag,
     )
     stack = CustomLlmdStack(
         id=uuid.uuid4(),
@@ -371,7 +374,12 @@ async def default_values(
 ) -> dict:
     """The starter values.yaml for a new stack — a correct minimal template the
     user edits. endpointSelector defaults to the chosen target model."""
-    values = default_llmd_values(body.target_model_name, image_registry=settings.llmd_image_registry)
+    values = default_llmd_values(
+        body.target_model_name,
+        epp_registry=settings.llmd_epp_image_registry,
+        epp_repository=settings.llmd_epp_image_repository,
+        epp_tag=settings.llmd_epp_image_tag,
+    )
     return {
         "values": values,
         "values_yaml": yaml.safe_dump(values, sort_keys=False, default_flow_style=False),

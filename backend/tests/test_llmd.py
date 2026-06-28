@@ -73,12 +73,36 @@ def test_build_values_user_helm_values_win_over_base():
     assert v["tracing"] == {"enabled": True}
 
 
-def test_default_values_standalone_schema_and_default_selector():
-    v = default_llmd_values("opt-125m", image_registry="reg.local")
-    es = v["inferenceExtension"]["endpointsServer"]
+def test_default_values_is_real_router_template():
+    v = default_llmd_values(
+        "opt-125m", epp_registry="reg.local",
+        epp_repository="llm-d/llm-d-router-endpoint-picker", epp_tag="v0.8.1",
+    )
+    ie = v["inferenceExtension"]
+    # llm-d EPP image (not vanilla GIE)
+    assert ie["image"] == {
+        "registry": "reg.local",
+        "repository": "llm-d/llm-d-router-endpoint-picker",
+        "tag": "v0.8.1",
+    }
+    # Target existing model servers; don't create an InferencePool
+    es = ie["endpointsServer"]
+    assert es["createInferencePool"] is False
     assert es["endpointSelector"] == "llm-ops/model-name=opt-125m"
     assert es["targetPorts"] == 8000
     assert es["modelServerType"] == "vllm"
+    # A1: sidecar + scorers come from the chart defaults — these values keys do
+    # NOT exist in the GIE standalone chart, so we must not emit them.
+    assert "proxy" not in ie
+    assert "plugins" not in ie
+
+
+def test_default_values_blank_model_yields_empty_selector():
+    v = default_llmd_values(
+        "", epp_registry="reg.local",
+        epp_repository="llm-d/llm-d-router-endpoint-picker", epp_tag="v0.8.1",
+    )
+    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == ""
 
 
 def test_build_application_is_isolated_to_project_and_namespace():
