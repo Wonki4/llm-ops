@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     # Lives on ghcr.io (NOT the GIE registry.k8s.io). Air-gap: mirror + override all three.
     llmd_epp_image_registry: str = "ghcr.io"
     llmd_epp_image_repository: str = "llm-d/llm-d-router-endpoint-picker"
-    llmd_epp_image_tag: str = "v0.8.1"
+    llmd_epp_image_tag: str = "v0.9.0"
     argo_project: str = "llm-d"
 
     slack_webhook_url: str = ""

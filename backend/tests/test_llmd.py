@@ -34,7 +34,7 @@ def test_llmd_settings_target_standalone_chart():
     # Real llm-d EPP image, on ghcr.io (overridable for air-gap).
     assert settings.llmd_epp_image_registry == "ghcr.io"
     assert settings.llmd_epp_image_repository == "llm-d/llm-d-router-endpoint-picker"
-    assert settings.llmd_epp_image_tag == "v0.8.1"
+    assert settings.llmd_epp_image_tag == "v0.9.0"
 
 
 def _stack(**kw):
@@ -139,7 +139,7 @@ def test_serialize_includes_epp_image():
         created_by=None, created_at=None, updated_at=None,
     )
     out = _serialize(stack, {"sync_status": "Synced", "health_status": "Healthy", "status_message": None})
-    assert out["epp_image"] == "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.8.1"
+    assert out["epp_image"] == "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0"
 
 
 def test_argo_status_extracts_sync_and_health():
