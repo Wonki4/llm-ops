@@ -655,6 +655,7 @@ export interface LlmdStackSummary {
   chart_repo: string;
   chart_name: string;
   chart_version: string;
+  epp_image: string;
   helm_values: Record<string, unknown>;
   values_yaml: string;
   sync_status: string;

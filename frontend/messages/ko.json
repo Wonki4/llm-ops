@@ -1170,7 +1170,7 @@
     "description": "ArgoCD로 배포되는 prefix-cache-aware 서빙 스택.",
     "backToList": "스택 목록으로",
     "pageTitle": "새 llm-d 스택",
-    "pageDescription": "모델에 대해 prefix-cache-aware 서빙 스택을 ArgoCD로 배포합니다.",
+    "pageDescription": "실행 중인 모델 앞에 Envoy + EPP 독립형 라우터(llm-d)를 ArgoCD로 배포합니다.",
     "create": "스택 생성",
     "previewTitle": "배포 미리보기",
     "previewHint": "이 스택이 생성할 ArgoCD Application입니다.",
@@ -1233,6 +1233,7 @@
     "valuesYamlHint": "standalone 차트의 전체 Helm values. 이미지 레지스트리 기본값은 생략 시 아래에서 자동 적용됩니다.",
     "resetToDefault": "기본값으로 재설정",
     "chart": "Helm 차트",
+    "eppImage": "라우터 이미지 (EPP)",
     "chartRepo": "차트 저장소",
     "liveErrorTitle": "ArgoCD에서 라이브 상태를 가져오지 못했습니다",
     "noResourcesError": "라이브 상태를 가져올 수 없습니다 — 위 경고를 확인하세요."

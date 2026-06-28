@@ -131,6 +131,17 @@ def test_build_application_is_isolated_to_project_and_namespace():
     assert app["spec"]["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True}
 
 
+def test_serialize_includes_epp_image():
+    from app.api.llmd import _serialize
+
+    stack = _stack(
+        argocd_connection_id=None, cluster_id=None, helm_values={"a": 1},
+        created_by=None, created_at=None, updated_at=None,
+    )
+    out = _serialize(stack, {"sync_status": "Synced", "health_status": "Healthy", "status_message": None})
+    assert out["epp_image"] == "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.8.1"
+
+
 def test_argo_status_extracts_sync_and_health():
     from app.api.llmd import _argo_status
 

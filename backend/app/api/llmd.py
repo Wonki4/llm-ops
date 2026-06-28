@@ -202,6 +202,7 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "chart_repo": settings.llmd_chart_repo,
         "chart_name": settings.llmd_chart_name,
         "chart_version": settings.llmd_chart_version,
+        "epp_image": f"{settings.llmd_epp_image_registry}/{settings.llmd_epp_image_repository}:{settings.llmd_epp_image_tag}",
         "helm_values": stack.helm_values,
         "values_yaml": yaml.safe_dump(stack.helm_values, sort_keys=False, default_flow_style=False) if stack.helm_values else "",
         "created_by": stack.created_by,

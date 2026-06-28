@@ -1170,7 +1170,7 @@
     "description": "Prefix-cache-aware serving stacks deployed via ArgoCD.",
     "backToList": "Back to stacks",
     "pageTitle": "New llm-d stack",
-    "pageDescription": "Deploy a prefix-cache-aware serving stack for a model via ArgoCD.",
+    "pageDescription": "Deploy an Envoy + EPP standalone router (llm-d) in front of a running model via ArgoCD.",
     "create": "Create stack",
     "previewTitle": "Deployment preview",
     "previewHint": "The ArgoCD Application this stack will create.",
@@ -1233,6 +1233,7 @@
     "valuesYamlHint": "Full Helm values for the standalone chart. The image registry default is applied underneath if omitted.",
     "resetToDefault": "Reset to default",
     "chart": "Helm chart",
+    "eppImage": "Router image (EPP)",
     "chartRepo": "Chart repo",
     "liveErrorTitle": "Couldn't read live state from ArgoCD",
     "noResourcesError": "Live state unavailable — see the warning above."
