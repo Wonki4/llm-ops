@@ -21,6 +21,7 @@ import {
   Megaphone,
   FlaskConical,
   Network,
+  Server,
 } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -45,6 +46,7 @@ const navigation: NavItem[] = [
   { key: "adminRequests", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
   { key: "adminDashboard", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
   { key: "adminModels", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
+  { key: "adminDeployments", href: "/admin/deployments", icon: Server, roles: ["super_user"] },
   { key: "adminBudgets", href: "/admin/budgets", icon: DollarSign, roles: ["super_user"] },
   { key: "adminUsers", href: "/admin/users", icon: UserCog, roles: ["super_user"] },
   { key: "adminUsage", href: "/admin/usage", icon: BarChart3, roles: ["super_user"] },

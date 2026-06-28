@@ -32,7 +32,7 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
 from app.db.session import async_session_factory
 from app.services.clusters import k8s_for_cluster
-from app.services.model_deployment_manifests import k8s_resource_names
+from app.services.model_deployment_manifests import k8s_resource_names, serving_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +111,9 @@ async def _register_with_litellm(
             model_name=dep.model_name,
             litellm_model=f"openai/{served_name}",
             api_base=api_base,
-            # vLLM ignores the key; LiteLLM still wants one set.
-            api_key="EMPTY",
+            # Register with the serving's own key so LiteLLM can reach it when
+            # the vLLM server has auth enabled (--api-key); "EMPTY" when it's open.
+            api_key=serving_api_key(dep.vllm_extra_args, dep.env),
         )
         info = result.get("model_info") or {}
         return info.get("id") or result.get("id")

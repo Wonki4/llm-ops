@@ -12,6 +12,27 @@ LABEL_OWNER = "llm-ops/managed-by"
 LABEL_MODEL = "llm-ops/model-name"
 
 
+def serving_api_key(vllm_extra_args: list | None, env: dict | None) -> str:
+    """The API key a client must present to this serving when auth is enabled.
+
+    vLLM/SGLang OpenAI servers are open by default; auth is turned on with a
+    ``--api-key <key>`` server arg or a ``VLLM_API_KEY`` / ``OPENAI_API_KEY`` env
+    var. Returns that configured key so benchmark runners and LiteLLM
+    registration authenticate correctly; ``"EMPTY"`` when no auth is set.
+    """
+    args = list(vllm_extra_args or [])
+    for i, a in enumerate(args):
+        if a == "--api-key" and i + 1 < len(args):
+            return str(args[i + 1])
+        if isinstance(a, str) and a.startswith("--api-key="):
+            return a.split("=", 1)[1]
+    env = env or {}
+    for key in ("VLLM_API_KEY", "OPENAI_API_KEY"):
+        if env.get(key):
+            return str(env[key])
+    return "EMPTY"
+
+
 def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
     """Stable resource names: <model>-deployment / -service / -ingress."""
     safe = dep.model_name.lower().replace("_", "-").replace(".", "-").replace("/", "-")
