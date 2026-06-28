@@ -198,6 +198,7 @@ export default function LlmdDetailPage() {
             <Field label={t("connection")}>{connName}</Field>
             <Field label={t("argoAppName")} mono>{stack.argo_app_name}</Field>
             <Field label={t("chart")} mono>{stack.chart_name} {stack.chart_version}</Field>
+            <Field label={t("eppImage")} mono>{stack.epp_image}</Field>
             <Field label={t("chartRepo")} mono>{stack.chart_repo}</Field>
             <Field label={t("createdBy")}>{stack.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmtDate(stack.created_at)}</Field>
