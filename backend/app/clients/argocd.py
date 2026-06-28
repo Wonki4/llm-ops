@@ -65,6 +65,34 @@ class ArgoCDClient:
             r.raise_for_status()
             return r.json()
 
+    async def get_resource(
+        self,
+        app_name: str,
+        *,
+        name: str,
+        namespace: str,
+        kind: str,
+        version: str,
+        group: str = "",
+    ) -> str | None:
+        """Live manifest (JSON string) of one of an Application's managed
+        resources; None if the resource is gone."""
+        async with self._client() as c:
+            r = await c.get(
+                f"/api/v1/applications/{app_name}/resource",
+                params={
+                    "resourceName": name,
+                    "namespace": namespace,
+                    "kind": kind,
+                    "version": version,
+                    "group": group or "",
+                },
+            )
+            if r.status_code == 404:
+                return None
+            r.raise_for_status()
+            return r.json().get("manifest")
+
     async def delete_application(self, name: str, *, cascade: bool = True) -> None:
         """Delete an Application (cascades to its workloads); ignore if gone."""
         async with self._client() as c:
