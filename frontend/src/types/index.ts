@@ -620,15 +620,38 @@ export interface LlmdStackSummary {
   cluster_id: string | null;
   namespace: string;
   argo_app_name: string;
-  replicas: number;
-  model_server_type: string;
-  target_port: number;
-  endpoint_selector: string | null;
-  values_override: Record<string, unknown>;
+  chart_repo: string;
+  chart_name: string;
+  chart_version: string;
+  helm_values: Record<string, unknown>;
+  values_yaml: string;
   sync_status: string;
   health_status: string;
   status_message: string | null;
   created_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface LlmdAppliedResource {
+  group: string;
+  version: string;
+  kind: string | null;
+  name: string | null;
+  namespace: string | null;
+  status: string | null;
+  health: string | null;
+}
+
+export interface LlmdResourceManifest {
+  manifest: Record<string, unknown>;
+  manifest_yaml: string;
+}
+
+export interface LlmdAppliedResponse {
+  effective_values: Record<string, unknown>;
+  live_values: Record<string, unknown> | null;
+  resources: LlmdAppliedResource[];
+  revision: string | null;
+  live_error: string | null;
 }
