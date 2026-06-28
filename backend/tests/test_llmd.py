@@ -9,6 +9,7 @@ from app.services.llmd_manifests import (
     build_argo_application,
     build_llmd_values,
     deep_merge,
+    default_llmd_values,
 )
 
 
@@ -16,12 +17,13 @@ def test_model_has_expected_columns():
     cols = set(CustomLlmdStack.__table__.columns.keys())
     assert {
         "id", "name", "target_model_name", "argocd_connection_id", "cluster_id",
-        "namespace", "argo_app_name", "replicas", "model_server_type", "target_port",
-        "endpoint_selector", "values_override", "values_snapshot",
+        "namespace", "argo_app_name", "helm_values", "values_snapshot",
         "created_by", "updated_by", "created_at", "updated_at",
     } <= cols
-    # Retargeted at an existing model — no provisioning columns.
-    assert not ({"served_model_name", "gpu_count", "gpu_resource_key", "model_ref"} & cols)
+    # Structured per-field columns were collapsed into helm_values in #174.
+    assert not (
+        {"replicas", "model_server_type", "target_port", "endpoint_selector", "values_override"} & cols
+    )
 
 
 def test_llmd_settings_target_standalone_chart():
@@ -34,9 +36,7 @@ def test_llmd_settings_target_standalone_chart():
 def _stack(**kw):
     base = dict(
         id=uuid.uuid4(), name="my-stack", target_model_name="opt-125m",
-        namespace="llmd-my-stack", replicas=2, argo_app_name="llmd-my-stack",
-        model_server_type="vllm", target_port=8000, endpoint_selector=None,
-        values_override={},
+        namespace="llmd-my-stack", argo_app_name="llmd-my-stack", helm_values={},
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -53,31 +53,28 @@ def test_deep_merge_override_wins_and_nests():
     assert base == {"a": {"x": 1, "y": 2}, "b": 1}  # base untouched
 
 
-def test_build_values_standalone_schema_and_default_selector():
+def test_build_values_merges_image_registry_base_under_helm_values():
     v = build_llmd_values(_stack(), image_registry="reg.local")
-    es = v["inferenceExtension"]["endpointsServer"]
-    assert v["inferenceExtension"]["replicas"] == 2
     assert v["inferenceExtension"]["image"]["registry"] == "reg.local"
-    assert es["endpointSelector"] == "llm-ops/model-name=opt-125m"  # default from model
-    assert es["targetPorts"] == 8000
-    assert es["modelServerType"] == "vllm"
 
 
-def test_build_values_custom_selector_and_override():
+def test_build_values_user_helm_values_win_over_base():
     v = build_llmd_values(
-        _stack(
-            endpoint_selector="app=my-vllm", model_server_type="sglang", target_port=9000,
-            values_override={"inferenceExtension": {"image": {"tag": "v9"}}, "tracing": {"enabled": True}},
-        ),
+        _stack(helm_values={"inferenceExtension": {"image": {"registry": "user.reg", "tag": "v9"}},
+                            "tracing": {"enabled": True}}),
         image_registry="reg.local",
     )
-    es = v["inferenceExtension"]["endpointsServer"]
-    assert es["endpointSelector"] == "app=my-vllm"
-    assert es["modelServerType"] == "sglang"
-    assert es["targetPorts"] == 9000
-    # Override deep-merges: keeps generated registry, adds tag + new top-level key.
-    assert v["inferenceExtension"]["image"] == {"registry": "reg.local", "tag": "v9"}
+    # User registry overrides the base; unrelated keys pass through.
+    assert v["inferenceExtension"]["image"] == {"registry": "user.reg", "tag": "v9"}
     assert v["tracing"] == {"enabled": True}
+
+
+def test_default_values_standalone_schema_and_default_selector():
+    v = default_llmd_values("opt-125m", image_registry="reg.local")
+    es = v["inferenceExtension"]["endpointsServer"]
+    assert es["endpointSelector"] == "llm-ops/model-name=opt-125m"
+    assert es["targetPorts"] == 8000
+    assert es["modelServerType"] == "vllm"
 
 
 def test_build_application_is_isolated_to_project_and_namespace():
