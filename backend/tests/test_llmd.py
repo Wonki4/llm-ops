@@ -57,19 +57,26 @@ def test_deep_merge_override_wins_and_nests():
     assert base == {"a": {"x": 1, "y": 2}, "b": 1}  # base untouched
 
 
-def test_build_values_merges_image_registry_base_under_helm_values():
-    v = build_llmd_values(_stack(), image_registry="reg.local")
-    assert v["inferenceExtension"]["image"]["registry"] == "reg.local"
+def test_build_values_merges_epp_image_base_under_helm_values():
+    v = build_llmd_values(
+        _stack(), epp_registry="reg.local",
+        epp_repository="llm-d/llm-d-router-endpoint-picker", epp_tag="v0.8.1",
+    )
+    assert v["inferenceExtension"]["image"] == {
+        "registry": "reg.local", "repository": "llm-d/llm-d-router-endpoint-picker", "tag": "v0.8.1",
+    }
 
 
 def test_build_values_user_helm_values_win_over_base():
     v = build_llmd_values(
-        _stack(helm_values={"inferenceExtension": {"image": {"registry": "user.reg", "tag": "v9"}},
-                            "tracing": {"enabled": True}}),
-        image_registry="reg.local",
+        _stack(helm_values={"inferenceExtension": {"image": {"tag": "custom"}}, "tracing": {"enabled": True}}),
+        epp_registry="reg.local",
+        epp_repository="llm-d/llm-d-router-endpoint-picker", epp_tag="v0.8.1",
     )
-    # User registry overrides the base; unrelated keys pass through.
-    assert v["inferenceExtension"]["image"] == {"registry": "user.reg", "tag": "v9"}
+    img = v["inferenceExtension"]["image"]
+    assert img["registry"] == "reg.local"
+    assert img["repository"] == "llm-d/llm-d-router-endpoint-picker"
+    assert img["tag"] == "custom"           # user wins
     assert v["tracing"] == {"enabled": True}
 
 
