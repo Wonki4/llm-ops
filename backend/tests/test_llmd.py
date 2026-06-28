@@ -31,6 +31,10 @@ def test_llmd_settings_target_standalone_chart():
     assert settings.llmd_chart_name == "standalone"
     assert settings.llmd_chart_version == "v1.5.0"
     assert "gateway-api-inference-extension" in settings.llmd_chart_repo
+    # Real llm-d EPP image, on ghcr.io (overridable for air-gap).
+    assert settings.llmd_epp_image_registry == "ghcr.io"
+    assert settings.llmd_epp_image_repository == "llm-d/llm-d-router-endpoint-picker"
+    assert settings.llmd_epp_image_tag == "v0.8.1"
 
 
 def _stack(**kw):
