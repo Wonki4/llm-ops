@@ -37,33 +37,37 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
-def build_llmd_values(stack: CustomLlmdStack, *, image_registry: str) -> dict:
-    """Helm values for the gateway-api-inference-extension ``standalone`` chart.
+def default_llmd_values(target_model_name: str, *, image_registry: str) -> dict:
+    """The starter ``values.yaml`` shown to the user for a new stack.
 
-    That chart deploys the EPP / inference scheduler (the prefix-cache-aware
-    router) in front of **already-running** model servers — it does not provision
-    vLLM itself. The router selects the model server pods by ``endpointSelector``
-    (a ``key=value`` label string; defaults to the portal's
-    ``llm-ops/model-name=<target>`` label) on ``targetPorts``.
-
-    A minimal, correct base is generated from the structured fields, then the
-    stack's ``values_override`` is deep-merged on top so any chart option can be
-    set.
+    A minimal, correct set of values for the gateway-api-inference-extension
+    ``standalone`` chart, which deploys the EPP / inference scheduler (the
+    prefix-cache-aware router) in front of **already-running** model servers — it
+    does not provision vLLM itself. The router selects model-server pods by
+    ``endpointSelector`` (defaults to the portal's ``llm-ops/model-name=<target>``
+    label) on ``targetPorts``. The user edits this freely.
     """
-    selector = stack.endpoint_selector or f"{LABEL_MODEL}={stack.target_model_name}"
-    base = {
+    return {
         "inferenceExtension": {
-            "replicas": stack.replicas,
+            "replicas": 1,
             "image": {"registry": image_registry},
             "endpointsServer": {
                 "createInferencePool": False,
-                "endpointSelector": selector,
-                "targetPorts": stack.target_port,
-                "modelServerType": stack.model_server_type,
+                "endpointSelector": f"{LABEL_MODEL}={target_model_name}" if target_model_name else "",
+                "targetPorts": 8000,
+                "modelServerType": "vllm",
             },
         },
     }
-    return deep_merge(base, stack.values_override or {})
+
+
+def build_llmd_values(stack: CustomLlmdStack, *, image_registry: str) -> dict:
+    """The values actually sent to ArgoCD: the user's ``helm_values`` with a thin
+    base merged underneath, so the (air-gapped) image registry default applies
+    even if the user's values.yaml omits it. The user's values always win.
+    """
+    base = {"inferenceExtension": {"image": {"registry": image_registry}}}
+    return deep_merge(base, stack.helm_values or {})
 
 
 def build_argo_application(
