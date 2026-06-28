@@ -84,7 +84,12 @@ def _argo_status(obj: dict | None) -> dict:
 
 
 def _values_for(stack: CustomLlmdStack) -> dict:
-    return build_llmd_values(stack, image_registry=settings.llmd_image_registry)
+    return build_llmd_values(
+        stack,
+        epp_registry=settings.llmd_epp_image_registry,
+        epp_repository=settings.llmd_epp_image_repository,
+        epp_tag=settings.llmd_epp_image_tag,
+    )
 
 
 def _application_for(stack: CustomLlmdStack) -> dict:
