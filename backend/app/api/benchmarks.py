@@ -36,7 +36,7 @@ from app.services.benchmark_serving import (
     serving_target_url,
 )
 from app.services.clusters import k8s_for_cluster
-from app.services.model_deployment_manifests import k8s_resource_names
+from app.services.model_deployment_manifests import k8s_resource_names, serving_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +404,7 @@ async def create_benchmark(
     if deployment is not None:
         svc = k8s_resource_names(deployment)["service"]
         target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-        api_key = "EMPTY"  # vLLM/SGLang OpenAI servers ignore auth by default
+        api_key = serving_api_key(deployment.vllm_extra_args, deployment.env)
     else:
         target_base = settings.litellm_base_url.rstrip("/")
         api_key = settings.litellm_admin_api_key
@@ -500,7 +500,7 @@ async def preview_benchmark(
                 run,
                 deployment=eph,
                 target_base=serving_target_url(name, namespace),
-                api_key="EMPTY",
+                api_key=serving_api_key(eph.vllm_extra_args, eph.env),
                 image_override=body.image or None,
             )
         )
@@ -524,7 +524,7 @@ async def preview_benchmark(
             run.k8s_namespace = body.namespace or deployment.namespace
             svc = k8s_resource_names(deployment)["service"]
             target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-            api_key = "EMPTY"
+            api_key = serving_api_key(deployment.vllm_extra_args, deployment.env)
         else:
             target_base = settings.litellm_base_url.rstrip("/")
             api_key = settings.litellm_admin_api_key

@@ -36,6 +36,7 @@ import type {
   BenchmarkListResponse,
   CreateBenchmarkRequest,
   ModelDeployment,
+  ModelDeploymentEvent,
   K8sClusterSummary,
   ClusterTestResult,
   ArgocdConnectionSummary,
@@ -1093,6 +1094,36 @@ export function useModelDeployments() {
       apiFetch<{ deployments: ModelDeployment[] }>("/api/model-deployments").then(
         (r) => r.deployments,
       ),
+  });
+}
+
+export function useModelDeployment(id: string) {
+  return useQuery({
+    queryKey: ["model-deployments", id],
+    queryFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}`),
+    enabled: !!id,
+  });
+}
+
+/** Status event history for one deployment. Polls so the timeline stays live. */
+export function useModelDeploymentEvents(id: string) {
+  return useQuery({
+    queryKey: ["model-deployments", id, "events"],
+    queryFn: () =>
+      apiFetch<{ events: ModelDeploymentEvent[] }>(`/api/model-deployments/${id}/events`).then(
+        (r) => r.events,
+      ),
+    enabled: !!id,
+    refetchInterval: 15000,
+  });
+}
+
+export function useDeleteModelDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ deleted: boolean; id: string }>(`/api/model-deployments/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
   });
 }
 

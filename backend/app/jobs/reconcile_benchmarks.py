@@ -24,6 +24,7 @@ from app.config import settings
 from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
 from app.services.clusters import k8s_for_cluster
+from app.services.model_deployment_manifests import serving_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,16 @@ def _failure_message(conditions: list[dict]) -> str | None:
     return None
 
 
+def _log_tail(logs: str, max_lines: int = 3, max_len: int = 400) -> str:
+    """Last few meaningful log lines — the runner's actual failure cause
+    (e.g. ``vllm: not found``), which the Job condition message omits."""
+    if not logs:
+        return ""
+    lines = [ln.strip() for ln in logs.splitlines() if ln.strip()]
+    lines = [ln for ln in lines if not ln.startswith(RESULT_MARKER)]
+    return " / ".join(lines[-max_lines:])[:max_len]
+
+
 async def _teardown_serving(k8s: K8sClient, run: CustomBenchmarkRun) -> None:
     """Delete a run's throwaway serving. Leaves serving_torn_down False on
     failure so a later pass retries."""
@@ -111,7 +122,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or settings.vllm_bench_image,
                 target_base_url=target,
-                api_key="EMPTY",
+                api_key=serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
                 served_model=snap.get("model_path"),
                 tokenizer=params.get("tokenizer") or snap.get("model_path"),
                 pvc_name=snap.get("pvc_name"),
@@ -122,7 +133,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or DEFAULT_BENCH_IMAGE,
                 target_base_url=target,
-                api_key="EMPTY",
+                api_key=serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
                 bench_model=snap.get("model_path"),
             )
         await k8s.create_job(run.k8s_namespace, manifest)
@@ -169,11 +180,18 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
         run.finished_at = _now()
         transitions += 1
     elif failed > 0:
-        parsed = _parse_result(await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name))
+        logs = await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name)
+        parsed = _parse_result(logs)
         run.status = "failed"
-        run.error_message = _failure_message(observed["conditions"]) or "Job failed"
+        cond = _failure_message(observed["conditions"]) or "Job failed"
         if parsed is not None:
             run.result = parsed
+            run.error_message = cond
+        else:
+            # Append the runner's real failure from the pod logs (e.g.
+            # "vllm: not found") so the UI shows the cause, not just "backoff limit".
+            tail = _log_tail(logs)
+            run.error_message = f"{cond} — {tail}" if tail else cond
         run.finished_at = _now()
         transitions += 1
     return transitions

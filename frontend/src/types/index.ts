@@ -550,12 +550,14 @@ export interface CreateBenchmarkRequest {
   image?: string;
 }
 
-/** Portal-managed serving deployment (subset used by the benchmark UI). */
+/** Portal-managed serving deployment. */
 export interface ModelDeployment {
   id: string;
   model_name: string;
-  status: string;
-  ready_replicas: number;
+  cluster_id: string | null;
+  namespace: string;
+  image: string;
+  replicas: number;
   gpu_count: number;
   gpu_resource_key: string;
   cpu_request: string | null;
@@ -563,8 +565,38 @@ export interface ModelDeployment {
   memory_request: string | null;
   memory_limit: string | null;
   node_selector: Record<string, string> | null;
+  tolerations: unknown[] | null;
+  pvc_name: string | null;
+  pvc_mount_path: string | null;
   model_path: string;
-  image: string;
+  vllm_extra_args: string[] | null;
+  env: Record<string, string> | null;
+  ingress_host: string;
+  ingress_path: string;
+  ingress_class: string;
+  status: string;
+  status_message: string | null;
+  ready_replicas: number;
+  service_cluster_ip: string | null;
+  litellm_model_id: string | null;
+  last_synced_at: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ModelDeploymentEvent {
+  id: string;
+  deployment_id: string;
+  event_type: string;
+  severity: string;
+  from_status: string | null;
+  to_status: string | null;
+  message: string | null;
+  seen: boolean;
+  alert_sent: boolean;
+  created_at: string | null;
 }
 
 /** Registered K8s cluster — masked (never includes the kubeconfig). */
