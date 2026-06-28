@@ -41,6 +41,8 @@ import type {
   ArgocdConnectionSummary,
   ArgocdTestResult,
   LlmdStackSummary,
+  LlmdAppliedResponse,
+  LlmdResourceManifest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1354,22 +1356,53 @@ export interface CreateLlmdStackBody {
   target_model_name: string;
   argocd_connection_id: string;
   namespace?: string;
-  replicas?: number;
-  model_server_type?: string;
-  target_port?: number;
-  endpoint_selector?: string | null;
-  values_override?: Record<string, unknown>;
+  values_yaml?: string;
 }
 
-export type UpdateLlmdStackBody = Partial<
-  Omit<CreateLlmdStackBody, "name" | "target_model_name" | "argocd_connection_id">
->;
+export interface UpdateLlmdStackBody {
+  namespace?: string;
+  values_yaml?: string;
+}
 
 export function useLlmdStacks() {
   return useQuery({
     queryKey: ["llmd-stacks"],
     queryFn: () =>
       apiFetch<{ stacks: LlmdStackSummary[] }>("/api/admin/llmd-stacks").then((r) => r.stacks),
+  });
+}
+
+/** How a stack's values were applied: rendered snapshot + live ArgoCD state. */
+export function useLlmdStackApplied(id: string) {
+  return useQuery({
+    queryKey: ["llmd-stacks", id, "applied"],
+    queryFn: () => apiFetch<LlmdAppliedResponse>(`/api/admin/llmd-stacks/${id}/applied`),
+    enabled: !!id,
+  });
+}
+
+export interface LlmdResourceRef {
+  kind: string;
+  name: string;
+  namespace: string;
+  version: string;
+  group: string;
+}
+
+/** Live manifest of a single deployed resource (fetched when a row is expanded). */
+export function useLlmdStackResource(id: string, ref: LlmdResourceRef | null) {
+  const params = new URLSearchParams();
+  if (ref) {
+    params.set("kind", ref.kind);
+    params.set("name", ref.name);
+    params.set("namespace", ref.namespace);
+    params.set("version", ref.version);
+    params.set("group", ref.group);
+  }
+  return useQuery({
+    queryKey: ["llmd-stacks", id, "resource", ref],
+    queryFn: () => apiFetch<LlmdResourceManifest>(`/api/admin/llmd-stacks/${id}/resource?${params.toString()}`),
+    enabled: !!id && !!ref,
   });
 }
 
@@ -1406,34 +1439,18 @@ export function useDeleteLlmdStack() {
   });
 }
 
-export interface LlmdPreviewManifest {
-  kind: string;
-  name: string;
-  yaml: string;
+interface LlmdDefaultValuesResponse {
+  values: Record<string, unknown>;
+  values_yaml: string;
 }
 
-interface LlmdPreviewResponse {
-  manifests: LlmdPreviewManifest[];
-  note: string | null;
-}
-
-export interface PreviewLlmdStackBody {
-  name?: string;
-  target_model_name?: string;
-  namespace?: string;
-  replicas?: number;
-  model_server_type?: string;
-  target_port?: number;
-  endpoint_selector?: string | null;
-  values_override?: Record<string, unknown>;
-}
-
-export function useLlmdStackPreview() {
+/** Fetch the starter values.yaml for a target model (for the new-stack editor). */
+export function useLlmdDefaultValues() {
   return useMutation({
-    mutationFn: (body: PreviewLlmdStackBody) =>
-      apiFetch<LlmdPreviewResponse>("/api/admin/llmd-stacks/preview", {
+    mutationFn: (targetModelName: string) =>
+      apiFetch<LlmdDefaultValuesResponse>("/api/admin/llmd-stacks/default-values", {
         method: "POST",
-        body: JSON.stringify(body),
+        body: JSON.stringify({ target_model_name: targetModelName }),
       }),
   });
 }

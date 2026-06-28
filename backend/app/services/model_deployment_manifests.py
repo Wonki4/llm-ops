@@ -30,9 +30,13 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
     names = k8s_resource_names(dep)
     labels = _labels(dep)
 
-    # Resources: GPU is required (gpu_count >= 1), CPU/memory optional.
+    # Resources: GPU optional — omit the GPU resource entirely when gpu_count == 0
+    # so the pod is CPU-only and schedulable on nodes without GPUs. CPU/memory
+    # are likewise optional. (`gpu_count and` guards a None on an in-memory row.)
     requests: dict = {}
-    limits: dict = {dep.gpu_resource_key: str(dep.gpu_count)}
+    limits: dict = {}
+    if dep.gpu_count and dep.gpu_count > 0:
+        limits[dep.gpu_resource_key] = str(dep.gpu_count)
     if dep.cpu_request:
         requests["cpu"] = dep.cpu_request
     if dep.cpu_limit:
@@ -41,7 +45,9 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         requests["memory"] = dep.memory_request
     if dep.memory_limit:
         limits["memory"] = dep.memory_limit
-    resources: dict = {"limits": limits}
+    resources: dict = {}
+    if limits:
+        resources["limits"] = limits
     if requests:
         resources["requests"] = requests
 
