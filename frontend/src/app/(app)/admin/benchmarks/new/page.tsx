@@ -7,7 +7,7 @@ import { ArrowLeft, FileCode2, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview } from "@/hooks/use-api";
+import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview, useBenchmarks } from "@/hooks/use-api";
 import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,8 +71,71 @@ export default function NewBenchmarkPage() {
   const [extraParamsText, setExtraParamsText] = useState("");
   const [namespace, setNamespace] = useState("");
   const [image, setImage] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [loadFromId, setLoadFromId] = useState("");
+
+  const { data: pastRuns } = useBenchmarks({ limit: 50 });
 
   const kind = TOOL_TO_KIND[tool];
+
+  // Prefill the form from a previously-run benchmark. The API key is a secret
+  // and is intentionally NOT restored — re-enter it if the target needs one.
+  const loadFromRun = (runId: string) => {
+    setLoadFromId(runId);
+    const run = (pastRuns ?? []).find((r) => r.id === runId);
+    if (!run) return;
+    setTool(run.tool);
+    if (run.deployment_id) {
+      setDeploymentId(run.deployment_id);
+      setModelName("");
+      setEphemeral(run.ephemeral);
+    } else {
+      setDeploymentId("");
+      setEphemeral(false);
+      setModelName(run.model_name);
+    }
+    setClusterId(run.cluster_id ?? "");
+    setNamespace(run.k8s_namespace ?? "");
+    setImage(run.bench_image ?? "");
+    setServingOverridesText("");
+
+    const params = run.params ?? {};
+    const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
+    const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
+    if (TOOL_TO_KIND[run.tool] === "performance") {
+      const known = new Set([
+        "num_prompts", "random_input_len", "random_output_len", "max_concurrency",
+        "request_rate", "ignore_eos", "tokenizer", "nfs_server", "nfs_path", "nfs_mount_path",
+      ]);
+      setPerfParams({
+        num_prompts: num(params.num_prompts, DEFAULT_PERF_PARAMS.num_prompts),
+        random_input_len: num(params.random_input_len, DEFAULT_PERF_PARAMS.random_input_len),
+        random_output_len: num(params.random_output_len, DEFAULT_PERF_PARAMS.random_output_len),
+        max_concurrency: str(params.max_concurrency),
+        request_rate: str(params.request_rate),
+        ignore_eos: params.ignore_eos !== false,
+        tokenizer: str(params.tokenizer),
+        nfs_server: str(params.nfs_server),
+        nfs_path: str(params.nfs_path),
+        nfs_mount_path: str(params.nfs_mount_path),
+      });
+      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
+      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
+    } else {
+      const known = new Set(["tasks", "batch_size", "num_concurrent", "num_fewshot", "limit"]);
+      setAccParams({
+        tasks: Array.isArray(params.tasks)
+          ? (params.tasks as string[]).join(", ")
+          : str(params.tasks) || DEFAULT_ACCURACY_PARAMS.tasks,
+        num_fewshot: str(params.num_fewshot),
+        limit: str(params.limit),
+        batch_size: num(params.batch_size, DEFAULT_ACCURACY_PARAMS.batch_size),
+        num_concurrent: num(params.num_concurrent, DEFAULT_ACCURACY_PARAMS.num_concurrent),
+      });
+      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
+      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
+    }
+  };
 
   // Deduplicated model_name list for the dropdown.
   const modelOptions = useMemo(() => {
@@ -188,11 +251,12 @@ export default function NewBenchmarkPage() {
     if (clusterId) body.cluster_id = clusterId;
     if (namespace.trim()) body.namespace = namespace.trim();
     if (image.trim()) body.image = image.trim();
+    if (apiKey.trim()) body.api_key = apiKey.trim();
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     deploymentId, modelName, tool, perfParams, accParams, extraParamsText,
-    ephemeral, servingOverridesText, clusterId, namespace, image,
+    ephemeral, servingOverridesText, clusterId, namespace, image, apiKey,
   ]);
 
   const previewKey = previewBody ? JSON.stringify(previewBody) : "";
@@ -262,6 +326,7 @@ export default function NewBenchmarkPage() {
     if (clusterId) body.cluster_id = clusterId;
     if (namespace.trim()) body.namespace = namespace.trim();
     if (image.trim()) body.image = image.trim();
+    if (apiKey.trim()) body.api_key = apiKey.trim();
 
     createMutation.mutate(body, {
       onSuccess: (run) => {
@@ -294,6 +359,26 @@ export default function NewBenchmarkPage() {
             <CardTitle className="text-base">{t("target")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {(pastRuns?.length ?? 0) > 0 && (
+              <div className="space-y-1.5">
+                <Label htmlFor="load_from">{t("loadFromLabel")}</Label>
+                <select
+                  id="load_from"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={loadFromId}
+                  onChange={(e) => loadFromRun(e.target.value)}
+                >
+                  <option value="">{t("loadFromNone")}</option>
+                  {(pastRuns ?? []).map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.model_name} · {r.tool} · {r.status}
+                      {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">{t("loadFromHint")}</p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="cluster">{t("clusterLabel")}</Label>
               <select
@@ -472,6 +557,18 @@ export default function NewBenchmarkPage() {
                 onChange={(e) => setImage(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">{t("imageHint")}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="api_key">{t("apiKeyLabel")}</Label>
+              <Input
+                id="api_key"
+                type="password"
+                autoComplete="off"
+                placeholder={t("apiKeyPlaceholder")}
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">{t("apiKeyHint")}</p>
             </div>
           </CardContent>
         </Card>
