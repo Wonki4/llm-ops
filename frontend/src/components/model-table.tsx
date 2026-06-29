@@ -103,6 +103,7 @@ export function ModelTable({ rows }: { rows: ModelTableRow[] }) {
           <TableHead className="whitespace-nowrap">{t("table.modality")}</TableHead>
           <TableHead>{t("table.inputCost")}</TableHead>
           <TableHead>{t("table.outputCost")}</TableHead>
+          <TableHead>{t("table.cacheReadCost")}</TableHead>
           <TableHead className="w-[120px]">{t("table.context")}</TableHead>
           <TableHead className="w-[170px]">{t("table.nextTransition")}</TableHead>
         </TableRow>
@@ -156,6 +157,9 @@ export function ModelTable({ rows }: { rows: ModelTableRow[] }) {
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
               {formatCost(model?.litellm_info?.model_info?.output_cost_per_token)}
+            </TableCell>
+            <TableCell className="font-mono text-xs text-muted-foreground">
+              {formatCost(model?.litellm_info?.model_info?.cache_read_input_token_cost)}
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
               {formatContext(model)}

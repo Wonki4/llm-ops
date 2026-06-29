@@ -276,6 +276,7 @@
       "modality": "모달리티",
       "inputCost": "Input 비용",
       "outputCost": "Output 비용",
+      "cacheReadCost": "Cache Read 비용",
       "context": "컨텍스트",
       "nextTransition": "다음 전환"
     },
@@ -429,6 +430,7 @@
       "status": "상태",
       "inputCost": "Input 비용",
       "outputCost": "Output 비용",
+      "cacheReadCost": "Cache Read 비용",
       "nextTransition": "다음 전환"
     },
     "pagination": {

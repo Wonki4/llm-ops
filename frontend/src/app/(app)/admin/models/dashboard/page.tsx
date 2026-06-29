@@ -723,6 +723,7 @@ export default function ModelDashboardPage() {
                     <TableHead className="w-[100px]">{t("table.status")}</TableHead>
                     <TableHead>{t("table.inputCost")}</TableHead>
                     <TableHead>{t("table.outputCost")}</TableHead>
+                    <TableHead>{t("table.cacheReadCost")}</TableHead>
                     <TableHead className="w-[110px]">{t("table.nextTransition")}</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -760,6 +761,9 @@ export default function ModelDashboardPage() {
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
                         {formatCost(m.litellm_info?.model_info?.output_cost_per_token)}
+                      </TableCell>
+                      <TableCell className="text-xs font-mono text-muted-foreground">
+                        {formatCost(m.litellm_info?.model_info?.cache_read_input_token_cost)}
                       </TableCell>
                       <TableCell>
                         {(() => {
