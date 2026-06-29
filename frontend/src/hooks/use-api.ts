@@ -829,6 +829,7 @@ export interface ModelSummary {
     status?: string;
     default_input_cost_per_token?: number | null;
     default_output_cost_per_token?: number | null;
+    default_cache_read_cost_per_token?: number | null;
   } | null;
   litellm_info: Record<string, unknown> | null;
   cost_schedule: Array<{
@@ -837,6 +838,7 @@ export interface ModelSummary {
     hour_end_local: number;
     input_cost_per_token: number;
     output_cost_per_token: number;
+    cache_read_cost_per_token: number | null;
     priority: number;
   }>;
   performance: ModelSummaryBenchmark | null;

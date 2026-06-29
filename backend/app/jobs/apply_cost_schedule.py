@@ -129,10 +129,12 @@ async def apply_cost_schedule() -> dict:
         if active_rule is not None:
             target_in = active_rule.input_cost_per_token
             target_out = active_rule.output_cost_per_token
+            target_cache_read = active_rule.cache_read_cost_per_token
             source = f"rule:{active_rule.id}"
         elif catalog is not None:
             target_in = catalog.default_input_cost_per_token
             target_out = catalog.default_output_cost_per_token
+            target_cache_read = catalog.default_cache_read_cost_per_token
             source = "default"
         else:
             # Rule expired and no catalog default — skip; admin must register
@@ -158,6 +160,7 @@ async def apply_cost_schedule() -> dict:
             # The worker owns the override layer (litellm_params.*_cost_per_token).
             override_in = params.get("input_cost_per_token")
             override_out = params.get("output_cost_per_token")
+            override_cache_read = params.get("cache_read_input_token_cost")
             if target_in is None and target_out is None:
                 # No catalog default to revert to. LiteLLM's /model/update IGNORES
                 # a None cost (merge semantics: None = "leave unchanged"), so we
@@ -170,6 +173,9 @@ async def apply_cost_schedule() -> dict:
                 continue
             current_in = override_in if override_in is not None else info.get("input_cost_per_token")
             current_out = override_out if override_out is not None else info.get("output_cost_per_token")
+            current_cache_read = (
+                override_cache_read if override_cache_read is not None else info.get("cache_read_input_token_cost")
+            )
 
             # With no rule active, keep the catalog default in sync with the live
             # base price. If the live cost matches one of this model's rule prices
@@ -182,19 +188,22 @@ async def apply_cost_schedule() -> dict:
                 live = (current_in, current_out)
                 is_leftover_rule = live in rule_pairs and live != stored
                 if not is_leftover_rule and live != stored:
-                    default_updates[model_name] = (current_in, current_out)
+                    default_updates[model_name] = (current_in, current_out, current_cache_read)
                     continue  # already at base; just record it
 
-            if current_in == target_in and current_out == target_out:
+            # cache_read only forces a push when a target is set (None = leave
+            # LiteLLM's value unchanged, mirroring its merge semantics).
+            cache_read_changed = target_cache_read is not None and current_cache_read != target_cache_read
+            if current_in == target_in and current_out == target_out and not cache_read_changed:
                 continue
+            update_params = {
+                "input_cost_per_token": target_in,
+                "output_cost_per_token": target_out,
+            }
+            if target_cache_read is not None:
+                update_params["cache_read_input_token_cost"] = target_cache_read
             try:
-                await litellm.update_model(
-                    mid,
-                    litellm_params={
-                        "input_cost_per_token": target_in,
-                        "output_cost_per_token": target_out,
-                    },
-                )
+                await litellm.update_model(mid, litellm_params=update_params)
                 deployments_updated += 1
                 logger.info(
                     "Cost schedule: %s id=%s in=%s out=%s (source=%s)",
@@ -215,14 +224,15 @@ async def apply_cost_schedule() -> dict:
     # Persist refreshed baselines (live base prices captured while no rule active).
     if default_updates:
         async with async_session_factory() as portal_db:
-            for mname, (din, dout) in default_updates.items():
+            for mname, (din, dout, dcr) in default_updates.items():
                 await portal_db.execute(
                     text(
                         "UPDATE custom_model_catalog "
-                        "SET default_input_cost_per_token = :i, default_output_cost_per_token = :o "
+                        "SET default_input_cost_per_token = :i, default_output_cost_per_token = :o, "
+                        "default_cache_read_cost_per_token = COALESCE(:cr, default_cache_read_cost_per_token) "
                         "WHERE model_name = :m"
                     ),
-                    {"i": din, "o": dout, "m": mname},
+                    {"i": din, "o": dout, "cr": dcr, "m": mname},
                 )
             await portal_db.commit()
         logger.info(

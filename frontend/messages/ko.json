@@ -561,6 +561,9 @@
       "endHour": "종료 (1-24)",
       "inputCost": "입력 단가 (USD / 1M tokens)",
       "outputCost": "출력 단가 (USD / 1M tokens)",
+      "cacheReadCost": "캐시 읽기 단가 (USD / 1M tokens)",
+      "cacheReadCostPlaceholder": "선택",
+      "cacheReadCostHint": "프롬프트 캐시 읽기 단가. 비우면 기존 값을 유지합니다.",
       "priority": "우선순위 (높을수록 우선)",
       "enabled": "활성화"
     },
@@ -570,7 +573,8 @@
       "invalidEndHour": "종료 시각은 1-24이어야 합니다.",
       "sameStartEnd": "시작과 종료 시각이 같을 수 없습니다.",
       "invalidInputCost": "입력 단가는 0 이상이어야 합니다.",
-      "invalidOutputCost": "출력 단가는 0 이상이어야 합니다."
+      "invalidOutputCost": "출력 단가는 0 이상이어야 합니다.",
+      "invalidCacheReadCost": "캐시 읽기 단가는 0 이상이어야 합니다."
     },
     "confirm": {
       "deleteRule": "이 룰을 삭제할까요?"

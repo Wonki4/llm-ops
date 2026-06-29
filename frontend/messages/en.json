@@ -561,6 +561,9 @@
       "endHour": "End (1-24)",
       "inputCost": "Input cost (USD / 1M tokens)",
       "outputCost": "Output cost (USD / 1M tokens)",
+      "cacheReadCost": "Cache read cost (USD / 1M tokens)",
+      "cacheReadCostPlaceholder": "optional",
+      "cacheReadCostHint": "Prompt-caching read price. Leave blank to leave it unchanged.",
       "priority": "Priority (higher = preferred)",
       "enabled": "Enabled"
     },
@@ -570,7 +573,8 @@
       "invalidEndHour": "End hour must be 1-24.",
       "sameStartEnd": "Start and end hours cannot be the same.",
       "invalidInputCost": "Input cost must be 0 or greater.",
-      "invalidOutputCost": "Output cost must be 0 or greater."
+      "invalidOutputCost": "Output cost must be 0 or greater.",
+      "invalidCacheReadCost": "Cache read cost must be 0 or greater."
     },
     "confirm": {
       "deleteRule": "Delete this rule?"

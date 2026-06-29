@@ -63,6 +63,7 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "visible": m.visible,
         "default_input_cost_per_token": m.default_input_cost_per_token,
         "default_output_cost_per_token": m.default_output_cost_per_token,
+        "default_cache_read_cost_per_token": m.default_cache_read_cost_per_token,
         "status_change_date": m.status_change_date.isoformat() if m.status_change_date else None,
         "created_by": m.created_by,
         "updated_by": m.updated_by,
@@ -569,6 +570,7 @@ async def model_summary(
             "hour_end_local": s.hour_end_local,
             "input_cost_per_token": s.input_cost_per_token,
             "output_cost_per_token": s.output_cost_per_token,
+            "cache_read_cost_per_token": s.cache_read_cost_per_token,
             "priority": s.priority,
         }
         for s in sched_result.scalars().all()
@@ -666,6 +668,7 @@ def _serialize_cost_schedule(r: CustomModelCostSchedule) -> dict:
         "timezone": settings.schedule_timezone,
         "input_cost_per_token": r.input_cost_per_token,
         "output_cost_per_token": r.output_cost_per_token,
+        "cache_read_cost_per_token": r.cache_read_cost_per_token,
         "priority": r.priority,
         "enabled": r.enabled,
         "created_by": r.created_by,
@@ -681,6 +684,7 @@ class CostScheduleRequest(BaseModel):
     hour_end_local: int  # 1..24; <= start means day-spanning
     input_cost_per_token: float
     output_cost_per_token: float
+    cache_read_cost_per_token: float | None = None
     priority: int = 0
     enabled: bool = True
 
@@ -696,6 +700,8 @@ def _validate_cost_schedule(body: CostScheduleRequest) -> None:
         raise HTTPException(status_code=400, detail="hour_start_local and hour_end_local must differ")
     if body.input_cost_per_token < 0 or body.output_cost_per_token < 0:
         raise HTTPException(status_code=400, detail="costs must be non-negative")
+    if body.cache_read_cost_per_token is not None and body.cache_read_cost_per_token < 0:
+        raise HTTPException(status_code=400, detail="cache_read_cost_per_token must be non-negative")
 
 
 @router.get("/{model_name}/cost-schedule")
@@ -737,7 +743,8 @@ async def _snapshot_default_cost_if_missing(
         return
     in_set = catalog.default_input_cost_per_token is not None
     out_set = catalog.default_output_cost_per_token is not None
-    if in_set and out_set:
+    cache_read_set = catalog.default_cache_read_cost_per_token is not None
+    if in_set and out_set and cache_read_set:
         return
     try:
         deployments = await litellm.get_model_info()
@@ -754,10 +761,13 @@ async def _snapshot_default_cost_if_missing(
         info = d.get("model_info") or {}
         in_cost = params.get("input_cost_per_token") or info.get("input_cost_per_token")
         out_cost = params.get("output_cost_per_token") or info.get("output_cost_per_token")
+        cache_read_cost = params.get("cache_read_input_token_cost") or info.get("cache_read_input_token_cost")
         if not in_set and in_cost is not None:
             catalog.default_input_cost_per_token = float(in_cost)
         if not out_set and out_cost is not None:
             catalog.default_output_cost_per_token = float(out_cost)
+        if not cache_read_set and cache_read_cost is not None:
+            catalog.default_cache_read_cost_per_token = float(cache_read_cost)
         await db.flush()
         return
 
@@ -781,6 +791,7 @@ async def create_cost_schedule(
         hour_end_local=body.hour_end_local,
         input_cost_per_token=body.input_cost_per_token,
         output_cost_per_token=body.output_cost_per_token,
+        cache_read_cost_per_token=body.cache_read_cost_per_token,
         priority=body.priority,
         enabled=body.enabled,
         created_by=user.user_id,
@@ -812,6 +823,7 @@ async def update_cost_schedule(
     rule.hour_end_local = body.hour_end_local
     rule.input_cost_per_token = body.input_cost_per_token
     rule.output_cost_per_token = body.output_cost_per_token
+    rule.cache_read_cost_per_token = body.cache_read_cost_per_token
     rule.priority = body.priority
     rule.enabled = body.enabled
     rule.updated_by = user.user_id
