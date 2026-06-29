@@ -523,6 +523,8 @@ export interface BenchmarkRun {
   tool: BenchmarkTool;
   kind: BenchmarkKind;
   params: Record<string, unknown>;
+  bench_image: string | null;
+  cluster_id: string | null;
   status: BenchmarkStatus;
   k8s_job_name: string | null;
   k8s_namespace: string | null;
@@ -548,6 +550,7 @@ export interface CreateBenchmarkRequest {
   params: Record<string, unknown>;
   namespace?: string;
   image?: string;
+  api_key?: string;
 }
 
 /** Portal-managed serving deployment. */

@@ -110,6 +110,12 @@ class CreateBenchmarkRequest(BaseModel):
     )
     namespace: str | None = None
     image: str | None = None
+    api_key: str | None = Field(
+        None,
+        description="Explicit API key the runner presents to the target. Overrides the "
+        "auto-derived serving key / LiteLLM admin key when set. Use for auth-gated "
+        "targets whose key the portal can't infer.",
+    )
 
 
 def _serving_snapshot(dep: CustomModelDeployment) -> dict:
@@ -222,6 +228,7 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "tool": r.tool,
         "kind": r.kind,
         "params": r.params,
+        "bench_image": r.bench_image,
         "cluster_id": str(r.cluster_id) if r.cluster_id else None,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
         "serving_snapshot": r.serving_snapshot,
@@ -340,6 +347,10 @@ async def create_benchmark(
         )
         run.serving_k8s_name = name
         run.serving_snapshot = _serving_snapshot(eph)
+        # An explicit key overrides the auto-derived serving key; the reconciler
+        # (which builds the Job later) reads it back from the snapshot.
+        if body.api_key:
+            run.serving_snapshot["api_key_override"] = body.api_key
         run.k8s_job_name = job_name_for(run.id)
         db.add(run)
         await db.flush()
@@ -400,14 +411,14 @@ async def create_benchmark(
     await db.flush()
     await db.refresh(run)
 
-    # Where the runner sends requests.
+    # Where the runner sends requests. An explicit body.api_key always wins.
     if deployment is not None:
         svc = k8s_resource_names(deployment)["service"]
         target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-        api_key = serving_api_key(deployment.vllm_extra_args, deployment.env)
+        api_key = body.api_key or serving_api_key(deployment.vllm_extra_args, deployment.env)
     else:
         target_base = settings.litellm_base_url.rstrip("/")
-        api_key = settings.litellm_admin_api_key
+        api_key = body.api_key or settings.litellm_admin_api_key
 
     cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(db, cluster_uuid)
     manifest = _build_bench_job(
@@ -500,7 +511,7 @@ async def preview_benchmark(
                 run,
                 deployment=eph,
                 target_base=serving_target_url(name, namespace),
-                api_key=serving_api_key(eph.vllm_extra_args, eph.env),
+                api_key=body.api_key or serving_api_key(eph.vllm_extra_args, eph.env),
                 image_override=body.image or None,
             )
         )
@@ -524,10 +535,10 @@ async def preview_benchmark(
             run.k8s_namespace = body.namespace or deployment.namespace
             svc = k8s_resource_names(deployment)["service"]
             target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-            api_key = serving_api_key(deployment.vllm_extra_args, deployment.env)
+            api_key = body.api_key or serving_api_key(deployment.vllm_extra_args, deployment.env)
         else:
             target_base = settings.litellm_base_url.rstrip("/")
-            api_key = settings.litellm_admin_api_key
+            api_key = body.api_key or settings.litellm_admin_api_key
         cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(
             db, uuid.UUID(body.cluster_id) if body.cluster_id else None
         )

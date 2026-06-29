@@ -122,7 +122,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or settings.vllm_bench_image,
                 target_base_url=target,
-                api_key=serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
+                api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
                 served_model=snap.get("model_path"),
                 tokenizer=params.get("tokenizer") or snap.get("model_path"),
                 pvc_name=snap.get("pvc_name"),
@@ -133,7 +133,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or DEFAULT_BENCH_IMAGE,
                 target_base_url=target,
-                api_key=serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
+                api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
                 bench_model=snap.get("model_path"),
             )
         await k8s.create_job(run.k8s_namespace, manifest)
