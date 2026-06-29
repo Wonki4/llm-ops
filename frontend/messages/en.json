@@ -276,6 +276,7 @@
       "modality": "Modality",
       "inputCost": "Input Cost",
       "outputCost": "Output Cost",
+      "cacheReadCost": "Cache Read Cost",
       "context": "Context",
       "nextTransition": "Next Transition"
     },
@@ -429,6 +430,7 @@
       "status": "Status",
       "inputCost": "Input Cost",
       "outputCost": "Output Cost",
+      "cacheReadCost": "Cache Read Cost",
       "nextTransition": "Next Transition"
     },
     "pagination": {

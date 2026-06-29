@@ -168,6 +168,10 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                       <span className="text-muted-foreground">Output Cost</span>
                       <span>{formatCost(litellmInfo.model_info.output_cost_per_token)}</span>
                     </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Cache Read Cost</span>
+                      <span>{formatCost(litellmInfo.model_info.cache_read_input_token_cost)}</span>
+                    </div>
                   </CardContent>
                 </Card>
               </section>

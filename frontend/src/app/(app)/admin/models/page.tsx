@@ -415,6 +415,10 @@ export default function ModelManagementPage() {
     return (model.litellm_info?.model_info as Record<string, unknown>)?.output_cost_per_token as number | null | undefined;
   }
 
+  function getCacheReadCost(model: ModelWithCatalog): number | null | undefined {
+    return (model.litellm_info?.model_info as Record<string, unknown>)?.cache_read_input_token_cost as number | null | undefined;
+  }
+
   function getNextTransitionDate(catalog: ModelCatalog | null): string | null {
     if (!catalog?.status_schedule) return null;
 
@@ -529,6 +533,7 @@ export default function ModelManagementPage() {
                   <TableHead>{t("table.context")}</TableHead>
                   <TableHead>Input Cost</TableHead>
                   <TableHead>Output Cost</TableHead>
+                  <TableHead>Cache Read Cost</TableHead>
                   <TableHead>{t("table.nextTransition")}</TableHead>
                   <TableHead>{t("table.actions")}</TableHead>
                 </TableRow>
@@ -628,6 +633,9 @@ export default function ModelManagementPage() {
                     </TableCell>
                     <TableCell className="text-sm">
                       {formatCost(getOutputCost(model))}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {formatCost(getCacheReadCost(model))}
                     </TableCell>
 
                     <TableCell className="text-sm">

@@ -109,6 +109,7 @@ export interface LiteLLMModelInfo {
     litellm_provider: string;
     input_cost_per_token: number | null;
     output_cost_per_token: number | null;
+    cache_read_input_token_cost: number | null;
     max_tokens: number | null;
     max_input_tokens: number | null;
     max_output_tokens: number | null;
