@@ -3,6 +3,7 @@
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 
 import { useModelSummary, type ModelSummary } from "@/hooks/use-api";
 import { ModelIcon } from "@/components/model-icon";
@@ -122,6 +123,9 @@ function AccuracyDetailTab({ acc }: { acc: ModelSummary["accuracy"] }) {
 }
 
 function PricingDetailTab({ summary }: { summary: ModelSummary }) {
+  const t = useTranslations("modelCostSchedule");
+  // days_of_week is 1=Mon..7=Sun (ISO); render localized short labels (월·화 / Mon·Tue).
+  const dayNames = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
   const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
   const baseIn = summary.catalog?.default_input_cost_per_token ?? get(info, "input_cost_per_token");
   const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
@@ -152,7 +156,9 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
                   <TableCell>
                     {s.hour_start_local}:00–{s.hour_end_local}:00
                   </TableCell>
-                  <TableCell>{s.days_of_week.join(", ")}</TableCell>
+                  <TableCell>
+                    {[...s.days_of_week].sort((a, b) => a - b).map((d) => dayNames[d - 1] ?? d).join(", ")}
+                  </TableCell>
                   <TableCell className="tabular-nums">{pricePerM(s.input_cost_per_token)}</TableCell>
                   <TableCell className="tabular-nums">{pricePerM(s.output_cost_per_token)}</TableCell>
                   <TableCell className="tabular-nums">{s.priority}</TableCell>
