@@ -209,3 +209,26 @@ log a warning if both are present.
   passes through from `config.yaml` with no extra proxy code.
 - Confirm the cache backend (`self.cache`, `DualCache`) `get`/`set` async API and TTL parameter name
   used by `PromptCachingCache`, and reuse it.
+
+## v1 implementation notes (post-review)
+
+Both open items above were confirmed during implementation: the proxy filters `router_settings`
+keys against `Router.get_valid_args()` (inspect-based) and passes them to `Router(**router_params)`
+(`proxy/proxy_server.py:4509-4515`), so adding `prefix_affinity_config` to `Router.__init__` is
+sufficient; the cache is `DualCache` with `async_set_cache(key, value, ttl=...)` /
+`async_get_cache(key=...)`.
+
+The whole-branch review (verdict: Ready to merge) noted three intentional, non-blocking deltas from
+this design:
+
+1. **Observability deferred.** Per-decision `verbose_logger.debug` (sticky | hrw | skip) and
+   `request_kwargs["metadata"]["prefix_affinity"]` stamping are **not** in v1 (see Out of scope) —
+   only error-path debug logging exists. Re-add when hit-rate analysis is needed.
+2. **`hash` config field dropped.** v1 hardcodes sha256; the `hash: str` field is omitted from
+   `PrefixAffinityConfig` (YAGNI). Re-add the field and honor it if alternate hashes are ever wanted.
+3. **Write/read key-skew caveat.** `async_log_success_event` derives its key from
+   `standard_logging_object["messages"]` (after LiteLLM's message transforms), while the filter reads
+   raw request messages. For prefixes with large base64 (images) or a logging-only appended system
+   prompt, the two keys can differ, silently degrading stickiness to (stable) HRW for those requests.
+   This is **inherited verbatim from the built-in `prompt_caching` check** and is a non-issue for the
+   primary text-prefix use case.
