@@ -27,6 +27,9 @@ class CustomModelCostSchedule(CustomBase):
     hour_end_local: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     input_cost_per_token: Mapped[float] = mapped_column(Float, nullable=False)
     output_cost_per_token: Mapped[float] = mapped_column(Float, nullable=False)
+    # Prompt-caching read price. Optional (older rules predate it); None = leave
+    # LiteLLM's cache_read_input_token_cost unchanged when this rule is active.
+    cache_read_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

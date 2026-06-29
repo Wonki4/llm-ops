@@ -48,6 +48,8 @@ class CustomModelCatalog(CustomBase):
     # Fallback token costs applied when no cost schedule rule matches.
     default_input_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_output_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Fallback prompt-caching read price (snapshotted from LiteLLM); None if unset.
+    default_cache_read_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_change_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

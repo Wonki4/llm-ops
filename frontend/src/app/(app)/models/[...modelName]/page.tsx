@@ -125,12 +125,15 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
   const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
   const baseIn = summary.catalog?.default_input_cost_per_token ?? get(info, "input_cost_per_token");
   const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
+  const baseCacheRead =
+    summary.catalog?.default_cache_read_cost_per_token ?? get(info, "cache_read_input_token_cost");
   return (
     <div className="space-y-4">
       <KVTable
         rows={[
           ["기본 Input", pricePerM(baseIn)],
           ["기본 Output", pricePerM(baseOut)],
+          ["기본 Cache Read", pricePerM(baseCacheRead)],
         ]}
       />
       {summary.cost_schedule.length > 0 ? (
@@ -143,6 +146,7 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
                 <TableHead>요일</TableHead>
                 <TableHead>Input</TableHead>
                 <TableHead>Output</TableHead>
+                <TableHead>Cache Read</TableHead>
                 <TableHead>우선순위</TableHead>
               </TableRow>
             </TableHeader>
@@ -155,6 +159,7 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
                   <TableCell>{s.days_of_week.join(", ")}</TableCell>
                   <TableCell className="tabular-nums">{pricePerM(s.input_cost_per_token)}</TableCell>
                   <TableCell className="tabular-nums">{pricePerM(s.output_cost_per_token)}</TableCell>
+                  <TableCell className="tabular-nums">{pricePerM(s.cache_read_cost_per_token)}</TableCell>
                   <TableCell className="tabular-nums">{s.priority}</TableCell>
                 </TableRow>
               ))}

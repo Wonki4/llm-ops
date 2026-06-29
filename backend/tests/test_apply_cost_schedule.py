@@ -173,6 +173,53 @@ def test_rule_matches_uses_local_weekday_no_utc_shift():
     assert job._rule_matches(rule, fri) is False
 
 
+def _allday_rule(cache_read: float | None) -> CustomModelCostSchedule:
+    """A rule that always matches (every day, every hour) so tests don't depend on now."""
+    return CustomModelCostSchedule(
+        model_name="m", days_of_week=[1, 2, 3, 4, 5, 6, 7], hour_start_local=0, hour_end_local=24,
+        input_cost_per_token=1e-06, output_cost_per_token=1e-06,
+        cache_read_cost_per_token=cache_read, priority=0, enabled=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_active_rule_pushes_cache_read_cost(monkeypatch):
+    """An active rule with a cache_read price pushes cache_read_input_token_cost."""
+    monkeypatch.setattr(
+        job, "async_session_factory", lambda: _FakeSession([_allday_rule(5e-07)], [_catalog("m")])
+    )
+    fake = MagicMock()
+    fake.get_model_info = AsyncMock(return_value=[_deployment("m", "m1", db_model=True)])
+    fake.update_model = AsyncMock(return_value={})
+    monkeypatch.setattr(job, "LiteLLMClient", MagicMock(return_value=fake))
+
+    await job.apply_cost_schedule()
+
+    fake.update_model.assert_awaited_once()
+    params = fake.update_model.call_args.kwargs["litellm_params"]
+    assert params["cache_read_input_token_cost"] == 5e-07
+    assert params["input_cost_per_token"] == 1e-06
+
+
+@pytest.mark.asyncio
+async def test_active_rule_without_cache_read_omits_key(monkeypatch):
+    """A rule with no cache_read (None) must NOT add the key — LiteLLM ignores None
+    and pushing it would only churn reloads."""
+    monkeypatch.setattr(
+        job, "async_session_factory", lambda: _FakeSession([_allday_rule(None)], [_catalog("m")])
+    )
+    fake = MagicMock()
+    fake.get_model_info = AsyncMock(return_value=[_deployment("m", "m1", db_model=True)])
+    fake.update_model = AsyncMock(return_value={})
+    monkeypatch.setattr(job, "LiteLLMClient", MagicMock(return_value=fake))
+
+    await job.apply_cost_schedule()
+
+    fake.update_model.assert_awaited_once()
+    params = fake.update_model.call_args.kwargs["litellm_params"]
+    assert "cache_read_input_token_cost" not in params
+
+
 @pytest.mark.asyncio
 async def test_no_rule_refreshes_default_from_live_base(monkeypatch):
     """No rule active + live base differs from the stored default (and isn't a

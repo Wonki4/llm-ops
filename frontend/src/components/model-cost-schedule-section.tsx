@@ -23,6 +23,7 @@ interface CostRule {
   timezone: string; // IANA name the hours/days are authored in (e.g. Asia/Seoul)
   input_cost_per_token: number;
   output_cost_per_token: number;
+  cache_read_cost_per_token: number | null;
   priority: number;
   enabled: boolean;
   created_by: string | null;
@@ -58,6 +59,7 @@ interface RuleBody {
   hour_end_local: number;
   input_cost_per_token: number;
   output_cost_per_token: number;
+  cache_read_cost_per_token: number | null;
   priority: number;
   enabled: boolean;
 }
@@ -109,6 +111,7 @@ interface FormState {
   hourEndKst: string;
   inputCost: string;
   outputCost: string;
+  cacheReadCost: string; // per-1M; "" = unset (null)
   priority: string;
   enabled: boolean;
 }
@@ -131,6 +134,7 @@ function ruleToForm(rule: CostRule | null): FormState {
       hourEndKst: "",
       inputCost: "",
       outputCost: "",
+      cacheReadCost: "",
       priority: "0",
       enabled: true,
     };
@@ -141,6 +145,7 @@ function ruleToForm(rule: CostRule | null): FormState {
     hourEndKst: String(rule.hour_end_local),
     inputCost: toPerMillion(rule.input_cost_per_token),
     outputCost: toPerMillion(rule.output_cost_per_token),
+    cacheReadCost: rule.cache_read_cost_per_token != null ? toPerMillion(rule.cache_read_cost_per_token) : "",
     priority: String(rule.priority),
     enabled: rule.enabled,
   };
@@ -159,6 +164,15 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
     return t("validation.invalidInputCost");
   if (!Number.isFinite(outCostPerMillion) || outCostPerMillion < 0)
     return t("validation.invalidOutputCost");
+  // Cache-read is optional: "" = leave unset (null = don't touch LiteLLM's value).
+  const cacheReadTrimmed = form.cacheReadCost.trim();
+  let cacheReadPerToken: number | null = null;
+  if (cacheReadTrimmed !== "") {
+    const cacheReadPerMillion = Number(cacheReadTrimmed);
+    if (!Number.isFinite(cacheReadPerMillion) || cacheReadPerMillion < 0)
+      return t("validation.invalidCacheReadCost");
+    cacheReadPerToken = cacheReadPerMillion / PER_MILLION;
+  }
 
   return {
     days_of_week: [...form.daysKst].sort((a, b) => a - b),
@@ -166,6 +180,7 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
     hour_end_local: he,
     input_cost_per_token: inCostPerMillion / PER_MILLION,
     output_cost_per_token: outCostPerMillion / PER_MILLION,
+    cache_read_cost_per_token: cacheReadPerToken,
     priority: Number(form.priority) || 0,
     enabled: form.enabled,
   };
@@ -307,6 +322,19 @@ function RuleForm({
           />
         </div>
       </div>
+      <div>
+        <label className="text-xs text-muted-foreground">{t("form.cacheReadCost")}</label>
+        <Input
+          type="number"
+          step="0.01"
+          min="0"
+          value={form.cacheReadCost}
+          onChange={(e) => setForm((f) => ({ ...f, cacheReadCost: e.target.value }))}
+          className="h-8 text-sm font-mono"
+          placeholder={t("form.cacheReadCostPlaceholder")}
+        />
+        <p className="mt-0.5 text-[11px] text-muted-foreground">{t("form.cacheReadCostHint")}</p>
+      </div>
       <div className="grid grid-cols-2 gap-2 items-end">
         <div>
           <label className="text-xs text-muted-foreground">{t("form.priority")}</label>
@@ -396,7 +424,11 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
         </div>
         <div className="text-[11px] font-mono text-muted-foreground">
           in ${(rule.input_cost_per_token * PER_MILLION).toFixed(2)} · out $
-          {(rule.output_cost_per_token * PER_MILLION).toFixed(2)} / 1M
+          {(rule.output_cost_per_token * PER_MILLION).toFixed(2)}
+          {rule.cache_read_cost_per_token != null
+            ? ` · cache $${(rule.cache_read_cost_per_token * PER_MILLION).toFixed(2)}`
+            : ""}{" "}
+          / 1M
         </div>
       </CardContent>
     </Card>
