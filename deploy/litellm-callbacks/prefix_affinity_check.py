@@ -20,6 +20,8 @@ Config via env (all optional):
   PREFIX_AFFINITY_LEADING_SLICE   int messages for leading_slice     (default 2)
   PREFIX_AFFINITY_MIN_TOKENS      int                                (default 1024)
   PREFIX_AFFINITY_TTL             int seconds                        (default 300)
+  PREFIX_AFFINITY_MODELS          csv of model-group names; empty = all (scope allowlist)
+  PREFIX_AFFINITY_PROVIDERS       csv of providers; empty = all         (scope allowlist)
 
 This module imports only PUBLIC LiteLLM APIs, so it loads against the stock
 ghcr.io/berriai/litellm image with no fork.
@@ -99,6 +101,28 @@ def select_deployment_hrw(
     return best
 
 
+def _provider_of(deployment: dict) -> Optional[str]:
+    info = deployment.get("model_info") or {}
+    provider = info.get("litellm_provider")
+    if provider:
+        return provider
+    model = (deployment.get("litellm_params") or {}).get("model", "")
+    return model.split("/", 1)[0] if "/" in model else None
+
+
+def _in_scope(model: str, healthy_deployments: List[dict], config: dict) -> bool:
+    """Respect optional model-group / provider allowlists. Empty list = no restriction."""
+    models = config.get("models") or []
+    if models and model not in models:
+        return False
+    providers = config.get("providers") or []
+    if providers:
+        present = {p for p in (_provider_of(d) for d in healthy_deployments) if p}
+        if present.isdisjoint(providers):
+            return False
+    return True
+
+
 class PrefixAffinityDeploymentCheck(CustomLogger):
     """Native CustomLogger plugin: route a request to the deployment that already
     holds the provider prompt cache for its prefix; otherwise place it
@@ -122,6 +146,9 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
     ) -> List[dict]:
         try:
             if messages is None or len(healthy_deployments) <= 1:
+                return healthy_deployments
+
+            if not _in_scope(model, healthy_deployments, self.config):
                 return healthy_deployments
 
             prefix_key = compute_prefix_key(messages, model, self.config)
@@ -191,6 +218,9 @@ def _config_from_env() -> dict:
             os.getenv("PREFIX_AFFINITY_MIN_TOKENS", str(DEFAULT_MIN_PREFIX_TOKENS))
         ),
         "ttl_seconds": int(os.getenv("PREFIX_AFFINITY_TTL", str(DEFAULT_TTL_SECONDS))),
+        # Optional scoping (empty = apply to all): model-group names / providers.
+        "models": [s.strip() for s in os.getenv("PREFIX_AFFINITY_MODELS", "").split(",") if s.strip()],
+        "providers": [s.strip() for s in os.getenv("PREFIX_AFFINITY_PROVIDERS", "").split(",") if s.strip()],
     }
 
 

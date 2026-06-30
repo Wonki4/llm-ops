@@ -40,6 +40,12 @@ It never raises (the call site re-raises; all error paths return the input list 
 | `PREFIX_AFFINITY_LEADING_SLICE` | 2 | messages counted as the stable prefix for `leading_slice` |
 | `PREFIX_AFFINITY_MIN_TOKENS` | 1024 | below this, no affinity (OpenAI caches >= 1024) |
 | `PREFIX_AFFINITY_TTL` | 600 (compose) / 300 (code) | affinity entry TTL; align to provider cache window |
+| `PREFIX_AFFINITY_MODELS` | _(empty = all)_ | csv of model-group names to scope to (e.g. `gpt-4o,claude-3-5-sonnet`) |
+| `PREFIX_AFFINITY_PROVIDERS` | _(empty = all)_ | csv of providers to scope to (e.g. `openai`) |
+
+**Scoping:** by default the plugin runs for every `model_group` (no-op where it can't help). Set
+`PREFIX_AFFINITY_MODELS` and/or `PREFIX_AFFINITY_PROVIDERS` to limit it — out-of-scope groups pass
+through untouched. Both empty = apply to all.
 
 ## Apply / restart
 ```bash

@@ -23,6 +23,9 @@ envVars:
   PREFIX_AFFINITY_STRATEGY: leading_slice   # "cache_control" for Anthropic explicit breakpoints
   PREFIX_AFFINITY_MIN_TOKENS: "1024"
   PREFIX_AFFINITY_TTL: "600"
+  # Optional scoping (omit/empty = apply to all):
+  # PREFIX_AFFINITY_MODELS: "gpt-4o,claude-3-5-sonnet"   # only these model-group names
+  # PREFIX_AFFINITY_PROVIDERS: "openai"                  # only these providers
 
 # Registers the callback + enables pre-call checks. Deep-merges into your existing
 # proxy_config. NOTE: helm REPLACES lists — if you already set
