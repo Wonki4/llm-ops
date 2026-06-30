@@ -18,7 +18,7 @@ LiteLLM source** and it survives version upgrades untouched. It runs on the stoc
 ## How it's wired (already committed here)
 - `docker-compose.yml` (litellm service): stock image, mounts the plugin at
   `/app/prefix_affinity_check.py`, sets `PREFIX_AFFINITY_*` env.
-- `deploy/litellm/proxy_server_config.yaml`:
+- `deploy/litellm-proxy/proxy_server_config.yaml`:
   - `litellm_settings.callbacks: ["prefix_affinity_check.prefix_affinity_handler"]`
   - `router_settings.enable_pre_call_checks: true` (already present)
 
