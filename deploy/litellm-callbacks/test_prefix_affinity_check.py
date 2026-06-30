@@ -176,6 +176,30 @@ async def test_filter_never_raises(monkeypatch):
     assert await _check().async_filter_deployments("gpt", deployments, _MSGS) == deployments
 
 
+# ── scoping (model-group / provider allowlists; empty = all) ──────────────────
+@pytest.mark.asyncio
+async def test_scope_model_allowlist_skips_other_groups():
+    check = PrefixAffinityDeploymentCheck(cache=DualCache(), config={**_CFG, "models": ["gpt-4o"]})
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    assert await check.async_filter_deployments("other", deployments, _MSGS) == deployments  # out of scope
+    assert len(await check.async_filter_deployments("gpt-4o", deployments, _MSGS)) == 1       # in scope
+
+
+@pytest.mark.asyncio
+async def test_scope_provider_allowlist():
+    openai_deps = [_deployment("a"), _deployment("b")]  # litellm_params.model = openai/gpt-4o
+    ok = PrefixAffinityDeploymentCheck(cache=DualCache(), config={**_CFG, "providers": ["openai"]})
+    assert len(await ok.async_filter_deployments("gpt", openai_deps, _MSGS)) == 1
+    no = PrefixAffinityDeploymentCheck(cache=DualCache(), config={**_CFG, "providers": ["anthropic"]})
+    assert await no.async_filter_deployments("gpt", openai_deps, _MSGS) == openai_deps
+
+
+@pytest.mark.asyncio
+async def test_scope_empty_applies_to_all():
+    out = await _check().async_filter_deployments("anything", [_deployment("a"), _deployment("b")], _MSGS)
+    assert len(out) == 1
+
+
 # ── NATIVE registration: callback in litellm.callbacks gets its filter invoked ──
 @pytest.mark.asyncio
 async def test_native_callback_registration_is_invoked():

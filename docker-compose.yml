@@ -62,6 +62,8 @@ services:
       PREFIX_AFFINITY_STRATEGY: ${PREFIX_AFFINITY_STRATEGY:-leading_slice}
       PREFIX_AFFINITY_MIN_TOKENS: ${PREFIX_AFFINITY_MIN_TOKENS:-1024}
       PREFIX_AFFINITY_TTL: ${PREFIX_AFFINITY_TTL:-600}
+      PREFIX_AFFINITY_MODELS: ${PREFIX_AFFINITY_MODELS:-}        # csv model-group names; empty = all
+      PREFIX_AFFINITY_PROVIDERS: ${PREFIX_AFFINITY_PROVIDERS:-}  # csv providers; empty = all
     env_file:
       - .env
     depends_on:
