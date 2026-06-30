@@ -48,7 +48,8 @@ services:
     image: ghcr.io/berriai/litellm:v1.89.0
     container_name: litellm_proxy
     volumes:
-      - ./litellm/proxy_server_config.yaml:/app/config.yaml
+      - ./deploy/litellm/proxy_server_config.yaml:/app/config.yaml
+      - ./deploy/litellm-callbacks/prefix_affinity_check.py:/app/prefix_affinity_check.py:ro
     command:
       - "--config=/app/config.yaml"
     ports:
@@ -58,6 +59,9 @@ services:
       STORE_MODEL_IN_DB: "True"
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      PREFIX_AFFINITY_STRATEGY: ${PREFIX_AFFINITY_STRATEGY:-leading_slice}
+      PREFIX_AFFINITY_MIN_TOKENS: ${PREFIX_AFFINITY_MIN_TOKENS:-1024}
+      PREFIX_AFFINITY_TTL: ${PREFIX_AFFINITY_TTL:-600}
     env_file:
       - .env
     depends_on:
