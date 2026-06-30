@@ -58,6 +58,12 @@ A `model_group` must span **different OpenAI orgs/accounts** (provider cache is 
 multiple keys in one org share a cache and gain nothing). Send two requests sharing a
 >= 1024-token prefix and confirm they land on the same deployment.
 
+## Observability — how to know it's working
+- **Loaded?** On startup the proxy logs (info): `prefix_affinity callback loaded: strategy=..., min_tokens=..., ttl=..., models=..., providers=...`. A bad callbacks path / missing module errors at startup instead.
+- **Per-decision** (set `LITELLM_LOG=DEBUG`): each request logs `prefix_affinity: <sticky|hrw|skip (reason)>, model=<group>, chosen=<id>, candidates=N` — so you see exactly when it applies vs passes through.
+- **In spend logs / Langfuse:** every applied request is best-effort stamped with `metadata.prefix_affinity = {"decision": "...", "model_id": "..."}`. Confirm it reaches your logging sink on first run (the stamp path isn't guaranteed across all LiteLLM versions).
+- **Black-box:** send two requests sharing a >= 1024-token prefix → both hit the same deployment (check spend logs / `litellm_deployment_*` metrics); with the plugin off they'd spread.
+
 ## Tests
 ```bash
 cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 15 passed
