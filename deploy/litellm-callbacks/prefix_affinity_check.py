@@ -136,6 +136,21 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
     def _cache_key(self, prefix_key: str) -> str:
         return f"deployment:{prefix_key}:prefix_affinity"
 
+    def _note(self, request_kwargs, decision, model, model_id, candidates):
+        """Observability: debug-log the decision and best-effort stamp it into
+        request metadata so it can surface in spend logs / Langfuse."""
+        verbose_logger.debug(
+            "prefix_affinity: %s, model=%s, chosen=%s, candidates=%d",
+            decision,
+            model,
+            model_id,
+            candidates,
+        )
+        if isinstance(request_kwargs, dict):
+            md = request_kwargs.setdefault("metadata", {})
+            if isinstance(md, dict):
+                md["prefix_affinity"] = {"decision": decision, "model_id": model_id}
+
     async def async_filter_deployments(
         self,
         model: str,
@@ -149,10 +164,12 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
                 return healthy_deployments
 
             if not _in_scope(model, healthy_deployments, self.config):
+                verbose_logger.debug("prefix_affinity: skip (out of scope), model=%s", model)
                 return healthy_deployments
 
             prefix_key = compute_prefix_key(messages, model, self.config)
             if prefix_key is None:
+                verbose_logger.debug("prefix_affinity: skip (no cacheable prefix), model=%s", model)
                 return healthy_deployments
 
             cached = await self.cache.async_get_cache(key=self._cache_key(prefix_key))
@@ -161,10 +178,14 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
                 if model_id is not None:
                     for deployment in healthy_deployments:
                         if deployment["model_info"]["id"] == model_id:
+                            self._note(request_kwargs, "sticky", model, model_id, len(healthy_deployments))
                             return [deployment]
 
             chosen = select_deployment_hrw(prefix_key, healthy_deployments)
             if chosen is not None:
+                self._note(
+                    request_kwargs, "hrw", model, chosen["model_info"]["id"], len(healthy_deployments)
+                )
                 return [chosen]
             return healthy_deployments
         except Exception as e:
@@ -227,4 +248,13 @@ def _config_from_env() -> dict:
 # The instance the proxy loads via `litellm_settings.callbacks`.
 # Uses in-memory affinity cache; HRW keeps routing deterministic across replicas
 # even without shared state. For shared spill-memory, pass a Redis-backed DualCache.
-prefix_affinity_handler = PrefixAffinityDeploymentCheck(config=_config_from_env())
+_cfg = _config_from_env()
+prefix_affinity_handler = PrefixAffinityDeploymentCheck(config=_cfg)
+verbose_logger.info(
+    "prefix_affinity callback loaded: strategy=%s, min_tokens=%s, ttl=%s, models=%s, providers=%s",
+    _cfg.get("prefix_strategy"),
+    _cfg.get("min_prefix_tokens"),
+    _cfg.get("ttl_seconds"),
+    _cfg.get("models") or "ALL",
+    _cfg.get("providers") or "ALL",
+)

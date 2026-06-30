@@ -200,6 +200,28 @@ async def test_scope_empty_applies_to_all():
     assert len(out) == 1
 
 
+# ── observability: decision stamped into request_kwargs metadata ─────────────
+@pytest.mark.asyncio
+async def test_hrw_decision_stamped_in_metadata():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    rk: dict = {}
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
+    assert rk["metadata"]["prefix_affinity"] == {"decision": "hrw", "model_id": out[0]["model_info"]["id"]}
+
+
+@pytest.mark.asyncio
+async def test_sticky_decision_stamped_in_metadata():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    await check.cache.async_set_cache(check._cache_key(key), {"model_id": "b"}, ttl=300)
+    rk: dict = {}
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
+    assert out[0]["model_info"]["id"] == "b"
+    assert rk["metadata"]["prefix_affinity"] == {"decision": "sticky", "model_id": "b"}
+
+
 # ── NATIVE registration: callback in litellm.callbacks gets its filter invoked ──
 @pytest.mark.asyncio
 async def test_native_callback_registration_is_invoked():
