@@ -12,7 +12,7 @@ LiteLLM source** and it survives version upgrades untouched. It runs on the stoc
 - `prefix_affinity_check.py` — the plugin: `compute_prefix_key`, `select_deployment_hrw`,
   `PrefixAffinityDeploymentCheck` (a `CustomLogger` overriding `async_filter_deployments`),
   plus the module-level instance `prefix_affinity_handler` the proxy loads.
-- `test_prefix_affinity_check.py` — 36 unit tests (incl. one proving a callback registered in
+- `test_prefix_affinity_check.py` — 40 unit tests (incl. one proving a callback registered in
   `litellm.callbacks` actually gets its `async_filter_deployments` invoked by the Router).
 
 ## How it's wired (already committed here)
@@ -30,8 +30,9 @@ switches never clobber deployment config.
 (`litellm/integrations/custom_logger.py`). During deployment selection the Router calls it for
 every `CustomLogger` in `litellm.callbacks`, after its health-check / cooldown / blocked
 filtering. The plugin narrows the healthy list to one deployment: provider/RPM candidate
-filtering → sticky affinity-cache lookup (scoped per model group) → deterministic Rendezvous
-(HRW) hashing of the prefix → records the placement on success with a provider-TTL, keyed by
+filtering → sticky affinity-cache lookup (scoped per model group) → **capacity-weighted**
+deterministic Rendezvous (HRW) hashing of the prefix → records the placement on success with a
+provider-TTL, keyed by
 the `prefix_key` stamped into request metadata at routing time (the logging payload's messages
 are mutated — base64 truncation, system-prompt append, redaction — so a recomputed hash could
 silently never match; recompute is kept only as a fallback).
@@ -58,6 +59,14 @@ those still error rather than spill.
 `PREFIX_AFFINITY_MODELS` gates whole model groups; `PREFIX_AFFINITY_PROVIDERS` filters
 per-deployment, so a mixed-provider group pins within the allowlisted providers only.
 Out-of-scope requests pass through untouched. Both empty = apply to all.
+
+**Capacity weights (uneven rpm/tpm fleets):** HRW placement is weighted per deployment —
+`model_info.prefix_affinity_weight` (explicit override), else `litellm_params.rpm`, else
+`tpm`, else 1 — so a deployment with 3× the rpm attracts ~3× the prefixes (score
+`-weight/ln(u)`, u derived from `hash(prefix:id)`). Use ONE dimension consistently within a
+group (don't mix rpm-weighted and tpm-weighted deployments — the ratios become meaningless).
+Equal or absent weights reduce to plain unweighted HRW, so uniform fleets keep their existing
+placement; groups with UNEQUAL weights remap once when this lands (one-time cache re-warm).
 
 ## Apply / restart
 ```bash
@@ -95,7 +104,7 @@ multiple keys in one org share a cache and gain nothing). Send two requests shar
 
 ## Tests
 ```bash
-cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 36 passed
+cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 40 passed
 ```
 
 ## Note on the cache backend
