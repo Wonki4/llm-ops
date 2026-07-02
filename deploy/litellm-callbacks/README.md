@@ -12,7 +12,7 @@ LiteLLM source** and it survives version upgrades untouched. It runs on the stoc
 - `prefix_affinity_check.py` — the plugin: `compute_prefix_key`, `select_deployment_hrw`,
   `PrefixAffinityDeploymentCheck` (a `CustomLogger` overriding `async_filter_deployments`),
   plus the module-level instance `prefix_affinity_handler` the proxy loads.
-- `test_prefix_affinity_check.py` — 32 unit tests (incl. one proving a callback registered in
+- `test_prefix_affinity_check.py` — 36 unit tests (incl. one proving a callback registered in
   `litellm.callbacks` actually gets its `async_filter_deployments` invoked by the Router).
 
 ## How it's wired (already committed here)
@@ -47,7 +47,7 @@ those still error rather than spill.
 ## Config (env — all optional; compose sets sensible defaults)
 | var | default | meaning |
 |---|---|---|
-| `PREFIX_AFFINITY_STRATEGY` | `leading_slice` (compose) / `cache_control` (code) | `cache_control` for Anthropic explicit breakpoints; `leading_slice` for OpenAI automatic caching |
+| `PREFIX_AFFINITY_STRATEGY` | `leading_slice` | safe default — needs no markers (Azure/OpenAI automatic caching) and is turn-stable. `cache_control` for Anthropic explicit breakpoints: hashes up to the **first** marker (static system prompt), NOT the last — clients move the tail marker every turn, and hashing it would remap a growing conversation on every turn |
 | `PREFIX_AFFINITY_LEADING_SLICE` | 2 | messages counted as the stable prefix for `leading_slice` |
 | `PREFIX_AFFINITY_MIN_TOKENS` | 1024 | prefix below this → no affinity; counted on the cacheable prefix (both strategies), memoized per prefix |
 | `PREFIX_AFFINITY_TTL` | 600 (compose) / 300 (code) | affinity entry TTL; align to provider cache window |
@@ -78,7 +78,7 @@ multiple keys in one org share a cache and gain nothing). Send two requests shar
 
 ## Tests
 ```bash
-cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 32 passed
+cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 36 passed
 ```
 
 ## Note on the cache backend
