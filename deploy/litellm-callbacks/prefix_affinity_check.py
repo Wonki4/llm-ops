@@ -25,7 +25,8 @@ pick. Context-window and tag filtering still run downstream; pins that fail
 those error rather than spill.
 
 Config via env (all optional):
-  PREFIX_AFFINITY_STRATEGY        "cache_control" | "leading_slice"  (default cache_control)
+  PREFIX_AFFINITY_STRATEGY        "cache_control" | "leading_slice"  (default leading_slice;
+                                  cache_control hashes up to the FIRST marker — turn-stable)
   PREFIX_AFFINITY_LEADING_SLICE   int messages for leading_slice     (default 2)
   PREFIX_AFFINITY_MIN_TOKENS      int                                (default 1024)
   PREFIX_AFFINITY_TTL             int seconds                        (default 300)
@@ -52,9 +53,36 @@ from litellm.types.utils import CallTypes, StandardLoggingPayload
 from litellm.utils import token_counter
 
 DEFAULT_TTL_SECONDS = 300
-DEFAULT_PREFIX_STRATEGY = "cache_control"
+# leading_slice is the safe default: it needs no cache_control markers (Azure/
+# OpenAI auto-caching clients send none — a cache_control default would silently
+# disable affinity for them) and is stable as a conversation grows.
+DEFAULT_PREFIX_STRATEGY = "leading_slice"
 DEFAULT_LEADING_SLICE_MESSAGES = 2
 DEFAULT_MIN_PREFIX_TOKENS = 1024
+
+
+def _prefix_to_first_cache_marker(
+    messages: List[AllMessageValues],
+) -> List[AllMessageValues]:
+    """Slice of messages up to and including the FIRST cache_control marker.
+
+    Clients move their tail marker forward every turn ("cache everything so
+    far"), so hashing up to the LAST marker remaps a growing conversation to a
+    different deployment almost every turn — repeated full-prefix cache writes.
+    The first marker closes the static system prompt, so this slice is stable
+    for the conversation's lifetime."""
+    for msg_idx, message in enumerate(messages):
+        if not isinstance(message, dict):
+            continue
+        if message.get("cache_control"):
+            return messages[: msg_idx + 1]
+        content = message.get("content")
+        if isinstance(content, list):
+            for block_idx, block in enumerate(content):
+                if isinstance(block, dict) and block.get("cache_control"):
+                    truncated = {**message, "content": content[: block_idx + 1]}
+                    return list(messages[:msg_idx]) + [truncated]
+    return []
 
 
 # Token-gate memo: counting tokens is the expensive part of this per-request
@@ -75,7 +103,7 @@ def compute_prefix_key(
     strategy = config.get("prefix_strategy", DEFAULT_PREFIX_STRATEGY)
 
     if strategy == "cache_control":
-        prefix = PromptCachingCache.extract_cacheable_prefix(messages)
+        prefix = _prefix_to_first_cache_marker(messages)
     elif strategy == "leading_slice":
         n = config.get("leading_slice_messages", DEFAULT_LEADING_SLICE_MESSAGES)
         prefix = messages[:n]

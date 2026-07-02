@@ -108,6 +108,68 @@ def test_compute_prefix_key_below_threshold_returns_none(monkeypatch):
     assert compute_prefix_key(msgs, "openai/gpt-4o", cfg) is None
 
 
+# ── safe default + turn-stable cache_control hashing ─────────────────────────
+def test_default_strategy_is_leading_slice():
+    """No PREFIX_AFFINITY_STRATEGY set + no cache_control markers (Azure/OpenAI
+    auto-caching clients) must still produce a key — a cache_control default
+    would silently disable affinity for marker-less traffic."""
+    key = compute_prefix_key(_MSGS, "gpt", {"min_prefix_tokens": 0})
+    assert key is not None
+
+
+def test_cache_control_key_stable_as_marker_moves(monkeypatch):
+    """Anthropic-style clients move the tail cache_control marker forward every
+    turn; the key must hash only up to the FIRST marker (static system prompt)
+    so a conversation stays on one deployment as it grows."""
+    monkeypatch.setattr(mod, "token_counter", lambda **kw: 2000)
+    cfg = {"prefix_strategy": "cache_control"}
+    sys_msg = CACHE_CONTROL_MESSAGES[0]
+    turn1 = [
+        sys_msg,
+        {"role": "user", "content": [{"type": "text", "text": "u1", "cache_control": {"type": "ephemeral"}}]},
+    ]
+    turn2 = [
+        sys_msg,
+        {"role": "user", "content": "u1"},
+        {"role": "assistant", "content": "a1"},
+        {"role": "user", "content": [{"type": "text", "text": "u2", "cache_control": {"type": "ephemeral"}}]},
+    ]
+    key1 = compute_prefix_key(turn1, "gpt", cfg)
+    key2 = compute_prefix_key(turn2, "gpt", cfg)
+    assert key1 is not None and key1 == key2
+
+
+def test_cache_control_prefix_stops_at_first_marker_block(monkeypatch):
+    monkeypatch.setattr(mod, "token_counter", lambda **kw: 2000)
+    cfg = {"prefix_strategy": "cache_control"}
+
+    def msgs(extra):
+        return [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "static", "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": extra},
+                ],
+            },
+            {"role": "user", "content": "U"},
+        ]
+
+    key_a = compute_prefix_key(msgs("EXTRA-A"), "gpt", cfg)
+    key_b = compute_prefix_key(msgs("EXTRA-B"), "gpt", cfg)
+    assert key_a is not None and key_a == key_b
+
+
+def test_cache_control_message_level_marker(monkeypatch):
+    monkeypatch.setattr(mod, "token_counter", lambda **kw: 2000)
+    msgs = [
+        {"role": "system", "content": "S", "cache_control": {"type": "ephemeral"}},
+        {"role": "user", "content": "U"},
+    ]
+    key = compute_prefix_key(msgs, "gpt", {"prefix_strategy": "cache_control"})
+    assert key is not None
+
+
 # ── HRW ─────────────────────────────────────────────────────────────────────
 def test_select_deployment_hrw_deterministic():
     deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
