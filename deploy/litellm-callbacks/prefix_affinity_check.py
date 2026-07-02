@@ -39,6 +39,7 @@ ghcr.io/berriai/litellm image with no fork.
 
 import hashlib
 import json
+import math
 import os
 import sys
 from datetime import datetime, timezone
@@ -131,20 +132,41 @@ def compute_prefix_key(
     return prefix_key if gate else None
 
 
+def _deployment_weight(deployment: dict) -> float:
+    """Capacity weight for weighted rendezvous hashing: explicit
+    model_info.prefix_affinity_weight, else litellm_params.rpm, else tpm,
+    else 1. Use ONE dimension consistently within a model group — mixing
+    rpm- and tpm-weighted deployments makes the ratios meaningless."""
+    info = deployment.get("model_info") or {}
+    params = deployment.get("litellm_params") or {}
+    for value in (info.get("prefix_affinity_weight"), params.get("rpm"), params.get("tpm")):
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+    return 1.0
+
+
+_HASH_SPACE = float(2**256 + 1)
+
+
 def select_deployment_hrw(
     prefix_key: str, healthy_deployments: List[dict]
 ) -> Optional[dict]:
-    """Rendezvous (HRW) hashing: deterministically pick the deployment with the
-    highest hash(prefix_key:id). Same key+set -> same pick; distinct keys spread
-    evenly; removing a deployment remaps only the keys that mapped to it."""
+    """Capacity-weighted rendezvous (HRW) hashing: per deployment, derive a
+    uniform u in (0,1) from hash(prefix_key:id) and score it -weight/ln(u);
+    the highest score wins, drawing prefixes in proportion to weight (see
+    _deployment_weight). Equal or absent weights reduce to the plain
+    unweighted HRW pick, so uniform fleets do not remap on upgrade. Same
+    key+set -> same pick; removing a deployment remaps only the keys that
+    mapped to it."""
     best: Optional[dict] = None
-    best_score: Optional[int] = None
+    best_score: Optional[float] = None
     for deployment in healthy_deployments:
-        model_id = deployment.get("model_info", {}).get("id")
+        model_id = (deployment.get("model_info") or {}).get("id")
         if model_id is None:
             continue
         digest = hashlib.sha256(f"{prefix_key}:{model_id}".encode()).hexdigest()
-        score = int(digest, 16)
+        u = (int(digest, 16) + 1) / _HASH_SPACE  # uniform in (0, 1)
+        score = -_deployment_weight(deployment) / math.log(u)
         if best_score is None or score > best_score:
             best_score = score
             best = deployment

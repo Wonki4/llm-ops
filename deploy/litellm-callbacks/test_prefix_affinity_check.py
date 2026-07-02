@@ -1,3 +1,4 @@
+import hashlib
 import os
 import sys
 
@@ -191,6 +192,63 @@ def test_select_deployment_hrw_stable_when_other_removed():
     drop_one = [d for d in deployments if d["model_info"]["id"] != remaining[0]["model_info"]["id"]]
     assert select_deployment_hrw("key-1", drop_one)["model_info"]["id"] == picked
     assert select_deployment_hrw("key-1", remaining)["model_info"]["id"] != picked
+
+
+# ── weighted HRW: capacity-proportional placement ─────────────────────────────
+def test_hrw_equal_weights_match_unweighted_pick():
+    """No/equal weights must select exactly what the legacy unweighted HRW chose,
+    so upgrading does not remap (and re-cache) uniform fleets."""
+    deployments = [_deployment(x) for x in ("a", "b", "c", "d")]
+    for i in range(50):
+        key = f"key-{i}"
+        legacy = max(
+            ("a", "b", "c", "d"),
+            key=lambda mid: int(hashlib.sha256(f"{key}:{mid}".encode()).hexdigest(), 16),
+        )
+        assert select_deployment_hrw(key, deployments)["model_info"]["id"] == legacy
+
+
+def test_weighted_hrw_distributes_proportionally_to_rpm():
+    heavy = _deployment("heavy", rpm=300)
+    light = _deployment("light", rpm=100)
+    n = 2000
+    heavy_hits = sum(
+        1
+        for i in range(n)
+        if select_deployment_hrw(f"k-{i}", [heavy, light])["model_info"]["id"] == "heavy"
+    )
+    assert 0.71 <= heavy_hits / n <= 0.79  # weight 300:100 -> expected ~0.75
+
+
+def test_weighted_hrw_minimal_remap_on_removal():
+    deployments = [
+        _deployment("a", rpm=100),
+        _deployment("b", rpm=200),
+        _deployment("c", rpm=400),
+    ]
+    survivors = [d for d in deployments if d["model_info"]["id"] != "c"]
+    moved = 0
+    for i in range(300):
+        key = f"k-{i}"
+        pick_all = select_deployment_hrw(key, deployments)["model_info"]["id"]
+        pick_after = select_deployment_hrw(key, survivors)["model_info"]["id"]
+        if pick_all != "c":
+            assert pick_after == pick_all  # keys not on c must not move
+        else:
+            moved += 1
+    assert moved > 0
+
+
+def test_deployment_weight_resolution_order():
+    assert mod._deployment_weight(_deployment("x", rpm=100)) == 100.0
+    d_tpm = _deployment("x")
+    d_tpm["litellm_params"]["tpm"] = 50000
+    assert mod._deployment_weight(d_tpm) == 50000.0
+    d_override = _deployment("x", rpm=100)
+    d_override["model_info"]["prefix_affinity_weight"] = 7
+    assert mod._deployment_weight(d_override) == 7.0
+    assert mod._deployment_weight(_deployment("x")) == 1.0
+    assert mod._deployment_weight(_deployment("x", rpm=0)) == 1.0
 
 
 # ── filter / success-event ──────────────────────────────────────────────────
