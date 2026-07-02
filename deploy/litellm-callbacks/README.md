@@ -65,15 +65,22 @@ docker compose up -d litellm
 docker logs litellm_proxy 2>&1 | grep -i "callback\|prefix_affinity"   # confirm the callback loaded
 ```
 
-**Helm (K8s):** use `helm/apply.sh`. Two overlays exist because helm only passes values to a
-subchart from the block named after it:
-- `helm/values-prefix-affinity.yaml` — litellm-helm released **directly** (top-level keys).
-- `helm/values-prefix-affinity-platform.yaml` — litellm-helm as a **subchart of
-  `deploy/helm/litellm-platform`** (same keys nested under `litellm-helm:`). Applying the
-  top-level variant to the platform chart silently does nothing — no mount, no PYTHONPATH —
-  and the proxy fails with `ModuleNotFoundError: No module named 'prefix_affinity_check'`.
-  Pass `OVERLAY=values-prefix-affinity-platform.yaml` to apply.sh in that case. The
-  `prefix-affinity-plugin` ConfigMap must exist in the release namespace (apply.sh creates it).
+**Helm (K8s):** use `helm/apply.sh`. Two constraints drive the overlay shape:
+1. **The plugin must sit NEXT TO config.yaml** (`/etc/litellm/prefix_affinity_check.py`,
+   mounted via `subPath`). LiteLLM's `get_instance_fn` resolves `litellm_settings.callbacks`
+   modules only relative to the config file's directory — it never consults
+   PYTHONPATH/sys.path — any other location fails with
+   `ImportError: Could not find module file ...`. (Compose works because it mounts both at
+   `/app`.)
+2. **Subchart nesting**: helm only passes values to a subchart from the block named after it.
+   - `helm/values-prefix-affinity.yaml` — litellm-helm released **directly** (top-level keys).
+   - `helm/values-prefix-affinity-platform.yaml` — litellm-helm as a **subchart of
+     `deploy/helm/litellm-platform`** (same keys nested under `litellm-helm:`). Pass
+     `OVERLAY=values-prefix-affinity-platform.yaml` to apply.sh in that case. Applying the
+     top-level variant to the platform chart silently does nothing (no mount at all).
+
+   The `prefix-affinity-plugin` ConfigMap must exist in the release namespace (apply.sh
+   creates it).
 
 ## Verify
 A `model_group` must span **different OpenAI orgs/accounts** (provider cache is org-scoped;

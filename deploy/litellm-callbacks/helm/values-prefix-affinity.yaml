@@ -6,20 +6,23 @@
 # Requires the ConfigMap 'prefix-affinity-plugin' (holds prefix_affinity_check.py).
 # Use ./apply.sh to create/refresh it from the single source file and run the upgrade.
 
-# Mount the plugin (chart applies these to the litellm container/pod).
+# Mount the plugin NEXT TO the proxy config (the chart mounts config.yaml at
+# /etc/litellm/config.yaml). LiteLLM's get_instance_fn resolves callback modules
+# ONLY relative to the config file's directory — it never consults PYTHONPATH /
+# sys.path — so any other location fails with
+# "ImportError: Could not find module file /etc/litellm/prefix_affinity_check.py".
 volumes:
   - name: prefix-affinity-plugin
     configMap:
       name: prefix-affinity-plugin
 volumeMounts:
   - name: prefix-affinity-plugin
-    mountPath: /extra-callbacks
+    mountPath: /etc/litellm/prefix_affinity_check.py
+    subPath: prefix_affinity_check.py
     readOnly: true
 
-# Make it importable (config lives at /etc/litellm, so cwd import is not reliable —
-# put the mount dir on PYTHONPATH) + plugin config.
+# Plugin config.
 envVars:
-  PYTHONPATH: /extra-callbacks
   PREFIX_AFFINITY_STRATEGY: leading_slice   # "cache_control" for Anthropic explicit breakpoints
   PREFIX_AFFINITY_MIN_TOKENS: "1024"
   PREFIX_AFFINITY_TTL: "600"
