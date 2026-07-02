@@ -574,7 +574,18 @@ async def team_usage_by_member(
     )
     token_to_user = {r["token"]: r["user_id"] for r in keys_result.mappings()}
     if not token_to_user:
-        return {"members": [], "series": [], "totals": {"total_tokens": 0, "api_requests": 0, "spend": 0.0}}
+        return {
+            "members": [],
+            "series": [],
+            "totals": {
+                "total_tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "api_requests": 0,
+                "spend": 0.0,
+            },
+        }
 
     params = {
         "tokens": list(token_to_user.keys()),
@@ -587,6 +598,9 @@ async def team_usage_by_member(
         text(
             "SELECT api_key, "
             "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(prompt_tokens) AS input_tokens, "
+            "       SUM(completion_tokens) AS output_tokens, "
+            "       SUM(cache_read_input_tokens) AS cache_read_tokens, "
             "       SUM(api_requests) AS api_requests, "
             "       SUM(spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" '
@@ -600,8 +614,21 @@ async def team_usage_by_member(
         uid = token_to_user.get(r["api_key"])
         if uid is None:
             continue
-        acc = by_user.setdefault(uid, {"total_tokens": 0, "api_requests": 0, "spend": 0.0})
+        acc = by_user.setdefault(
+            uid,
+            {
+                "total_tokens": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cache_read_tokens": 0,
+                "api_requests": 0,
+                "spend": 0.0,
+            },
+        )
         acc["total_tokens"] += int(r["total_tokens"] or 0)
+        acc["input_tokens"] += int(r["input_tokens"] or 0)
+        acc["output_tokens"] += int(r["output_tokens"] or 0)
+        acc["cache_read_tokens"] += int(r["cache_read_tokens"] or 0)
         acc["api_requests"] += int(r["api_requests"] or 0)
         acc["spend"] += float(r["spend"] or 0)
 
@@ -617,6 +644,9 @@ async def team_usage_by_member(
 
     totals = {
         "total_tokens": sum(m["total_tokens"] for m in members),
+        "input_tokens": sum(m["input_tokens"] for m in members),
+        "output_tokens": sum(m["output_tokens"] for m in members),
+        "cache_read_tokens": sum(m["cache_read_tokens"] for m in members),
         "api_requests": sum(m["api_requests"] for m in members),
         "spend": sum(m["spend"] for m in members),
     }
@@ -627,6 +657,9 @@ async def team_usage_by_member(
         text(
             f"SELECT {bucket_expr} AS bucket, "
             "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(prompt_tokens) AS input_tokens, "
+            "       SUM(completion_tokens) AS output_tokens, "
+            "       SUM(cache_read_input_tokens) AS cache_read_tokens, "
             "       SUM(api_requests) AS api_requests, "
             "       SUM(spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" '
@@ -639,6 +672,9 @@ async def team_usage_by_member(
         {
             "bucket": r["bucket"],
             "total_tokens": int(r["total_tokens"] or 0),
+            "input_tokens": int(r["input_tokens"] or 0),
+            "output_tokens": int(r["output_tokens"] or 0),
+            "cache_read_tokens": int(r["cache_read_tokens"] or 0),
             "api_requests": int(r["api_requests"] or 0),
             "spend": float(r["spend"] or 0),
         }
@@ -695,6 +731,9 @@ async def team_member_usage_by_model(
         text(
             f"SELECT {group_expr} AS label, "
             "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
+            "       SUM(prompt_tokens) AS input_tokens, "
+            "       SUM(completion_tokens) AS output_tokens, "
+            "       SUM(cache_read_input_tokens) AS cache_read_tokens, "
             "       SUM(api_requests) AS api_requests, "
             "       SUM(spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" '
@@ -707,6 +746,9 @@ async def team_member_usage_by_model(
         {
             "model": r["label"] or "(unknown)",
             "total_tokens": int(r["total_tokens"] or 0),
+            "input_tokens": int(r["input_tokens"] or 0),
+            "output_tokens": int(r["output_tokens"] or 0),
+            "cache_read_tokens": int(r["cache_read_tokens"] or 0),
             "api_requests": int(r["api_requests"] or 0),
             "spend": float(r["spend"] or 0),
         }
