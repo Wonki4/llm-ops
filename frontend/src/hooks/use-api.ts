@@ -156,6 +156,9 @@ export function useTeamUsage(
 export interface TeamMemberModelUsage {
   model: string;
   total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
   api_requests: number;
   spend: number;
 }

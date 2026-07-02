@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useLocaleTag } from "@/lib/locale";
 import { useAdminUsageDaily } from "@/hooks/use-api";
-import { toDateInput } from "@/lib/usage";
+import { formatInputTokens, toDateInput } from "@/lib/usage";
 import { Button } from "@/components/ui/button";
 
 /** Monthly spend heatmap for the admin usage page. Scoped by `teamId` (empty =
@@ -31,7 +31,17 @@ export function UsageCalendar({
   const { data, isLoading } = useAdminUsageDaily(startDate, endDate, teamId);
 
   const byDate = useMemo(() => {
-    const m = new Map<string, { spend: number; api_requests: number; total_tokens: number }>();
+    const m = new Map<
+      string,
+      {
+        spend: number;
+        api_requests: number;
+        total_tokens: number;
+        input_tokens: number;
+        output_tokens: number;
+        cache_read_tokens: number;
+      }
+    >();
     for (const d of data?.days ?? []) m.set(d.date, d);
     return m;
   }, [data]);
@@ -102,13 +112,19 @@ export function UsageCalendar({
               const intensity = maxSpend > 0 && spend > 0 ? Math.max(0.12, spend / maxSpend) : 0;
               const isToday = dateStr === todayStr;
               const clickable = !!entry && !!onPickDay;
+              const inp = entry ? formatInputTokens(entry.input_tokens, entry.cache_read_tokens, localeTag) : null;
+              const tooltip = entry && inp
+                ? `$${spend.toFixed(4)} · ${entry.api_requests.toLocaleString(localeTag)} ${t("colRequests")} · ` +
+                  `${t("tooltipInput")} ${inp.input}${inp.cache ? ` (${t("cacheShort")} ${inp.cache})` : ""} · ` +
+                  `${t("colOutput")} ${entry.output_tokens.toLocaleString(localeTag)}`
+                : undefined;
               return (
                 <button
                   key={dateStr}
                   type="button"
                   disabled={!clickable}
                   onClick={() => clickable && onPickDay!(dateStr)}
-                  title={entry ? `$${spend.toFixed(4)} · ${entry.api_requests.toLocaleString(localeTag)} ${t("colRequests")} · ${entry.total_tokens.toLocaleString(localeTag)} ${t("colTokens")}` : undefined}
+                  title={tooltip}
                   className={`flex h-20 flex-col rounded-md border p-1.5 text-left transition-colors ${
                     clickable ? "cursor-pointer hover:border-primary" : "cursor-default"
                   } ${isToday ? "border-primary" : "border-border"}`}

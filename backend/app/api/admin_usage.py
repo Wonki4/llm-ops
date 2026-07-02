@@ -62,6 +62,9 @@ async def admin_usage_by_user_team(
         text(
             "SELECT vt.team_id AS team_id, vt.user_id AS user_id, "
             "       SUM(d.prompt_tokens + d.completion_tokens) AS total_tokens, "
+            "       SUM(d.prompt_tokens) AS input_tokens, "
+            "       SUM(d.completion_tokens) AS output_tokens, "
+            "       SUM(d.cache_read_input_tokens) AS cache_read_tokens, "
             "       SUM(d.api_requests) AS api_requests, "
             "       SUM(d.spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" d '
@@ -77,6 +80,9 @@ async def admin_usage_by_user_team(
             "team_id": r["team_id"],
             "user_id": r["user_id"],
             "total_tokens": int(r["total_tokens"] or 0),
+            "input_tokens": int(r["input_tokens"] or 0),
+            "output_tokens": int(r["output_tokens"] or 0),
+            "cache_read_tokens": int(r["cache_read_tokens"] or 0),
             "api_requests": int(r["api_requests"] or 0),
             "spend": float(r["spend"] or 0),
         }
@@ -122,6 +128,9 @@ async def admin_usage_by_user_team(
                 "team_id": r["team_id"],
                 "team_alias": team_alias.get(r["team_id"]),
                 "total_tokens": r["total_tokens"],
+                "input_tokens": r["input_tokens"],
+                "output_tokens": r["output_tokens"],
+                "cache_read_tokens": r["cache_read_tokens"],
                 "api_requests": r["api_requests"],
                 "spend": r["spend"],
             }
@@ -141,6 +150,9 @@ async def admin_usage_by_user_team(
 
     totals = {
         "total_tokens": sum(row["total_tokens"] for row in rows),
+        "input_tokens": sum(row["input_tokens"] for row in rows),
+        "output_tokens": sum(row["output_tokens"] for row in rows),
+        "cache_read_tokens": sum(row["cache_read_tokens"] for row in rows),
         "api_requests": sum(row["api_requests"] for row in rows),
         "spend": sum(row["spend"] for row in rows),
     }
@@ -195,6 +207,9 @@ async def admin_usage_daily(
         text(
             "SELECT d.date AS date, "
             "       SUM(d.prompt_tokens + d.completion_tokens) AS total_tokens, "
+            "       SUM(d.prompt_tokens) AS input_tokens, "
+            "       SUM(d.completion_tokens) AS output_tokens, "
+            "       SUM(d.cache_read_input_tokens) AS cache_read_tokens, "
             "       SUM(d.api_requests) AS api_requests, "
             "       SUM(d.spend) AS spend "
             'FROM "LiteLLM_DailyUserSpend" d '
@@ -209,6 +224,9 @@ async def admin_usage_daily(
         {
             "date": r["date"],
             "total_tokens": int(r["total_tokens"] or 0),
+            "input_tokens": int(r["input_tokens"] or 0),
+            "output_tokens": int(r["output_tokens"] or 0),
+            "cache_read_tokens": int(r["cache_read_tokens"] or 0),
             "api_requests": int(r["api_requests"] or 0),
             "spend": float(r["spend"] or 0),
         }
@@ -216,6 +234,9 @@ async def admin_usage_daily(
     ]
     totals = {
         "total_tokens": sum(d["total_tokens"] for d in days),
+        "input_tokens": sum(d["input_tokens"] for d in days),
+        "output_tokens": sum(d["output_tokens"] for d in days),
+        "cache_read_tokens": sum(d["cache_read_tokens"] for d in days),
         "api_requests": sum(d["api_requests"] for d in days),
         "spend": sum(d["spend"] for d in days),
     }

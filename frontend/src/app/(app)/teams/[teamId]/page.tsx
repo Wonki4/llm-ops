@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
 import { toast } from "sonner";
+import { InputTokens } from "@/components/input-tokens";
 import { MemberModelUsage } from "@/components/member-model-usage";
 import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
@@ -813,14 +814,20 @@ function UsageTab({ teamId }: { teamId: string }) {
 
       {/* Totals */}
       {data && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">{t("colRequests")}</div>
             <div className="text-xl font-bold tabular-nums">{data.totals.api_requests.toLocaleString(localeTag)}</div>
           </div>
           <div className="rounded-lg border p-3">
-            <div className="text-xs text-muted-foreground">{t("colTokens")}</div>
-            <div className="text-xl font-bold tabular-nums">{data.totals.total_tokens.toLocaleString(localeTag)}</div>
+            <div className="text-xs text-muted-foreground">{t("colInput")}</div>
+            <div className="text-xl font-bold">
+              <InputTokens input={data.totals.input_tokens} cacheRead={data.totals.cache_read_tokens} />
+            </div>
+          </div>
+          <div className="rounded-lg border p-3">
+            <div className="text-xs text-muted-foreground">{t("colOutput")}</div>
+            <div className="text-xl font-bold tabular-nums">{data.totals.output_tokens.toLocaleString(localeTag)}</div>
           </div>
           <div className="rounded-lg border p-3">
             <div className="text-xs text-muted-foreground">{t("colUsage")}</div>
@@ -851,9 +858,10 @@ function UsageTab({ teamId }: { teamId: string }) {
                 </TableHead>
                 <TableHead className="text-right">
                   <button type="button" className="hover:text-foreground" onClick={() => toggleSort("total_tokens")}>
-                    {t("colTokens")}{sortMark("total_tokens")}
+                    {t("colInput")}{sortMark("total_tokens")}
                   </button>
                 </TableHead>
+                <TableHead className="text-right">{t("colOutput")}</TableHead>
                 <TableHead className="text-right">
                   <button type="button" className="hover:text-foreground" onClick={() => toggleSort("spend")}>
                     {t("colUsage")}{sortMark("spend")}
@@ -877,12 +885,15 @@ function UsageTab({ teamId }: { teamId: string }) {
                         </span>
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{m.api_requests.toLocaleString(localeTag)}</TableCell>
-                      <TableCell className="text-right tabular-nums">{m.total_tokens.toLocaleString(localeTag)}</TableCell>
+                      <TableCell className="text-right">
+                        <InputTokens input={m.input_tokens} cacheRead={m.cache_read_tokens} />
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{m.output_tokens.toLocaleString(localeTag)}</TableCell>
                       <TableCell className="text-right tabular-nums">${m.spend.toFixed(2)}</TableCell>
                     </TableRow>
                     {isOpen && (
                       <TableRow className="hover:bg-transparent">
-                        <TableCell colSpan={4} className="bg-muted/30 p-0">
+                        <TableCell colSpan={5} className="bg-muted/30 p-0">
                           <MemberModelUsage
                             teamId={teamId}
                             userId={m.user_id}

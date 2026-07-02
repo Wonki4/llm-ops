@@ -306,14 +306,20 @@ export interface TeamMembersResponse {
 
 // ─── Team Usage ───────────────────────────────────────────────
 
-export interface UsageMember {
+export interface UsageTokenBreakdown {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+}
+
+export interface UsageMember extends UsageTokenBreakdown {
   user_id: string;
   total_tokens: number;
   api_requests: number;
   spend: number;
 }
 
-export interface UsageSeriesPoint {
+export interface UsageSeriesPoint extends UsageTokenBreakdown {
   bucket: string;
   total_tokens: number;
   api_requests: number;
@@ -323,12 +329,12 @@ export interface UsageSeriesPoint {
 export interface TeamUsageResponse {
   members: UsageMember[];
   series: UsageSeriesPoint[];
-  totals: { total_tokens: number; api_requests: number; spend: number };
+  totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
 }
 
 // ─── Admin Usage (global, per user×team) ──────────────────────
 
-export interface AdminUsageRow {
+export interface AdminUsageRow extends UsageTokenBreakdown {
   user_id: string;
   email: string | null;
   display_name: string | null;
@@ -341,14 +347,14 @@ export interface AdminUsageRow {
 
 export interface AdminUsageResponse {
   rows: AdminUsageRow[];
-  totals: { total_tokens: number; api_requests: number; spend: number };
+  totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
   teams: { team_id: string; team_alias: string | null }[];
   total: number;
   page: number;
   page_size: number;
 }
 
-export interface AdminUsageDay {
+export interface AdminUsageDay extends UsageTokenBreakdown {
   date: string;
   total_tokens: number;
   api_requests: number;
@@ -357,7 +363,7 @@ export interface AdminUsageDay {
 
 export interface AdminUsageDailyResponse {
   days: AdminUsageDay[];
-  totals: { total_tokens: number; api_requests: number; spend: number };
+  totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
 }
 
 // ─── Redis Catalog ────────────────────────────────────────────

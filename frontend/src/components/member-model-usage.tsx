@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useLocaleTag } from "@/lib/locale";
 import { useTeamMemberUsageByModel } from "@/hooks/use-api";
+import { InputTokens } from "@/components/input-tokens";
 
 /** Per-model (or per-model-group) usage breakdown for one member within a team.
  *  Rendered inside an expanded usage row on both the team usage tab and the
@@ -60,7 +61,8 @@ export function MemberModelUsage({
                 {groupBy === "model_group" ? t("colModelGroup") : t("colModel")}
               </th>
               <th className="text-right font-normal py-1">{t("colRequests")}</th>
-              <th className="text-right font-normal py-1">{t("colTokens")}</th>
+              <th className="text-right font-normal py-1">{t("colInput")}</th>
+              <th className="text-right font-normal py-1">{t("colOutput")}</th>
               <th className="text-right font-normal py-1">{t("colUsage")}</th>
             </tr>
           </thead>
@@ -69,7 +71,10 @@ export function MemberModelUsage({
               <tr key={mm.model} className="border-t border-border/50">
                 <td className="py-1 font-mono text-xs">{mm.model}</td>
                 <td className="py-1 text-right tabular-nums">{mm.api_requests.toLocaleString(localeTag)}</td>
-                <td className="py-1 text-right tabular-nums">{mm.total_tokens.toLocaleString(localeTag)}</td>
+                <td className="py-1 text-right">
+                  <InputTokens input={mm.input_tokens} cacheRead={mm.cache_read_tokens} />
+                </td>
+                <td className="py-1 text-right tabular-nums">{mm.output_tokens.toLocaleString(localeTag)}</td>
                 <td className="py-1 text-right tabular-nums">${mm.spend.toFixed(2)}</td>
               </tr>
             ))}

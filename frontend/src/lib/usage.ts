@@ -2,6 +2,21 @@
 
 export type UsagePreset = "today" | "7d" | "month" | "30d" | "custom";
 
+/** Format an Input-tokens figure with its cache-read portion: `cache` is null
+ *  when nothing was cached, and is clamped to the input so the parenthetical
+ *  can never exceed it. */
+export function formatInputTokens(
+  input: number,
+  cacheRead: number,
+  localeTag: string,
+): { input: string; cache: string | null } {
+  const cache = Math.min(cacheRead, input);
+  return {
+    input: input.toLocaleString(localeTag),
+    cache: cache > 0 ? cache.toLocaleString(localeTag) : null,
+  };
+}
+
 /** Format a Date as a `YYYY-MM-DD` string in local time (for <input type="date">). */
 export function toDateInput(d: Date): string {
   const y = d.getFullYear();
