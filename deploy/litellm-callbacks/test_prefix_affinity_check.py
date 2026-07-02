@@ -40,12 +40,36 @@ _MSGS = [
 ]
 
 
-def _deployment(model_id: str) -> dict:
+def _deployment(model_id: str, provider_model: str = "openai/gpt-4o", rpm: int = None) -> dict:
+    litellm_params = {"model": provider_model}
+    if rpm is not None:
+        litellm_params["rpm"] = rpm
     return {
         "model_name": "gpt",
-        "litellm_params": {"model": "openai/gpt-4o"},
+        "litellm_params": litellm_params,
         "model_info": {"id": model_id, "db_model": True},
     }
+
+
+class _FakeRouterCache:
+    def __init__(self, store: dict):
+        self._store = store
+
+    def get_cache(self, key, **kwargs):
+        return self._store.get(key)
+
+
+class _FakeRouter:
+    routing_strategy = "simple-shuffle"
+
+    def __init__(self, usage: dict):
+        self.cache = _FakeRouterCache(usage)
+
+
+@pytest.fixture(autouse=True)
+def _clear_gate_memo():
+    getattr(mod, "_GATE_MEMO", {}).clear()
+    yield
 
 
 def _check() -> PrefixAffinityDeploymentCheck:
@@ -54,7 +78,7 @@ def _check() -> PrefixAffinityDeploymentCheck:
 
 # ── prefix key ──────────────────────────────────────────────────────────────
 def test_compute_prefix_key_cache_control_stable_across_tail(monkeypatch):
-    monkeypatch.setattr(mod, "is_prompt_caching_valid_prompt", lambda **kw: True)
+    monkeypatch.setattr(mod, "token_counter", lambda **kw: 2000)
     cfg = {"prefix_strategy": "cache_control"}
     msgs_b = CACHE_CONTROL_MESSAGES[:1] + [{"role": "user", "content": "Different tail"}]
     key_a = compute_prefix_key(CACHE_CONTROL_MESSAGES, "openai/gpt-4o", cfg)
@@ -63,7 +87,7 @@ def test_compute_prefix_key_cache_control_stable_across_tail(monkeypatch):
 
 
 def test_compute_prefix_key_no_marker_returns_none(monkeypatch):
-    monkeypatch.setattr(mod, "is_prompt_caching_valid_prompt", lambda **kw: True)
+    monkeypatch.setattr(mod, "token_counter", lambda **kw: 2000)
     msgs = [{"role": "user", "content": "no cache_control here"}]
     assert compute_prefix_key(msgs, "openai/gpt-4o", {"prefix_strategy": "cache_control"}) is None
 
@@ -207,7 +231,10 @@ async def test_hrw_decision_stamped_in_metadata():
     deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
     rk: dict = {}
     out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
-    assert rk["metadata"]["prefix_affinity"] == {"decision": "hrw", "model_id": out[0]["model_info"]["id"]}
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    assert rk["metadata"]["prefix_affinity"] == {
+        "decision": "hrw", "model_id": out[0]["model_info"]["id"], "prefix_key": key
+    }
 
 
 @pytest.mark.asyncio
@@ -219,7 +246,9 @@ async def test_sticky_decision_stamped_in_metadata():
     rk: dict = {}
     out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
     assert out[0]["model_info"]["id"] == "b"
-    assert rk["metadata"]["prefix_affinity"] == {"decision": "sticky", "model_id": "b"}
+    assert rk["metadata"]["prefix_affinity"] == {
+        "decision": "sticky", "model_id": "b", "prefix_key": key
+    }
 
 
 # ── sticky scoped by model group ─────────────────────────────────────────────
@@ -269,6 +298,119 @@ async def test_sticky_lookup_skips_deployment_without_model_info():
     await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "b"}, ttl=300)
     out = await check.async_filter_deployments("gpt", deployments, _MSGS)
     assert len(out) == 1 and out[0]["model_info"]["id"] == "b"
+
+
+# ── RPM-aware spill: never pin to a deployment the downstream check rejects ──
+@pytest.mark.asyncio
+async def test_rpm_saturated_hrw_spills_to_survivor():
+    deployments = [_deployment(x, rpm=10) for x in ("a", "b", "c")]
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    hrw_pick = select_deployment_hrw(key, deployments)["model_info"]["id"]
+    check = PrefixAffinityDeploymentCheck(cache=DualCache(), config=_CFG, router=_FakeRouter({hrw_pick: 10}))
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS)
+    survivors = [d for d in deployments if d["model_info"]["id"] != hrw_pick]
+    assert len(out) == 1
+    assert out[0]["model_info"]["id"] == select_deployment_hrw(key, survivors)["model_info"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_rpm_saturated_sticky_spills():
+    deployments = [_deployment(x, rpm=10) for x in ("a", "b", "c")]
+    check = PrefixAffinityDeploymentCheck(cache=DualCache(), config=_CFG, router=_FakeRouter({"b": 10}))
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "b"}, ttl=300)
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS)
+    survivors = [d for d in deployments if d["model_info"]["id"] != "b"]
+    assert len(out) == 1
+    assert out[0]["model_info"]["id"] == select_deployment_hrw(key, survivors)["model_info"]["id"]
+
+
+@pytest.mark.asyncio
+async def test_all_rpm_saturated_passes_through():
+    deployments = [_deployment(x, rpm=10) for x in ("a", "b", "c")]
+    check = PrefixAffinityDeploymentCheck(
+        cache=DualCache(), config=_CFG, router=_FakeRouter({"a": 10, "b": 10, "c": 10})
+    )
+    assert await check.async_filter_deployments("gpt", deployments, _MSGS) == deployments
+
+
+# ── provider allowlist is deployment-level, not group-level ──────────────────
+@pytest.mark.asyncio
+async def test_provider_allowlist_pins_within_allowlisted_provider():
+    deployments = [
+        _deployment("a"),
+        _deployment("b"),
+        _deployment("c", provider_model="anthropic/claude-3-5-sonnet"),
+    ]
+    check = PrefixAffinityDeploymentCheck(cache=DualCache(), config={**_CFG, "providers": ["openai"]})
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "c"}, ttl=300)
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS)
+    assert len(out) == 1
+    assert out[0]["model_info"]["id"] == select_deployment_hrw(key, deployments[:2])["model_info"]["id"]
+
+
+# ── metadata stamp respects the request's metadata variable name ──────────────
+@pytest.mark.asyncio
+async def test_note_uses_litellm_metadata_when_present():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    rk: dict = {"litellm_metadata": {}}
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
+    assert rk["litellm_metadata"]["prefix_affinity"]["decision"] == "hrw"
+    assert rk["litellm_metadata"]["prefix_affinity"]["model_id"] == out[0]["model_info"]["id"]
+    assert "metadata" not in rk
+
+
+# ── success event prefers the stamped prefix_key over recomputing from the
+#    logging payload (whose messages are truncated/appended/redacted) ─────────
+@pytest.mark.asyncio
+async def test_success_event_prefers_stamped_prefix_key():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    hrw_pick = select_deployment_hrw(key, deployments)["model_info"]["id"]
+    sticky_id = next(x for x in ("a", "b", "c") if x != hrw_pick)
+    mutated = [{"role": "user", "content": "redacted-by-litellm"}]
+    slo = {"call_type": "acompletion", "model": "gpt", "model_group": "gpt", "messages": mutated, "model_id": sticky_id}
+    kwargs = {
+        "standard_logging_object": slo,
+        "litellm_params": {
+            "metadata": {"prefix_affinity": {"decision": "hrw", "model_id": sticky_id, "prefix_key": key}}
+        },
+    }
+    await check.async_log_success_event(kwargs, None, 0, 0)
+    assert (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"] == sticky_id
+
+
+# ── hot-path cost: token gate memoized, counts only the cacheable prefix ─────
+def test_token_gate_memoized_per_prefix(monkeypatch):
+    calls = {"n": 0}
+
+    def counting(**kw):
+        calls["n"] += 1
+        return 2000
+
+    monkeypatch.setattr(mod, "token_counter", counting)
+    cfg = {"prefix_strategy": "leading_slice", "leading_slice_messages": 2, "min_prefix_tokens": 1024}
+    k1 = compute_prefix_key(_MSGS, "gpt", cfg)
+    k2 = compute_prefix_key(_MSGS, "gpt", cfg)
+    assert k1 is not None and k1 == k2
+    assert calls["n"] == 1
+
+
+def test_cache_control_gate_counts_prefix_not_full_messages(monkeypatch):
+    captured = []
+
+    def cap(**kw):
+        captured.append(kw.get("messages"))
+        return 2000
+
+    monkeypatch.setattr(mod, "token_counter", cap)
+    key = compute_prefix_key(CACHE_CONTROL_MESSAGES, "gpt", {"prefix_strategy": "cache_control"})
+    assert key is not None
+    assert len(captured) == 1
+    assert len(captured[0]) == 1  # only the cacheable prefix, not the whole conversation
 
 
 # ── NATIVE registration: callback in litellm.callbacks gets its filter invoked ──
