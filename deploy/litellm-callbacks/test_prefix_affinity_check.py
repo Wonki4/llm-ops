@@ -119,7 +119,7 @@ async def test_filter_sticky_overrides_hrw():
     check = _check()
     deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
     key = compute_prefix_key(_MSGS, "gpt", _CFG)
-    await check.cache.async_set_cache(check._cache_key(key), {"model_id": "b"}, ttl=300)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "b"}, ttl=300)
     out = await check.async_filter_deployments("gpt", deployments, _MSGS)
     assert out[0]["model_info"]["id"] == "b"
 
@@ -130,7 +130,7 @@ async def test_filter_falls_back_to_hrw_when_sticky_saturated():
     deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
     hrw_pick = (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"]
     key = compute_prefix_key(_MSGS, "gpt", _CFG)
-    await check.cache.async_set_cache(check._cache_key(key), {"model_id": "z"}, ttl=300)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "z"}, ttl=300)
     out = await check.async_filter_deployments("gpt", deployments, _MSGS)
     assert out[0]["model_info"]["id"] == hrw_pick
 
@@ -141,7 +141,7 @@ async def test_success_event_writes_affinity_entry():
     slo = {"call_type": "acompletion", "model": "gpt", "messages": _MSGS, "model_id": "c"}
     await check.async_log_success_event({"standard_logging_object": slo}, None, 0, 0)
     key = compute_prefix_key(_MSGS, "gpt", _CFG)
-    assert await check.cache.async_get_cache(key=check._cache_key(key)) == {"model_id": "c"}
+    assert await check.cache.async_get_cache(key=check._cache_key("gpt", key)) == {"model_id": "c"}
 
 
 @pytest.mark.asyncio
@@ -215,11 +215,60 @@ async def test_sticky_decision_stamped_in_metadata():
     check = _check()
     deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
     key = compute_prefix_key(_MSGS, "gpt", _CFG)
-    await check.cache.async_set_cache(check._cache_key(key), {"model_id": "b"}, ttl=300)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "b"}, ttl=300)
     rk: dict = {}
     out = await check.async_filter_deployments("gpt", deployments, _MSGS, request_kwargs=rk)
     assert out[0]["model_info"]["id"] == "b"
     assert rk["metadata"]["prefix_affinity"] == {"decision": "sticky", "model_id": "b"}
+
+
+# ── sticky scoped by model group ─────────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_sticky_scoped_by_model_group():
+    """A sticky entry learned for one model group must not pin requests of
+    another group that shares the same prefix (prefix hash contains messages only)."""
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    hrw_pick = (await check.async_filter_deployments("claude", deployments, _MSGS))[0]["model_info"]["id"]
+    sticky_id = next(x for x in ("a", "b", "c") if x != hrw_pick)
+    slo = {"call_type": "acompletion", "model": "openai/gpt-4o", "model_group": "gpt", "messages": _MSGS, "model_id": sticky_id}
+    await check.async_log_success_event({"standard_logging_object": slo}, None, 0, 0)
+    assert (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"] == sticky_id
+    assert (await check.async_filter_deployments("claude", deployments, _MSGS))[0]["model_info"]["id"] == hrw_pick
+
+
+@pytest.mark.asyncio
+async def test_cross_group_success_does_not_clobber_other_group_sticky():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    slo_gpt = {"call_type": "acompletion", "model": "gpt", "model_group": "gpt", "messages": _MSGS, "model_id": "b"}
+    slo_claude = {"call_type": "acompletion", "model": "claude", "model_group": "claude", "messages": _MSGS, "model_id": "c"}
+    await check.async_log_success_event({"standard_logging_object": slo_gpt}, None, 0, 0)
+    await check.async_log_success_event({"standard_logging_object": slo_claude}, None, 0, 0)
+    assert (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"] == "b"
+    assert (await check.async_filter_deployments("claude", deployments, _MSGS))[0]["model_info"]["id"] == "c"
+
+
+@pytest.mark.asyncio
+async def test_success_event_falls_back_to_model_when_group_missing():
+    check = _check()
+    deployments = [_deployment("a"), _deployment("b"), _deployment("c")]
+    hrw_pick = (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"]
+    sticky_id = next(x for x in ("a", "b", "c") if x != hrw_pick)
+    slo = {"call_type": "acompletion", "model": "gpt", "messages": _MSGS, "model_id": sticky_id}
+    await check.async_log_success_event({"standard_logging_object": slo}, None, 0, 0)
+    assert (await check.async_filter_deployments("gpt", deployments, _MSGS))[0]["model_info"]["id"] == sticky_id
+
+
+# ── robustness: malformed deployment must not disable affinity ───────────────
+@pytest.mark.asyncio
+async def test_sticky_lookup_skips_deployment_without_model_info():
+    check = _check()
+    deployments = [{"model_name": "gpt", "litellm_params": {"model": "openai/gpt-4o"}}, _deployment("b")]
+    key = compute_prefix_key(_MSGS, "gpt", _CFG)
+    await check.cache.async_set_cache(check._cache_key("gpt", key), {"model_id": "b"}, ttl=300)
+    out = await check.async_filter_deployments("gpt", deployments, _MSGS)
+    assert len(out) == 1 and out[0]["model_info"]["id"] == "b"
 
 
 # ── NATIVE registration: callback in litellm.callbacks gets its filter invoked ──

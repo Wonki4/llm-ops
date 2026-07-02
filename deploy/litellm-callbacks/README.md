@@ -2,7 +2,7 @@
 
 Routes requests that share a cacheable prefix to the same provider-prompt-cache domain
 (deployment) within a `model_group`, to maximize provider prompt-cache hits — while reusing
-the Router's own health/rate-limit filtering for load fallback.
+the Router's own health-check / cooldown filtering for load fallback.
 
 Implemented as a **LiteLLM-native `CustomLogger` callback**, so there are **zero changes to
 LiteLLM source** and it survives version upgrades untouched. It runs on the stock
@@ -12,7 +12,7 @@ LiteLLM source** and it survives version upgrades untouched. It runs on the stoc
 - `prefix_affinity_check.py` — the plugin: `compute_prefix_key`, `select_deployment_hrw`,
   `PrefixAffinityDeploymentCheck` (a `CustomLogger` overriding `async_filter_deployments`),
   plus the module-level instance `prefix_affinity_handler` the proxy loads.
-- `test_prefix_affinity_check.py` — 15 unit tests (incl. one proving a callback registered in
+- `test_prefix_affinity_check.py` — 24 unit tests (incl. one proving a callback registered in
   `litellm.callbacks` actually gets its `async_filter_deployments` invoked by the Router).
 
 ## How it's wired (already committed here)
@@ -28,10 +28,17 @@ switches never clobber deployment config.
 ## Mechanism
 `async_filter_deployments` is a native override hook on `CustomLogger`
 (`litellm/integrations/custom_logger.py`). During deployment selection the Router calls it for
-every `CustomLogger` in `litellm.callbacks`, after its own health/rate-limit filtering. The
-plugin narrows the healthy list to one deployment: sticky affinity-cache lookup → deterministic
-Rendezvous (HRW) hashing of the prefix → records the placement on success with a provider-TTL.
+every `CustomLogger` in `litellm.callbacks`, after its health-check / cooldown / blocked
+filtering. The plugin narrows the healthy list to one deployment: sticky affinity-cache lookup
+(scoped per model group) → deterministic Rendezvous (HRW) hashing of the prefix → records the
+placement on success with a provider-TTL.
 It never raises (the call site re-raises; all error paths return the input list unchanged).
+
+**RPM caveat:** the Router's `_pre_call_checks` (RPM/TPM + context-window filtering) runs
+*after* this hook. If a hot prefix pins a deployment that then exceeds its RPM limit, requests
+fail with "no deployments available" for the rest of the minute window instead of spilling to
+another deployment. Scope hot prefixes via `PREFIX_AFFINITY_MODELS`/`PREFIX_AFFINITY_PROVIDERS`
+and watch the `metadata.prefix_affinity` stamps if this bites.
 
 ## Config (env — all optional; compose sets sensible defaults)
 | var | default | meaning |
@@ -66,7 +73,7 @@ multiple keys in one org share a cache and gain nothing). Send two requests shar
 
 ## Tests
 ```bash
-cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 15 passed
+cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 24 passed
 ```
 
 ## Note on the cache backend
