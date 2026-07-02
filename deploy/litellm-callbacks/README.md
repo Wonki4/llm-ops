@@ -12,7 +12,7 @@ LiteLLM source** and it survives version upgrades untouched. It runs on the stoc
 - `prefix_affinity_check.py` — the plugin: `compute_prefix_key`, `select_deployment_hrw`,
   `PrefixAffinityDeploymentCheck` (a `CustomLogger` overriding `async_filter_deployments`),
   plus the module-level instance `prefix_affinity_handler` the proxy loads.
-- `test_prefix_affinity_check.py` — 24 unit tests (incl. one proving a callback registered in
+- `test_prefix_affinity_check.py` — 32 unit tests (incl. one proving a callback registered in
   `litellm.callbacks` actually gets its `async_filter_deployments` invoked by the Router).
 
 ## How it's wired (already committed here)
@@ -29,30 +29,35 @@ switches never clobber deployment config.
 `async_filter_deployments` is a native override hook on `CustomLogger`
 (`litellm/integrations/custom_logger.py`). During deployment selection the Router calls it for
 every `CustomLogger` in `litellm.callbacks`, after its health-check / cooldown / blocked
-filtering. The plugin narrows the healthy list to one deployment: sticky affinity-cache lookup
-(scoped per model group) → deterministic Rendezvous (HRW) hashing of the prefix → records the
-placement on success with a provider-TTL.
+filtering. The plugin narrows the healthy list to one deployment: provider/RPM candidate
+filtering → sticky affinity-cache lookup (scoped per model group) → deterministic Rendezvous
+(HRW) hashing of the prefix → records the placement on success with a provider-TTL, keyed by
+the `prefix_key` stamped into request metadata at routing time (the logging payload's messages
+are mutated — base64 truncation, system-prompt append, redaction — so a recomputed hash could
+silently never match; recompute is kept only as a fallback).
 It never raises (the call site re-raises; all error paths return the input list unchanged).
 
-**RPM caveat:** the Router's `_pre_call_checks` (RPM/TPM + context-window filtering) runs
-*after* this hook. If a hot prefix pins a deployment that then exceeds its RPM limit, requests
-fail with "no deployments available" for the rest of the minute window instead of spilling to
-another deployment. Scope hot prefixes via `PREFIX_AFFINITY_MODELS`/`PREFIX_AFFINITY_PROVIDERS`
-and watch the `metadata.prefix_affinity` stamps if this bites.
+**RPM interplay:** the Router's `_pre_call_checks` (RPM/TPM + context-window filtering) runs
+*after* this hook, so it cannot rescue an over-limit pin. The plugin therefore mirrors the
+Router's RPM counters (via the proxy's global router, or a `router=` passed to the constructor)
+and drops saturated candidates *before* pinning — a hot prefix spills to the next HRW pick
+instead of erroring. Context-window and tag filtering still run downstream; pins that fail
+those still error rather than spill.
 
 ## Config (env — all optional; compose sets sensible defaults)
 | var | default | meaning |
 |---|---|---|
 | `PREFIX_AFFINITY_STRATEGY` | `leading_slice` (compose) / `cache_control` (code) | `cache_control` for Anthropic explicit breakpoints; `leading_slice` for OpenAI automatic caching |
 | `PREFIX_AFFINITY_LEADING_SLICE` | 2 | messages counted as the stable prefix for `leading_slice` |
-| `PREFIX_AFFINITY_MIN_TOKENS` | 1024 | below this, no affinity (OpenAI caches >= 1024) |
+| `PREFIX_AFFINITY_MIN_TOKENS` | 1024 | prefix below this → no affinity; counted on the cacheable prefix (both strategies), memoized per prefix |
 | `PREFIX_AFFINITY_TTL` | 600 (compose) / 300 (code) | affinity entry TTL; align to provider cache window |
 | `PREFIX_AFFINITY_MODELS` | _(empty = all)_ | csv of model-group names to scope to (e.g. `gpt-4o,claude-3-5-sonnet`) |
 | `PREFIX_AFFINITY_PROVIDERS` | _(empty = all)_ | csv of providers to scope to (e.g. `openai`) |
 
-**Scoping:** by default the plugin runs for every `model_group` (no-op where it can't help). Set
-`PREFIX_AFFINITY_MODELS` and/or `PREFIX_AFFINITY_PROVIDERS` to limit it — out-of-scope groups pass
-through untouched. Both empty = apply to all.
+**Scoping:** by default the plugin runs for every `model_group` (no-op where it can't help).
+`PREFIX_AFFINITY_MODELS` gates whole model groups; `PREFIX_AFFINITY_PROVIDERS` filters
+per-deployment, so a mixed-provider group pins within the allowlisted providers only.
+Out-of-scope requests pass through untouched. Both empty = apply to all.
 
 ## Apply / restart
 ```bash
@@ -73,7 +78,7 @@ multiple keys in one org share a cache and gain nothing). Send two requests shar
 
 ## Tests
 ```bash
-cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 24 passed
+cd litellm && uv run pytest ../deploy/litellm-callbacks/test_prefix_affinity_check.py -q   # 32 passed
 ```
 
 ## Note on the cache backend
