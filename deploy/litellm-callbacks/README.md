@@ -65,6 +65,16 @@ docker compose up -d litellm
 docker logs litellm_proxy 2>&1 | grep -i "callback\|prefix_affinity"   # confirm the callback loaded
 ```
 
+**Helm (K8s):** use `helm/apply.sh`. Two overlays exist because helm only passes values to a
+subchart from the block named after it:
+- `helm/values-prefix-affinity.yaml` — litellm-helm released **directly** (top-level keys).
+- `helm/values-prefix-affinity-platform.yaml` — litellm-helm as a **subchart of
+  `deploy/helm/litellm-platform`** (same keys nested under `litellm-helm:`). Applying the
+  top-level variant to the platform chart silently does nothing — no mount, no PYTHONPATH —
+  and the proxy fails with `ModuleNotFoundError: No module named 'prefix_affinity_check'`.
+  Pass `OVERLAY=values-prefix-affinity-platform.yaml` to apply.sh in that case. The
+  `prefix-affinity-plugin` ConfigMap must exist in the release namespace (apply.sh creates it).
+
 ## Verify
 A `model_group` must span **different OpenAI orgs/accounts** (provider cache is org-scoped;
 multiple keys in one org share a cache and gain nothing). Send two requests sharing a
