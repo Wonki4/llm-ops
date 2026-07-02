@@ -11,9 +11,17 @@ survives version upgrades untouched:
 
 Mechanism: `async_filter_deployments` is a native `CustomLogger` override hook
 (litellm/integrations/custom_logger.py); the Router calls it for every CustomLogger
-registered in `litellm.callbacks` during deployment selection, after its own
-health/rate-limit filtering. We narrow the healthy list to one deployment so that
-requests sharing a cacheable prefix land on the same provider-prompt-cache domain.
+registered in `litellm.callbacks` during deployment selection, after its
+health-check / cooldown / blocked filtering. We narrow the healthy list to one
+deployment so that requests sharing a cacheable prefix land on the same
+provider-prompt-cache domain.
+
+CAVEAT — RPM saturation: the Router's `_pre_call_checks` (RPM/TPM and
+context-window filtering) runs AFTER this hook. Once a prefix is pinned to a
+single deployment, a pin over its RPM limit yields "no deployments available"
+for the rest of the minute window instead of spilling to another deployment.
+Scope hot prefixes via PREFIX_AFFINITY_MODELS / PREFIX_AFFINITY_PROVIDERS and
+watch the stamped `metadata.prefix_affinity` decisions if this bites.
 
 Config via env (all optional):
   PREFIX_AFFINITY_STRATEGY        "cache_control" | "leading_slice"  (default cache_control)
@@ -126,15 +134,19 @@ def _in_scope(model: str, healthy_deployments: List[dict], config: dict) -> bool
 class PrefixAffinityDeploymentCheck(CustomLogger):
     """Native CustomLogger plugin: route a request to the deployment that already
     holds the provider prompt cache for its prefix; otherwise place it
-    deterministically via HRW. Reuses the Router's healthy-deployment list, so a
-    saturated deployment (already filtered out upstream) is skipped automatically."""
+    deterministically via HRW. Works on the Router's healthy-deployment list, so
+    unhealthy / cooled-down deployments are already excluded — but RPM/TPM limits
+    are enforced downstream (`_pre_call_checks`), so an over-limit pin fails the
+    request rather than spilling to another deployment (see module docstring)."""
 
     def __init__(self, cache: Optional[DualCache] = None, config: Optional[dict] = None):
         self.cache = cache or DualCache()
         self.config: dict = config or {}
 
-    def _cache_key(self, prefix_key: str) -> str:
-        return f"deployment:{prefix_key}:prefix_affinity"
+    def _cache_key(self, model_group: str, prefix_key: str) -> str:
+        # Scoped by model group: the prefix hash covers messages only, and two
+        # groups sharing a prompt must not overwrite each other's sticky entry.
+        return f"deployment:{model_group}:{prefix_key}:prefix_affinity"
 
     def _note(self, request_kwargs, decision, model, model_id, candidates):
         """Observability: debug-log the decision and best-effort stamp it into
@@ -172,12 +184,12 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
                 verbose_logger.debug("prefix_affinity: skip (no cacheable prefix), model=%s", model)
                 return healthy_deployments
 
-            cached = await self.cache.async_get_cache(key=self._cache_key(prefix_key))
+            cached = await self.cache.async_get_cache(key=self._cache_key(model, prefix_key))
             if isinstance(cached, dict):
                 model_id = cached.get("model_id")
                 if model_id is not None:
                     for deployment in healthy_deployments:
-                        if deployment["model_info"]["id"] == model_id:
+                        if (deployment.get("model_info") or {}).get("id") == model_id:
                             self._note(request_kwargs, "sticky", model, model_id, len(healthy_deployments))
                             return [deployment]
 
@@ -209,6 +221,7 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
                 return
 
             model = standard_logging_object["model"]
+            model_group = standard_logging_object.get("model_group") or model
             messages = standard_logging_object["messages"]
             model_id = standard_logging_object["model_id"]
             if not isinstance(messages, list) or model_id is None:
@@ -222,7 +235,7 @@ class PrefixAffinityDeploymentCheck(CustomLogger):
 
             ttl = self.config.get("ttl_seconds", DEFAULT_TTL_SECONDS)
             await self.cache.async_set_cache(
-                self._cache_key(prefix_key), {"model_id": model_id}, ttl=ttl
+                self._cache_key(model_group, prefix_key), {"model_id": model_id}, ttl=ttl
             )
         except Exception as e:
             verbose_logger.debug(f"PrefixAffinityDeploymentCheck.log error: {e}")
