@@ -8,6 +8,7 @@ import {
   Users,
   Globe,
   ShieldCheck,
+  BookOpen,
   Boxes,
   LayoutDashboard,
   LogOut,
@@ -36,6 +37,7 @@ type NavItem = {
 };
 
 const navigation: NavItem[] = [
+  { key: "guide", href: "/guide", icon: BookOpen, roles: ["user", "team_admin", "super_user"] },
   { key: "announcements", href: "/announcements", icon: Megaphone, roles: ["user", "team_admin", "super_user"] },
   { key: "modelsCalendar", href: "/models/calendar", icon: Calendar, roles: ["user", "team_admin", "super_user"] },
   { key: "modelsDashboard", href: "/models/dashboard", icon: BarChart3, roles: ["user", "team_admin", "super_user"] },
