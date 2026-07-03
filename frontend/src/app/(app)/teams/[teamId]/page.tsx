@@ -728,8 +728,8 @@ function TeamSettingsTab({
 function UsageTab({ teamId }: { teamId: string }) {
   const t = useTranslations("teamDetail");
   const localeTag = useLocaleTag();
-  const [preset, setPreset] = useState<UsagePreset>("30d");
-  const initial = presetRange("30d")!;
+  const [preset, setPreset] = useState<UsagePreset>("today");
+  const initial = presetRange("today")!;
   const [startDate, setStartDate] = useState(initial.start);
   const [endDate, setEndDate] = useState(initial.end);
   const [sortField, setSortField] = useState<"user_id" | "total_tokens" | "api_requests" | "spend">("spend");
@@ -1685,7 +1685,7 @@ export default function TeamDetailPage({
           <TabsTrigger value="keys">{t("tabMyKeys")}</TabsTrigger>
           <TabsTrigger value="models">{t("tabModels")}</TabsTrigger>
           {is_admin && <TabsTrigger value="members">{t("tabMembers")}</TabsTrigger>}
-          {is_admin && <TabsTrigger value="usage">{t("tabUsage")}</TabsTrigger>}
+          <TabsTrigger value="usage">{t("tabUsage")}</TabsTrigger>
           {is_admin && <TabsTrigger value="settings">{t("tabSettings")}</TabsTrigger>}
         </TabsList>
 
@@ -1838,11 +1838,9 @@ export default function TeamDetailPage({
           </TabsContent>
         )}
 
-        {is_admin && (
-          <TabsContent value="usage" className="mt-6">
-            <UsageTab teamId={teamId} />
-          </TabsContent>
-        )}
+        <TabsContent value="usage" className="mt-6">
+          <UsageTab teamId={teamId} />
+        </TabsContent>
 
         {is_admin && (
           <TabsContent value="settings" className="mt-6">
