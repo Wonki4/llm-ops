@@ -7,6 +7,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models.custom_user import CustomUser, GlobalRole
 
 
+async def get_team_access(user: CustomUser, team_id: str, db: AsyncSession) -> str:
+    """The caller's access level for a team: "admin" (team admin or super user)
+    or "member". Raises 403 for everyone else."""
+    if user.global_role == GlobalRole.SUPER_USER:
+        return "admin"
+
+    result = await db.execute(
+        text('SELECT admins, members FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        {"team_id": team_id},
+    )
+    row = result.mappings().first()
+    if row:
+        if user.user_id in list(row["admins"] or []):
+            return "admin"
+        if user.user_id in list(row["members"] or []):
+            return "member"
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"You are not a member of team {team_id}",
+    )
+
+
 async def require_team_admin(user: CustomUser, team_id: str, db: AsyncSession) -> None:
     """Verify the user is an admin of the specified team or a super user."""
     if user.global_role == GlobalRole.SUPER_USER:

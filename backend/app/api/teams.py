@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.key_limits import effective_model_limits
 from app.auth.deps import get_current_user
-from app.auth.permissions import require_team_admin
+from app.auth.permissions import get_team_access, require_team_admin
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
@@ -555,9 +555,11 @@ async def team_usage_by_member(
     member's usage in other teams is excluded. `start_date`/`end_date` are
     inclusive `YYYY-MM-DD` strings (the table stores date as a string).
     `granularity` (day|month) controls the time-series breakdown returned
-    alongside the per-member totals. Team admin or super user only.
+    alongside the per-member totals. Any team member may call this: team
+    admins and super users see every member, regular members get the response
+    scoped to their own keys (members, totals, and series alike).
     """
-    await require_team_admin(user, team_id, litellm_db)
+    access = await get_team_access(user, team_id, litellm_db)
 
     if sort_by not in _USAGE_SORT_COLUMNS:
         raise HTTPException(status_code=400, detail=f"Invalid sort_by: {sort_by}")
@@ -573,6 +575,9 @@ async def team_usage_by_member(
         {"team_id": team_id},
     )
     token_to_user = {r["token"]: r["user_id"] for r in keys_result.mappings()}
+    if access != "admin":
+        # Regular members only see their own usage.
+        token_to_user = {tok: uid for tok, uid in token_to_user.items() if uid == user.user_id}
     if not token_to_user:
         return {
             "members": [],
@@ -698,7 +703,8 @@ async def team_member_usage_by_model(
 
     Same source and scoping as the team usage endpoint (LiteLLM_DailyUserSpend,
     restricted to this team's keys), narrowed to the given member. `start_date`/
-    `end_date` are inclusive `YYYY-MM-DD`. Team admin or super user only.
+    `end_date` are inclusive `YYYY-MM-DD`. Team admins and super users may view
+    any member; regular members only themselves.
 
     `group_by` controls the breakdown:
       - "model" (default): the underlying model recorded in each spend row.
@@ -707,7 +713,12 @@ async def team_member_usage_by_model(
         routes), so there are no "(unknown)" buckets.
     The grouped label is always returned in the `model` field.
     """
-    await require_team_admin(user, team_id, litellm_db)
+    access = await get_team_access(user, team_id, litellm_db)
+    if access != "admin" and user_id != user.user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Members can only view their own model usage",
+        )
 
     # This team's keys owned by the member (usage is attributed via api_key).
     keys_result = await litellm_db.execute(

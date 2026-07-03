@@ -398,3 +398,142 @@ async def test_member_usage_by_model_returns_token_breakdown(admin_client: Async
     assert resp.status_code == 200, resp.text
     mm = resp.json()["models"][0]
     assert (mm["input_tokens"], mm["output_tokens"], mm["cache_read_tokens"]) == (1000, 100, 400)
+
+
+@pytest.mark.asyncio
+async def test_team_usage_member_sees_only_own_usage(user_client: AsyncClient, mock_litellm, mock_db):
+    """A regular team member can open the usage tab, scoped to their own keys."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    async def fake_execute(statement, params=None):
+        sql = str(statement)
+        if "LiteLLM_TeamTable" in sql:
+            return _FakeMappingsResult([{"admins": ["someone-else"], "members": ["user001", "user002"]}])
+        if "LiteLLM_VerificationToken" in sql:
+            return _FakeMappingsResult(
+                [
+                    {"token": "sk-mine", "user_id": "user001"},
+                    {"token": "sk-other", "user_id": "user002"},
+                ]
+            )
+        assert params["tokens"] == ["sk-mine"], params["tokens"]  # self-scoped aggregation
+        if "GROUP BY api_key" in sql:
+            return _FakeMappingsResult(
+                [
+                    {
+                        "api_key": "sk-mine",
+                        "total_tokens": 100,
+                        "input_tokens": 80,
+                        "output_tokens": 20,
+                        "cache_read_tokens": 10,
+                        "api_requests": 2,
+                        "spend": 0.5,
+                    }
+                ]
+            )
+        return _FakeMappingsResult([])
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    resp = await user_client.get("/api/teams/team-1/usage?start_date=2026-07-01&end_date=2026-07-02")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [m["user_id"] for m in body["members"]] == ["user001"]
+    assert body["totals"]["total_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_team_usage_non_member_forbidden(user_client: AsyncClient, mock_litellm, mock_db):
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    async def fake_execute(statement, params=None):
+        return _FakeMappingsResult([{"admins": [], "members": ["user002"]}])
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    resp = await user_client.get("/api/teams/team-1/usage?start_date=2026-07-01&end_date=2026-07-02")
+    assert resp.status_code == 403, resp.text
+
+
+@pytest.mark.asyncio
+async def test_team_usage_team_admin_sees_all_members(user_client: AsyncClient, mock_litellm, mock_db):
+    """A team admin (not a super user) still gets every member's usage."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    async def fake_execute(statement, params=None):
+        sql = str(statement)
+        if "LiteLLM_TeamTable" in sql:
+            return _FakeMappingsResult([{"admins": ["user001"], "members": ["user001", "user002"]}])
+        if "LiteLLM_VerificationToken" in sql:
+            return _FakeMappingsResult(
+                [
+                    {"token": "sk-mine", "user_id": "user001"},
+                    {"token": "sk-other", "user_id": "user002"},
+                ]
+            )
+        if "GROUP BY api_key" in sql:
+            assert sorted(params["tokens"]) == ["sk-mine", "sk-other"], params["tokens"]
+            return _FakeMappingsResult(
+                [
+                    {
+                        "api_key": "sk-mine",
+                        "total_tokens": 100,
+                        "input_tokens": 80,
+                        "output_tokens": 20,
+                        "cache_read_tokens": 10,
+                        "api_requests": 2,
+                        "spend": 0.5,
+                    },
+                    {
+                        "api_key": "sk-other",
+                        "total_tokens": 200,
+                        "input_tokens": 150,
+                        "output_tokens": 50,
+                        "cache_read_tokens": 60,
+                        "api_requests": 4,
+                        "spend": 1.0,
+                    },
+                ]
+            )
+        return _FakeMappingsResult([])
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    resp = await user_client.get("/api/teams/team-1/usage?start_date=2026-07-01&end_date=2026-07-02")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert {m["user_id"] for m in body["members"]} == {"user001", "user002"}
+    assert body["totals"]["total_tokens"] == 300
+
+
+@pytest.mark.asyncio
+async def test_member_usage_by_model_self_allowed_others_forbidden(user_client: AsyncClient, mock_litellm, mock_db):
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    async def fake_execute(statement, params=None):
+        sql = str(statement)
+        if "LiteLLM_TeamTable" in sql:
+            return _FakeMappingsResult([{"admins": [], "members": ["user001", "user002"]}])
+        if "LiteLLM_VerificationToken" in sql:
+            return _FakeMappingsResult([{"token": "sk-mine"}])
+        return _FakeMappingsResult([])
+
+    mock_db.execute = fake_execute
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    ok = await user_client.get(
+        "/api/teams/team-1/usage/user001/by-model?start_date=2026-01-01&end_date=2026-12-31"
+    )
+    assert ok.status_code == 200, ok.text
+
+    denied = await user_client.get(
+        "/api/teams/team-1/usage/user002/by-model?start_date=2026-01-01&end_date=2026-12-31"
+    )
+    assert denied.status_code == 403, denied.text
