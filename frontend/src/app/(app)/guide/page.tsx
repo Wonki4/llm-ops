@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/code-block";
 
 const CURL_EXAMPLE = `curl https://<gateway-host>/v1/chat/completions \\
-  -H "Authorization: Bearer sk-your-key" \\
+  -H "Authorization: Bearer your-key" \\
   -H "Content-Type: application/json" \\
   -d '{
     "model": "<model-name>",
@@ -18,7 +18,7 @@ const PYTHON_EXAMPLE = `from openai import OpenAI
 
 client = OpenAI(
     base_url="https://<gateway-host>/v1",
-    api_key="sk-your-key",
+    api_key="your-key",
 )
 
 resp = client.chat.completions.create(
