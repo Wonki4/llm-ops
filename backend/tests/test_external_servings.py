@@ -1,7 +1,10 @@
 """Tests for external vLLM/SGLang serving discovery."""
 
-from app.services.deployment_status import classify
+import types
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.clients.k8s import K8sClient
+from app.services.deployment_status import classify
 
 # ─── classify ────────────────────────────────────────────────
 
@@ -36,11 +39,6 @@ def test_classify_failed_on_progress_deadline():
 
 
 # ─── list_deployments_all ────────────────────────────────────
-
-import types
-from unittest.mock import AsyncMock, MagicMock, patch
-
-from app.clients.k8s import K8sClient
 
 
 def _fake_k8s_deployment(name="ext-vllm", namespace="team-a", image="vllm/vllm-openai:v0.6.0",
