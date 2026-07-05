@@ -142,6 +142,40 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    async def list_deployments_all(self) -> list[dict]:
+        """List Deployments across all namespaces, shaped for discovery.
+
+        One cluster-wide LIST call. Used by the external-serving discovery
+        endpoint; the RBAC ClusterRole already grants deployments list.
+        """
+        api_client = await self._api_client()
+        try:
+            apps = client.AppsV1Api(api_client)
+            result = await apps.list_deployment_for_all_namespaces()
+            items: list[dict] = []
+            for dep in result.items:
+                containers = dep.spec.template.spec.containers or []
+                created = dep.metadata.creation_timestamp
+                items.append(
+                    {
+                        "name": dep.metadata.name,
+                        "namespace": dep.metadata.namespace,
+                        "labels": dict(dep.metadata.labels or {}),
+                        "created_at": created.isoformat() if created else None,
+                        "containers": [{"image": c.image, "args": list(c.args or [])} for c in containers],
+                        "replicas": int(dep.spec.replicas or 0),
+                        "ready": int(dep.status.ready_replicas or 0),
+                        "available": int(dep.status.available_replicas or 0),
+                        "conditions": [
+                            {"type": c.type, "status": c.status, "reason": c.reason, "message": c.message}
+                            for c in (dep.status.conditions or [])
+                        ],
+                    }
+                )
+            return items
+        finally:
+            await api_client.close()
+
     # ─── Batch v1 (Jobs) — used by benchmark runner ─────────────────
 
     async def create_job(self, namespace: str, manifest: dict) -> None:
