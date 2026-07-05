@@ -1376,6 +1376,8 @@
     "extraParams": "추가 파라미터",
     "extraParamsLabel": "추가 파라미터 (JSON)",
     "extraParamsHint": "Named 필드 위에 머지됩니다 (덮어쓰기). 폼에 노출되지 않은 툴 옵션을 통과시킬 때 사용하세요.",
+    "extraArgsLabel": "추가 CLI 인자 (vllm bench serve)",
+    "extraArgsHint": "명령에 그대로 덧붙습니다 — 값 없는 플래그(--disable-tqdm 등)처럼 key/value로 표현할 수 없는 옵션용. 성능 벤치마크 전용.",
     "errorExtrasNotObject": "추가 파라미터는 JSON 객체여야 합니다.",
     "errorExtrasJsonInvalid": "추가 파라미터 JSON 형식이 잘못되었습니다: {message}",
     "tasksLabel": "Task 목록",

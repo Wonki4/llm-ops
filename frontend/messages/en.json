@@ -1376,6 +1376,8 @@
     "extraParams": "Extra parameters",
     "extraParamsLabel": "Additional params (JSON)",
     "extraParamsHint": "Merged on top of the named fields (overrides). Use this to pass any tool-specific option the form doesn't expose.",
+    "extraArgsLabel": "Extra CLI args (vllm bench serve)",
+    "extraArgsHint": "Appended to the command verbatim — for value-less flags a key/value object can't express, e.g. --disable-tqdm. Performance runs only.",
     "errorExtrasNotObject": "Extra params must be a JSON object.",
     "errorExtrasJsonInvalid": "Extra params JSON is invalid: {message}",
     "tasksLabel": "Tasks",
