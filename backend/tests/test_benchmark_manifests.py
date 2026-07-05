@@ -33,3 +33,28 @@ def test_accuracy_job_passes_api_key_as_bench_key():
         image="img", target_base_url="http://t", api_key="sk-acc", bench_model="m",
     )
     assert _env(m)["BENCH_API_KEY"] == "sk-acc"
+
+
+def _script(manifest: dict) -> str:
+    return manifest["spec"]["template"]["spec"]["containers"][0]["command"][2]
+
+
+def test_vllm_bench_job_appends_extra_args_verbatim():
+    """`extra_args` is a raw CLI string (vllm bench serve flags) — bare flags
+    have no value, so the JSON key/value passthrough can't express them."""
+    m = build_vllm_bench_job(
+        _run(params={"extra_args": "--disable-tqdm --burstiness 0.5"}),
+        image="img", target_base_url="http://t", api_key="k", served_model="m",
+    )
+    script = _script(m)
+    assert "--disable-tqdm" in script
+    assert "--burstiness 0.5" in script
+    assert "--extra-args" not in script  # must not fall through the key/value path
+
+
+def test_vllm_bench_job_extra_args_tokens_are_quoted():
+    m = build_vllm_bench_job(
+        _run(params={"extra_args": '--served-model-name "my model"'}),
+        image="img", target_base_url="http://t", api_key="k", served_model="m",
+    )
+    assert "'my model'" in _script(m)  # quoted as ONE argv token, not shell-split

@@ -69,6 +69,7 @@ export default function NewBenchmarkPage() {
   const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
   const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
   const [extraParamsText, setExtraParamsText] = useState("");
+  const [extraArgsText, setExtraArgsText] = useState("");
   const [namespace, setNamespace] = useState("");
   const [image, setImage] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -106,6 +107,7 @@ export default function NewBenchmarkPage() {
       const known = new Set([
         "num_prompts", "random_input_len", "random_output_len", "max_concurrency",
         "request_rate", "ignore_eos", "tokenizer", "nfs_server", "nfs_path", "nfs_mount_path",
+        "extra_args",
       ]);
       setPerfParams({
         num_prompts: num(params.num_prompts, DEFAULT_PERF_PARAMS.num_prompts),
@@ -119,6 +121,7 @@ export default function NewBenchmarkPage() {
         nfs_path: str(params.nfs_path),
         nfs_mount_path: str(params.nfs_mount_path),
       });
+      setExtraArgsText(str(params.extra_args));
       const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
       setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
     } else {
@@ -132,6 +135,7 @@ export default function NewBenchmarkPage() {
         batch_size: num(params.batch_size, DEFAULT_ACCURACY_PARAMS.batch_size),
         num_concurrent: num(params.num_concurrent, DEFAULT_ACCURACY_PARAMS.num_concurrent),
       });
+      setExtraArgsText("");
       const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
       setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
     }
@@ -227,7 +231,11 @@ export default function NewBenchmarkPage() {
     const extras = parseExtras();
     const body: CreateBenchmarkRequest = {
       tool,
-      params: { ...buildNamedParams(), ...(extras.ok ? extras.value : {}) },
+      params: {
+        ...buildNamedParams(),
+        ...(extras.ok ? extras.value : {}),
+        ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
+      },
     };
     if (deploymentId) {
       body.deployment_id = deploymentId;
@@ -255,7 +263,7 @@ export default function NewBenchmarkPage() {
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    deploymentId, modelName, tool, perfParams, accParams, extraParamsText,
+    deploymentId, modelName, tool, perfParams, accParams, extraParamsText, extraArgsText,
     ephemeral, servingOverridesText, clusterId, namespace, image, apiKey,
   ]);
 
@@ -294,7 +302,11 @@ export default function NewBenchmarkPage() {
     const body: CreateBenchmarkRequest = {
       tool,
       // Extras override named so users can correct any field via JSON.
-      params: { ...buildNamedParams(), ...extras.value },
+      params: {
+        ...buildNamedParams(),
+        ...extras.value,
+        ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
+      },
     };
     // Prefer a portal-managed serving deployment (hit directly); else a LiteLLM alias.
     if (deploymentId) {
@@ -530,6 +542,19 @@ export default function NewBenchmarkPage() {
               placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
             />
             <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
+            {kind === "performance" && (
+              <div className="space-y-1.5 pt-2">
+                <Label htmlFor="extra_args">{t("extraArgsLabel")}</Label>
+                <Input
+                  id="extra_args"
+                  value={extraArgsText}
+                  onChange={(e) => setExtraArgsText(e.target.value)}
+                  placeholder="--disable-tqdm --burstiness 0.5"
+                  className="font-mono"
+                />
+                <p className="text-xs text-muted-foreground">{t("extraArgsHint")}</p>
+              </div>
+            )}
           </CardContent>
         </Card>
 

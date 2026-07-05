@@ -66,6 +66,7 @@ _NON_CLI_PARAMS = frozenset(
         "nfs_server",
         "nfs_path",
         "nfs_mount_path",
+        "extra_args",
     }
 )
 
@@ -137,6 +138,14 @@ def build_vllm_bench_job(
                 args.append(flag)
         else:
             args += [flag, str(val)]
+
+    # Raw CLI passthrough (`extra_args`): vllm bench serve has bare, value-less
+    # flags (--disable-tqdm, ...) that a key/value params object cannot express.
+    # shlex round-trip keeps it safe: split into tokens here, and every token is
+    # re-quoted below, so each stays ONE argv entry — no shell interpretation.
+    extra_args = p.get("extra_args")
+    if isinstance(extra_args, str) and extra_args.strip():
+        args += shlex.split(extra_args)
 
     bench_cmd = " ".join(shlex.quote(a) for a in args)
     # vllm bench serve prints a summary table + writes /tmp/r.json. We collapse
