@@ -32,39 +32,10 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
 from app.db.session import async_session_factory
 from app.services.clusters import k8s_for_cluster
+from app.services.deployment_status import classify
 from app.services.model_deployment_manifests import k8s_resource_names, serving_api_key
 
 logger = logging.getLogger(__name__)
-
-
-def _classify(observed: dict, desired_replicas: int) -> tuple[str, str]:
-    """Return (status, message) from K8s deployment status payload."""
-    ready = observed.get("ready", 0)
-    available = observed.get("available", 0)
-    conditions = observed.get("conditions", [])
-
-    progressing_failed = any(
-        c.get("type") == "Progressing"
-        and c.get("status") == "False"
-        and c.get("reason") in ("ProgressDeadlineExceeded",)
-        for c in conditions
-    )
-    if progressing_failed:
-        return "Failed", "Deployment progress deadline exceeded"
-
-    replica_failure = any(c.get("type") == "ReplicaFailure" and c.get("status") == "True" for c in conditions)
-    if replica_failure:
-        msg = next((c.get("message") for c in conditions if c.get("type") == "ReplicaFailure"), None)
-        return "Unhealthy", msg or "ReplicaFailure condition true"
-
-    if desired_replicas == 0:
-        return "Stopped", "replicas set to 0"
-
-    if ready >= desired_replicas and available >= desired_replicas:
-        return "Ready", None
-    if ready == 0:
-        return "Pending", "No ready pods yet"
-    return "Updating", f"{ready}/{desired_replicas} pods ready"
 
 
 def _severity_for(transition: tuple[str, str]) -> str:
@@ -183,7 +154,7 @@ async def reconcile_once() -> dict:
                     logger.exception("K8s status read failed for %s", dep.model_name)
                     continue
 
-                new_status, message = _classify(observed, dep.replicas)
+                new_status, message = classify(observed, dep.replicas)
                 cluster_ip = await k8s.read_service_cluster_ip(dep.namespace, names["service"])
 
                 # Build a small set of updates so we only flush when something changed
