@@ -2,6 +2,7 @@
 
 import asyncio
 import types
+import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.clients.k8s import K8sClient, K8sNotConfigured
@@ -176,3 +177,75 @@ async def test_scan_clusters_timeout_reports_error():
     assert servings == []
     assert errors[0]["cluster"] == "slow"
     assert "timed out" in errors[0]["message"]
+
+
+# ─── GET /api/model-deployments/external ─────────────────────
+
+
+def _exec_result(rows):
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = rows
+    result.scalar_one_or_none.return_value = rows[0] if rows else None
+    return result
+
+
+def _serving(cluster_id=None, cluster_name="default", name="ext-vllm", namespace="team-a"):
+    return {
+        "cluster_id": cluster_id, "cluster_name": cluster_name,
+        "namespace": namespace, "deployment_name": name,
+        "engine": "vllm", "image": "vllm/vllm-openai:v0.6.0",
+        "replicas": 2, "ready_replicas": 2,
+        "status": "Ready", "status_message": None,
+        "created_at": "2026-07-01T00:00:00+00:00", "model_path": "/models/llama-3-8b",
+        "labels": {}, "args": ["--model", "/models/llama-3-8b"],
+    }
+
+
+async def test_get_external_servings(client_for_user, super_user, mock_db):
+    # execute #1: registered clusters (none) / execute #2: registrations (none)
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([])])
+    with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
+        async with client_for_user(super_user) as client:
+            resp = await client.get("/api/model-deployments/external")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["errors"] == []
+    assert len(body["servings"]) == 1
+    assert body["servings"][0]["deployment_name"] == "ext-vllm"
+    assert body["servings"][0]["registration"] is None
+
+
+async def test_get_external_servings_joins_registration(client_for_user, super_user, mock_db):
+    reg = MagicMock()
+    reg.id = uuid.uuid4()
+    reg.cluster_id = None
+    reg.namespace = "team-a"
+    reg.deployment_name = "ext-vllm"
+    reg.model_name = "llama-3-8b"
+    reg.api_base = "https://ext.example.com"
+    reg.litellm_model_id = "litellm-abc"
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([reg])])
+    with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
+        async with client_for_user(super_user) as client:
+            resp = await client.get("/api/model-deployments/external")
+    body = resp.json()
+    assert body["servings"][0]["registration"]["model_name"] == "llama-3-8b"
+    assert body["servings"][0]["registration"]["litellm_model_id"] == "litellm-abc"
+
+
+async def test_get_external_servings_reports_cluster_errors(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([])])
+    with patch(
+        "app.api.model_deployments.scan_clusters",
+        AsyncMock(return_value=([], [{"cluster": "prod", "message": "scan timed out after 5s"}])),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.get("/api/model-deployments/external")
+    assert resp.status_code == 200
+    assert resp.json()["errors"][0]["cluster"] == "prod"
+
+
+async def test_get_external_servings_requires_super_user(client_for_user, regular_user):
+    async with client_for_user(regular_user) as client:
+        resp = await client.get("/api/model-deployments/external")
+    assert resp.status_code == 403
