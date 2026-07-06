@@ -372,3 +372,15 @@ async def test_unregister_unknown_404(client_for_user, super_user, mock_db):
     async with client_for_user(super_user) as client:
         resp = await client.delete(f"/api/model-deployments/external/register/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+async def test_register_requires_super_user(client_for_user, regular_user):
+    async with client_for_user(regular_user) as client:
+        resp = await client.post("/api/model-deployments/external/register", json=REGISTER_BODY)
+    assert resp.status_code == 403
+
+
+async def test_unregister_requires_super_user(client_for_user, regular_user):
+    async with client_for_user(regular_user) as client:
+        resp = await client.delete(f"/api/model-deployments/external/register/{uuid.uuid4()}")
+    assert resp.status_code == 403
