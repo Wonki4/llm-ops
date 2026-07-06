@@ -63,6 +63,8 @@ _NON_CLI_PARAMS = frozenset(
         "max_concurrency",
         "ignore_eos",
         "tokenizer",
+        "seed",
+        "goodput",
         "nfs_server",
         "nfs_path",
         "nfs_mount_path",
@@ -112,13 +114,16 @@ def build_vllm_bench_job(
         "--num-prompts", str(int(p.get("num_prompts", 200))),
         "--percentile-metrics", "ttft,tpot,itl,e2el",
         "--metric-percentiles", "90,99",
-        "--seed", "0",
+        "--seed", str(int(p.get("seed", 0))),
         "--save-result", "--result-dir", "/tmp", "--result-filename", "r.json",
     ]
     if p.get("request_rate") not in (None, ""):
         args += ["--request-rate", str(float(p["request_rate"]))]
     if p.get("max_concurrency") not in (None, ""):
         args += ["--max-concurrency", str(int(p["max_concurrency"]))]
+    # SLO goodput: space-separated "metric:ms" pairs (e.g. "ttft:200 tpot:50").
+    if p.get("goodput") not in (None, ""):
+        args += ["--goodput", *str(p["goodput"]).split()]
     if p.get("ignore_eos"):
         args += ["--ignore-eos"]
 

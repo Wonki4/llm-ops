@@ -182,7 +182,7 @@ def test_extra_params_skip_reserved_infra_and_collisions():
          "nfs_mount_path": "/models"}
     )
     assert script.count("--num-prompts") == 1 and "--num-prompts 50" in script
-    assert script.count("--seed") == 1 and "--seed 0" in script  # explicit flag wins
+    assert script.count("--seed") == 1 and "--seed 42" in script  # user seed wins, emitted once
     assert "--nfs-server" not in script  # infra-only, never a CLI flag
 
 
