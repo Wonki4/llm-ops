@@ -15,10 +15,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
+from app.db.models.custom_external_serving import CustomExternalServing
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
+from app.services.external_servings import scan_clusters
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
 
 logger = logging.getLogger(__name__)
@@ -117,6 +120,40 @@ async def list_deployments(
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).order_by(CustomModelDeployment.created_at.desc()))
     return {"deployments": [_serialize(d) for d in result.scalars().all()]}
+
+
+def _serialize_registration(r: CustomExternalServing) -> dict:
+    return {
+        "id": str(r.id),
+        "model_name": r.model_name,
+        "api_base": r.api_base,
+        "litellm_model_id": r.litellm_model_id,
+    }
+
+
+@router.get("/external")
+async def list_external_servings(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Live-scan all clusters for vLLM/SGLang deployments not managed by the portal."""
+    targets: list[tuple[str | None, str, K8sClient]] = [(None, "default", K8sClient())]
+    clusters = (await db.execute(select(CustomK8sCluster))).scalars().all()
+    for row in clusters:
+        targets.append((str(row.id), row.name, await k8s_for_cluster(db, row.id)))
+
+    servings, errors = await scan_clusters(targets)
+
+    regs = (await db.execute(select(CustomExternalServing))).scalars().all()
+    reg_map = {
+        (str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r
+        for r in regs
+    }
+    for s in servings:
+        r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))
+        s["registration"] = _serialize_registration(r) if r else None
+
+    return {"servings": servings, "errors": errors}
 
 
 @router.get("/{deployment_id}")
