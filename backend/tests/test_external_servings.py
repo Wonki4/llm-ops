@@ -249,3 +249,46 @@ async def test_get_external_servings_requires_super_user(client_for_user, regula
     async with client_for_user(regular_user) as client:
         resp = await client.get("/api/model-deployments/external")
     assert resp.status_code == 403
+
+
+async def test_get_external_servings_scans_registered_clusters(client_for_user, super_user, mock_db):
+    """Registered clusters become scan targets after the portal default, and a
+    registration keyed by the cluster's UUID joins onto that cluster's serving."""
+    cluster_id = uuid.uuid4()
+    cluster_row = MagicMock()
+    cluster_row.id = cluster_id
+    cluster_row.name = "prod"
+
+    reg = MagicMock()
+    reg.id = uuid.uuid4()
+    reg.cluster_id = cluster_id
+    reg.namespace = "ml"
+    reg.deployment_name = "prod-vllm"
+    reg.model_name = "qwen-72b"
+    reg.api_base = "https://prod.example.com"
+    reg.litellm_model_id = "litellm-prod-1"
+
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([cluster_row]), _exec_result([reg])])
+
+    captured = {}
+
+    async def _fake_scan(targets, timeout=5.0):
+        captured["targets"] = targets
+        serving = _serving(cluster_id=str(cluster_id), cluster_name="prod", name="prod-vllm", namespace="ml")
+        return [serving], []
+
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=MagicMock())),
+        patch("app.api.model_deployments.scan_clusters", AsyncMock(side_effect=_fake_scan)),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.get("/api/model-deployments/external")
+
+    assert resp.status_code == 200
+    targets = captured["targets"]
+    assert len(targets) == 2
+    assert targets[0][0] is None and targets[0][1] == "default"
+    assert targets[1][0] == str(cluster_id) and targets[1][1] == "prod"
+    registration = resp.json()["servings"][0]["registration"]
+    assert registration["model_name"] == "qwen-72b"
+    assert registration["litellm_model_id"] == "litellm-prod-1"
