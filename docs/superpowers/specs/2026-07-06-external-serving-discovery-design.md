@@ -147,3 +147,27 @@ Unique constraint on `(cluster_id, namespace, deployment_name)`.
 - Status history, events, or Slack alerts for external servings.
 - Automatic api_base inference from Services/Ingresses.
 - Auto-creating `custom_model_catalog` rows on external registration.
+
+## v1 implementation notes (post-review)
+
+Final whole-branch review verdict: ready to merge. Deliberate deviations and
+accepted follow-ups recorded here so they aren't rediscovered as bugs:
+
+- **`served_model_name` added to the register body** (spec's body list omitted
+  it). An external vLLM's default served-model name is the full `--model` path,
+  so the dialog pre-fills the full path and lets the admin override when the
+  server used `--served-model-name`. The resulting `openai//models/...` double
+  slash in litellm_model is intentional.
+- **Follow-up (non-blocking):** `k8s_for_cluster()` decrypts stored kubeconfigs
+  eagerly in the GET /external target-building loop, outside `scan_clusters`'
+  error boundary — a corrupted stored kubeconfig 500s the endpoint instead of
+  becoming a per-cluster `errors[]` entry. Same exposure as the reconciler.
+  Fix by building targets per-cluster inside a try/except.
+- **Security note:** the serving payload includes container `args` for the
+  inline expansion; if an external server was started with `--api-key <secret>`
+  the value is visible to super users (identical visibility they already have
+  via kubectl). Add arg redaction if that trust boundary ever changes.
+- `scan_clusters` classifies `asyncio.gather(return_exceptions=True)` results
+  with `isinstance(result, BaseException)` — this is required (narrowing to
+  `Exception` would let CancelledError fall into the success branch); do not
+  "simplify" it.
