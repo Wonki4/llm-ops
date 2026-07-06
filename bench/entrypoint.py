@@ -78,6 +78,13 @@ def run_accuracy(*, model: str, base_url: str, api_key: str, params: dict) -> di
         cmd += ["--num_fewshot", str(num_fewshot)]
     if limit is not None:
         cmd += ["--limit", str(limit)]
+    # Wrap prompts with the model's chat template before sending (chat models).
+    if params.get("apply_chat_template"):
+        cmd += ["--apply_chat_template"]
+    # Generation controls, e.g. "temperature=0,max_gen_toks=256".
+    gen_kwargs = params.get("gen_kwargs")
+    if gen_kwargs:
+        cmd += ["--gen_kwargs", str(gen_kwargs)]
 
     print(f"$ {' '.join(cmd)}", flush=True)
     proc = subprocess.run(cmd, env=env_copy, capture_output=True, text=True)

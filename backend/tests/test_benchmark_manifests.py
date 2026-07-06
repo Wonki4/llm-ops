@@ -58,3 +58,28 @@ def test_vllm_bench_job_extra_args_tokens_are_quoted():
         image="img", target_base_url="http://t", api_key="k", served_model="m",
     )
     assert "'my model'" in _script(m)  # quoted as ONE argv token, not shell-split
+
+
+def test_seed_param_overrides_default():
+    m = build_vllm_bench_job(
+        _run(params={"seed": 42}),
+        image="img", target_base_url="http://t", api_key="", served_model="m",
+    )
+    script = _script(m)
+    assert "--seed 42" in script
+    assert "--seed 0" not in script
+
+
+def test_seed_defaults_to_zero_when_absent():
+    m = build_vllm_bench_job(
+        _run(), image="img", target_base_url="http://t", api_key="", served_model="m",
+    )
+    assert "--seed 0" in _script(m)
+
+
+def test_goodput_param_emits_space_separated_pairs():
+    m = build_vllm_bench_job(
+        _run(params={"goodput": "ttft:200 tpot:50"}),
+        image="img", target_base_url="http://t", api_key="", served_model="m",
+    )
+    assert "--goodput ttft:200 tpot:50" in _script(m)

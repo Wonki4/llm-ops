@@ -35,6 +35,9 @@ const DEFAULT_PERF_PARAMS = {
   max_concurrency: "",
   request_rate: "",
   ignore_eos: true,
+  seed: 0,
+  random_range_ratio: "",
+  goodput: "",
   tokenizer: "",
   // NFS override for a raw model_name target (deployment targets carry their own PVC).
   nfs_server: "",
@@ -48,6 +51,8 @@ const DEFAULT_ACCURACY_PARAMS = {
   limit: "",
   batch_size: 8,
   num_concurrent: 4,
+  apply_chat_template: false,
+  gen_kwargs: "",
 };
 
 export default function NewBenchmarkPage() {
@@ -106,7 +111,8 @@ export default function NewBenchmarkPage() {
     if (TOOL_TO_KIND[run.tool] === "performance") {
       const known = new Set([
         "num_prompts", "random_input_len", "random_output_len", "max_concurrency",
-        "request_rate", "ignore_eos", "tokenizer", "nfs_server", "nfs_path", "nfs_mount_path",
+        "request_rate", "ignore_eos", "seed", "random_range_ratio", "goodput",
+        "tokenizer", "nfs_server", "nfs_path", "nfs_mount_path",
         "extra_args",
       ]);
       setPerfParams({
@@ -116,6 +122,9 @@ export default function NewBenchmarkPage() {
         max_concurrency: str(params.max_concurrency),
         request_rate: str(params.request_rate),
         ignore_eos: params.ignore_eos !== false,
+        seed: num(params.seed, DEFAULT_PERF_PARAMS.seed),
+        random_range_ratio: str(params.random_range_ratio),
+        goodput: str(params.goodput),
         tokenizer: str(params.tokenizer),
         nfs_server: str(params.nfs_server),
         nfs_path: str(params.nfs_path),
@@ -125,7 +134,10 @@ export default function NewBenchmarkPage() {
       const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
       setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
     } else {
-      const known = new Set(["tasks", "batch_size", "num_concurrent", "num_fewshot", "limit"]);
+      const known = new Set([
+        "tasks", "batch_size", "num_concurrent", "num_fewshot", "limit",
+        "apply_chat_template", "gen_kwargs",
+      ]);
       setAccParams({
         tasks: Array.isArray(params.tasks)
           ? (params.tasks as string[]).join(", ")
@@ -134,6 +146,8 @@ export default function NewBenchmarkPage() {
         limit: str(params.limit),
         batch_size: num(params.batch_size, DEFAULT_ACCURACY_PARAMS.batch_size),
         num_concurrent: num(params.num_concurrent, DEFAULT_ACCURACY_PARAMS.num_concurrent),
+        apply_chat_template: params.apply_chat_template === true,
+        gen_kwargs: str(params.gen_kwargs),
       });
       setExtraArgsText("");
       const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
@@ -170,6 +184,13 @@ export default function NewBenchmarkPage() {
       if (perfParams.ignore_eos) {
         params.ignore_eos = true;
       }
+      params.seed = perfParams.seed;
+      if (perfParams.random_range_ratio !== "") {
+        params.random_range_ratio = Number(perfParams.random_range_ratio);
+      }
+      if (perfParams.goodput.trim() !== "") {
+        params.goodput = perfParams.goodput.trim();
+      }
       if (perfParams.tokenizer.trim() !== "") {
         params.tokenizer = perfParams.tokenizer.trim();
       }
@@ -200,6 +221,12 @@ export default function NewBenchmarkPage() {
     }
     if (accParams.limit !== "") {
       params.limit = Number(accParams.limit);
+    }
+    if (accParams.apply_chat_template) {
+      params.apply_chat_template = true;
+    }
+    if (accParams.gen_kwargs.trim() !== "") {
+      params.gen_kwargs = accParams.gen_kwargs.trim();
     }
     return params;
   };
@@ -706,6 +733,22 @@ function PerfParamsFields({
           value={params.request_rate}
           onChange={(v) => onChange({ ...params, request_rate: v })}
         />
+        <NumberField
+          id="seed"
+          label={t("seedLabel")}
+          hint={t("seedHint")}
+          value={params.seed}
+          onChange={(v) => onChange({ ...params, seed: v })}
+          min={0}
+        />
+        <OptionalNumberField
+          id="random_range_ratio"
+          label={t("randomRangeRatioLabel")}
+          hint={t("randomRangeRatioHint")}
+          value={params.random_range_ratio}
+          onChange={(v) => onChange({ ...params, random_range_ratio: v })}
+          step="0.1"
+        />
         <div className="flex items-center gap-2 mt-6">
           <input
             id="ignore_eos"
@@ -718,6 +761,16 @@ function PerfParamsFields({
             {t("ignoreEosLabel")}
           </Label>
         </div>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="goodput">{t("goodputLabel")}</Label>
+        <Input
+          id="goodput"
+          placeholder={t("goodputPlaceholder")}
+          value={params.goodput}
+          onChange={(e) => onChange({ ...params, goodput: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">{t("goodputHint")}</p>
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="tokenizer">{t("tokenizerLabel")}</Label>
@@ -811,6 +864,28 @@ function AccuracyParamsFields({
           onChange={(v) => onChange({ ...params, limit: v })}
         />
       </div>
+      <div className="flex items-center gap-2">
+        <input
+          id="apply_chat_template"
+          type="checkbox"
+          className="size-4 rounded border-input"
+          checked={params.apply_chat_template}
+          onChange={(e) => onChange({ ...params, apply_chat_template: e.target.checked })}
+        />
+        <Label htmlFor="apply_chat_template" className="cursor-pointer">
+          {t("applyChatTemplateLabel")}
+        </Label>
+      </div>
+      <div className="space-y-1.5">
+        <Label htmlFor="gen_kwargs">{t("genKwargsLabel")}</Label>
+        <Input
+          id="gen_kwargs"
+          placeholder={t("genKwargsPlaceholder")}
+          value={params.gen_kwargs}
+          onChange={(e) => onChange({ ...params, gen_kwargs: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground">{t("genKwargsHint")}</p>
+      </div>
     </>
   );
 }
@@ -854,12 +929,14 @@ function OptionalNumberField({
   hint,
   value,
   onChange,
+  step,
 }: {
   id: string;
   label: string;
   hint: string;
   value: string;
   onChange: (v: string) => void;
+  step?: string;
 }) {
   return (
     <div className="space-y-1.5">
@@ -868,6 +945,7 @@ function OptionalNumberField({
         id={id}
         type="number"
         value={value}
+        step={step}
         onChange={(e) => onChange(e.target.value)}
       />
       <p className="text-xs text-muted-foreground">{hint}</p>
