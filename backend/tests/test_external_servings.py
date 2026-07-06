@@ -292,3 +292,83 @@ async def test_get_external_servings_scans_registered_clusters(client_for_user, 
     registration = resp.json()["servings"][0]["registration"]
     assert registration["model_name"] == "qwen-72b"
     assert registration["litellm_model_id"] == "litellm-prod-1"
+
+
+# ─── POST /external/register ─────────────────────────────────
+
+
+REGISTER_BODY = {
+    "cluster_id": None,
+    "namespace": "team-a",
+    "deployment_name": "ext-vllm",
+    "model_name": "llama-3-8b",
+    "served_model_name": "/models/llama-3-8b",
+    "api_base": "https://ext-vllm.example.com",
+}
+
+
+async def test_register_external_serving(client_for_user, super_user, mock_db, mock_litellm):
+    mock_db.execute = AsyncMock(return_value=_exec_result([]))  # duplicate check: none
+    mock_litellm.create_model = AsyncMock(return_value={"model_info": {"id": "litellm-new-1"}})
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/model-deployments/external/register", json=REGISTER_BODY)
+    assert resp.status_code == 201
+    assert resp.json()["registration"]["litellm_model_id"] == "litellm-new-1"
+    mock_litellm.create_model.assert_awaited_once_with(
+        model_name="llama-3-8b",
+        litellm_model="openai//models/llama-3-8b",
+        api_base="https://ext-vllm.example.com",
+        api_key="EMPTY",
+    )
+    mock_db.add.assert_called_once()
+
+
+async def test_register_duplicate_409(client_for_user, super_user, mock_db, mock_litellm):
+    mock_db.execute = AsyncMock(return_value=_exec_result([MagicMock()]))  # existing row
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/model-deployments/external/register", json=REGISTER_BODY)
+    assert resp.status_code == 409
+    mock_litellm.create_model.assert_not_called()
+
+
+async def test_register_litellm_failure_502(client_for_user, super_user, mock_db, mock_litellm):
+    mock_db.execute = AsyncMock(return_value=_exec_result([]))
+    mock_litellm.create_model = AsyncMock(side_effect=RuntimeError("litellm down"))
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/model-deployments/external/register", json=REGISTER_BODY)
+    assert resp.status_code == 502
+    mock_db.add.assert_not_called()
+
+
+# ─── DELETE /external/register/{id} ──────────────────────────
+
+
+async def test_unregister_external_serving(client_for_user, super_user, mock_db, mock_litellm):
+    reg = MagicMock()
+    reg.litellm_model_id = "litellm-abc"
+    mock_db.execute = AsyncMock(return_value=_exec_result([reg]))
+    mock_litellm.delete_model = AsyncMock(return_value={"deleted": True})
+    async with client_for_user(super_user) as client:
+        resp = await client.delete(f"/api/model-deployments/external/register/{uuid.uuid4()}")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": True, "litellm_deleted": True}
+    mock_db.delete.assert_awaited_once_with(reg)
+
+
+async def test_unregister_swallows_litellm_failure(client_for_user, super_user, mock_db, mock_litellm):
+    reg = MagicMock()
+    reg.litellm_model_id = "litellm-abc"
+    mock_db.execute = AsyncMock(return_value=_exec_result([reg]))
+    mock_litellm.delete_model = AsyncMock(side_effect=RuntimeError("already gone"))
+    async with client_for_user(super_user) as client:
+        resp = await client.delete(f"/api/model-deployments/external/register/{uuid.uuid4()}")
+    assert resp.status_code == 200
+    assert resp.json() == {"deleted": True, "litellm_deleted": False}
+    mock_db.delete.assert_awaited_once_with(reg)
+
+
+async def test_unregister_unknown_404(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_exec_result([]))
+    async with client_for_user(super_user) as client:
+        resp = await client.delete(f"/api/model-deployments/external/register/{uuid.uuid4()}")
+    assert resp.status_code == 404
