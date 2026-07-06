@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
+from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
@@ -74,6 +75,16 @@ class UpdateDeploymentRequest(BaseModel):
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
+
+
+class RegisterExternalServingRequest(BaseModel):
+    cluster_id: str | None = None
+    namespace: str
+    deployment_name: str
+    model_name: str
+    served_model_name: str
+    api_base: str
+    api_key: str | None = None
 
 
 def _serialize(d: CustomModelDeployment) -> dict:
@@ -154,6 +165,84 @@ async def list_external_servings(
         s["registration"] = _serialize_registration(r) if r else None
 
     return {"servings": servings, "errors": errors}
+
+
+@router.post("/external/register", status_code=status.HTTP_201_CREATED)
+async def register_external_serving(
+    body: RegisterExternalServingRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+) -> dict:
+    """Register a discovered external serving with LiteLLM (/model/new)."""
+    cid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    existing = await db.execute(
+        select(CustomExternalServing).where(
+            CustomExternalServing.cluster_id == cid,
+            CustomExternalServing.namespace == body.namespace,
+            CustomExternalServing.deployment_name == body.deployment_name,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="This serving is already registered")
+
+    try:
+        result = await litellm.create_model(
+            model_name=body.model_name,
+            litellm_model=f"openai/{body.served_model_name}",
+            api_base=body.api_base,
+            api_key=body.api_key or "EMPTY",
+        )
+    except Exception:
+        logger.exception("LiteLLM /model/new failed for external serving %s", body.deployment_name)
+        raise HTTPException(status_code=502, detail="LiteLLM registration failed; check logs")
+    info = result.get("model_info") or {}
+    model_id = info.get("id") or result.get("id")
+
+    reg = CustomExternalServing(
+        id=uuid.uuid4(),
+        cluster_id=cid,
+        namespace=body.namespace,
+        deployment_name=body.deployment_name,
+        model_name=body.model_name,
+        api_base=body.api_base,
+        litellm_model_id=str(model_id),
+        registered_by=user.user_id,
+    )
+    db.add(reg)
+    await db.flush()
+    return {"registration": _serialize_registration(reg)}
+
+
+@router.delete("/external/register/{registration_id}")
+async def unregister_external_serving(
+    registration_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+) -> dict:
+    """Remove an external-serving registration (LiteLLM /model/delete + row).
+
+    LiteLLM failures are swallowed (model may already be gone) so unregister
+    stays idempotent; the mapping row is always removed.
+    """
+    result = await db.execute(
+        select(CustomExternalServing).where(CustomExternalServing.id == uuid.UUID(registration_id))
+    )
+    reg = result.scalar_one_or_none()
+    if not reg:
+        raise HTTPException(status_code=404, detail="Registration not found")
+
+    litellm_deleted = True
+    try:
+        await litellm.delete_model(reg.litellm_model_id)
+    except Exception:
+        logger.warning("LiteLLM /model/delete failed for %s; removing mapping anyway", reg.litellm_model_id)
+        litellm_deleted = False
+
+    await db.delete(reg)
+    await db.flush()
+    return {"deleted": True, "litellm_deleted": litellm_deleted}
 
 
 @router.get("/{deployment_id}")
