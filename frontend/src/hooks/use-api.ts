@@ -1110,6 +1110,74 @@ export function useModelDeployment(id: string) {
   });
 }
 
+export interface ExternalServingRegistration {
+  id: string;
+  model_name: string;
+  api_base: string;
+  litellm_model_id: string;
+}
+
+export interface ExternalServing {
+  cluster_id: string | null;
+  cluster_name: string;
+  namespace: string;
+  deployment_name: string;
+  engine: "vllm" | "sglang";
+  image: string;
+  replicas: number;
+  ready_replicas: number;
+  status: string;
+  status_message: string | null;
+  created_at: string | null;
+  model_path: string | null;
+  labels: Record<string, string>;
+  args: string[];
+  registration: ExternalServingRegistration | null;
+}
+
+export interface ExternalServingsResponse {
+  servings: ExternalServing[];
+  errors: { cluster: string; message: string }[];
+}
+
+export function useExternalServings() {
+  return useQuery({
+    queryKey: ["external-servings"],
+    queryFn: () => apiFetch<ExternalServingsResponse>("/api/model-deployments/external"),
+  });
+}
+
+export interface RegisterExternalServingBody {
+  cluster_id: string | null;
+  namespace: string;
+  deployment_name: string;
+  model_name: string;
+  served_model_name: string;
+  api_base: string;
+  api_key?: string;
+}
+
+export function useRegisterExternalServing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: RegisterExternalServingBody) =>
+      apiFetch("/api/model-deployments/external/register", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["external-servings"] }),
+  });
+}
+
+export function useUnregisterExternalServing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (registrationId: string) =>
+      apiFetch(`/api/model-deployments/external/register/${registrationId}`, { method: "DELETE" }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["external-servings"] }),
+  });
+}
+
 /** Status event history for one deployment. Polls so the timeline stays live. */
 export function useModelDeploymentEvents(id: string) {
   return useQuery({
