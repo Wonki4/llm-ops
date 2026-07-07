@@ -10,7 +10,8 @@ import uuid
 import pytest
 from fastapi import HTTPException
 
-from app.api.k8s_clusters import _parse_kubeconfig
+from app.api.k8s_clusters import CreateClusterRequest, _parse_kubeconfig
+from app.api.k8s_clusters import _serialize as _serialize_cluster
 from app.services import crypto
 from app.services.benchmark_manifests import (
     build_vllm_bench_job,
@@ -188,9 +189,6 @@ def test_extra_params_skip_reserved_infra_and_collisions():
 
 def test_extra_params_false_bool_omitted():
     assert "--disable-tqdm" not in _bench_script({"disable_tqdm": False})
-
-
-from app.api.k8s_clusters import CreateClusterRequest, _serialize as _serialize_cluster
 
 
 def test_create_cluster_request_defaults_argocd_namespace():
