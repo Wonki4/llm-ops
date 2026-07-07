@@ -1284,6 +1284,7 @@ export interface CreateK8sClusterBody {
   name: string;
   context: string;
   namespace?: string;
+  argocd_namespace?: string;
   kubeconfig: string;
   description?: string | null;
   is_default?: boolean;

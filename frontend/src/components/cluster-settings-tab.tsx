@@ -38,6 +38,7 @@ type FormState = {
   name: string;
   context: string;
   namespace: string;
+  argocd_namespace: string;
   kubeconfig: string;
   description: string;
   is_default: boolean;
@@ -50,6 +51,7 @@ const EMPTY: FormState = {
   name: "",
   context: "",
   namespace: "default",
+  argocd_namespace: "argocd",
   kubeconfig: "",
   description: "",
   is_default: false,
@@ -87,6 +89,7 @@ export function ClusterSettingsTab() {
       name: c.name,
       context: c.context,
       namespace: c.namespace,
+      argocd_namespace: c.argocd_namespace || "argocd",
       kubeconfig: "", // masked — empty keeps existing
       description: c.description ?? "",
       is_default: c.is_default,
@@ -133,6 +136,7 @@ export function ClusterSettingsTab() {
         name: form.name,
         context: form.context,
         namespace: form.namespace,
+        argocd_namespace: form.argocd_namespace,
         description: form.description,
         is_default: form.is_default,
         default_nfs_server: nfsServer,
@@ -155,6 +159,7 @@ export function ClusterSettingsTab() {
         name: form.name,
         context: form.context,
         namespace: form.namespace,
+        argocd_namespace: form.argocd_namespace,
         kubeconfig: form.kubeconfig,
         description: form.description || null,
         is_default: form.is_default,
@@ -306,7 +311,7 @@ export function ClusterSettingsTab() {
                 placeholder={t("namePlaceholder")}
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="cluster-context">{t("context")}</Label>
                 <Input
@@ -324,7 +329,17 @@ export function ClusterSettingsTab() {
                   onChange={(e) => setForm({ ...form, namespace: e.target.value })}
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="cluster-argocd-namespace">{t("argocdNamespaceLabel")}</Label>
+                <Input
+                  id="cluster-argocd-namespace"
+                  value={form.argocd_namespace}
+                  onChange={(e) => setForm({ ...form, argocd_namespace: e.target.value })}
+                  placeholder="argocd"
+                />
+              </div>
             </div>
+            <p className="text-xs text-muted-foreground -mt-2">{t("argocdNamespaceHint")}</p>
             <div className="space-y-2">
               <Label htmlFor="cluster-kubeconfig">{t("kubeconfig")}</Label>
               <textarea
