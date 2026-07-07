@@ -166,7 +166,8 @@ class K8sClient:
                     raise
             if exists:
                 await co.patch_namespaced_custom_object(
-                    **self._ARGO, namespace=namespace, name=name, body=manifest
+                    **self._ARGO, namespace=namespace, name=name, body=manifest,
+                    _content_type="application/merge-patch+json",
                 )
             else:
                 await co.create_namespaced_custom_object(**self._ARGO, namespace=namespace, body=manifest)
