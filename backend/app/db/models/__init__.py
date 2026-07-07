@@ -1,4 +1,3 @@
-from app.db.models.custom_argocd_connection import CustomArgocdConnection
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -16,6 +15,5 @@ __all__ = [
     "CustomTrustedSystem",
     "CustomK8sCluster",
     "CustomLlmdStack",
-    "CustomArgocdConnection",
     "CustomExternalServing",
 ]
