@@ -1399,8 +1399,6 @@
     "deploymentHint": "포털이 관리하는 서빙 디플로이먼트를 직접 벤치마크 (권장).",
     "modelHintDisabled": "서빙 디플로이먼트 선택 시 무시됩니다.",
     "errorTargetRequired": "서빙 디플로이먼트 또는 모델 별칭을 선택하세요.",
-    "ephemeralLabel": "임시 복제로 실행 (벤치 후 자동 삭제)",
-    "ephemeralHint": "선택한 디플로이먼트를 임시 서빙으로 복제해 벤치 후 삭제합니다. 템플릿으로 쓸 서빙 디플로이먼트가 필요합니다.",
     "servingOverridesLabel": "서빙 오버라이드 (JSON, 선택)",
     "servingOverridesHint": "복제 서빙을 덮어씀. 예: {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
     "targetGroupPortal": "포털 배포",

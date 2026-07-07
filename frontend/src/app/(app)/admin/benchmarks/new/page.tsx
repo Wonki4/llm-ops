@@ -104,7 +104,11 @@ export default function NewBenchmarkPage() {
     if (run.deployment_id) {
       setDeploymentId(run.deployment_id);
       setModelName("");
-      setEphemeral(run.ephemeral);
+      // Restore the run's mode, but force clone when the deployment is no
+      // longer Ready — direct mode is disabled for it (keeps radio state
+      // consistent with directModeDisabled).
+      const dep = (deployments ?? []).find((d) => d.id === run.deployment_id);
+      setEphemeral(dep && dep.ready_replicas === 0 ? true : run.ephemeral);
     } else {
       setDeploymentId("");
       setEphemeral(false);
@@ -409,12 +413,14 @@ export default function NewBenchmarkPage() {
         namespace: externalTarget.namespace,
         deployment_name: externalTarget.deployment_name,
       };
-      const overrides = parseServingOverrides();
-      if (!overrides.ok) {
-        toast.error(overrides.error);
-        return;
+      if (ephemeral) {
+        const overrides = parseServingOverrides();
+        if (!overrides.ok) {
+          toast.error(overrides.error);
+          return;
+        }
+        if (overrides.value) body.serving_overrides = overrides.value;
       }
-      if (overrides.value) body.serving_overrides = overrides.value;
     } else if (deploymentId) {
       body.deployment_id = deploymentId;
       if (ephemeral) {
