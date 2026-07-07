@@ -4,9 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from app.clients.k8s import K8sClient
-
-GVK = dict(group="argoproj.io", version="v1alpha1", plural="applications")
+from app.clients.k8s import K8sClient  # noqa: I001
 
 
 def _client_with(co):
@@ -42,6 +40,9 @@ async def test_apply_application_patches_when_present():
         await K8sClient().apply_application("argocd", {"metadata": {"name": "llmd-x"}, "spec": {}})
     co.patch_namespaced_custom_object.assert_awaited_once()
     co.create_namespaced_custom_object.assert_not_called()
+    kwargs = co.patch_namespaced_custom_object.await_args.kwargs
+    assert kwargs["_content_type"] == "application/merge-patch+json"
+    assert kwargs["name"] == "llmd-x" and kwargs["body"]["metadata"]["name"] == "llmd-x"
 
 
 async def test_get_application_returns_none_on_404():
@@ -68,3 +69,4 @@ async def test_delete_application_swallows_404():
     with p_api, p_co:
         await K8sClient().delete_application("argocd", "llmd-x")  # no raise
     co.delete_namespaced_custom_object.assert_awaited_once()
+    assert co.delete_namespaced_custom_object.await_args.kwargs["propagation_policy"] == "Foreground"
