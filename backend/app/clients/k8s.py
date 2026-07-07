@@ -142,6 +142,48 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    async def read_deployment(self, namespace: str, name: str) -> dict | None:
+        """Live Deployment spec, sanitized for the external clone-bench builder.
+
+        First container only (vLLM/SGLang servers are single-container); None on 404.
+        """
+        api_client = await self._api_client()
+        try:
+            apps = client.AppsV1Api(api_client)
+            try:
+                dep = await apps.read_namespaced_deployment(name=name, namespace=namespace)
+            except ApiException as e:
+                if e.status == 404:
+                    return None
+                raise
+            pod = dep.spec.template.spec
+            c = pod.containers[0]
+            sanitize = api_client.sanitize_for_serialization
+            return {
+                "name": dep.metadata.name,
+                "namespace": dep.metadata.namespace,
+                "labels": dict(dep.metadata.labels or {}),
+                "replicas": int(dep.spec.replicas or 0),
+                "container": {
+                    "name": c.name,
+                    "image": c.image,
+                    "command": list(c.command or []),
+                    "args": list(c.args or []),
+                    "env": [
+                        {"name": e.name, "value": e.value} for e in (c.env or [])
+                    ],
+                    "env_raw": sanitize(c.env) or [],
+                    "resources": sanitize(c.resources) or {},
+                    "ports": sanitize(c.ports) or [],
+                    "volume_mounts": sanitize(c.volume_mounts) or [],
+                },
+                "volumes": sanitize(pod.volumes) or [],
+                "node_selector": dict(pod.node_selector or {}) or None,
+                "tolerations": sanitize(pod.tolerations) or None,
+            }
+        finally:
+            await api_client.close()
+
     # ─── ArgoCD Applications (custom resource) ──────────────────────
 
     _ARGO = dict(group="argoproj.io", version="v1alpha1", plural="applications")
