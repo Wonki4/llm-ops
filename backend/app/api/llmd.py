@@ -50,6 +50,7 @@ class UpdateLlmdStackRequest(BaseModel):
 
 class DefaultValuesRequest(BaseModel):
     target_model_name: str = ""
+    endpoint_selector: str | None = None
 
 
 def _parse_values_yaml(text: str) -> dict:
@@ -289,6 +290,7 @@ async def default_values(
         epp_registry=settings.llmd_epp_image_registry,
         epp_repository=settings.llmd_epp_image_repository,
         epp_tag=settings.llmd_epp_image_tag,
+        endpoint_selector=body.endpoint_selector,
     )
     return {
         "values": values,

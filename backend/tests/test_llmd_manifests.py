@@ -139,3 +139,16 @@ def test_build_application_is_isolated_to_project_and_namespace():
     assert src["targetRevision"] == "0.7.0"
     assert src["helm"]["valuesObject"] == {"replicas": 2}
     assert app["spec"]["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True}
+
+
+def test_default_values_uses_explicit_endpoint_selector():
+    v = default_llmd_values(
+        "qwen", epp_registry="r", epp_repository="repo", epp_tag="t",
+        endpoint_selector="app=my-vllm",
+    )
+    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == "app=my-vllm"
+
+
+def test_default_values_falls_back_to_model_label():
+    v = default_llmd_values("qwen", epp_registry="r", epp_repository="repo", epp_tag="t")
+    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == "llm-ops/model-name=qwen"
