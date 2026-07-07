@@ -156,29 +156,33 @@ export default function AdminBenchmarkDetailPage({
             <CardTitle className="text-base">{t("serving")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            <Row label="Engine" value={run.serving_snapshot.engine} />
+            <Row label="Engine" value={run.serving_snapshot.engine ?? "-"} />
             <Row label="Image" value={run.serving_snapshot.image} mono />
             <Row label="Model" value={run.serving_snapshot.model_path} mono />
             <Row
               label="GPU"
-              value={`${run.serving_snapshot.resources.gpu_count}× ${
-                run.serving_snapshot.node_selector?.["gpu-type"] ??
-                run.serving_snapshot.resources.gpu_resource_key
-              }`}
+              value={
+                run.serving_snapshot.resources
+                  ? `${run.serving_snapshot.resources.gpu_count}× ${
+                      run.serving_snapshot.node_selector?.["gpu-type"] ??
+                      run.serving_snapshot.resources.gpu_resource_key
+                    }`
+                  : "-"
+              }
             />
             <Row
               label="CPU"
               value={
-                run.serving_snapshot.resources.cpu_limit ??
-                run.serving_snapshot.resources.cpu_request ??
+                run.serving_snapshot.resources?.cpu_limit ??
+                run.serving_snapshot.resources?.cpu_request ??
                 "-"
               }
             />
             <Row
               label="Memory"
               value={
-                run.serving_snapshot.resources.memory_limit ??
-                run.serving_snapshot.resources.memory_request ??
+                run.serving_snapshot.resources?.memory_limit ??
+                run.serving_snapshot.resources?.memory_request ??
                 "-"
               }
             />

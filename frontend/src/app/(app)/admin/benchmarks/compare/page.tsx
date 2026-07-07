@@ -49,17 +49,19 @@ const PERF_METRICS: MetricSpec[] = [
 
 // Serving config attributes shown side-by-side (the "same resources" axis).
 const SERVING_ATTRS: { key: string; get: (s: ServingSnapshot) => string }[] = [
-  { key: "engine", get: (s) => s.engine },
+  { key: "engine", get: (s) => s.engine ?? "-" },
   { key: "image", get: (s) => s.image },
   { key: "model_path", get: (s) => s.model_path },
   {
     key: "gpu",
     get: (s) =>
-      `${s.resources.gpu_count}× ${s.node_selector?.["gpu-type"] ?? s.resources.gpu_resource_key}`,
+      s.resources
+        ? `${s.resources.gpu_count}× ${s.node_selector?.["gpu-type"] ?? s.resources.gpu_resource_key}`
+        : "-",
   },
-  { key: "cpu", get: (s) => s.resources.cpu_limit ?? s.resources.cpu_request ?? "-" },
-  { key: "memory", get: (s) => s.resources.memory_limit ?? s.resources.memory_request ?? "-" },
-  { key: "replicas", get: (s) => String(s.replicas) },
+  { key: "cpu", get: (s) => s.resources?.cpu_limit ?? s.resources?.cpu_request ?? "-" },
+  { key: "memory", get: (s) => s.resources?.memory_limit ?? s.resources?.memory_request ?? "-" },
+  { key: "replicas", get: (s) => (s.replicas != null ? String(s.replicas) : "-") },
   { key: "vllm_args", get: (s) => (s.vllm_extra_args || []).join(" ") || "-" },
 ];
 
