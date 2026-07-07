@@ -12,7 +12,9 @@ import {
   useK8sClusters,
   useModelDeployments,
   useLlmdDefaultValues,
+  useExternalServings,
   type CreateLlmdStackBody,
+  type ExternalServing,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +24,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 type FormState = {
   name: string;
   target_model_name: string;
+  target_kind: "portal" | "external";
+  endpoint_selector: string;
   cluster_id: string;
   namespace: string;
   values_yaml: string;
@@ -30,6 +34,8 @@ type FormState = {
 const EMPTY: FormState = {
   name: "",
   target_model_name: "",
+  target_kind: "portal",
+  endpoint_selector: "",
   cluster_id: "",
   namespace: "default",
   values_yaml: "",
@@ -40,6 +46,9 @@ export default function NewLlmdStackPage() {
   const router = useRouter();
   const { data: clusters } = useK8sClusters();
   const { data: deployments } = useModelDeployments();
+  const { data: external } = useExternalServings();
+  const servings = external?.servings ?? [];
+  const [selectedExternal, setSelectedExternal] = useState<ExternalServing | null>(null);
   const createMut = useCreateLlmdStack();
   const defaultsMut = useLlmdDefaultValues();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -51,15 +60,17 @@ export default function NewLlmdStackPage() {
   // unless the user has already edited it.
   useEffect(() => {
     if (valuesTouched) return;
-    loadDefaults(form.target_model_name, {
-      onSuccess: (r) => setForm((f) => ({ ...f, values_yaml: r.values_yaml })),
-    });
-  }, [form.target_model_name, valuesTouched, loadDefaults]);
+    loadDefaults(
+      { target_model_name: form.target_model_name, endpoint_selector: form.endpoint_selector || undefined },
+      { onSuccess: (r) => setForm((f) => ({ ...f, values_yaml: r.values_yaml })) },
+    );
+  }, [form.target_model_name, form.endpoint_selector, valuesTouched, loadDefaults]);
 
   const resetDefaults = () => {
-    defaultsMut.mutate(form.target_model_name, {
-      onSuccess: (r) => { setForm((f) => ({ ...f, values_yaml: r.values_yaml })); setValuesTouched(false); },
-    });
+    defaultsMut.mutate(
+      { target_model_name: form.target_model_name, endpoint_selector: form.endpoint_selector || undefined },
+      { onSuccess: (r) => { setForm((f) => ({ ...f, values_yaml: r.values_yaml })); setValuesTouched(false); } },
+    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -79,6 +90,32 @@ export default function NewLlmdStackPage() {
       onSuccess: () => { toast.success(t("createSuccess")); router.push("/admin/llmd"); },
       onError: (err) => toast.error(err instanceof Error ? err.message : t("saveFailed")),
     });
+  };
+
+  const externalKey = (s: ExternalServing) => `ext::${s.cluster_id ?? ""}::${s.namespace}::${s.deployment_name}`;
+  const targetSelectValue =
+    form.target_kind === "external" && selectedExternal ? externalKey(selectedExternal) : form.target_model_name;
+
+  const onTargetChange = (value: string) => {
+    if (value.startsWith("ext::")) {
+      const serving = servings.find((s) => externalKey(s) === value);
+      if (!serving) return;
+      const labels = Object.entries(serving.labels);
+      const preferred =
+        labels.find(([k]) => k === "app") ?? labels.find(([k]) => k === "app.kubernetes.io/name") ?? labels[0];
+      setSelectedExternal(serving);
+      setForm((f) => ({
+        ...f,
+        target_model_name: serving.registration?.model_name || serving.deployment_name,
+        target_kind: "external",
+        endpoint_selector: preferred ? `${preferred[0]}=${preferred[1]}` : "",
+        namespace: serving.namespace,
+        cluster_id: serving.cluster_id ?? "",
+      }));
+    } else {
+      setSelectedExternal(null);
+      setForm((f) => ({ ...f, target_model_name: value, target_kind: "portal", endpoint_selector: "" }));
+    }
   };
 
   return (
@@ -108,17 +145,46 @@ export default function NewLlmdStackPage() {
                 <Label htmlFor="llmd-model">{t("targetModel")}</Label>
                 <select
                   id="llmd-model"
-                  value={form.target_model_name}
-                  onChange={(e) => setForm({ ...form, target_model_name: e.target.value })}
+                  value={targetSelectValue}
+                  onChange={(e) => onTargetChange(e.target.value)}
                   className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
                 >
                   <option value="">{t("targetModelPlaceholder")}</option>
-                  {(deployments ?? []).map((d) => (
-                    <option key={d.id} value={d.model_name}>{d.model_name}</option>
-                  ))}
+                  <optgroup label={t("targetGroupPortal")}>
+                    {(deployments ?? []).map((d) => (
+                      <option key={d.id} value={d.model_name}>{d.model_name}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={t("targetGroupExternal")}>
+                    {servings.map((s) => (
+                      <option key={externalKey(s)} value={externalKey(s)}>
+                        {s.deployment_name} ({s.engine} · {s.namespace})
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
                 <p className="text-xs text-muted-foreground">{t("targetModelHint")}</p>
               </div>
+              {form.target_kind === "external" && selectedExternal && (
+                <div className="space-y-2">
+                  <Label htmlFor="llmd-endpoint-label">{t("endpointLabelLabel")}</Label>
+                  {Object.keys(selectedExternal.labels).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">{t("endpointLabelNone")}</p>
+                  ) : (
+                    <select
+                      id="llmd-endpoint-label"
+                      value={form.endpoint_selector}
+                      onChange={(e) => setForm({ ...form, endpoint_selector: e.target.value })}
+                      className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                    >
+                      {Object.entries(selectedExternal.labels).map(([k, v]) => (
+                        <option key={`${k}=${v}`} value={`${k}=${v}`}>{k}={v}</option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="text-xs text-muted-foreground">{t("endpointLabelHint")}</p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label htmlFor="llmd-cluster">{t("clusterLabel")}</Label>
                 <select

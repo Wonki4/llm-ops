@@ -1448,13 +1448,18 @@ interface LlmdDefaultValuesResponse {
   values_yaml: string;
 }
 
+export interface LlmdDefaultValuesBody {
+  target_model_name: string;
+  endpoint_selector?: string;
+}
+
 /** Fetch the starter values.yaml for a target model (for the new-stack editor). */
 export function useLlmdDefaultValues() {
   return useMutation({
-    mutationFn: (targetModelName: string) =>
+    mutationFn: (body: LlmdDefaultValuesBody) =>
       apiFetch<LlmdDefaultValuesResponse>("/api/admin/llmd-stacks/default-values", {
         method: "POST",
-        body: JSON.stringify({ target_model_name: targetModelName }),
+        body: JSON.stringify(body),
       }),
   });
 }
