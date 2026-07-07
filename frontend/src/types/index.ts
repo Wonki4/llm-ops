@@ -509,15 +509,22 @@ export interface ServingResources {
 
 /** Frozen serving config captured on a benchmark run (the deployment it tested). */
 export interface ServingSnapshot {
-  engine: string;
+  /** Present ("external") only for runs cloned from an externally-discovered
+   * serving instance; absent for portal-managed deployments. */
+  source?: "external";
   image: string;
   model_path: string;
   vllm_extra_args: string[];
   env: Record<string, string>;
-  replicas: number;
-  resources: ServingResources;
-  node_selector: Record<string, string>;
-  namespace: string;
+  pvc_name?: string | null;
+  pvc_mount_path?: string | null;
+  // The fields below are only captured for portal-managed deployments —
+  // external-clone snapshots omit them entirely.
+  engine?: string;
+  replicas?: number;
+  resources?: ServingResources;
+  node_selector?: Record<string, string>;
+  namespace?: string;
 }
 
 export interface BenchmarkRun {
