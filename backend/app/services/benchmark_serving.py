@@ -112,6 +112,119 @@ def serving_resource_names(name: str) -> dict[str, str]:
     return k8s_resource_names(_NameOnly(name))
 
 
+def _arg_value(args: list, flag: str) -> str | None:
+    """Value of ``--flag value`` or ``--flag=value`` in a CLI args list."""
+    for i, a in enumerate(args):
+        if a == flag and i + 1 < len(args):
+            return str(args[i + 1])
+        if isinstance(a, str) and a.startswith(flag + "="):
+            return a.split("=", 1)[1]
+    return None
+
+
+def external_bench_facts(spec: dict) -> dict:
+    """What the bench job needs to know about an external serving's clone.
+
+    served_model is what `vllm bench serve --model` must send (the name the
+    server reports): --served-model-name wins, else the --model value. The
+    tokenizer is always the --model value. When the model path is backed by a
+    PVC-mounted volume, expose it so the bench Job mounts the same weights for
+    tokenizer loading.
+    """
+    args = spec["container"]["args"]
+    model_arg = _arg_value(args, "--model")
+    served = _arg_value(args, "--served-model-name") or model_arg
+    if not served:
+        raise ValueError("no --model/--served-model-name found in serving args")
+
+    pvc_name = pvc_mount = None
+    if model_arg:
+        for m in spec["container"].get("volume_mounts") or []:
+            mount_path = m.get("mountPath") or m.get("mount_path") or ""
+            if mount_path and model_arg.startswith(mount_path.rstrip("/") + "/"):
+                vol = next(
+                    (v for v in (spec.get("volumes") or []) if v.get("name") == m.get("name")), None
+                )
+                claim = ((vol or {}).get("persistentVolumeClaim") or (vol or {}).get("persistent_volume_claim") or {})
+                if claim.get("claimName") or claim.get("claim_name"):
+                    pvc_name = claim.get("claimName") or claim.get("claim_name")
+                    pvc_mount = mount_path
+                break
+    return {
+        "served_model": served,
+        "tokenizer": model_arg or served,
+        "model_arg": model_arg or "",
+        "pvc_name": pvc_name,
+        "pvc_mount_path": pvc_mount,
+    }
+
+
+def _clone_target_port(container: dict) -> int:
+    port = _arg_value(container.get("args") or [], "--port")
+    if port and str(port).isdigit():
+        return int(port)
+    for p in container.get("ports") or []:
+        cp = p.get("containerPort") or p.get("container_port")
+        if cp:
+            return int(cp)
+    return 8000
+
+
+def build_external_clone(spec: dict, *, name: str, overrides: dict | None = None) -> list[dict]:
+    """Deployment + Service for a throwaway clone of a live external serving.
+
+    Faithful copy of the first container and pod-level scheduling/volume fields;
+    replicas forced to 1; names/Service port chosen so the existing ephemeral
+    reconciler (serving_resource_names + serving_target_url on port 80) drives
+    it unchanged. ``overrides`` may replace ``resources`` and/or ``image``.
+    """
+    names = serving_resource_names(name)
+    labels = {"app": "llmops-bench-serving", "bench-serving": name}
+    src = spec["container"]
+    ov = overrides or {}
+    container: dict = {
+        "name": src.get("name") or "server",
+        "image": ov.get("image") or src["image"],
+        "args": list(src.get("args") or []),
+        "env": list(src.get("env_raw") or []),
+        "resources": ov.get("resources") or src.get("resources") or {},
+        "volumeMounts": list(src.get("volume_mounts") or []),
+    }
+    if src.get("command"):
+        container["command"] = list(src["command"])
+    target_port = _clone_target_port(src)
+    container["ports"] = [{"containerPort": target_port}]
+
+    pod_spec: dict = {"containers": [container]}
+    if spec.get("volumes"):
+        pod_spec["volumes"] = spec["volumes"]
+    if spec.get("node_selector"):
+        pod_spec["nodeSelector"] = spec["node_selector"]
+    if spec.get("tolerations"):
+        pod_spec["tolerations"] = spec["tolerations"]
+
+    deployment = {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {"name": names["deployment"], "labels": labels},
+        "spec": {
+            "replicas": 1,
+            "selector": {"matchLabels": labels},
+            "template": {"metadata": {"labels": labels}, "spec": pod_spec},
+        },
+    }
+    service = {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": names["service"], "labels": labels},
+        "spec": {
+            "selector": labels,
+            "ports": [{"port": 80, "targetPort": target_port}],
+        },
+    }
+    return [deployment, service]
+
+
 class _NameOnly:
     """Minimal stand-in so k8s_resource_names (which only reads model_name) works
     without constructing a full deployment."""
