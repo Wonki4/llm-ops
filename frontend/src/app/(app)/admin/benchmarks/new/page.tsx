@@ -7,7 +7,8 @@ import { ArrowLeft, FileCode2, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview, useBenchmarks } from "@/hooks/use-api";
+import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview, useBenchmarks, useExternalServings } from "@/hooks/use-api";
+import type { ExternalServing } from "@/hooks/use-api";
 import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,6 +27,11 @@ const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
   sglang_serving: "performance",
   lm_eval: "accuracy",
 };
+
+// Encodes a discovered external serving into a single <select> option value.
+function externalKey(s: ExternalServing): string {
+  return `ext::${s.cluster_id ?? ""}::${s.namespace}::${s.deployment_name}`;
+}
 
 // Maps to `vllm bench serve` flags (--num-prompts, --random-input-len, etc.).
 const DEFAULT_PERF_PARAMS = {
@@ -62,12 +68,15 @@ export default function NewBenchmarkPage() {
   const { data: models, isLoading: modelsLoading } = useModels();
   const { data: deployments } = useModelDeployments();
   const { data: clusters } = useK8sClusters();
+  const { data: external } = useExternalServings();
+  const servings = external?.servings ?? [];
   const createMutation = useCreateBenchmark();
   const previewMutation = useBenchmarkPreview();
 
   const [deploymentId, setDeploymentId] = useState("");
+  const [externalTarget, setExternalTarget] = useState<ExternalServing | null>(null);
   const [clusterId, setClusterId] = useState("");
-  const [ephemeral, setEphemeral] = useState(false);
+  const [ephemeral, setEphemeral] = useState(true);
   const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
@@ -90,6 +99,7 @@ export default function NewBenchmarkPage() {
     setLoadFromId(runId);
     const run = (pastRuns ?? []).find((r) => r.id === runId);
     if (!run) return;
+    setExternalTarget(null);
     setTool(run.tool);
     if (run.deployment_id) {
       setDeploymentId(run.deployment_id);
@@ -161,12 +171,40 @@ export default function NewBenchmarkPage() {
     return Array.from(new Set(models.map((m) => m.model_name))).sort();
   }, [models]);
 
-  // Only Ready serving deployments can be benchmarked directly.
-  const readyDeployments = useMemo(
-    () => (deployments ?? []).filter((d) => d.ready_replicas > 0),
-    [deployments],
-  );
-  const selectedDeployment = readyDeployments.find((d) => d.id === deploymentId) ?? null;
+  const allDeployments = deployments ?? [];
+  const selectedDeployment = allDeployments.find((d) => d.id === deploymentId) ?? null;
+
+  // Clone (ephemeral) mode is forced when the portal deployment isn't Ready, or
+  // when the target is an external serving — the live pod isn't ours to hit.
+  const directModeDisabled =
+    !!externalTarget || (!!selectedDeployment && selectedDeployment.ready_replicas === 0);
+
+  const handleTargetChange = (value: string) => {
+    if (value.startsWith("ext::")) {
+      const serving = servings.find((s) => externalKey(s) === value) ?? null;
+      setExternalTarget(serving);
+      setDeploymentId("");
+      setEphemeral(true);
+    } else if (value) {
+      setExternalTarget(null);
+      setDeploymentId(value);
+      const dep = allDeployments.find((d) => d.id === value);
+      if (dep && dep.ready_replicas === 0) {
+        setEphemeral(true);
+      }
+    } else {
+      setExternalTarget(null);
+      setDeploymentId("");
+    }
+  };
+
+  // external_target is performance-only; drop it if the user switches to an
+  // accuracy tool while one is selected.
+  useEffect(() => {
+    if (kind === "accuracy" && externalTarget) {
+      setExternalTarget(null);
+    }
+  }, [kind, externalTarget]);
 
   const buildNamedParams = (): Record<string, unknown> => {
     if (kind === "performance") {
@@ -194,15 +232,16 @@ export default function NewBenchmarkPage() {
       if (perfParams.tokenizer.trim() !== "") {
         params.tokenizer = perfParams.tokenizer.trim();
       }
-      // NFS override only applies to a raw model_name target; deployment targets
-      // mount their own PVC.
-      if (!deploymentId && perfParams.nfs_server.trim() !== "") {
+      // NFS override only applies to a raw model_name target; deployment and
+      // external-clone targets mount their own PVC.
+      const usesOwnPvc = !!deploymentId || !!externalTarget;
+      if (!usesOwnPvc && perfParams.nfs_server.trim() !== "") {
         params.nfs_server = perfParams.nfs_server.trim();
       }
-      if (!deploymentId && perfParams.nfs_path.trim() !== "") {
+      if (!usesOwnPvc && perfParams.nfs_path.trim() !== "") {
         params.nfs_path = perfParams.nfs_path.trim();
       }
-      if (!deploymentId && perfParams.nfs_mount_path.trim() !== "") {
+      if (!usesOwnPvc && perfParams.nfs_mount_path.trim() !== "") {
         params.nfs_mount_path = perfParams.nfs_mount_path.trim();
       }
       return params;
@@ -252,9 +291,31 @@ export default function NewBenchmarkPage() {
     }
   };
 
+  // Shared by the deployment-clone and external-clone branches below.
+  const parseServingOverrides = ():
+    | { ok: true; value: Record<string, unknown> | undefined }
+    | { ok: false; error: string } => {
+    const text = servingOverridesText.trim();
+    if (!text) return { ok: true, value: undefined };
+    try {
+      const parsed = JSON.parse(text);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        return { ok: false, error: t("errorExtrasNotObject") };
+      }
+      return { ok: true, value: parsed as Record<string, unknown> };
+    } catch (e) {
+      return {
+        ok: false,
+        error: t("errorExtrasJsonInvalid", {
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      };
+    }
+  };
+
   // Best-effort body for the live YAML preview (never throws on bad JSON).
   const previewBody = useMemo((): CreateBenchmarkRequest | null => {
-    if (!deploymentId && !modelName.trim()) return null;
+    if (!deploymentId && !externalTarget && !modelName.trim()) return null;
     const extras = parseExtras();
     const body: CreateBenchmarkRequest = {
       tool,
@@ -264,33 +325,38 @@ export default function NewBenchmarkPage() {
         ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
     };
-    if (deploymentId) {
+    if (externalTarget) {
+      // Perf-only clone of a discovered serving; the backend derives
+      // placement (cluster/namespace) from external_target itself.
+      body.external_target = {
+        cluster_id: externalTarget.cluster_id,
+        namespace: externalTarget.namespace,
+        deployment_name: externalTarget.deployment_name,
+      };
+      if (ephemeral) {
+        const overrides = parseServingOverrides();
+        if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
+      }
+    } else if (deploymentId) {
       body.deployment_id = deploymentId;
       if (ephemeral) {
         body.ephemeral = true;
-        const text = servingOverridesText.trim();
-        if (text) {
-          try {
-            const parsed = JSON.parse(text);
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              body.serving_overrides = parsed as Record<string, unknown>;
-            }
-          } catch {
-            /* ignore — preview stays on last valid input */
-          }
-        }
+        const overrides = parseServingOverrides();
+        if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
       }
     } else {
       body.model_name = modelName.trim();
     }
-    if (clusterId) body.cluster_id = clusterId;
-    if (namespace.trim()) body.namespace = namespace.trim();
+    if (!externalTarget) {
+      if (clusterId) body.cluster_id = clusterId;
+      if (namespace.trim()) body.namespace = namespace.trim();
+    }
     if (image.trim()) body.image = image.trim();
     if (apiKey.trim()) body.api_key = apiKey.trim();
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    deploymentId, modelName, tool, perfParams, accParams, extraParamsText, extraArgsText,
+    deploymentId, externalTarget, modelName, tool, perfParams, accParams, extraParamsText, extraArgsText,
     ephemeral, servingOverridesText, clusterId, namespace, image, apiKey,
   ]);
 
@@ -306,7 +372,7 @@ export default function NewBenchmarkPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deploymentId && !modelName.trim()) {
+    if (!deploymentId && !externalTarget && !modelName.trim()) {
       toast.error(t("errorTargetRequired"));
       return;
     }
@@ -335,35 +401,40 @@ export default function NewBenchmarkPage() {
         ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
     };
-    // Prefer a portal-managed serving deployment (hit directly); else a LiteLLM alias.
-    if (deploymentId) {
+    // Prefer an external-discovered serving, then a portal-managed serving
+    // deployment (hit directly), else a LiteLLM alias.
+    if (externalTarget) {
+      body.external_target = {
+        cluster_id: externalTarget.cluster_id,
+        namespace: externalTarget.namespace,
+        deployment_name: externalTarget.deployment_name,
+      };
+      const overrides = parseServingOverrides();
+      if (!overrides.ok) {
+        toast.error(overrides.error);
+        return;
+      }
+      if (overrides.value) body.serving_overrides = overrides.value;
+    } else if (deploymentId) {
       body.deployment_id = deploymentId;
       if (ephemeral) {
         body.ephemeral = true;
-        const text = servingOverridesText.trim();
-        if (text) {
-          try {
-            const parsed = JSON.parse(text);
-            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-              toast.error(t("errorExtrasNotObject"));
-              return;
-            }
-            body.serving_overrides = parsed as Record<string, unknown>;
-          } catch (err) {
-            toast.error(
-              t("errorExtrasJsonInvalid", {
-                message: err instanceof Error ? err.message : String(err),
-              }),
-            );
-            return;
-          }
+        const overrides = parseServingOverrides();
+        if (!overrides.ok) {
+          toast.error(overrides.error);
+          return;
         }
+        if (overrides.value) body.serving_overrides = overrides.value;
       }
     } else {
       body.model_name = modelName.trim();
     }
-    if (clusterId) body.cluster_id = clusterId;
-    if (namespace.trim()) body.namespace = namespace.trim();
+    // The backend derives placement from external_target itself; keep the
+    // outgoing body honest and skip these for external runs.
+    if (!externalTarget) {
+      if (clusterId) body.cluster_id = clusterId;
+      if (namespace.trim()) body.namespace = namespace.trim();
+    }
     if (image.trim()) body.image = image.trim();
     if (apiKey.trim()) body.api_key = apiKey.trim();
 
@@ -422,9 +493,10 @@ export default function NewBenchmarkPage() {
               <Label htmlFor="cluster">{t("clusterLabel")}</Label>
               <select
                 id="cluster"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={clusterId}
+                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                value={externalTarget ? externalTarget.cluster_id ?? "" : clusterId}
                 onChange={(e) => setClusterId(e.target.value)}
+                disabled={!!externalTarget}
               >
                 <option value="">{t("clusterDefault")}</option>
                 {(clusters ?? []).map((c) => (
@@ -434,6 +506,11 @@ export default function NewBenchmarkPage() {
                     {c.api_server ? ` — ${c.api_server}` : ""}
                   </option>
                 ))}
+                {externalTarget &&
+                  externalTarget.cluster_id &&
+                  !(clusters ?? []).some((c) => c.id === externalTarget.cluster_id) && (
+                    <option value={externalTarget.cluster_id}>{externalTarget.cluster_name}</option>
+                  )}
               </select>
               <p className="text-xs text-muted-foreground">{t("clusterHint")}</p>
             </div>
@@ -442,19 +519,31 @@ export default function NewBenchmarkPage() {
               <select
                 id="deployment"
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={deploymentId}
-                onChange={(e) => setDeploymentId(e.target.value)}
+                value={externalTarget ? externalKey(externalTarget) : deploymentId}
+                onChange={(e) => handleTargetChange(e.target.value)}
               >
                 <option value="">{t("deploymentNone")}</option>
-                {readyDeployments.map((d) => {
-                  const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
-                  return (
-                    <option key={d.id} value={d.id}>
-                      {d.model_name} — {d.gpu_count}×{gpu}
-                      {d.memory_limit ? ` · ${d.memory_limit}` : ""}
-                    </option>
-                  );
-                })}
+                <optgroup label={t("targetGroupPortal")}>
+                  {allDeployments.map((d) => {
+                    const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
+                    return (
+                      <option key={d.id} value={d.id}>
+                        {d.model_name} — {d.gpu_count}×{gpu}
+                        {d.memory_limit ? ` · ${d.memory_limit}` : ""}
+                        {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+                {kind !== "accuracy" && servings.length > 0 && (
+                  <optgroup label={t("targetGroupExternal")}>
+                    {servings.map((s) => (
+                      <option key={externalKey(s)} value={externalKey(s)}>
+                        {s.deployment_name} ({s.engine} · {s.namespace})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
               <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
               {selectedDeployment && (
@@ -462,24 +551,48 @@ export default function NewBenchmarkPage() {
                   {selectedDeployment.model_path}
                 </p>
               )}
+              {externalTarget && (
+                <p className="font-mono text-xs text-muted-foreground">
+                  {externalTarget.model_path ?? externalTarget.deployment_name}
+                </p>
+              )}
             </div>
 
-            {deploymentId && (
+            {(deploymentId || externalTarget) && (
               <div className="space-y-2 rounded-md border border-dashed p-3">
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 size-4 rounded border-input"
-                    checked={ephemeral}
-                    onChange={(e) => setEphemeral(e.target.checked)}
-                  />
-                  <span>
-                    {t("ephemeralLabel")}
-                    <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                      {t("ephemeralHint")}
+                <div className="space-y-2">
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="bench_mode"
+                      className="mt-0.5 size-4"
+                      checked={ephemeral}
+                      onChange={() => setEphemeral(true)}
+                    />
+                    <span>
+                      {t("modeCloneLabel")}
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        {t("modeCloneHint")}
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="radio"
+                      name="bench_mode"
+                      className="mt-0.5 size-4"
+                      checked={!ephemeral}
+                      disabled={directModeDisabled}
+                      onChange={() => setEphemeral(false)}
+                    />
+                    <span>
+                      {t("modeDirectLabel")}
+                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
+                        {directModeDisabled ? t("modeDirectUnavailable") : t("modeDirectHint")}
+                      </span>
+                    </span>
+                  </label>
+                </div>
                 {ephemeral && (
                   <div className="space-y-1.5">
                     <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
@@ -503,7 +616,7 @@ export default function NewBenchmarkPage() {
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
                 value={modelName}
                 onChange={(e) => setModelName(e.target.value)}
-                disabled={modelsLoading || !!deploymentId}
+                disabled={modelsLoading || !!deploymentId || !!externalTarget}
               >
                 <option value="">{t("modelPlaceholder")}</option>
                 {modelOptions.map((m) => (
@@ -513,7 +626,7 @@ export default function NewBenchmarkPage() {
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                {deploymentId ? t("modelHintDisabled") : t("modelHint")}
+                {deploymentId || externalTarget ? t("modelHintDisabled") : t("modelHint")}
               </p>
             </div>
 
@@ -545,7 +658,7 @@ export default function NewBenchmarkPage() {
               <PerfParamsFields
                 params={perfParams}
                 onChange={setPerfParams}
-                showNfsOverride={!deploymentId}
+                showNfsOverride={!deploymentId && !externalTarget}
               />
             ) : (
               <AccuracyParamsFields
@@ -595,8 +708,9 @@ export default function NewBenchmarkPage() {
               <Input
                 id="namespace"
                 placeholder="default"
-                value={namespace}
+                value={externalTarget ? externalTarget.namespace : namespace}
                 onChange={(e) => setNamespace(e.target.value)}
+                disabled={!!externalTarget}
               />
               <p className="text-xs text-muted-foreground">{t("namespaceHint")}</p>
             </div>

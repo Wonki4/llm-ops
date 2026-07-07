@@ -553,6 +553,11 @@ export interface CreateBenchmarkRequest {
   deployment_id?: string;
   ephemeral?: boolean;
   serving_overrides?: Record<string, unknown>;
+  external_target?: {
+    cluster_id: string | null;
+    namespace: string;
+    deployment_name: string;
+  } | null;
   tool: BenchmarkTool;
   params: Record<string, unknown>;
   namespace?: string;

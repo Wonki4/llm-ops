@@ -1396,13 +1396,21 @@
     "previewEmpty": "대상(서빙 디플로이먼트 또는 모델)을 선택하면 미리보기가 표시됩니다.",
     "deploymentLabel": "서빙 디플로이먼트",
     "deploymentNone": "— 없음 (등록된 별칭 사용) —",
-    "deploymentHint": "포털이 관리하는 서빙 디플로이먼트를 직접 벤치마크 (권장). Ready 상태만 표시됩니다.",
+    "deploymentHint": "포털이 관리하는 서빙 디플로이먼트를 직접 벤치마크 (권장).",
     "modelHintDisabled": "서빙 디플로이먼트 선택 시 무시됩니다.",
     "errorTargetRequired": "서빙 디플로이먼트 또는 모델 별칭을 선택하세요.",
     "ephemeralLabel": "임시 복제로 실행 (벤치 후 자동 삭제)",
     "ephemeralHint": "선택한 디플로이먼트를 임시 서빙으로 복제해 벤치 후 삭제합니다. 템플릿으로 쓸 서빙 디플로이먼트가 필요합니다.",
     "servingOverridesLabel": "서빙 오버라이드 (JSON, 선택)",
-    "servingOverridesHint": "복제 서빙을 덮어씀. 예: {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}"
+    "servingOverridesHint": "복제 서빙을 덮어씀. 예: {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
+    "targetGroupPortal": "포털 배포",
+    "targetGroupExternal": "외부 서빙 (감지됨)",
+    "modeCloneLabel": "새로 띄워서 벤치 (복제, 권장)",
+    "modeCloneHint": "서빙 복제본을 띄워 벤치 후 자동 삭제합니다. 여유 GPU가 필요하며, RWO 볼륨은 라이브 파드가 점유 중이면 붙지 않을 수 있습니다.",
+    "modeDirectLabel": "실행 중인 서빙에 직접",
+    "modeDirectHint": "실행 중인 서빙으로 부하를 직접 보냅니다.",
+    "modeDirectUnavailable": "직접 모드는 Ready 상태의 포털 배포에서만 가능합니다.",
+    "statusNotReady": "미실행"
   },
   "benchmarkCompare": {
     "pageTitle": "벤치마크 비교",
