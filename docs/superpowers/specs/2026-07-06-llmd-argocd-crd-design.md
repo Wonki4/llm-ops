@@ -170,3 +170,27 @@ Delete
 - apps-in-any-namespace beyond the per-cluster ArgoCD namespace.
 - Multiple destination clusters per stack (llm-d destination is in-cluster).
 - Re-plumbing ArgoCD auth/SSO — no longer relevant once the REST client is gone.
+
+## v1 implementation notes (post-review)
+
+Final whole-branch review verdict: ready to merge (0 Critical, 0 blocking).
+Behavioral note and accepted follow-up so it isn't rediscovered as a bug:
+
+- **merge-patch does not prune removed Helm values.** `apply_application` uses
+  JSON merge-patch (`application/merge-patch+json`). Changed and added keys in
+  `spec.source.helm.valuesObject` update correctly, but a key the user *removes*
+  from values.yaml is NOT pruned from the live Application CR (merge-patch only
+  deletes keys explicitly set to `null`). The old REST `upsert` was a full spec
+  replace, so key removal used to take effect immediately. This is consistent
+  with the repo's existing `K8sClient.create_or_patch` (strategic-merge, same
+  non-pruning of map fields), the drift is visible in the `/applied` view
+  (effective vs. live values), and ArgoCD self-heal still reconciles workloads.
+  **Follow-up (non-blocking):** switch to server-side apply
+  (`_content_type="application/apply-patch+yaml"` + a stable `field_manager`) to
+  prune fields the portal previously owned.
+- **Existing-stack adoption** depends on the portal's default kubeconfig (for
+  cluster_id=null stacks) reaching the cluster whose `argocd` namespace holds the
+  pre-existing Application CRs. Set a stack's `cluster_id` if its ArgoCD lives on
+  a registered cluster instead.
+- Removed the now-orphaned `app/services/yaml_block.py` (only the deleted
+  `/resource` endpoint used it).
