@@ -188,3 +188,22 @@ def test_extra_params_skip_reserved_infra_and_collisions():
 
 def test_extra_params_false_bool_omitted():
     assert "--disable-tqdm" not in _bench_script({"disable_tqdm": False})
+
+
+from app.api.k8s_clusters import CreateClusterRequest, _serialize as _serialize_cluster
+
+
+def test_create_cluster_request_defaults_argocd_namespace():
+    req = CreateClusterRequest(name="c", context="ctx", kubeconfig="kc")
+    assert req.argocd_namespace == "argocd"
+
+
+def test_cluster_serialize_includes_argocd_namespace():
+    c = types.SimpleNamespace(
+        id=uuid.uuid4(), name="c", context="ctx", namespace="default",
+        argocd_namespace="argo-system", api_server="https://s", is_default=False,
+        description=None, default_nfs_server=None, default_nfs_path=None,
+        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        created_by=None, created_at=None, updated_at=None,
+    )
+    assert _serialize_cluster(c)["argocd_namespace"] == "argo-system"

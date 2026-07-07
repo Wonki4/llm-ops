@@ -25,6 +25,9 @@ class CustomK8sCluster(CustomBase):
     namespace: Mapped[str] = mapped_column(
         String(128), nullable=False, default="default", server_default="default"
     )
+    argocd_namespace: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="argocd", server_default="argocd"
+    )
     kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Optional default model-weights NFS mount for benchmarks against a raw

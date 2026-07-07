@@ -34,6 +34,7 @@ class CreateClusterRequest(BaseModel):
     name: str
     context: str
     namespace: str = "default"
+    argocd_namespace: str = "argocd"
     kubeconfig: str
     description: str | None = None
     is_default: bool = False
@@ -46,6 +47,7 @@ class UpdateClusterRequest(BaseModel):
     name: str | None = None
     context: str | None = None
     namespace: str | None = None
+    argocd_namespace: str | None = None
     kubeconfig: str | None = None  # omitted/empty = keep existing
     description: str | None = None
     is_default: bool | None = None
@@ -96,6 +98,7 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "name": c.name,
         "context": c.context,
         "namespace": c.namespace,
+        "argocd_namespace": c.argocd_namespace,
         "api_server": c.api_server,
         "is_default": c.is_default,
         "description": c.description,
@@ -156,6 +159,7 @@ async def create_cluster(
         name=body.name,
         context=body.context,
         namespace=body.namespace,
+        argocd_namespace=body.argocd_namespace or "argocd",
         kubeconfig_encrypted=crypto.encrypt(body.kubeconfig),
         api_server=api_server,
         is_default=body.is_default,
@@ -193,6 +197,8 @@ async def update_cluster(
         cluster.name = body.name
     if body.namespace is not None:
         cluster.namespace = body.namespace
+    if body.argocd_namespace is not None:
+        cluster.argocd_namespace = body.argocd_namespace
     if body.description is not None:
         cluster.description = body.description
     if body.context is not None:
