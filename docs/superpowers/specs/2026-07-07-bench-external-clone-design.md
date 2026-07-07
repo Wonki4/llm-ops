@@ -149,3 +149,26 @@ Pick external serving → radio locked to "새로 띄워서 벤치"
 - Cloning sidecar containers / multi-container pods faithfully.
 - Direct (no-clone) benchmarking of external servings.
 - Auto-detecting the live serving's Service for direct URL use.
+
+## v1 implementation notes (post-review)
+
+Final whole-branch review: ready to merge after one fix (landed). Recorded so
+follow-ups aren't rediscovered as bugs:
+
+- **Snapshot shape** (fixed pre-merge): the external snapshot omits
+  `resources`/`engine`/`replicas`; `ServingSnapshot` fields were relaxed to
+  optional and the run-detail/compare render sites guarded with `?? "-"`.
+- **secretKeyRef-gated servings**: `snap["env"]` carries only literal env
+  values, so a serving whose API key comes solely from a Secret ref derives
+  `"EMPTY"` for the bench job — pass the form's explicit `api_key` in that
+  case. Follow-up: a UI hint.
+- **`serving_overrides` mapping**: external clones honor only
+  `{"resources": {...}, "image": ...}`; portal-style keys (`gpu_count`,
+  `gpu_type`, `vllm_extra_args`) are ignored. Shrinking a clone means writing a
+  raw K8s `resources` dict. Follow-up: map the friendly keys or adjust the hint.
+- **External preview** shows the clone Deployment+Service but not the bench Job
+  command (informational-only divergence from the spec sentence).
+- Inherited (pre-existing site-wide, not this branch): `get_db` rollback on
+  HTTPException discards mark-failed writes on provisioning failures; snapshot
+  `env` literals are returned unredacted by `_serialize` (super-user-gated,
+  same as portal ephemeral).
