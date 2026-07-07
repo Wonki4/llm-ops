@@ -157,7 +157,7 @@ export default function NewLlmdStackPage() {
                   onChange={(e) => onTargetChange(e.target.value)}
                   className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
                 >
-                  <option value="">{t("targetModelPlaceholder")}</option>
+                  <option value="" disabled>{t("targetModelPlaceholder")}</option>
                   <optgroup label={t("targetGroupPortal")}>
                     {(deployments ?? []).map((d) => (
                       <option key={d.id} value={d.model_name}>{d.model_name}</option>
@@ -231,7 +231,7 @@ export default function NewLlmdStackPage() {
 
         <div className="flex items-center justify-end gap-3 mt-6">
           <Link href="/admin/llmd"><Button type="button" variant="outline">{t("cancel")}</Button></Link>
-          <Button type="submit" disabled={createMut.isPending}>
+          <Button type="submit" disabled={createMut.isPending || defaultsMut.isPending}>
             {createMut.isPending && <Loader2 className="size-4 animate-spin" />}{t("create")}
           </Button>
         </div>
