@@ -9,7 +9,7 @@ import { useTranslations } from "next-intl";
 
 import {
   useCreateLlmdStack,
-  useArgocdConnections,
+  useK8sClusters,
   useModelDeployments,
   useLlmdDefaultValues,
   type CreateLlmdStackBody,
@@ -22,7 +22,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 type FormState = {
   name: string;
   target_model_name: string;
-  argocd_connection_id: string;
+  cluster_id: string;
   namespace: string;
   values_yaml: string;
 };
@@ -30,7 +30,7 @@ type FormState = {
 const EMPTY: FormState = {
   name: "",
   target_model_name: "",
-  argocd_connection_id: "",
+  cluster_id: "",
   namespace: "default",
   values_yaml: "",
 };
@@ -38,7 +38,7 @@ const EMPTY: FormState = {
 export default function NewLlmdStackPage() {
   const t = useTranslations("llmd");
   const router = useRouter();
-  const { data: connections } = useArgocdConnections();
+  const { data: clusters } = useK8sClusters();
   const { data: deployments } = useModelDeployments();
   const createMut = useCreateLlmdStack();
   const defaultsMut = useLlmdDefaultValues();
@@ -68,14 +68,10 @@ export default function NewLlmdStackPage() {
       toast.error(t("nameModelRequired"));
       return;
     }
-    if (!form.argocd_connection_id) {
-      toast.error(t("connectionRequired"));
-      return;
-    }
     const body: CreateLlmdStackBody = {
       name: form.name,
       target_model_name: form.target_model_name,
-      argocd_connection_id: form.argocd_connection_id,
+      cluster_id: form.cluster_id || null,
       namespace: form.namespace,
       values_yaml: form.values_yaml,
     };
@@ -124,16 +120,16 @@ export default function NewLlmdStackPage() {
                 <p className="text-xs text-muted-foreground">{t("targetModelHint")}</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="llmd-conn">{t("connection")}</Label>
+                <Label htmlFor="llmd-cluster">{t("clusterLabel")}</Label>
                 <select
-                  id="llmd-conn"
-                  value={form.argocd_connection_id}
-                  onChange={(e) => setForm({ ...form, argocd_connection_id: e.target.value })}
+                  id="llmd-cluster"
+                  value={form.cluster_id}
+                  onChange={(e) => setForm({ ...form, cluster_id: e.target.value })}
                   className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
                 >
-                  <option value="">{t("connectionPlaceholder")}</option>
-                  {(connections ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
+                  <option value="">{t("clusterDefault")}</option>
+                  {(clusters ?? []).map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}{c.is_default ? " ★" : ""}</option>
                   ))}
                 </select>
               </div>

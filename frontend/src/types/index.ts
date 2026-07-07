@@ -634,32 +634,11 @@ export interface ClusterTestResult {
   message: string;
 }
 
-/** Registered ArgoCD connection — masked (never includes the token). */
-export interface ArgocdConnectionSummary {
-  id: string;
-  name: string;
-  server_url: string;
-  insecure_skip_verify: boolean;
-  is_default: boolean;
-  description: string | null;
-  has_token: boolean;
-  created_by: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-export interface ArgocdTestResult {
-  ok: boolean;
-  server_version: string | null;
-  message: string;
-}
-
 /** An llm-d serving stack (ArgoCD-managed); status read live from ArgoCD. */
 export interface LlmdStackSummary {
   id: string;
   name: string;
   target_model_name: string;
-  argocd_connection_id: string | null;
   cluster_id: string | null;
   namespace: string;
   argo_app_name: string;
@@ -685,11 +664,6 @@ export interface LlmdAppliedResource {
   namespace: string | null;
   status: string | null;
   health: string | null;
-}
-
-export interface LlmdResourceManifest {
-  manifest: Record<string, unknown>;
-  manifest_yaml: string;
 }
 
 export interface LlmdAppliedResponse {

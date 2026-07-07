@@ -39,11 +39,8 @@ import type {
   ModelDeploymentEvent,
   K8sClusterSummary,
   ClusterTestResult,
-  ArgocdConnectionSummary,
-  ArgocdTestResult,
   LlmdStackSummary,
   LlmdAppliedResponse,
-  LlmdResourceManifest,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1381,85 +1378,12 @@ export function useTestSavedK8sCluster() {
   });
 }
 
-// ─── ArgoCD connections ────────────────────────────────────────────
-
-export interface CreateArgocdConnectionBody {
-  name: string;
-  server_url: string;
-  token: string;
-  insecure_skip_verify?: boolean;
-  description?: string | null;
-  is_default?: boolean;
-}
-
-export type UpdateArgocdConnectionBody = Partial<CreateArgocdConnectionBody>;
-
-export function useArgocdConnections() {
-  return useQuery({
-    queryKey: ["argocd-connections"],
-    queryFn: () =>
-      apiFetch<{ connections: ArgocdConnectionSummary[] }>("/api/admin/argocd-connections").then(
-        (r) => r.connections,
-      ),
-  });
-}
-
-export function useCreateArgocdConnection() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: CreateArgocdConnectionBody) =>
-      apiFetch<ArgocdConnectionSummary>("/api/admin/argocd-connections", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
-  });
-}
-
-export function useUpdateArgocdConnection() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: UpdateArgocdConnectionBody }) =>
-      apiFetch<ArgocdConnectionSummary>(`/api/admin/argocd-connections/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
-  });
-}
-
-export function useDeleteArgocdConnection() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<{ ok: boolean }>(`/api/admin/argocd-connections/${id}`, { method: "DELETE" }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["argocd-connections"] }),
-  });
-}
-
-export function useTestArgocdConnection() {
-  return useMutation({
-    mutationFn: (body: { server_url: string; token: string; insecure_skip_verify: boolean }) =>
-      apiFetch<ArgocdTestResult>("/api/admin/argocd-connections/test", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  });
-}
-
-export function useTestSavedArgocdConnection() {
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<ArgocdTestResult>(`/api/admin/argocd-connections/${id}/test`, { method: "POST" }),
-  });
-}
-
 // ─── llm-d stacks ────────────────────────────────────────────
 
 export interface CreateLlmdStackBody {
   name: string;
   target_model_name: string;
-  argocd_connection_id: string;
+  cluster_id: string | null;
   namespace?: string;
   values_yaml?: string;
 }
@@ -1483,31 +1407,6 @@ export function useLlmdStackApplied(id: string) {
     queryKey: ["llmd-stacks", id, "applied"],
     queryFn: () => apiFetch<LlmdAppliedResponse>(`/api/admin/llmd-stacks/${id}/applied`),
     enabled: !!id,
-  });
-}
-
-export interface LlmdResourceRef {
-  kind: string;
-  name: string;
-  namespace: string;
-  version: string;
-  group: string;
-}
-
-/** Live manifest of a single deployed resource (fetched when a row is expanded). */
-export function useLlmdStackResource(id: string, ref: LlmdResourceRef | null) {
-  const params = new URLSearchParams();
-  if (ref) {
-    params.set("kind", ref.kind);
-    params.set("name", ref.name);
-    params.set("namespace", ref.namespace);
-    params.set("version", ref.version);
-    params.set("group", ref.group);
-  }
-  return useQuery({
-    queryKey: ["llmd-stacks", id, "resource", ref],
-    queryFn: () => apiFetch<LlmdResourceManifest>(`/api/admin/llmd-stacks/${id}/resource?${params.toString()}`),
-    enabled: !!id && !!ref,
   });
 }
 
