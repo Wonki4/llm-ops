@@ -142,6 +142,66 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    # ─── ArgoCD Applications (custom resource) ──────────────────────
+
+    _ARGO = dict(group="argoproj.io", version="v1alpha1", plural="applications")
+
+    async def apply_application(self, namespace: str, manifest: dict) -> None:
+        """Create-or-patch an argoproj.io Application in ``namespace``.
+
+        Read then create (absent) or merge-patch (present) — mirrors
+        create_or_patch for built-in kinds. ArgoCD's controller reconciles it.
+        """
+        api_client = await self._api_client()
+        try:
+            co = client.CustomObjectsApi(api_client)
+            name = manifest["metadata"]["name"]
+            try:
+                await co.get_namespaced_custom_object(**self._ARGO, namespace=namespace, name=name)
+                exists = True
+            except ApiException as e:
+                if e.status == 404:
+                    exists = False
+                else:
+                    raise
+            if exists:
+                await co.patch_namespaced_custom_object(
+                    **self._ARGO, namespace=namespace, name=name, body=manifest
+                )
+            else:
+                await co.create_namespaced_custom_object(**self._ARGO, namespace=namespace, body=manifest)
+        finally:
+            await api_client.close()
+
+    async def get_application(self, namespace: str, name: str) -> dict | None:
+        """Read an Application CR; None if it does not exist."""
+        api_client = await self._api_client()
+        try:
+            co = client.CustomObjectsApi(api_client)
+            try:
+                return await co.get_namespaced_custom_object(**self._ARGO, namespace=namespace, name=name)
+            except ApiException as e:
+                if e.status == 404:
+                    return None
+                raise
+        finally:
+            await api_client.close()
+
+    async def delete_application(self, namespace: str, name: str) -> None:
+        """Delete an Application (cascades to its workloads); 404 swallowed."""
+        api_client = await self._api_client()
+        try:
+            co = client.CustomObjectsApi(api_client)
+            try:
+                await co.delete_namespaced_custom_object(
+                    **self._ARGO, namespace=namespace, name=name, propagation_policy="Foreground"
+                )
+            except ApiException as e:
+                if e.status != 404:
+                    raise
+        finally:
+            await api_client.close()
+
     async def list_deployments_all(self) -> list[dict]:
         """List Deployments across all namespaces, shaped for discovery.
 
