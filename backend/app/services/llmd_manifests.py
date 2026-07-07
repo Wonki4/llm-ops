@@ -38,7 +38,12 @@ def deep_merge(base: dict, override: dict) -> dict:
 
 
 def default_llmd_values(
-    target_model_name: str, *, epp_registry: str, epp_repository: str, epp_tag: str
+    target_model_name: str,
+    *,
+    epp_registry: str,
+    epp_repository: str,
+    epp_tag: str,
+    endpoint_selector: str | None = None,
 ) -> dict:
     """The starter ``values.yaml`` for a new stack: the llm-d **standalone router**.
 
@@ -50,13 +55,14 @@ def default_llmd_values(
     servers selected by ``endpointSelector`` on ``targetPorts`` (no InferencePool,
     no Gateway API provider). The user edits this freely.
     """
+    selector = endpoint_selector or (f"{LABEL_MODEL}={target_model_name}" if target_model_name else "")
     return {
         "inferenceExtension": {
             "replicas": 1,
             "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
             "endpointsServer": {
                 "createInferencePool": False,
-                "endpointSelector": f"{LABEL_MODEL}={target_model_name}" if target_model_name else "",
+                "endpointSelector": selector,
                 "targetPorts": 8000,
                 "modelServerType": "vllm",
             },
