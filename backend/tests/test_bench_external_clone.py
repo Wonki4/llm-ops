@@ -254,3 +254,15 @@ async def test_preview_external_returns_clone_manifests(client_for_user, super_u
     assert resp.status_code == 200
     kinds = [m.get("kind") for m in resp.json().get("manifests", [])]
     assert "Deployment" in kinds and "Service" in kinds
+
+
+async def test_create_external_api_key_override(client_for_user, super_user, mock_db):
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=_spec_for_api())
+    fake_k8s.create_or_patch = AsyncMock()
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks", json={**EXTERNAL_BODY, "api_key": "sk-gate"})
+    assert resp.status_code == 201
+    run = mock_db.add.call_args.args[0]
+    assert run.serving_snapshot["api_key_override"] == "sk-gate"
