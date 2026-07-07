@@ -114,7 +114,15 @@ export default function NewLlmdStackPage() {
       }));
     } else {
       setSelectedExternal(null);
-      setForm((f) => ({ ...f, target_model_name: value, target_kind: "portal", endpoint_selector: "" }));
+      // Revert the namespace/cluster auto-filled by a prior external selection.
+      setForm((f) => ({
+        ...f,
+        target_model_name: value,
+        target_kind: "portal",
+        endpoint_selector: "",
+        namespace: f.target_kind === "external" ? EMPTY.namespace : f.namespace,
+        cluster_id: f.target_kind === "external" ? EMPTY.cluster_id : f.cluster_id,
+      }));
     }
   };
 
