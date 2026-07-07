@@ -174,3 +174,83 @@ def test_clone_overrides_resources_and_image():
     c = dep["spec"]["template"]["spec"]["containers"][0]
     assert c["resources"] == {"limits": {"nvidia.com/gpu": "2"}}
     assert c["image"] == "vllm/vllm-openai:v0.7.0"
+
+
+# ─── API: create/preview external_target ────────────────────────────────
+
+
+def _exec_result(rows):
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = rows
+    r.scalar_one_or_none.return_value = rows[0] if rows else None
+    return r
+
+
+EXTERNAL_BODY = {
+    "tool": "vllm_serving",
+    "params": {"num_prompts": 10},
+    "external_target": {"cluster_id": None, "namespace": "team-a", "deployment_name": "ext-vllm"},
+}
+
+
+def _spec_for_api():
+    return _spec(args=["--model", "/models/llama-3-8b", "--served-model-name", "llama-3", "--port", "8000"])
+
+
+async def test_create_external_clone_run(client_for_user, super_user, mock_db):
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=_spec_for_api())
+    fake_k8s.create_or_patch = AsyncMock()
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["ephemeral"] is True
+    assert body["model_name"] == "llama-3"
+    # run row persisted with the snapshot contract the reconciler needs
+    run = mock_db.add.call_args.args[0]
+    assert run.deployment_id is None and run.ephemeral is True
+    assert run.k8s_namespace == "team-a"
+    snap = run.serving_snapshot
+    assert snap["model_path"] == "llama-3"                # served name for the bench job
+    assert snap["vllm_extra_args"] == _spec_for_api()["container"]["args"]
+    assert run.params.get("tokenizer") == "/models/llama-3-8b"  # tokenizer preset from --model
+    # clone applied into the serving's namespace
+    ns, manifests = fake_k8s.create_or_patch.await_args.args
+    assert ns == "team-a" and manifests[0]["kind"] == "Deployment"
+
+
+async def test_create_external_missing_serving_404(client_for_user, super_user, mock_db):
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=None)
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
+    assert resp.status_code == 404
+
+
+async def test_create_external_unparseable_args_400(client_for_user, super_user, mock_db):
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=_spec(args=["--port", "8000"]))
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
+    assert resp.status_code == 400
+
+
+async def test_create_external_lm_eval_400(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/benchmarks", json={**EXTERNAL_BODY, "tool": "lm_eval"})
+    assert resp.status_code == 400
+
+
+async def test_preview_external_returns_clone_manifests(client_for_user, super_user, mock_db):
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=_spec_for_api())
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks/preview", json=EXTERNAL_BODY)
+    assert resp.status_code == 200
+    kinds = [m.get("kind") for m in resp.json().get("manifests", [])]
+    assert "Deployment" in kinds and "Service" in kinds

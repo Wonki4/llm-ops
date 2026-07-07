@@ -30,8 +30,10 @@ from app.services.benchmark_manifests import (
 )
 from app.services.benchmark_serving import (
     build_ephemeral_deployment,
+    build_external_clone,
     ephemeral_manifests,
     ephemeral_model_name,
+    external_bench_facts,
     serving_resource_names,
     serving_target_url,
 )
@@ -83,6 +85,12 @@ def _dump_manifest_yaml(manifest: dict) -> str:
     )
 
 
+class ExternalTarget(BaseModel):
+    cluster_id: str | None = None
+    namespace: str
+    deployment_name: str
+
+
 class CreateBenchmarkRequest(BaseModel):
     model_name: str | None = Field(
         None, description="LiteLLM-registered alias (legacy mode; ignored when deployment_id is set)"
@@ -102,6 +110,11 @@ class CreateBenchmarkRequest(BaseModel):
         description="Overrides applied to the cloned serving (ephemeral only): "
         "image, model_path, replicas, gpu_count, gpu_type, gpu_resource_key, "
         "cpu_request/limit, memory_request/limit, vllm_extra_args, env, node_selector.",
+    )
+    external_target: ExternalTarget | None = Field(
+        None,
+        description="Benchmark a discovered external serving by cloning its live spec "
+        "(ephemeral; performance tools only). Mutually exclusive with deployment_id/ephemeral.",
     )
     tool: str = Field(..., description="vllm_serving | sglang_serving | lm_eval")
     params: dict = Field(default_factory=dict, description="Tool-specific args, stored verbatim")
@@ -307,6 +320,85 @@ async def create_benchmark(
         )
     k8s = await k8s_for_cluster(db, cluster_uuid)
 
+    # External-target mode: clone a serving discovered outside the portal (not
+    # a portal-managed deployment) from its live K8s spec into a throwaway
+    # serving, benchmark it, then tear it down. Performance tools only — the
+    # target's own cluster_id (not body.cluster_id) resolves the K8s client.
+    if body.external_target:
+        if kind != "performance":
+            raise HTTPException(status_code=400, detail="external_target supports performance benchmarks only")
+        if body.deployment_id or body.ephemeral:
+            raise HTTPException(
+                status_code=400, detail="external_target is mutually exclusive with deployment_id/ephemeral"
+            )
+        ext = body.external_target
+        ext_cluster_uuid = uuid.UUID(ext.cluster_id) if ext.cluster_id else None
+        ext_k8s = await k8s_for_cluster(db, ext_cluster_uuid)
+        try:
+            spec = await ext_k8s.read_deployment(ext.namespace, ext.deployment_name)
+        except K8sNotConfigured as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception:
+            logger.exception("Live spec read failed for %s/%s", ext.namespace, ext.deployment_name)
+            raise HTTPException(status_code=502, detail="Failed to read the external serving's spec; check logs")
+        if spec is None:
+            raise HTTPException(status_code=404, detail="External serving no longer exists")
+        try:
+            facts = external_bench_facts(spec)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        params = dict(body.params)
+        params.setdefault("tokenizer", facts["tokenizer"])
+        params["external_source"] = {
+            "cluster_id": ext.cluster_id,
+            "namespace": ext.namespace,
+            "deployment_name": ext.deployment_name,
+        }
+        run = CustomBenchmarkRun(
+            id=uuid.uuid4(),
+            model_name=facts["served_model"],
+            tool=body.tool,
+            kind=kind,
+            params=params,
+            status="provisioning",
+            cluster_id=ext_cluster_uuid,
+            deployment_id=None,
+            ephemeral=True,
+            k8s_namespace=ext.namespace,
+            bench_image=body.image or spec["container"]["image"],
+            created_by=user.user_id,
+            serving_snapshot={
+                "source": "external",
+                "image": spec["container"]["image"],
+                "vllm_extra_args": spec["container"]["args"],
+                "env": {e["name"]: e["value"] for e in spec["container"]["env"] if e.get("value")},
+                "model_path": facts["served_model"],
+                "pvc_name": facts["pvc_name"],
+                "pvc_mount_path": facts["pvc_mount_path"],
+            },
+        )
+        run.serving_k8s_name = ephemeral_model_name(run.id)
+        run.k8s_job_name = job_name_for(run.id)
+        db.add(run)
+        await db.flush()
+        await db.refresh(run)
+        try:
+            await ext_k8s.create_or_patch(
+                ext.namespace,
+                build_external_clone(spec, name=run.serving_k8s_name, overrides=body.serving_overrides),
+            )
+        except K8sNotConfigured as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:
+            logger.exception("External clone provisioning failed for benchmark %s", run.id)
+            run.status = "failed"
+            run.error_message = f"External clone provisioning failed: {e}"
+            run.serving_torn_down = True
+            await db.flush()
+            raise HTTPException(status_code=502, detail="Failed to provision the benchmark clone; check logs")
+        return _serialize(run)
+
     # Ephemeral mode: clone a template deployment into a throwaway serving. The
     # reconciler waits for it to become ready, creates the bench Job, then tears
     # the serving down. The Job is NOT created here.
@@ -490,7 +582,21 @@ async def preview_benchmark(
     run.k8s_job_name = job_name_for(run.id)
     manifests: list[dict] = []
 
-    if body.ephemeral:
+    if body.external_target:
+        if kind != "performance":
+            raise HTTPException(status_code=400, detail="external_target supports performance benchmarks only")
+        ext = body.external_target
+        ext_k8s = await k8s_for_cluster(db, uuid.UUID(ext.cluster_id) if ext.cluster_id else None)
+        try:
+            spec = await ext_k8s.read_deployment(ext.namespace, ext.deployment_name)
+        except Exception:
+            return {"manifests": [], "note": "external_spec_unavailable"}
+        if spec is None:
+            return {"manifests": [], "note": "external_serving_missing"}
+        run.model_name = ext.deployment_name
+        clone_name = ephemeral_model_name(uuid.uuid4())
+        manifests.extend(build_external_clone(spec, name=clone_name, overrides=body.serving_overrides))
+    elif body.ephemeral:
         if not body.deployment_id:
             return {"manifests": [], "note": "ephemeral_needs_deployment"}
         try:
