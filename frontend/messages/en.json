@@ -1391,13 +1391,21 @@
     "previewEmpty": "Pick a target (serving deployment or model) to see the preview.",
     "deploymentLabel": "Serving deployment",
     "deploymentNone": "— none (use a registered alias) —",
-    "deploymentHint": "Benchmark a portal-managed serving deployment directly (recommended). Only Ready deployments are listed.",
+    "deploymentHint": "Benchmark a portal-managed serving deployment directly (recommended).",
     "modelHintDisabled": "Ignored while a serving deployment is selected.",
     "errorTargetRequired": "Select a serving deployment or a model alias.",
     "ephemeralLabel": "Run as ephemeral copy (auto-delete after)",
     "ephemeralHint": "Clone the selected deployment into a throwaway serving, benchmark it, then tear it down. Requires a serving deployment as the template.",
     "servingOverridesLabel": "Serving overrides (JSON, optional)",
-    "servingOverridesHint": "Override the cloned serving, e.g. {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}"
+    "servingOverridesHint": "Override the cloned serving, e.g. {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
+    "targetGroupPortal": "Portal deployments",
+    "targetGroupExternal": "External servings (discovered)",
+    "modeCloneLabel": "Benchmark a fresh clone (recommended)",
+    "modeCloneHint": "Spins up a copy of the serving, benchmarks it, then deletes it. Needs spare GPU capacity; RWO volumes may fail to attach while the live pod holds them.",
+    "modeDirectLabel": "Benchmark the live serving",
+    "modeDirectHint": "Sends load to the running serving directly.",
+    "modeDirectUnavailable": "Direct mode is only available for Ready portal deployments.",
+    "statusNotReady": "not running"
   },
   "benchmarkCompare": {
     "pageTitle": "Compare benchmarks",
