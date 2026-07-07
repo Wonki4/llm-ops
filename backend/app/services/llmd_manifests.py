@@ -87,6 +87,7 @@ def build_argo_application(
     chart_version: str,
     values: dict,
     project: str,
+    argocd_namespace: str,
 ) -> dict:
     """An argoproj.io/v1alpha1 Application that deploys the llm-d stack.
 
@@ -99,6 +100,7 @@ def build_argo_application(
         "kind": "Application",
         "metadata": {
             "name": stack.argo_app_name,
+            "namespace": argocd_namespace,
             "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
         },
         "spec": {

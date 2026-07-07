@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     llmd_epp_image_repository: str = "llm-d/llm-d-router-endpoint-picker"
     llmd_epp_image_tag: str = "v0.9.0"
     argo_project: str = "llm-d"
+    argocd_namespace: str = "argocd"  # ArgoCD control-plane ns for null-cluster stacks
 
     slack_webhook_url: str = ""
     cors_origins: list[str] = ["http://localhost:3002"]
