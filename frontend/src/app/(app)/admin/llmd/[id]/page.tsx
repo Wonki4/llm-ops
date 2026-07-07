@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Pencil, Trash2, Save, X, Network, ChevronRight, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, Trash2, Save, X, Network, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
@@ -13,8 +13,7 @@ import {
   useUpdateLlmdStack,
   useDeleteLlmdStack,
   useLlmdStackApplied,
-  useLlmdStackResource,
-  useArgocdConnections,
+  useK8sClusters,
 } from "@/hooks/use-api";
 import type { LlmdAppliedResource } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -50,41 +49,17 @@ function JsonBlock({ value }: { value: unknown }) {
   );
 }
 
-/** A deployed-resource row that expands to show the live manifest from ArgoCD. */
-function ResourceRow({ stackId, r }: { stackId: string; r: LlmdAppliedResource }) {
-  const [open, setOpen] = useState(false);
-  const canOpen = !!(r.kind && r.name && r.namespace);
-  const ref = open && canOpen
-    ? { kind: r.kind!, name: r.name!, namespace: r.namespace!, version: r.version, group: r.group }
-    : null;
-  const { data, isLoading } = useLlmdStackResource(stackId, ref);
-
+/** A deployed-resource row (read-only summary from the applied-resources list). */
+function ResourceRow({ r }: { r: LlmdAppliedResource }) {
   return (
-    <div>
-      <button
-        type="button"
-        disabled={!canOpen}
-        onClick={() => setOpen((o) => !o)}
-        className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-sm ${canOpen ? "hover:bg-muted/40" : "cursor-default"}`}
-      >
-        <span className="flex items-center gap-1.5 font-mono truncate">
-          {canOpen && <ChevronRight className={`size-3.5 shrink-0 transition-transform ${open ? "rotate-90" : ""}`} />}
-          {r.kind}<span className="text-muted-foreground">/{r.name}</span>
-        </span>
-        <span className="flex items-center gap-1.5 shrink-0">
-          {r.status && <Badge variant="secondary">{r.status}</Badge>}
-          {r.health && <Badge variant={r.health === "Healthy" ? "default" : "secondary"}>{r.health}</Badge>}
-        </span>
-      </button>
-      {open && (
-        <div className="border-t bg-muted/20 p-2">
-          {isLoading ? (
-            <div className="flex justify-center py-4"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
-          ) : (
-            <YamlBlock text={data?.manifest_yaml ?? ""} />
-          )}
-        </div>
-      )}
+    <div className="flex w-full items-center justify-between gap-3 px-3 py-2 text-sm">
+      <span className="flex items-center gap-1.5 font-mono truncate">
+        {r.kind}<span className="text-muted-foreground">/{r.name}</span>
+      </span>
+      <span className="flex items-center gap-1.5 shrink-0">
+        {r.status && <Badge variant="secondary">{r.status}</Badge>}
+        {r.health && <Badge variant={r.health === "Healthy" ? "default" : "secondary"}>{r.health}</Badge>}
+      </span>
     </div>
   );
 }
@@ -99,7 +74,7 @@ export default function LlmdDetailPage() {
   const { data: stacks, isLoading } = useLlmdStacks();
   const stack = stacks?.find((s) => s.id === id);
   const { data: applied, isLoading: appliedLoading } = useLlmdStackApplied(id);
-  const { data: connections } = useArgocdConnections();
+  const { data: clusters } = useK8sClusters();
   const updateMut = useUpdateLlmdStack();
   const deleteMut = useDeleteLlmdStack();
 
@@ -148,7 +123,9 @@ export default function LlmdDetailPage() {
     );
   }
 
-  const connName = connections?.find((c) => c.id === stack.argocd_connection_id)?.name ?? stack.argocd_connection_id ?? "-";
+  const clusterName = stack.cluster_id
+    ? clusters?.find((c) => c.id === stack.cluster_id)?.name ?? stack.cluster_id
+    : t("clusterDefault");
 
   return (
     <div className="space-y-6">
@@ -195,7 +172,7 @@ export default function LlmdDetailPage() {
           {/* Identity (not editable) */}
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <Field label={t("targetModel")} mono>{stack.target_model_name}</Field>
-            <Field label={t("connection")}>{connName}</Field>
+            <Field label={t("clusterLabel")}>{clusterName}</Field>
             <Field label={t("argoAppName")} mono>{stack.argo_app_name}</Field>
             <Field label={t("chart")} mono>{stack.chart_name} {stack.chart_version}</Field>
             <Field label={t("eppImage")} mono>{stack.epp_image}</Field>
@@ -267,7 +244,7 @@ export default function LlmdDetailPage() {
                 {applied && applied.resources.length > 0 ? (
                   <div className="rounded-md border divide-y">
                     {applied.resources.map((r, i) => (
-                      <ResourceRow key={i} stackId={stack.id} r={r} />
+                      <ResourceRow key={i} r={r} />
                     ))}
                   </div>
                 ) : (
