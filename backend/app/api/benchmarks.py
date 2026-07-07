@@ -380,6 +380,9 @@ async def create_benchmark(
         )
         run.serving_k8s_name = ephemeral_model_name(run.id)
         run.k8s_job_name = job_name_for(run.id)
+        # Explicit key override beats the args/env-derived key (auth-gated targets).
+        if body.api_key:
+            run.serving_snapshot["api_key_override"] = body.api_key
         db.add(run)
         await db.flush()
         await db.refresh(run)
