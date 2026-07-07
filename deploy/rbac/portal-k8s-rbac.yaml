@@ -1,0 +1,99 @@
+# RBAC for the LLM-Ops portal's Kubernetes access (the kubeconfig the backend
+# mounts / the registered cluster credentials use).
+#
+# Scope is derived from exactly what backend/app/clients/k8s.py does:
+#   - Serving deployments  -> Deployment / Service / Ingress  (get/create/patch/delete)
+#   - Reconciler           -> deployments/status, services    (get)
+#   - Benchmarks           -> Job (create/get/delete), jobs/status (get),
+#                             Pod (list), pods/log (get)
+#   - Cluster probe        -> GET /version
+#   - llm-d stacks         -> applications.argoproj.io  (get/create/patch/delete)
+#
+# NOTE: llm-d stacks are now provisioned by applying the ArgoCD Application
+# custom resource directly to the cluster's ArgoCD control-plane namespace via
+# this kubeconfig (CRD-based, not the ArgoCD REST API), so the portal needs
+# applications.argoproj.io verbs. ArgoCD's own controller still reconciles the
+# Application into workloads. Other argoproj.io kinds (AppProject, etc.) and
+# configmaps/serviceaccounts/roles/rolebindings are NOT managed here.
+#
+# ClusterRole (not Role) because the portal targets arbitrary namespaces
+# (default, llmd, per-stack, ...) and reads pods cluster-wide.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: llm-ops-portal
+  namespace: default          # move to a dedicated ns if you prefer; keep it in sync below
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: llm-ops-portal
+rules:
+  # --- Serving deployments: Deployment / Service / Ingress lifecycle ---
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # --- Benchmarks: Jobs + reading their pods/logs ---
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs/status"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # --- llm-d stacks: manage ArgoCD Application CRs (CRD-based provisioning) ---
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # --- Cluster connectivity probe (probe_cluster -> VersionApi) ---
+  # Usually already granted by system:discovery; included so the role is self-sufficient.
+  - nonResourceURLs: ["/version", "/version/"]
+    verbs: ["get"]
+# Strictly-minimal note: `list` (workload resources) and `update` (alongside
+# `patch`) are included for resilience/UX; remove them for the tightest set that
+# still matches the code (get/create/patch/delete + status get; pods list + log get).
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: llm-ops-portal
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: llm-ops-portal
+subjects:
+  # Option A (recommended): bind to the dedicated ServiceAccount above.
+  - kind: ServiceAccount
+    name: llm-ops-portal
+    namespace: default
+  # Option B: instead bind to the identity your current kubeconfig already uses,
+  # e.g. a client-cert user — then you don't regenerate the kubeconfig:
+  # - kind: User
+  #   name: <CN-from-your-client-cert>      # `kubectl config view` -> users[].user, or cert subject CN
+  #   apiGroup: rbac.authorization.k8s.io
+---
+# Long-lived token for the SA (K8s 1.24+ no longer auto-creates SA token Secrets).
+# Use this to assemble the portal's kubeconfig (see below).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: llm-ops-portal-token
+  namespace: default
+  annotations:
+    kubernetes.io/service-account.name: llm-ops-portal
+type: kubernetes.io/service-account-token
