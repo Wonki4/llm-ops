@@ -628,6 +628,8 @@ export interface K8sClusterSummary {
   context: string;
   namespace: string;
   argocd_namespace: string;
+  argocd_host_cluster_id: string | null;
+  argocd_dest_server: string | null;
   api_server: string | null;
   is_default: boolean;
   description: string | null;
