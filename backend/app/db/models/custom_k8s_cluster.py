@@ -9,7 +9,7 @@ the kubeconfig to the client — only the non-secret ``api_server`` summary.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,15 @@ class CustomK8sCluster(CustomBase):
     argocd_namespace: Mapped[str] = mapped_column(
         String(128), nullable=False, default="argocd", server_default="argocd"
     )
+    # llm-d ArgoCD placement: which cluster's ArgoCD manages this one (NULL =
+    # itself) and the destination.server URL that ArgoCD knows this cluster by
+    # (NULL = the in-cluster default). One-hop resolution; see services/clusters.
+    argocd_host_cluster_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_k8s_cluster.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    argocd_dest_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
     kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Optional default model-weights NFS mount for benchmarks against a raw
