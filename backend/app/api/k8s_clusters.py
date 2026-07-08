@@ -41,6 +41,8 @@ class CreateClusterRequest(BaseModel):
     default_nfs_server: str | None = None
     default_nfs_path: str | None = None
     default_nfs_mount_path: str | None = None
+    argocd_host_cluster_id: str | None = None
+    argocd_dest_server: str | None = None
 
 
 class UpdateClusterRequest(BaseModel):
@@ -54,6 +56,8 @@ class UpdateClusterRequest(BaseModel):
     default_nfs_server: str | None = None
     default_nfs_path: str | None = None
     default_nfs_mount_path: str | None = None
+    argocd_host_cluster_id: str | None = None
+    argocd_dest_server: str | None = None
 
 
 class TestClusterRequest(BaseModel):
@@ -91,6 +95,29 @@ def _parse_kubeconfig(raw: str, context: str) -> tuple[dict, str | None]:
     return parsed, api_server
 
 
+async def _validate_argocd_host(
+    db: AsyncSession, host_raw: str | None, own_id: uuid.UUID | None
+) -> uuid.UUID | None:
+    """Resolve/validate an argocd_host_cluster_id form value ('' clears)."""
+    if not host_raw:
+        return None
+    try:
+        host_id = uuid.UUID(host_raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="argocd_host_cluster_id must be a cluster id")
+    if own_id and host_id == own_id:
+        raise HTTPException(
+            status_code=400,
+            detail="argocd_host_cluster_id cannot be the cluster itself — leave it empty for self-managed",
+        )
+    row = (
+        await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == host_id))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=400, detail="argocd_host_cluster_id does not match a registered cluster")
+    return host_id
+
+
 def _serialize(c: CustomK8sCluster) -> dict:
     """Masked representation — never includes the kubeconfig."""
     return {
@@ -99,6 +126,10 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "context": c.context,
         "namespace": c.namespace,
         "argocd_namespace": c.argocd_namespace,
+        "argocd_host_cluster_id": (
+            str(c.argocd_host_cluster_id) if c.argocd_host_cluster_id else None
+        ),
+        "argocd_dest_server": c.argocd_dest_server,
         "api_server": c.api_server,
         "is_default": c.is_default,
         "description": c.description,
@@ -154,6 +185,8 @@ async def create_cluster(
 
     _parsed, api_server = _parse_kubeconfig(body.kubeconfig, body.context)
 
+    argocd_host = await _validate_argocd_host(db, body.argocd_host_cluster_id, None)
+
     cluster = CustomK8sCluster(
         id=uuid.uuid4(),
         name=body.name,
@@ -167,6 +200,8 @@ async def create_cluster(
         default_nfs_server=body.default_nfs_server or None,
         default_nfs_path=body.default_nfs_path or None,
         default_nfs_mount_path=body.default_nfs_mount_path or None,
+        argocd_host_cluster_id=argocd_host,
+        argocd_dest_server=(body.argocd_dest_server or "").strip() or None,
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -230,6 +265,13 @@ async def update_cluster(
 
     if body.is_default is not None:
         cluster.is_default = body.is_default
+
+    if body.argocd_host_cluster_id is not None:
+        cluster.argocd_host_cluster_id = await _validate_argocd_host(
+            db, body.argocd_host_cluster_id, cluster.id
+        )
+    if body.argocd_dest_server is not None:
+        cluster.argocd_dest_server = body.argocd_dest_server.strip() or None
 
     cluster.updated_by = user.user_id
     await db.flush()

@@ -6,6 +6,7 @@ kubeconfig parsing/validation. Full CRUD is exercised against the running app.
 
 import types
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -202,6 +203,83 @@ def test_cluster_serialize_includes_argocd_namespace():
         argocd_namespace="argo-system", api_server="https://s", is_default=False,
         description=None, default_nfs_server=None, default_nfs_path=None,
         default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        argocd_host_cluster_id=None, argocd_dest_server=None,
         created_by=None, created_at=None, updated_at=None,
     )
     assert _serialize_cluster(c)["argocd_namespace"] == "argo-system"
+
+
+def test_serialize_includes_argocd_placement_fields():
+    host_id = uuid.uuid4()
+    row = types.SimpleNamespace(
+        id=uuid.uuid4(), name="edge", context="ctx", namespace="default",
+        argocd_namespace="argocd", api_server=None, is_default=False,
+        description=None, default_nfs_server=None, default_nfs_path=None,
+        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        argocd_host_cluster_id=host_id, argocd_dest_server="https://e:6443",
+        created_by=None, created_at=None, updated_at=None,
+    )
+    out = _serialize_cluster(row)
+    assert out["argocd_host_cluster_id"] == str(host_id)
+    assert out["argocd_dest_server"] == "https://e:6443"
+
+
+def test_serialize_argocd_placement_nulls():
+    row = types.SimpleNamespace(
+        id=uuid.uuid4(), name="edge", context="ctx", namespace="default",
+        argocd_namespace="argocd", api_server=None, is_default=False,
+        description=None, default_nfs_server=None, default_nfs_path=None,
+        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        argocd_host_cluster_id=None, argocd_dest_server=None,
+        created_by=None, created_at=None, updated_at=None,
+    )
+    out = _serialize_cluster(row)
+    assert out["argocd_host_cluster_id"] is None
+    assert out["argocd_dest_server"] is None
+
+
+async def test_validate_argocd_host_rejects_bad_uuid():
+    from app.api.k8s_clusters import _validate_argocd_host
+
+    with pytest.raises(HTTPException) as e:
+        await _validate_argocd_host(MagicMock(), "not-a-uuid", None)
+    assert e.value.status_code == 400
+
+
+async def test_validate_argocd_host_rejects_self():
+    from app.api.k8s_clusters import _validate_argocd_host
+
+    own = uuid.uuid4()
+    with pytest.raises(HTTPException) as e:
+        await _validate_argocd_host(MagicMock(), str(own), own)
+    assert e.value.status_code == 400
+
+
+async def test_validate_argocd_host_rejects_unknown_cluster():
+    from app.api.k8s_clusters import _validate_argocd_host
+
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = None
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=r)
+    with pytest.raises(HTTPException) as e:
+        await _validate_argocd_host(db, str(uuid.uuid4()), None)
+    assert e.value.status_code == 400
+
+
+async def test_validate_argocd_host_empty_clears():
+    from app.api.k8s_clusters import _validate_argocd_host
+
+    assert await _validate_argocd_host(MagicMock(), "", uuid.uuid4()) is None
+    assert await _validate_argocd_host(MagicMock(), None, None) is None
+
+
+async def test_validate_argocd_host_accepts_existing():
+    from app.api.k8s_clusters import _validate_argocd_host
+
+    host_id = uuid.uuid4()
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = types.SimpleNamespace(id=host_id)
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=r)
+    assert await _validate_argocd_host(db, str(host_id), uuid.uuid4()) == host_id
