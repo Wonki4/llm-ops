@@ -96,3 +96,19 @@ today's for every mode.
 - Manual pass in the local docker stack: each of the four tabs previews and
   submits its expected body shape (clone-portal, clone-external, direct,
   model, from-run prefill + auto-switch).
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 10/10 named checks PASS, body
+parity verified against the removed pre-branch logic for all five flows.
+Known ship-as-is minors:
+
+- Model-tab empty submit toasts `errorModelRequired` (more specific than the
+  spec's `errorTargetRequired`) — intentional improvement.
+- `previewBody`/`handleSubmit` duplicate the 4-branch target-body
+  construction (pre-existing preview-vs-submit duplication; candidate for a
+  shared `buildTargetBody()` helper later).
+- Clone select can display a vanished external serving while
+  `externalTarget` is still held; stale `deployment_id` from a deleted
+  deployment restored by loadFromRun flows to the backend and is rejected —
+  both pre-existing parity behavior, non-crashing.
