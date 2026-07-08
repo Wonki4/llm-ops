@@ -1,7 +1,6 @@
 """Application-CR operations on K8sClient (CustomObjectsApi)."""
 
 import types
-import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from kubernetes_asyncio.client.exceptions import ApiException
@@ -85,26 +84,9 @@ def test_build_argo_application_sets_metadata_namespace():
     app = build_argo_application(
         _stack(), chart_repo="oci://r", chart_name="standalone", chart_version="v1",
         values={"a": 1}, project="llm-d", argocd_namespace="argocd",
+        destination_server="https://kubernetes.default.svc",
     )
     assert app["metadata"]["namespace"] == "argocd"
     assert app["metadata"]["name"] == "llmd-demo"
     assert app["spec"]["destination"]["namespace"] == "team-a"
     assert app["spec"]["source"]["helm"]["valuesObject"] == {"a": 1}
-
-
-async def test_argocd_namespace_for_null_cluster_uses_global():
-    from app.services.clusters import argocd_namespace_for
-    db = MagicMock()
-    db.execute = AsyncMock()
-    assert await argocd_namespace_for(db, None) == "argocd"
-    db.execute.assert_not_called()
-
-
-async def test_argocd_namespace_for_uses_cluster_value():
-    from app.services.clusters import argocd_namespace_for
-    row = types.SimpleNamespace(argocd_namespace="argo-system")
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = row
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=result)
-    assert await argocd_namespace_for(db, uuid.uuid4()) == "argo-system"

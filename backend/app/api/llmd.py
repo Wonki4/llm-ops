@@ -1,9 +1,10 @@
 """Admin endpoints for llm-d serving stacks (ArgoCD CRD-managed).
 
-The portal renders an argoproj.io Application per stack and applies it to the
-cluster's ArgoCD control-plane namespace via the K8s API (using the stack's
-registered cluster, or the portal default kubeconfig). ArgoCD's controller
-reconciles it; sync/health is read live from the Application CR, never persisted.
+The portal renders an argoproj.io Application per stack and applies it via the
+K8s API to the ArgoCD control-plane namespace on the resolved host cluster,
+with a ``spec.destination`` pointing at the stack's target cluster (per-cluster
+placement; a null cluster stays fully local). ArgoCD's controller reconciles
+it; sync/health is read live from the Application CR, never persisted.
 """
 
 import logging
@@ -22,7 +23,7 @@ from app.config import settings
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.clusters import argocd_namespace_for, k8s_for_cluster
+from app.services.clusters import argocd_placement_for
 from app.services.llmd_manifests import (
     argo_app_name_for,
     build_argo_application,
@@ -102,7 +103,7 @@ def _values_for(stack: CustomLlmdStack) -> dict:
     )
 
 
-def _application_for(stack: CustomLlmdStack, argocd_namespace: str) -> dict:
+def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
     return build_argo_application(
         stack,
         chart_repo=settings.llmd_chart_repo,
@@ -111,6 +112,7 @@ def _application_for(stack: CustomLlmdStack, argocd_namespace: str) -> dict:
         values=stack.values_snapshot,
         project=settings.argo_project,
         argocd_namespace=argocd_namespace,
+        destination_server=destination_server,
     )
 
 
@@ -133,8 +135,7 @@ def _require_valid_name(name: str) -> str:
 
 async def _live_status(db: AsyncSession, stack: CustomLlmdStack) -> dict:
     try:
-        argocd_ns = await argocd_namespace_for(db, stack.cluster_id)
-        k8s = await k8s_for_cluster(db, stack.cluster_id)
+        k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
         obj = await k8s.get_application(argocd_ns, stack.argo_app_name)
         return _argo_status(obj)
     except Exception as e:  # noqa: BLE001 — status is best-effort
@@ -199,8 +200,7 @@ async def applied_values(
     revision: str | None = None
     live_error: str | None = None
     try:
-        argocd_ns = await argocd_namespace_for(db, stack.cluster_id)
-        k8s = await k8s_for_cluster(db, stack.cluster_id)
+        k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
         obj = await k8s.get_application(argocd_ns, stack.argo_app_name)
         if obj:
             src = (obj.get("spec") or {}).get("source") or {}
@@ -269,9 +269,8 @@ async def create_stack(
     await db.flush()
 
     try:
-        argocd_ns = await argocd_namespace_for(db, stack.cluster_id)
-        k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns))
+        k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
+        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
     except Exception as e:
         logger.exception("ArgoCD Application apply failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD apply failed: {_k8s_error_message(e)}")
@@ -320,9 +319,8 @@ async def update_stack(
     await db.flush()
 
     try:
-        argocd_ns = await argocd_namespace_for(db, stack.cluster_id)
-        k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns))
+        k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
+        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
     except Exception as e:
         logger.exception("ArgoCD Application update failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD update failed: {_k8s_error_message(e)}")
@@ -343,8 +341,7 @@ async def delete_stack(
     if not stack:
         raise HTTPException(status_code=404, detail="Stack not found")
     try:
-        argocd_ns = await argocd_namespace_for(db, stack.cluster_id)
-        k8s = await k8s_for_cluster(db, stack.cluster_id)
+        k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
         await k8s.delete_application(argocd_ns, stack.argo_app_name)
     except Exception as e:
         logger.exception("ArgoCD Application delete failed for stack %s", stack.name)

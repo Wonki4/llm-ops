@@ -40,21 +40,6 @@ async def k8s_for_cluster(db: AsyncSession, cluster_id: uuid.UUID | str | None) 
     return _client_for_row(row)
 
 
-async def argocd_namespace_for(db: AsyncSession, cluster_id: uuid.UUID | str | None) -> str:
-    """The ArgoCD control-plane namespace for a stack's cluster.
-
-    A registered cluster's ``argocd_namespace`` wins; a null cluster (portal
-    default kubeconfig) falls back to the global ``settings.argocd_namespace``.
-    """
-    from app.config import settings
-
-    if not cluster_id:
-        return settings.argocd_namespace
-    cid = cluster_id if isinstance(cluster_id, uuid.UUID) else uuid.UUID(str(cluster_id))
-    row = await _cluster_row(db, cid)
-    return (row.argocd_namespace if row and row.argocd_namespace else settings.argocd_namespace)
-
-
 async def argocd_placement_for(
     db: AsyncSession, cluster_id: uuid.UUID | str | None
 ) -> tuple[K8sClient, str, str]:
