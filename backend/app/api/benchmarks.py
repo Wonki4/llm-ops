@@ -34,6 +34,7 @@ from app.services.benchmark_serving import (
     ephemeral_manifests,
     ephemeral_model_name,
     external_bench_facts,
+    serving_cli,
     serving_resource_names,
     serving_target_url,
 )
@@ -371,7 +372,7 @@ async def create_benchmark(
             serving_snapshot={
                 "source": "external",
                 "image": spec["container"]["image"],
-                "vllm_extra_args": spec["container"]["args"],
+                "vllm_extra_args": serving_cli(spec["container"]),
                 "env": {e["name"]: e["value"] for e in spec["container"]["env"] if e.get("value")},
                 "model_path": facts["served_model"],
                 "pvc_name": facts["pvc_name"],
