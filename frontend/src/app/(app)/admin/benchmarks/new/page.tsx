@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { JsonEditor } from "@/components/json-editor";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const TOOL_OPTIONS: BenchmarkTool[] = [
   "vllm_serving",
@@ -61,6 +62,9 @@ const DEFAULT_ACCURACY_PARAMS = {
   gen_kwargs: "",
 };
 
+// The active tab IS the start mode — no inference from which fields are set.
+type BenchMode = "clone" | "direct" | "model" | "fromRun";
+
 export default function NewBenchmarkPage() {
   const t = useTranslations("benchmarkForm");
   const tc = useTranslations("common");
@@ -76,7 +80,7 @@ export default function NewBenchmarkPage() {
   const [deploymentId, setDeploymentId] = useState("");
   const [externalTarget, setExternalTarget] = useState<ExternalServing | null>(null);
   const [clusterId, setClusterId] = useState("");
-  const [ephemeral, setEphemeral] = useState(true);
+  const [mode, setMode] = useState<BenchMode>("clone");
   const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
@@ -104,15 +108,15 @@ export default function NewBenchmarkPage() {
     if (run.deployment_id) {
       setDeploymentId(run.deployment_id);
       setModelName("");
-      // Restore the run's mode, but force clone when the deployment is no
-      // longer Ready — direct mode is disabled for it (keeps radio state
-      // consistent with directModeDisabled).
+      // Restore the run's mode, but land on the clone tab when the
+      // deployment is no longer Ready — the direct tab won't list it.
       const dep = (deployments ?? []).find((d) => d.id === run.deployment_id);
-      setEphemeral(dep && dep.ready_replicas === 0 ? true : run.ephemeral);
+      const forceClone = dep ? dep.ready_replicas === 0 : false;
+      setMode(run.ephemeral || forceClone ? "clone" : "direct");
     } else {
       setDeploymentId("");
-      setEphemeral(false);
       setModelName(run.model_name);
+      setMode("model");
     }
     setClusterId(run.cluster_id ?? "");
     setNamespace(run.k8s_namespace ?? "");
@@ -176,29 +180,28 @@ export default function NewBenchmarkPage() {
   }, [models]);
 
   const allDeployments = deployments ?? [];
+  const readyDeployments = allDeployments.filter((d) => d.ready_replicas > 0);
   const selectedDeployment = allDeployments.find((d) => d.id === deploymentId) ?? null;
 
-  // Clone (ephemeral) mode is forced when the portal deployment isn't Ready, or
-  // when the target is an external serving — the live pod isn't ours to hit.
-  const directModeDisabled =
-    !!externalTarget || (!!selectedDeployment && selectedDeployment.ready_replicas === 0);
+  // The external target only participates while the clone tab is active;
+  // leftover selections on inactive tabs never leak into cluster/namespace
+  // autofill or the outgoing body.
+  const activeExternal = mode === "clone" ? externalTarget : null;
 
-  const handleTargetChange = (value: string) => {
+  // deploymentId is shared between the clone and direct tabs (same target,
+  // different mode); the direct tab simply won't resolve a not-Ready id.
+  const directDeploymentId = readyDeployments.some((d) => d.id === deploymentId)
+    ? deploymentId
+    : "";
+
+  const handleCloneTargetChange = (value: string) => {
     if (value.startsWith("ext::")) {
       const serving = servings.find((s) => externalKey(s) === value) ?? null;
       setExternalTarget(serving);
       setDeploymentId("");
-      setEphemeral(true);
-    } else if (value) {
-      setExternalTarget(null);
-      setDeploymentId(value);
-      const dep = allDeployments.find((d) => d.id === value);
-      if (dep && dep.ready_replicas === 0) {
-        setEphemeral(true);
-      }
     } else {
       setExternalTarget(null);
-      setDeploymentId("");
+      setDeploymentId(value);
     }
   };
 
@@ -238,7 +241,7 @@ export default function NewBenchmarkPage() {
       }
       // NFS override only applies to a raw model_name target; deployment and
       // external-clone targets mount their own PVC.
-      const usesOwnPvc = !!deploymentId || !!externalTarget;
+      const usesOwnPvc = mode !== "model";
       if (!usesOwnPvc && perfParams.nfs_server.trim() !== "") {
         params.nfs_server = perfParams.nfs_server.trim();
       }
@@ -318,8 +321,17 @@ export default function NewBenchmarkPage() {
   };
 
   // Best-effort body for the live YAML preview (never throws on bad JSON).
+  // Built from the ACTIVE tab's fields only — leftovers on other tabs are ignored.
   const previewBody = useMemo((): CreateBenchmarkRequest | null => {
-    if (!deploymentId && !externalTarget && !modelName.trim()) return null;
+    const hasTarget =
+      mode === "clone"
+        ? !!(deploymentId || externalTarget)
+        : mode === "direct"
+          ? !!directDeploymentId
+          : mode === "model"
+            ? !!modelName.trim()
+            : false;
+    if (!hasTarget) return null;
     const extras = parseExtras();
     const body: CreateBenchmarkRequest = {
       tool,
@@ -329,7 +341,7 @@ export default function NewBenchmarkPage() {
         ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
     };
-    if (externalTarget) {
+    if (mode === "clone" && externalTarget) {
       // Perf-only clone of a discovered serving; the backend derives
       // placement (cluster/namespace) from external_target itself.
       body.external_target = {
@@ -337,21 +349,19 @@ export default function NewBenchmarkPage() {
         namespace: externalTarget.namespace,
         deployment_name: externalTarget.deployment_name,
       };
-      if (ephemeral) {
-        const overrides = parseServingOverrides();
-        if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
-      }
-    } else if (deploymentId) {
+      const overrides = parseServingOverrides();
+      if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
+    } else if (mode === "clone") {
       body.deployment_id = deploymentId;
-      if (ephemeral) {
-        body.ephemeral = true;
-        const overrides = parseServingOverrides();
-        if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
-      }
+      body.ephemeral = true;
+      const overrides = parseServingOverrides();
+      if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
+    } else if (mode === "direct") {
+      body.deployment_id = directDeploymentId;
     } else {
       body.model_name = modelName.trim();
     }
-    if (!externalTarget) {
+    if (!(mode === "clone" && externalTarget)) {
       if (clusterId) body.cluster_id = clusterId;
       if (namespace.trim()) body.namespace = namespace.trim();
     }
@@ -360,8 +370,9 @@ export default function NewBenchmarkPage() {
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    deploymentId, externalTarget, modelName, tool, perfParams, accParams, extraParamsText, extraArgsText,
-    ephemeral, servingOverridesText, clusterId, namespace, image, apiKey,
+    mode, deploymentId, directDeploymentId, externalTarget, modelName, tool, perfParams,
+    accParams, extraParamsText, extraArgsText, servingOverridesText, clusterId,
+    namespace, image, apiKey,
   ]);
 
   const previewKey = previewBody ? JSON.stringify(previewBody) : "";
@@ -376,8 +387,17 @@ export default function NewBenchmarkPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!deploymentId && !externalTarget && !modelName.trim()) {
+    if (mode === "fromRun") return; // submit is disabled on this tab
+    if (mode === "clone" && !deploymentId && !externalTarget) {
       toast.error(t("errorTargetRequired"));
+      return;
+    }
+    if (mode === "direct" && !directDeploymentId) {
+      toast.error(t("errorTargetRequired"));
+      return;
+    }
+    if (mode === "model" && !modelName.trim()) {
+      toast.error(t("errorModelRequired"));
       return;
     }
     if (kind === "accuracy") {
@@ -405,39 +425,35 @@ export default function NewBenchmarkPage() {
         ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
     };
-    // Prefer an external-discovered serving, then a portal-managed serving
-    // deployment (hit directly), else a LiteLLM alias.
-    if (externalTarget) {
+    if (mode === "clone" && externalTarget) {
       body.external_target = {
         cluster_id: externalTarget.cluster_id,
         namespace: externalTarget.namespace,
         deployment_name: externalTarget.deployment_name,
       };
-      if (ephemeral) {
-        const overrides = parseServingOverrides();
-        if (!overrides.ok) {
-          toast.error(overrides.error);
-          return;
-        }
-        if (overrides.value) body.serving_overrides = overrides.value;
+      const overrides = parseServingOverrides();
+      if (!overrides.ok) {
+        toast.error(overrides.error);
+        return;
       }
-    } else if (deploymentId) {
+      if (overrides.value) body.serving_overrides = overrides.value;
+    } else if (mode === "clone") {
       body.deployment_id = deploymentId;
-      if (ephemeral) {
-        body.ephemeral = true;
-        const overrides = parseServingOverrides();
-        if (!overrides.ok) {
-          toast.error(overrides.error);
-          return;
-        }
-        if (overrides.value) body.serving_overrides = overrides.value;
+      body.ephemeral = true;
+      const overrides = parseServingOverrides();
+      if (!overrides.ok) {
+        toast.error(overrides.error);
+        return;
       }
+      if (overrides.value) body.serving_overrides = overrides.value;
+    } else if (mode === "direct") {
+      body.deployment_id = directDeploymentId;
     } else {
       body.model_name = modelName.trim();
     }
     // The backend derives placement from external_target itself; keep the
     // outgoing body honest and skip these for external runs.
-    if (!externalTarget) {
+    if (!(mode === "clone" && externalTarget)) {
       if (clusterId) body.cluster_id = clusterId;
       if (namespace.trim()) body.namespace = namespace.trim();
     }
@@ -475,34 +491,14 @@ export default function NewBenchmarkPage() {
             <CardTitle className="text-base">{t("target")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(pastRuns?.length ?? 0) > 0 && (
-              <div className="space-y-1.5">
-                <Label htmlFor="load_from">{t("loadFromLabel")}</Label>
-                <select
-                  id="load_from"
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                  value={loadFromId}
-                  onChange={(e) => loadFromRun(e.target.value)}
-                >
-                  <option value="">{t("loadFromNone")}</option>
-                  {(pastRuns ?? []).map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.model_name} · {r.tool} · {r.status}
-                      {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-xs text-muted-foreground">{t("loadFromHint")}</p>
-              </div>
-            )}
             <div className="space-y-1.5">
               <Label htmlFor="cluster">{t("clusterLabel")}</Label>
               <select
                 id="cluster"
                 className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
-                value={externalTarget ? externalTarget.cluster_id ?? "" : clusterId}
+                value={activeExternal ? activeExternal.cluster_id ?? "" : clusterId}
                 onChange={(e) => setClusterId(e.target.value)}
-                disabled={!!externalTarget}
+                disabled={!!activeExternal}
               >
                 <option value="">{t("clusterDefault")}</option>
                 {(clusters ?? []).map((c) => (
@@ -512,129 +508,162 @@ export default function NewBenchmarkPage() {
                     {c.api_server ? ` — ${c.api_server}` : ""}
                   </option>
                 ))}
-                {externalTarget &&
-                  externalTarget.cluster_id &&
-                  !(clusters ?? []).some((c) => c.id === externalTarget.cluster_id) && (
-                    <option value={externalTarget.cluster_id}>{externalTarget.cluster_name}</option>
+                {activeExternal &&
+                  activeExternal.cluster_id &&
+                  !(clusters ?? []).some((c) => c.id === activeExternal.cluster_id) && (
+                    <option value={activeExternal.cluster_id}>{activeExternal.cluster_name}</option>
                   )}
               </select>
               <p className="text-xs text-muted-foreground">{t("clusterHint")}</p>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="deployment">{t("deploymentLabel")}</Label>
-              <select
-                id="deployment"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={externalTarget ? externalKey(externalTarget) : deploymentId}
-                onChange={(e) => handleTargetChange(e.target.value)}
-              >
-                <option value="">{t("deploymentNone")}</option>
-                <optgroup label={t("targetGroupPortal")}>
-                  {allDeployments.map((d) => {
-                    const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
-                    return (
-                      <option key={d.id} value={d.id}>
-                        {d.model_name} — {d.gpu_count}×{gpu}
-                        {d.memory_limit ? ` · ${d.memory_limit}` : ""}
-                        {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
-                      </option>
-                    );
-                  })}
-                </optgroup>
-                {kind !== "accuracy" && servings.length > 0 && (
-                  <optgroup label={t("targetGroupExternal")}>
-                    {servings.map((s) => (
-                      <option key={externalKey(s)} value={externalKey(s)}>
-                        {s.deployment_name} ({s.engine} · {s.namespace})
+
+            <Tabs value={mode} onValueChange={(v) => setMode(v as BenchMode)}>
+              <TabsList className="w-full">
+                <TabsTrigger value="clone">{t("tabClone")}</TabsTrigger>
+                <TabsTrigger value="direct">{t("tabDirect")}</TabsTrigger>
+                <TabsTrigger value="model">{t("tabModel")}</TabsTrigger>
+                <TabsTrigger value="fromRun">{t("tabFromRun")}</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="clone" className="space-y-4 pt-2">
+                <p className="text-xs text-muted-foreground">{t("tabCloneHint")}</p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="clone_target">{t("deploymentLabel")}</Label>
+                  <select
+                    id="clone_target"
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={externalTarget ? externalKey(externalTarget) : deploymentId}
+                    onChange={(e) => handleCloneTargetChange(e.target.value)}
+                  >
+                    <option value="">{t("deploymentNone")}</option>
+                    <optgroup label={t("targetGroupPortal")}>
+                      {allDeployments.map((d) => {
+                        const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
+                        return (
+                          <option key={d.id} value={d.id}>
+                            {d.model_name} — {d.gpu_count}×{gpu}
+                            {d.memory_limit ? ` · ${d.memory_limit}` : ""}
+                            {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                    {kind !== "accuracy" && servings.length > 0 && (
+                      <optgroup label={t("targetGroupExternal")}>
+                        {servings.map((s) => (
+                          <option key={externalKey(s)} value={externalKey(s)}>
+                            {s.deployment_name} ({s.engine} · {s.namespace})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
+                  {!externalTarget && selectedDeployment && (
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {selectedDeployment.model_path}
+                    </p>
+                  )}
+                  {externalTarget && (
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {externalTarget.model_path ?? externalTarget.deployment_name}
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
+                  <JsonEditor
+                    id="serving_overrides"
+                    value={servingOverridesText}
+                    onChange={setServingOverridesText}
+                    placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
+                    minHeight="min-h-20"
+                  />
+                  <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="direct" className="space-y-4 pt-2">
+                <p className="text-xs text-muted-foreground">{t("tabDirectHint")}</p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="direct_target">{t("deploymentLabel")}</Label>
+                  <select
+                    id="direct_target"
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    value={directDeploymentId}
+                    onChange={(e) => {
+                      setExternalTarget(null);
+                      setDeploymentId(e.target.value);
+                    }}
+                  >
+                    <option value="">{t("deploymentNone")}</option>
+                    {readyDeployments.map((d) => {
+                      const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
+                      return (
+                        <option key={d.id} value={d.id}>
+                          {d.model_name} — {d.gpu_count}×{gpu}
+                          {d.memory_limit ? ` · ${d.memory_limit}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
+                  {directDeploymentId && selectedDeployment && (
+                    <p className="font-mono text-xs text-muted-foreground">
+                      {selectedDeployment.model_path}
+                    </p>
+                  )}
+                </div>
+              </TabsContent>
+
+              <TabsContent value="model" className="space-y-4 pt-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="model_name">{t("modelLabel")}</Label>
+                  <select
+                    id="model_name"
+                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                    value={modelName}
+                    onChange={(e) => setModelName(e.target.value)}
+                    disabled={modelsLoading}
+                  >
+                    <option value="">{t("modelPlaceholder")}</option>
+                    {modelOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
                       </option>
                     ))}
-                  </optgroup>
-                )}
-              </select>
-              <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
-              {selectedDeployment && (
-                <p className="font-mono text-xs text-muted-foreground">
-                  {selectedDeployment.model_path}
-                </p>
-              )}
-              {externalTarget && (
-                <p className="font-mono text-xs text-muted-foreground">
-                  {externalTarget.model_path ?? externalTarget.deployment_name}
-                </p>
-              )}
-            </div>
-
-            {(deploymentId || externalTarget) && (
-              <div className="space-y-2 rounded-md border border-dashed p-3">
-                <div className="space-y-2">
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="bench_mode"
-                      className="mt-0.5 size-4"
-                      checked={ephemeral}
-                      onChange={() => setEphemeral(true)}
-                    />
-                    <span>
-                      {t("modeCloneLabel")}
-                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        {t("modeCloneHint")}
-                      </span>
-                    </span>
-                  </label>
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="radio"
-                      name="bench_mode"
-                      className="mt-0.5 size-4"
-                      checked={!ephemeral}
-                      disabled={directModeDisabled}
-                      onChange={() => setEphemeral(false)}
-                    />
-                    <span>
-                      {t("modeDirectLabel")}
-                      <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                        {directModeDisabled ? t("modeDirectUnavailable") : t("modeDirectHint")}
-                      </span>
-                    </span>
-                  </label>
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t("modelHint")}</p>
                 </div>
-                {ephemeral && (
+              </TabsContent>
+
+              <TabsContent value="fromRun" className="space-y-4 pt-2">
+                {(pastRuns?.length ?? 0) === 0 ? (
+                  <p className="text-sm text-muted-foreground py-4 text-center">
+                    {t("fromRunEmpty")}
+                  </p>
+                ) : (
                   <div className="space-y-1.5">
-                    <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
-                    <JsonEditor
-                      id="serving_overrides"
-                      value={servingOverridesText}
-                      onChange={setServingOverridesText}
-                      placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
-                      minHeight="min-h-20"
-                    />
-                    <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
+                    <Label htmlFor="load_from">{t("loadFromLabel")}</Label>
+                    <select
+                      id="load_from"
+                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                      value={loadFromId}
+                      onChange={(e) => loadFromRun(e.target.value)}
+                    >
+                      <option value="">{t("loadFromNone")}</option>
+                      {(pastRuns ?? []).map((r) => (
+                        <option key={r.id} value={r.id}>
+                          {r.model_name} · {r.tool} · {r.status}
+                          {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">{t("loadFromHint")}</p>
                   </div>
                 )}
-              </div>
-            )}
-
-            <div className="space-y-1.5">
-              <Label htmlFor="model_name">{t("modelLabel")}</Label>
-              <select
-                id="model_name"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
-                value={modelName}
-                onChange={(e) => setModelName(e.target.value)}
-                disabled={modelsLoading || !!deploymentId || !!externalTarget}
-              >
-                <option value="">{t("modelPlaceholder")}</option>
-                {modelOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                {deploymentId || externalTarget ? t("modelHintDisabled") : t("modelHint")}
-              </p>
-            </div>
+              </TabsContent>
+            </Tabs>
 
             <div className="space-y-1.5">
               <Label htmlFor="tool">{t("toolLabel")}</Label>
@@ -664,7 +693,7 @@ export default function NewBenchmarkPage() {
               <PerfParamsFields
                 params={perfParams}
                 onChange={setPerfParams}
-                showNfsOverride={!deploymentId && !externalTarget}
+                showNfsOverride={mode === "model"}
               />
             ) : (
               <AccuracyParamsFields
@@ -714,9 +743,9 @@ export default function NewBenchmarkPage() {
               <Input
                 id="namespace"
                 placeholder="default"
-                value={externalTarget ? externalTarget.namespace : namespace}
+                value={activeExternal ? activeExternal.namespace : namespace}
                 onChange={(e) => setNamespace(e.target.value)}
-                disabled={!!externalTarget}
+                disabled={!!activeExternal}
               />
               <p className="text-xs text-muted-foreground">{t("namespaceHint")}</p>
             </div>
@@ -751,7 +780,7 @@ export default function NewBenchmarkPage() {
               {tc("cancel")}
             </Button>
           </Link>
-          <Button type="submit" disabled={createMutation.isPending}>
+          <Button type="submit" disabled={createMutation.isPending || mode === "fromRun"}>
             {createMutation.isPending ? (
               <Loader2 className="size-4 mr-1 animate-spin" />
             ) : (
