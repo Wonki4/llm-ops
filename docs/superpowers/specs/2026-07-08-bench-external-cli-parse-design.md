@@ -61,3 +61,15 @@ change.
   (clean ValueError), API-level snapshot merged-CLI assertion.
 - Backend gates: pytest 0 NEW failures (baseline 21), ruff 0 NEW
   (baseline 78). Existing flag-form tests must pass unchanged.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 7/7 checks PASS, including an
+end-to-end reconciler trace of an `sh -c "vllm serve …"` serving (bench Job
+gets served-name --model + weights-path --tokenizer; clone Service targets
+the parsed --port) and a full snapshot-reader sweep (only serving_api_key
+reads vllm_extra_args; merged CLI is a compatible superset). Ship-as-is
+notes: run-detail/compare pages now display the merged launch line for
+external runs (more faithful, cosmetic); `serve`-positional heuristic can
+misfire only on a hypothetical flag whose value is literally "serve" with no
+--model present (spec non-goal).
