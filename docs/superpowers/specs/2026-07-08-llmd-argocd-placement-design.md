@@ -90,3 +90,19 @@ its only consumer); `k8s_for_cluster` stays for deployments/benchmarks.
   `destination_server` in the manifest, API field round-trip + validation.
 - Migration applies cleanly on the local docker DB (alembic → 037).
 - Frontend: lint 0 NEW (baseline 4 errors/13 warnings), build passes.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 10/10 named checks PASS
+(backward-compat traced byte-identical for NULL fields; central-ArgoCD flow
+verified end-to-end incl. get/delete via the same placement). Known
+ship-as-is minors:
+
+- Orphaned-CR window: changing a cluster's placement (or deleting its host,
+  FK SET NULL) between a stack's create and delete leaves the old CR on the
+  former host; delete 404-swallows and reports ok. Spec-accepted; follow-up
+  candidate: surface "no matching Application found" on delete.
+- `clusters.py` module docstring understates the new placement-resolution
+  scope; uuid-coercion two-liner duplicated in k8s_for_cluster and
+  argocd_placement_for; create_cluster kwargs ordered after NFS fields.
+  All cosmetic.
