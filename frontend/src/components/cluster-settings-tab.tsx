@@ -39,6 +39,8 @@ type FormState = {
   context: string;
   namespace: string;
   argocd_namespace: string;
+  argocd_host_cluster_id: string;
+  argocd_dest_server: string;
   kubeconfig: string;
   description: string;
   is_default: boolean;
@@ -52,6 +54,8 @@ const EMPTY: FormState = {
   context: "",
   namespace: "default",
   argocd_namespace: "argocd",
+  argocd_host_cluster_id: "",
+  argocd_dest_server: "",
   kubeconfig: "",
   description: "",
   is_default: false,
@@ -90,6 +94,8 @@ export function ClusterSettingsTab() {
       context: c.context,
       namespace: c.namespace,
       argocd_namespace: c.argocd_namespace || "argocd",
+      argocd_host_cluster_id: c.argocd_host_cluster_id ?? "",
+      argocd_dest_server: c.argocd_dest_server ?? "",
       kubeconfig: "", // masked — empty keeps existing
       description: c.description ?? "",
       is_default: c.is_default,
@@ -137,6 +143,8 @@ export function ClusterSettingsTab() {
         context: form.context,
         namespace: form.namespace,
         argocd_namespace: form.argocd_namespace,
+        argocd_host_cluster_id: form.argocd_host_cluster_id,
+        argocd_dest_server: form.argocd_dest_server,
         description: form.description,
         is_default: form.is_default,
         default_nfs_server: nfsServer,
@@ -160,6 +168,8 @@ export function ClusterSettingsTab() {
         context: form.context,
         namespace: form.namespace,
         argocd_namespace: form.argocd_namespace,
+        argocd_host_cluster_id: form.argocd_host_cluster_id,
+        argocd_dest_server: form.argocd_dest_server,
         kubeconfig: form.kubeconfig,
         description: form.description || null,
         is_default: form.is_default,
@@ -340,6 +350,36 @@ export function ClusterSettingsTab() {
               </div>
             </div>
             <p className="text-xs text-muted-foreground -mt-2">{t("argocdNamespaceHint")}</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label htmlFor="cluster-argocd-host">{t("argocdHostLabel")}</Label>
+                <select
+                  id="cluster-argocd-host"
+                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  value={form.argocd_host_cluster_id}
+                  onChange={(e) => setForm({ ...form, argocd_host_cluster_id: e.target.value })}
+                >
+                  <option value="">{t("argocdHostSelf")}</option>
+                  {(clusters ?? [])
+                    .filter((k) => k.id !== editing?.id)
+                    .map((k) => (
+                      <option key={k.id} value={k.id}>
+                        {k.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="cluster-argocd-dest">{t("argocdDestLabel")}</Label>
+                <Input
+                  id="cluster-argocd-dest"
+                  value={form.argocd_dest_server}
+                  onChange={(e) => setForm({ ...form, argocd_dest_server: e.target.value })}
+                  placeholder="https://kubernetes.default.svc"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">{t("argocdPlacementHint")}</p>
             <div className="space-y-2">
               <Label htmlFor="cluster-kubeconfig">{t("kubeconfig")}</Label>
               <textarea
