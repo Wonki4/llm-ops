@@ -66,12 +66,12 @@ async def test_read_deployment_none_on_404():
 
 
 def _spec(args=None, ports=None, volumes=None, mounts=None, env_raw=None,
-          node_selector=None, tolerations=None, image="vllm/vllm-openai:v0.6.0"):
+          node_selector=None, tolerations=None, image="vllm/vllm-openai:v0.6.0", command=None):
     return {
         "name": "ext-vllm", "namespace": "team-a", "labels": {"app": "ext-vllm"},
         "replicas": 2,
         "container": {
-            "name": "server", "image": image, "command": [],
+            "name": "server", "image": image, "command": command or [],
             "args": args if args is not None else ["--model", "/models/llama-3-8b", "--port", "8000"],
             "env": [], "env_raw": env_raw or [],
             "resources": {"limits": {"nvidia.com/gpu": "1"}},
@@ -123,6 +123,67 @@ def test_facts_no_pvc_when_volume_not_pvc():
     )
     facts = external_bench_facts(spec)
     assert facts["pvc_name"] is None
+
+
+def test_facts_positional_model_vllm_serve():
+    facts = external_bench_facts(
+        _spec(command=["vllm", "serve", "/models/qwen-7b"], args=["--port", "8000"])
+    )
+    assert facts["served_model"] == "/models/qwen-7b"
+    assert facts["tokenizer"] == "/models/qwen-7b"
+    assert facts["model_arg"] == "/models/qwen-7b"
+
+
+def test_facts_sglang_model_path():
+    facts = external_bench_facts(
+        _spec(args=["--model-path", "/models/qwen", "--served-model-name", "qwen-2"])
+    )
+    assert facts["served_model"] == "qwen-2"
+    assert facts["tokenizer"] == "/models/qwen"
+
+
+def test_facts_flags_in_command_only():
+    facts = external_bench_facts(
+        _spec(command=["python", "-m", "vllm.entrypoints.openai.api_server", "--model", "/m/x"], args=[])
+    )
+    assert facts["served_model"] == "/m/x"
+
+
+def test_facts_sh_c_shell_string():
+    spec = _spec(
+        command=["sh", "-c", "vllm serve /models/y --served-model-name y-8b --port 9000"],
+        args=[],
+    )
+    facts = external_bench_facts(spec)
+    assert facts["served_model"] == "y-8b"
+    assert facts["tokenizer"] == "/models/y"
+
+
+def test_facts_positional_model_pvc_detection():
+    spec = _spec(
+        command=["vllm", "serve", "/models/llama-3-8b"],
+        args=[],
+        mounts=[{"name": "weights", "mountPath": "/models"}],
+        volumes=[{"name": "weights", "persistentVolumeClaim": {"claimName": "model-weights"}}],
+    )
+    facts = external_bench_facts(spec)
+    assert facts["pvc_name"] == "model-weights"
+    assert facts["pvc_mount_path"] == "/models"
+
+
+def test_facts_missing_command_and_args_raises_cleanly():
+    spec = _spec(args=[])
+    spec["container"].pop("args")
+    spec["container"].pop("command")
+    with pytest.raises(ValueError):
+        external_bench_facts(spec)
+
+
+def test_clone_target_port_from_sh_c_command():
+    spec = _spec(command=["sh", "-c", "vllm serve /m --port 9000"], args=[])
+    manifests = build_external_clone(spec, name="bench-x")
+    svc = next(m for m in manifests if m["kind"] == "Service")
+    assert svc["spec"]["ports"][0]["targetPort"] == 9000
 
 
 # ─── build_external_clone ────────────────────────────────────
@@ -266,3 +327,25 @@ async def test_create_external_api_key_override(client_for_user, super_user, moc
     assert resp.status_code == 201
     run = mock_db.add.call_args.args[0]
     assert run.serving_snapshot["api_key_override"] == "sk-gate"
+
+
+async def test_create_external_snapshot_merges_command_cli(client_for_user, super_user, mock_db):
+    spec = _spec(
+        command=["sh", "-c", "vllm serve /models/y --served-model-name y-8b --api-key sk-live --port 9000"],
+        args=[],
+    )
+    fake_k8s = MagicMock()
+    fake_k8s.read_deployment = AsyncMock(return_value=spec)
+    fake_k8s.create_or_patch = AsyncMock()
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
+    assert resp.status_code == 201, resp.text
+    run = mock_db.add.call_args.args[0]
+    assert run.model_name == "y-8b"
+    snap = run.serving_snapshot
+    # Merged+expanded CLI in the snapshot so serving_api_key can derive
+    # --api-key from command-form launches too.
+    assert "--api-key" in snap["vllm_extra_args"]
+    assert "sk-live" in snap["vllm_extra_args"]
+    assert run.params.get("tokenizer") == "/models/y"

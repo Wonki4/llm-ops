@@ -11,6 +11,7 @@ registered with LiteLLM — they exist only for the lifetime of the run.
 
 from __future__ import annotations
 
+import shlex
 import uuid
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
@@ -122,20 +123,58 @@ def _arg_value(args: list, flag: str) -> str | None:
     return None
 
 
+def serving_cli(container: dict) -> list[str]:
+    """The serving's full launch line: command + args, shell strings expanded.
+
+    K8s manifests spread the CLI across ``command``/``args`` and sometimes
+    wrap it in ``sh -c "vllm serve …"``; flag parsing works against one
+    normalized token list instead of assuming everything lives in args.
+    """
+    raw = list(container.get("command") or []) + list(container.get("args") or [])
+    cli: list[str] = []
+    for tok in raw:
+        s = str(tok)
+        if any(ch.isspace() for ch in s):
+            try:
+                cli.extend(shlex.split(s))
+                continue
+            except ValueError:
+                pass
+        cli.append(s)
+    return cli
+
+
+def _positional_model(cli: list) -> str | None:
+    """The positional MODEL of a ``vllm serve <model>`` launch."""
+    for i, tok in enumerate(cli):
+        if tok == "serve" and i + 1 < len(cli):
+            nxt = str(cli[i + 1])
+            if nxt and not nxt.startswith("-"):
+                return nxt
+    return None
+
+
 def external_bench_facts(spec: dict) -> dict:
     """What the bench job needs to know about an external serving's clone.
 
     served_model is what `vllm bench serve --model` must send (the name the
     server reports): --served-model-name wins, else the --model value. The
-    tokenizer is always the --model value. When the model path is backed by a
-    PVC-mounted volume, expose it so the bench Job mounts the same weights for
-    tokenizer loading.
+    tokenizer is always the model argument (--model, the `serve` positional,
+    or --model-path). When the model path is backed by a PVC-mounted volume,
+    expose it so the bench Job mounts the same weights for tokenizer loading.
     """
-    args = spec["container"]["args"]
-    model_arg = _arg_value(args, "--model")
-    served = _arg_value(args, "--served-model-name") or model_arg
+    cli = serving_cli(spec["container"])
+    model_arg = (
+        _arg_value(cli, "--model")
+        or _positional_model(cli)
+        or _arg_value(cli, "--model-path")
+    )
+    served = _arg_value(cli, "--served-model-name") or model_arg
     if not served:
-        raise ValueError("no --model/--served-model-name found in serving args")
+        raise ValueError(
+            "no model found in serving command — looked for --model, "
+            "--served-model-name, --model-path and a `serve <model>` positional"
+        )
 
     pvc_name = pvc_mount = None
     if model_arg:
@@ -160,7 +199,7 @@ def external_bench_facts(spec: dict) -> dict:
 
 
 def _clone_target_port(container: dict) -> int:
-    port = _arg_value(container.get("args") or [], "--port")
+    port = _arg_value(serving_cli(container), "--port")
     if port and str(port).isdigit():
         return int(port)
     for p in container.get("ports") or []:
