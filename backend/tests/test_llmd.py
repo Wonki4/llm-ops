@@ -26,8 +26,10 @@ async def test_create_stack_applies_application(client_for_user, super_user, moc
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock()
     fake_k8s.get_application = AsyncMock(return_value=None)
-    with patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_k8s)), \
-         patch("app.api.llmd.argocd_namespace_for", AsyncMock(return_value="argocd")):
+    with patch(
+        "app.api.llmd.argocd_placement_for",
+        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "cluster_id": None,
@@ -45,13 +47,36 @@ async def test_create_stack_argocd_rbac_denied_502(client_for_user, super_user, 
     mock_db.execute = AsyncMock(return_value=_none_result())
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock(side_effect=ApiException(status=403, reason="Forbidden"))
-    with patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_k8s)), \
-         patch("app.api.llmd.argocd_namespace_for", AsyncMock(return_value="argocd")):
+    with patch(
+        "app.api.llmd.argocd_placement_for",
+        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "namespace": "team-a", "values_yaml": "",
             })
     assert resp.status_code == 502
+
+
+async def test_create_stack_destination_server_from_placement(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_none_result())
+    fake_k8s = MagicMock()
+    fake_k8s.apply_application = AsyncMock()
+    fake_k8s.get_application = AsyncMock(return_value=None)
+    with patch(
+        "app.api.llmd.argocd_placement_for",
+        AsyncMock(return_value=(fake_k8s, "argo-central", "https://gpu-cluster:6443")),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/admin/llmd-stacks", json={
+                "name": "demo", "target_model_name": "qwen", "cluster_id": None,
+                "namespace": "team-a", "values_yaml": "",
+            })
+    assert resp.status_code == 201
+    ns, manifest = fake_k8s.apply_application.await_args.args
+    assert ns == "argo-central"
+    assert manifest["metadata"]["namespace"] == "argo-central"
+    assert manifest["spec"]["destination"]["server"] == "https://gpu-cluster:6443"
 
 
 def _none_result():

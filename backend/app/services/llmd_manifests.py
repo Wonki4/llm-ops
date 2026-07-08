@@ -94,6 +94,7 @@ def build_argo_application(
     values: dict,
     project: str,
     argocd_namespace: str,
+    destination_server: str,
 ) -> dict:
     """An argoproj.io/v1alpha1 Application that deploys the llm-d stack.
 
@@ -117,7 +118,7 @@ def build_argo_application(
                 "targetRevision": chart_version,
                 "helm": {"valuesObject": values},
             },
-            "destination": {"server": "https://kubernetes.default.svc", "namespace": stack.namespace},
+            "destination": {"server": destination_server, "namespace": stack.namespace},
             "syncPolicy": {
                 "automated": {"prune": True, "selfHeal": True},
                 "syncOptions": ["CreateNamespace=true"],

@@ -125,6 +125,7 @@ def test_build_application_is_isolated_to_project_and_namespace():
         values={"replicas": 2},
         project="llm-d",
         argocd_namespace="argocd",
+        destination_server="https://kubernetes.default.svc",
     )
     assert app["apiVersion"] == "argoproj.io/v1alpha1"
     assert app["kind"] == "Application"
@@ -152,3 +153,21 @@ def test_default_values_uses_explicit_endpoint_selector():
 def test_default_values_falls_back_to_model_label():
     v = default_llmd_values("qwen", epp_registry="r", epp_repository="repo", epp_tag="t")
     assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == "llm-ops/model-name=qwen"
+
+
+def test_application_destination_server_configurable():
+    stack = _stack()
+    app = build_argo_application(
+        stack,
+        chart_repo="oci://repo",
+        chart_name="llmd",
+        chart_version="1.0.0",
+        values={},
+        project="llm-d",
+        argocd_namespace="argocd",
+        destination_server="https://10.0.0.9:6443",
+    )
+    assert app["spec"]["destination"] == {
+        "server": "https://10.0.0.9:6443",
+        "namespace": stack.namespace,
+    }
