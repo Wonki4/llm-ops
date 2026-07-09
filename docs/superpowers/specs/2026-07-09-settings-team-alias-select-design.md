@@ -54,3 +54,16 @@ IDs (and the comma-joined `default_team_id` string) exactly as today.
   passes; i18n key-presence check for both locales.
 - Manual: aliases visible in all three cards; unknown ID still removable;
   default-team round-trip preserves order/unknowns.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 8/8 checks PASS (old-UI payloads
+load/re-save identically; deleted-team IDs render raw and stay removable in
+all three places; i18n key sweep clean both locales). One Important finding
+from task review was fixed in-branch (0f2bf27): the hidden-team
+select-to-hide needed the old Add button's pending guard to prevent a
+lost-update race. Ship-as-is minors: legacy duplicate IDs in stored data
+would remove-by-value together (UI can't create dups); a brief re-enabled
+window remains between mutation success and the hidden-teams refetch (stale
+exclude list, idempotent resend at worst); the alias map can be briefly
+stale after a team rename (cosmetic, TanStack cache).
