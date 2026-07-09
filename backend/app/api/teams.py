@@ -3,19 +3,26 @@
 from collections.abc import Mapping
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.key_limits import effective_model_limits
 from app.auth.deps import get_current_user
 from app.auth.permissions import get_team_access, require_team_admin
 from app.clients.litellm import LiteLLMClient, get_litellm_client
+from app.db.models.custom_member_budget_boost import CustomMemberBudgetBoost
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
+from app.services.member_budget_boost import resolve_effective_budget, serialize_boost
 
 import json
+import logging
+import uuid
+from datetime import UTC, datetime
+
+logger = logging.getLogger(__name__)
 
 MEMBER_PREVIEW_LIMIT = 20
 router = APIRouter(prefix="/api/teams", tags=["teams"])
@@ -882,6 +889,135 @@ async def change_member_budget(
         "tpm_limit": body.tpm_limit,
         "rpm_limit": body.rpm_limit,
     }
+
+
+class CreateBudgetBoostRequest(BaseModel):
+    max_budget: float
+    expires_at: datetime
+
+
+async def _active_boost_exists(db: AsyncSession, team_id: str, member_id: str) -> bool:
+    row = (
+        await db.execute(
+            select(CustomMemberBudgetBoost).where(
+                CustomMemberBudgetBoost.team_id == team_id,
+                CustomMemberBudgetBoost.user_id == member_id,
+                CustomMemberBudgetBoost.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    return row is not None
+
+
+@router.post("/{team_id}/members/{member_id}/budget-boost", status_code=status.HTTP_201_CREATED)
+async def create_budget_boost(
+    team_id: str,
+    member_id: str,
+    body: CreateBudgetBoostRequest,
+    user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Temporarily raise a member's budget until expires_at.
+
+    Snapshots the member's effective budget, applies max_budget via LiteLLM,
+    and records the boost. A worker restores the snapshot at expiry. Requires
+    team admin or super user.
+    """
+    await require_team_admin(user, team_id, litellm_db)
+    if body.max_budget <= 0:
+        raise HTTPException(status_code=400, detail="max_budget must be positive")
+    expires_at = body.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=400, detail="expires_at must be in the future")
+    if await _active_boost_exists(db, team_id, member_id):
+        raise HTTPException(status_code=409, detail="An active boost already exists for this member")
+
+    original = await resolve_effective_budget(litellm_db, team_id, member_id)
+    if original is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Member has no budget limit to boost — set a budget first",
+        )
+
+    await litellm.update_team_member(team_id, member_id, max_budget_in_team=body.max_budget)
+
+    boost = CustomMemberBudgetBoost(
+        id=uuid.uuid4(),
+        team_id=team_id,
+        user_id=member_id,
+        original_max_budget=original,
+        boost_max_budget=body.max_budget,
+        expires_at=expires_at,
+        status="active",
+        created_by=user.user_id,
+    )
+    db.add(boost)
+    await db.flush()
+    await db.refresh(boost)
+    return serialize_boost(boost)
+
+
+@router.delete("/{team_id}/members/{member_id}/budget-boost")
+async def cancel_budget_boost(
+    team_id: str,
+    member_id: str,
+    user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Cancel an active boost early, restoring the snapshotted budget."""
+    await require_team_admin(user, team_id, litellm_db)
+    boost = (
+        await db.execute(
+            select(CustomMemberBudgetBoost).where(
+                CustomMemberBudgetBoost.team_id == team_id,
+                CustomMemberBudgetBoost.user_id == member_id,
+                CustomMemberBudgetBoost.status == "active",
+            )
+        )
+    ).scalar_one_or_none()
+    if boost is None:
+        raise HTTPException(status_code=404, detail="No active boost for this member")
+
+    try:
+        await litellm.update_team_member(
+            team_id, member_id, max_budget_in_team=boost.original_max_budget
+        )
+    except Exception as e:  # noqa: BLE001 — leave active so the worker still reverts
+        logger.exception("Boost cancel restore failed for %s/%s", team_id, member_id)
+        raise HTTPException(status_code=502, detail=f"Failed to restore budget: {e}")
+
+    boost.status = "cancelled"
+    boost.reverted_at = datetime.now(UTC)
+    await db.flush()
+    return serialize_boost(boost)
+
+
+@router.get("/{team_id}/budget-boosts")
+async def list_budget_boosts(
+    team_id: str,
+    limit: int = 50,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """All budget boosts for the team, newest first (active + history)."""
+    await require_team_admin(user, team_id, litellm_db)
+    limit = max(1, min(limit, 200))
+    rows = (
+        await db.execute(
+            select(CustomMemberBudgetBoost)
+            .where(CustomMemberBudgetBoost.team_id == team_id)
+            .order_by(CustomMemberBudgetBoost.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return {"boosts": [serialize_boost(r) for r in rows]}
 
 
 class UpdateMemberKeyLimitsRequest(BaseModel):
