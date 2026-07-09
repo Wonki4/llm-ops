@@ -42,11 +42,23 @@ class CreateLlmdStackRequest(BaseModel):
     cluster_id: str | None = None  # registered cluster; None = portal default kubeconfig
     namespace: str = "default"
     values_yaml: str = ""  # full Helm values.yaml the user authored
+    chart_repo: str | None = None
+    chart_name: str | None = None
+    chart_version: str | None = None
+    epp_registry: str | None = None
+    epp_repository: str | None = None
+    epp_tag: str | None = None
 
 
 class UpdateLlmdStackRequest(BaseModel):
     namespace: str | None = None
     values_yaml: str | None = None
+    chart_repo: str | None = None
+    chart_name: str | None = None
+    chart_version: str | None = None
+    epp_registry: str | None = None
+    epp_repository: str | None = None
+    epp_tag: str | None = None
 
 
 class DefaultValuesRequest(BaseModel):
@@ -94,21 +106,34 @@ def _k8s_error_message(e: Exception) -> str:
     return str(e) or "Kubernetes request failed."
 
 
-def _values_for(stack: CustomLlmdStack) -> dict:
-    return build_llmd_values(
-        stack,
-        epp_registry=settings.llmd_epp_image_registry,
-        epp_repository=settings.llmd_epp_image_repository,
-        epp_tag=settings.llmd_epp_image_tag,
+def _chart_source(stack: CustomLlmdStack) -> tuple[str, str, str]:
+    return (
+        stack.chart_repo or settings.llmd_chart_repo,
+        stack.chart_name or settings.llmd_chart_name,
+        stack.chart_version or settings.llmd_chart_version,
     )
 
 
+def _epp_image(stack: CustomLlmdStack) -> tuple[str, str, str]:
+    return (
+        stack.epp_registry or settings.llmd_epp_image_registry,
+        stack.epp_repository or settings.llmd_epp_image_repository,
+        stack.epp_tag or settings.llmd_epp_image_tag,
+    )
+
+
+def _values_for(stack: CustomLlmdStack) -> dict:
+    registry, repository, tag = _epp_image(stack)
+    return build_llmd_values(stack, epp_registry=registry, epp_repository=repository, epp_tag=tag)
+
+
 def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
+    chart_repo, chart_name, chart_version = _chart_source(stack)
     return build_argo_application(
         stack,
-        chart_repo=settings.llmd_chart_repo,
-        chart_name=settings.llmd_chart_name,
-        chart_version=settings.llmd_chart_version,
+        chart_repo=chart_repo,
+        chart_name=chart_name,
+        chart_version=chart_version,
         values=stack.values_snapshot,
         project=settings.argo_project,
         argocd_namespace=argocd_namespace,
@@ -151,13 +176,18 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "cluster_id": str(stack.cluster_id) if stack.cluster_id else None,
         "namespace": stack.namespace,
         "argo_app_name": stack.argo_app_name,
-        "chart_repo": settings.llmd_chart_repo,
-        "chart_name": settings.llmd_chart_name,
-        "chart_version": settings.llmd_chart_version,
-        "epp_image": (
-            f"{settings.llmd_epp_image_registry}/"
-            f"{settings.llmd_epp_image_repository}:{settings.llmd_epp_image_tag}"
-        ),
+        "chart_repo": _chart_source(stack)[0],
+        "chart_name": _chart_source(stack)[1],
+        "chart_version": _chart_source(stack)[2],
+        "epp_image": "{}/{}:{}".format(*_epp_image(stack)),
+        "chart_overrides": {
+            "chart_repo": stack.chart_repo,
+            "chart_name": stack.chart_name,
+            "chart_version": stack.chart_version,
+            "epp_registry": stack.epp_registry,
+            "epp_repository": stack.epp_repository,
+            "epp_tag": stack.epp_tag,
+        },
         "helm_values": stack.helm_values,
         "values_yaml": (
             yaml.safe_dump(stack.helm_values, sort_keys=False, default_flow_style=False)
@@ -234,6 +264,19 @@ async def applied_values(
     }
 
 
+@router.get("/chart-defaults")
+async def chart_defaults(user: CustomUser = Depends(require_super_user)) -> dict:
+    """The global chart-source + EPP-image defaults, for prefilling the form."""
+    return {
+        "chart_repo": settings.llmd_chart_repo,
+        "chart_name": settings.llmd_chart_name,
+        "chart_version": settings.llmd_chart_version,
+        "epp_registry": settings.llmd_epp_image_registry,
+        "epp_repository": settings.llmd_epp_image_repository,
+        "epp_tag": settings.llmd_epp_image_tag,
+    }
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_stack(
     body: CreateLlmdStackRequest,
@@ -261,6 +304,12 @@ async def create_stack(
         argo_app_name=app_name,
         helm_values=helm_values,
         values_snapshot={},
+        chart_repo=(body.chart_repo or "").strip() or None,
+        chart_name=(body.chart_name or "").strip() or None,
+        chart_version=(body.chart_version or "").strip() or None,
+        epp_registry=(body.epp_registry or "").strip() or None,
+        epp_repository=(body.epp_repository or "").strip() or None,
+        epp_tag=(body.epp_tag or "").strip() or None,
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -314,6 +363,10 @@ async def update_stack(
         stack.namespace = body.namespace
     if body.values_yaml is not None:
         stack.helm_values = _parse_values_yaml(body.values_yaml)
+    for field in ("chart_repo", "chart_name", "chart_version", "epp_registry", "epp_repository", "epp_tag"):
+        val = getattr(body, field)
+        if val is not None:
+            setattr(stack, field, val.strip() or None)
     stack.values_snapshot = _values_for(stack)
     stack.updated_by = user.user_id
     await db.flush()
