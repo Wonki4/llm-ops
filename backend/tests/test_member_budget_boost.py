@@ -192,3 +192,70 @@ async def test_cancel_boost_404_when_none_active(super_user, mock_litellm, mock_
         from app.main import app
         app.dependency_overrides.clear()
     assert resp.status_code == 404
+
+
+async def test_list_budget_boosts_returns_rows(super_user, mock_litellm, mock_db):
+    now = datetime(2026, 7, 9, tzinfo=UTC)
+    rows = [
+        types.SimpleNamespace(
+            id=uuid.uuid4(), team_id="team-1", user_id="user002",
+            original_max_budget=10.0, boost_max_budget=100.0,
+            expires_at=now, status="active", reverted_at=None,
+            created_by="admin", created_at=now,
+        ),
+        types.SimpleNamespace(
+            id=uuid.uuid4(), team_id="team-1", user_id="user003",
+            original_max_budget=5.0, boost_max_budget=50.0,
+            expires_at=now, status="cancelled", reverted_at=now,
+            created_by="admin", created_at=now,
+        ),
+    ]
+    mock_db.execute = AsyncMock(
+        return_value=types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: rows))
+    )
+    client = await _admin_client(super_user, mock_litellm, mock_db)
+    try:
+        resp = await client.get("/api/teams/team-1/budget-boosts")
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["boosts"]) == 2
+    first = body["boosts"][0]
+    assert first["user_id"] == "user002"
+    assert first["original_max_budget"] == 10.0
+    assert first["boost_max_budget"] == 100.0
+    assert first["status"] == "active"
+    assert first["reverted_at"] is None
+
+
+async def test_list_budget_boosts_clamps_limit(super_user, mock_litellm, mock_db):
+    mock_db.execute = AsyncMock(
+        return_value=types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: []))
+    )
+    client = await _admin_client(super_user, mock_litellm, mock_db)
+    try:
+        resp = await client.get("/api/teams/team-1/budget-boosts?limit=9999")
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["boosts"] == []
+
+
+async def test_create_boost_naive_expires_at_is_accepted(super_user, mock_litellm, mock_db):
+    mock_litellm.update_team_member = AsyncMock(return_value={"status": "ok"})
+    naive_future = (datetime.now(UTC) + timedelta(days=1)).replace(tzinfo=None).isoformat()
+    client = await _admin_client(super_user, mock_litellm, mock_db)
+    try:
+        with patch("app.api.teams.resolve_effective_budget", AsyncMock(return_value=10.0)), \
+             patch("app.api.teams._active_boost_exists", AsyncMock(return_value=False)):
+            resp = await client.post(
+                "/api/teams/team-1/members/user002/budget-boost",
+                json={"max_budget": 100.0, "expires_at": naive_future},
+            )
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+    assert resp.status_code == 201, resp.text

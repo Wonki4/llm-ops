@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.key_limits import effective_model_limits
@@ -943,8 +944,6 @@ async def create_budget_boost(
             detail="Member has no budget limit to boost — set a budget first",
         )
 
-    await litellm.update_team_member(team_id, member_id, max_budget_in_team=body.max_budget)
-
     boost = CustomMemberBudgetBoost(
         id=uuid.uuid4(),
         team_id=team_id,
@@ -956,7 +955,18 @@ async def create_budget_boost(
         created_by=user.user_id,
     )
     db.add(boost)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409, detail="An active boost already exists for this member"
+        )
+
+    try:
+        await litellm.update_team_member(team_id, member_id, max_budget_in_team=body.max_budget)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to apply boosted budget: {e}")
+
     await db.refresh(boost)
     return serialize_boost(boost)
 
