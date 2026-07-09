@@ -41,6 +41,7 @@ import type {
   ClusterTestResult,
   LlmdStackSummary,
   LlmdAppliedResponse,
+  MemberBudgetBoost,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -187,6 +188,56 @@ export function useTeamMemberUsageByModel(
         `/api/teams/${teamId}/usage/${encodeURIComponent(userId)}/by-model?${params.toString()}`,
       ),
     enabled: enabled && !!teamId && !!userId && !!startDate && !!endDate,
+  });
+}
+
+export function useTeamBudgetBoosts(teamId: string) {
+  return useQuery({
+    queryKey: ["teams", teamId, "budget-boosts"],
+    queryFn: () =>
+      apiFetch<{ boosts: MemberBudgetBoost[] }>(`/api/teams/${teamId}/budget-boosts`).then(
+        (r) => r.boosts,
+      ),
+    enabled: !!teamId,
+  });
+}
+
+export function useCreateBudgetBoost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      teamId,
+      userId,
+      max_budget,
+      expires_at,
+    }: {
+      teamId: string;
+      userId: string;
+      max_budget: number;
+      expires_at: string;
+    }) =>
+      apiFetch<MemberBudgetBoost>(`/api/teams/${teamId}/members/${userId}/budget-boost`, {
+        method: "POST",
+        body: JSON.stringify({ max_budget, expires_at }),
+      }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["teams", v.teamId, "budget-boosts"] });
+      qc.invalidateQueries({ queryKey: ["teams", v.teamId, "members"] });
+    },
+  });
+}
+
+export function useCancelBudgetBoost() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiFetch<MemberBudgetBoost>(`/api/teams/${teamId}/members/${userId}/budget-boost`, {
+        method: "DELETE",
+      }),
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["teams", v.teamId, "budget-boosts"] });
+      qc.invalidateQueries({ queryKey: ["teams", v.teamId, "members"] });
+    },
   });
 }
 

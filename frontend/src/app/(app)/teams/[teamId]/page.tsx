@@ -4,7 +4,7 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useTeamBudgetBoosts, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { InputTokens } from "@/components/input-tokens";
 import { MemberModelUsage } from "@/components/member-model-usage";
@@ -56,6 +56,7 @@ import {
   Save,
   Copy,
   Check,
+  X,
 } from "lucide-react";
 import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
 
@@ -946,6 +947,15 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [expiryDate, setExpiryDate] = useState("");
   const [sortField, setSortField] = useState<"user_id" | "spend" | "budget" | "key_count">("user_id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const { data: boosts } = useTeamBudgetBoosts(teamId);
+  const createBoost = useCreateBudgetBoost();
+  const cancelBoost = useCancelBudgetBoost();
+  const activeBoostByUser = new Map(
+    (boosts ?? []).filter((b) => b.status === "active").map((b) => [b.user_id, b]),
+  );
+  const [boostTarget, setBoostTarget] = useState<{ userId: string; currentBudget: number | null } | null>(null);
+  const [boostAmount, setBoostAmount] = useState("");
+  const [boostExpires, setBoostExpires] = useState("");
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -1119,6 +1129,48 @@ function MembersTab({ teamId }: { teamId: string }) {
                             >
                               {t("actionChange")}
                             </Button>
+                            {activeBoostByUser.has(member.user_id) ? (
+                              <Badge variant="outline" className="gap-1">
+                                {t("boostActiveBadge", {
+                                  date: new Date(
+                                    activeBoostByUser.get(member.user_id)!.expires_at ?? "",
+                                  ).toLocaleDateString(),
+                                })}
+                                <button
+                                  type="button"
+                                  className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cancelBoost.mutate(
+                                      { teamId, userId: member.user_id },
+                                      {
+                                        onSuccess: () => toast.success(t("boostCancelSuccess")),
+                                        onError: (err) =>
+                                          toast.error(err instanceof Error ? err.message : t("boostCancelFail")),
+                                      },
+                                    );
+                                  }}
+                                >
+                                  <X className="size-3" />
+                                </button>
+                              </Badge>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-xs text-muted-foreground"
+                                disabled={member.total_max_budget === null}
+                                title={member.total_max_budget === null ? t("boostUnlimitedDisabled") : undefined}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBoostTarget({ userId: member.user_id, currentBudget: member.total_max_budget });
+                                  setBoostAmount("");
+                                  setBoostExpires("");
+                                }}
+                              >
+                                {t("boostBtn")}
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="hidden sm:table-cell">
@@ -1386,6 +1438,60 @@ function MembersTab({ teamId }: { teamId: string }) {
               }}
             >
               {changeBudgetMutation.isPending ? t("changing") : t("confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Budget Boost Dialog */}
+      <Dialog open={!!boostTarget} onOpenChange={(o) => !o && setBoostTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("boostDialogTitle")}</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">{t("boostDialogDesc")}</p>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">{t("boostAmountLabel")}</label>
+              <Input
+                type="number"
+                min={0}
+                value={boostAmount}
+                onChange={(e) => setBoostAmount(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">{t("boostExpiresLabel")}</label>
+              <Input
+                type="datetime-local"
+                value={boostExpires}
+                onChange={(e) => setBoostExpires(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              disabled={!boostAmount || !boostExpires || createBoost.isPending}
+              onClick={() => {
+                if (!boostTarget) return;
+                createBoost.mutate(
+                  {
+                    teamId,
+                    userId: boostTarget.userId,
+                    max_budget: Number(boostAmount),
+                    expires_at: new Date(boostExpires).toISOString(),
+                  },
+                  {
+                    onSuccess: () => {
+                      toast.success(t("boostSuccess"));
+                      setBoostTarget(null);
+                    },
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("boostFail")),
+                  },
+                );
+              }}
+            >
+              {createBoost.isPending ? <Loader2 className="size-4 animate-spin" /> : t("boostSubmit")}
             </Button>
           </DialogFooter>
         </DialogContent>
