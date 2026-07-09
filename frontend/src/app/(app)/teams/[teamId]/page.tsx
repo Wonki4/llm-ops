@@ -12,6 +12,7 @@ import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
+import { TeamBoostHistory } from "@/components/team-boost-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1675,6 +1676,8 @@ function MembersTab({ teamId }: { teamId: string }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <TeamBoostHistory teamId={teamId} />
     </div>
   );
 }
