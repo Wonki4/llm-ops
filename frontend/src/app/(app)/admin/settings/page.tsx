@@ -379,6 +379,7 @@ export default function PortalSettingsPage() {
                 teams={allTeams ?? []}
                 exclude={hiddenTeams ?? []}
                 placeholder={t("hiddenTeamSelectPlaceholder")}
+                disabled={updateHiddenTeams.isPending}
                 onAdd={(id) => {
                   const updated = [...(hiddenTeams || []), id];
                   updateHiddenTeams.mutate(updated, {
@@ -432,17 +433,20 @@ function TeamAddSelect({
   exclude,
   placeholder,
   onAdd,
+  disabled = false,
 }: {
   id?: string;
   teams: { team_id: string; team_alias: string }[];
   exclude: string[];
   placeholder: string;
   onAdd: (teamId: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <select
       id={id}
-      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+      disabled={disabled}
+      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
       value=""
       onChange={(e) => {
         if (e.target.value) onAdd(e.target.value);
