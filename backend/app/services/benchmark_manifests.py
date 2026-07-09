@@ -73,6 +73,58 @@ _NON_CLI_PARAMS = frozenset(
 )
 
 
+def _vllm_bench_argv(
+    run: CustomBenchmarkRun,
+    *,
+    target_base_url: str,
+    served_model: str,
+    tokenizer: str | None,
+) -> list[str]:
+    """The `vllm bench serve` argv (no shell). Shared by the URL-target bench
+    Job and the self-serving bench Job."""
+    p = run.params or {}
+    args = [
+        "vllm", "bench", "serve",
+        "--backend", "openai-chat",
+        "--base-url", target_base_url,
+        "--endpoint", "/v1/chat/completions",
+        "--model", served_model,
+        "--tokenizer", tokenizer or served_model,
+        "--dataset-name", "random",
+        "--random-input-len", str(int(p.get("random_input_len", 1024))),
+        "--random-output-len", str(int(p.get("random_output_len", 128))),
+        "--num-prompts", str(int(p.get("num_prompts", 200))),
+        "--percentile-metrics", "ttft,tpot,itl,e2el",
+        "--metric-percentiles", "90,99",
+        "--seed", str(int(p.get("seed", 0))),
+        "--save-result", "--result-dir", "/tmp", "--result-filename", "r.json",
+    ]
+    if p.get("request_rate") not in (None, ""):
+        args += ["--request-rate", str(float(p["request_rate"]))]
+    if p.get("max_concurrency") not in (None, ""):
+        args += ["--max-concurrency", str(int(p["max_concurrency"]))]
+    if p.get("goodput") not in (None, ""):
+        args += ["--goodput", *str(p["goodput"]).split()]
+    if p.get("ignore_eos"):
+        args += ["--ignore-eos"]
+    used_flags = {a for a in args if a.startswith("--")}
+    for key, val in p.items():
+        if key in _NON_CLI_PARAMS or val in (None, ""):
+            continue
+        flag = "--" + key.replace("_", "-")
+        if flag in used_flags:
+            continue
+        if isinstance(val, bool):
+            if val:
+                args.append(flag)
+        else:
+            args += [flag, str(val)]
+    extra_args = p.get("extra_args")
+    if isinstance(extra_args, str) and extra_args.strip():
+        args += shlex.split(extra_args)
+    return args
+
+
 def build_vllm_bench_job(
     run: CustomBenchmarkRun,
     *,
@@ -99,58 +151,8 @@ def build_vllm_bench_job(
     or a PVC-mounted path when the serving deployment provides one.
     """
     name = job_name_for(run.id)
-    p = run.params or {}
 
-    args = [
-        "vllm", "bench", "serve",
-        "--backend", "openai-chat",
-        "--base-url", target_base_url,
-        "--endpoint", "/v1/chat/completions",
-        "--model", served_model,
-        "--tokenizer", tokenizer or served_model,
-        "--dataset-name", "random",
-        "--random-input-len", str(int(p.get("random_input_len", 1024))),
-        "--random-output-len", str(int(p.get("random_output_len", 128))),
-        "--num-prompts", str(int(p.get("num_prompts", 200))),
-        "--percentile-metrics", "ttft,tpot,itl,e2el",
-        "--metric-percentiles", "90,99",
-        "--seed", str(int(p.get("seed", 0))),
-        "--save-result", "--result-dir", "/tmp", "--result-filename", "r.json",
-    ]
-    if p.get("request_rate") not in (None, ""):
-        args += ["--request-rate", str(float(p["request_rate"]))]
-    if p.get("max_concurrency") not in (None, ""):
-        args += ["--max-concurrency", str(int(p["max_concurrency"]))]
-    # SLO goodput: space-separated "metric:ms" pairs (e.g. "ttft:200 tpot:50").
-    if p.get("goodput") not in (None, ""):
-        args += ["--goodput", *str(p["goodput"]).split()]
-    if p.get("ignore_eos"):
-        args += ["--ignore-eos"]
-
-    # Pass any remaining params through as `vllm bench serve` flags
-    # (underscores → dashes), so the form's "extra parameters" actually reach the
-    # CLI. Skip keys we already emit, infra-only keys, and empty values. A bool
-    # True becomes a bare flag; collisions with an explicit flag are left alone.
-    used_flags = {a for a in args if a.startswith("--")}
-    for key, val in p.items():
-        if key in _NON_CLI_PARAMS or val in (None, ""):
-            continue
-        flag = "--" + key.replace("_", "-")
-        if flag in used_flags:
-            continue
-        if isinstance(val, bool):
-            if val:
-                args.append(flag)
-        else:
-            args += [flag, str(val)]
-
-    # Raw CLI passthrough (`extra_args`): vllm bench serve has bare, value-less
-    # flags (--disable-tqdm, ...) that a key/value params object cannot express.
-    # shlex round-trip keeps it safe: split into tokens here, and every token is
-    # re-quoted below, so each stays ONE argv entry — no shell interpretation.
-    extra_args = p.get("extra_args")
-    if isinstance(extra_args, str) and extra_args.strip():
-        args += shlex.split(extra_args)
+    args = _vllm_bench_argv(run, target_base_url=target_base_url, served_model=served_model, tokenizer=tokenizer)
 
     bench_cmd = " ".join(shlex.quote(a) for a in args)
     # vllm bench serve prints a summary table + writes /tmp/r.json. We collapse
@@ -200,6 +202,107 @@ def build_vllm_bench_job(
                     ],
                     "volumes": volumes,
                 },
+            },
+        },
+    }
+
+
+_HEALTH_TRIES = 900
+_HEALTH_INTERVAL = 2
+
+
+def build_self_serving_bench_job(
+    run: CustomBenchmarkRun,
+    *,
+    serving_deployment: dict,
+    serve_argv: list[str],
+    port: int,
+    api_key: str,
+    served_model: str,
+    tokenizer: str | None = None,
+    backoff_limit: int = 0,
+    ttl_seconds_after_finished: int = 7 * 24 * 3600,
+) -> dict:
+    """One Job that serves the model and benchmarks it in the same pod.
+
+    Reuses the serving container's image/GPU/mounts/env and pod-level
+    volumes/scheduling from ``serving_deployment`` (a Deployment manifest as
+    built by build_deployment / build_external_clone), but replaces the run
+    command with: background ``serve_argv``, poll ``/health`` on localhost until
+    ready, run ``vllm bench serve`` against ``http://localhost:<port>``, emit the
+    RESULT marker, stop the server.
+    """
+    name = job_name_for(run.id)
+    src_pod = serving_deployment["spec"]["template"]["spec"]
+    src_c = src_pod["containers"][0]
+
+    base_url = f"http://localhost:{port}"
+    serve_cmd = " ".join(shlex.quote(a) for a in serve_argv)
+    bench_cmd = " ".join(
+        shlex.quote(a)
+        for a in _vllm_bench_argv(run, target_base_url=base_url, served_model=served_model, tokenizer=tokenizer)
+    )
+    emit = 'echo "<<<RESULT>>>{\\"metrics\\": $(tr -d \'\\n\' < /tmp/r.json)}"'
+    wait = (
+        "python - <<'PY'\n"
+        "import urllib.request, time, sys\n"
+        f"for _ in range({_HEALTH_TRIES}):\n"
+        "    try:\n"
+        f"        urllib.request.urlopen('{base_url}/health', timeout=3); sys.exit(0)\n"
+        "    except Exception:\n"
+        f"        time.sleep({_HEALTH_INTERVAL})\n"
+        "sys.exit(1)\n"
+        "PY"
+    )
+    script = (
+        "set -m\n"
+        f"{serve_cmd} &\n"
+        "SRV=$!\n"
+        f"{wait}\n"
+        "set -e\n"
+        f"{bench_cmd}\n"
+        f"{emit}\n"
+        "kill $SRV 2>/dev/null || true\n"
+    )
+
+    env = list(src_c.get("env") or [])
+    env = [e for e in env if e.get("name") not in ("OPENAI_API_KEY", "BENCH_RUN_ID")]
+    env += [
+        {"name": "OPENAI_API_KEY", "value": api_key},
+        {"name": "BENCH_RUN_ID", "value": str(run.id)},
+    ]
+
+    container = {
+        "name": "serve-bench",
+        "image": src_c["image"],
+        "imagePullPolicy": "IfNotPresent",
+        "command": ["sh", "-c", script],
+        "env": env,
+        "resources": src_c.get("resources") or {},
+        "volumeMounts": list(src_c.get("volumeMounts") or []),
+    }
+    pod_spec: dict = {"restartPolicy": "Never", "containers": [container]}
+    if src_pod.get("volumes"):
+        pod_spec["volumes"] = src_pod["volumes"]
+    if src_pod.get("nodeSelector"):
+        pod_spec["nodeSelector"] = src_pod["nodeSelector"]
+    if src_pod.get("tolerations"):
+        pod_spec["tolerations"] = src_pod["tolerations"]
+
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": name,
+            "namespace": run.k8s_namespace,
+            "labels": {"app": "llmops-benchmark", "bench-tool": run.tool, "bench-kind": run.kind},
+        },
+        "spec": {
+            "backoffLimit": backoff_limit,
+            "ttlSecondsAfterFinished": ttl_seconds_after_finished,
+            "template": {
+                "metadata": {"labels": {"app": "llmops-benchmark", "job-name": name}},
+                "spec": pod_spec,
             },
         },
     }
