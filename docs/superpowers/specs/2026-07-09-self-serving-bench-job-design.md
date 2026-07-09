@@ -158,3 +158,25 @@ previews are unchanged.
   (baseline 78).
 - Frontend: no required change (status/labels already handled); build/lint
   unaffected. Preview shows the single Job.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: APPROVE — 9/9 checks PASS (end-to-end traced for
+both flows; port serve/health/bench consistency confirmed; the original
+"serving up, bench never runs" failure mode is gone because converted flows
+start `pending` and never enter `_drive_provisioning`; accuracy-ephemeral and
+direct/model paths untouched; teardown/sweep/cancel no-op correctly on null
+serving; `_vllm_bench_argv` refactor byte-identical). A serve that never
+becomes healthy now fails with an explicit "serving did not become ready"
+message instead of sticking.
+
+Ship-as-is minors (all fail with the clear startup-timeout message, never a
+silent hang):
+- External port inference: if a serving omits `--port` and its declared
+  containerPort differs from vLLM's 8000 default, health/bench target the
+  wrong port. Pre-existing `_clone_target_port` assumption.
+- Duplicate `--port` in extra args → argparse last-wins binds a port
+  health/bench don't target (same convention as `build_deployment`).
+- Compound `sh -c "vllm serve … && …"` external serve commands flatten to
+  literal argv and won't start under the new direct-exec path (the plain
+  `vllm serve <model> <flags>` case works). Narrow.
