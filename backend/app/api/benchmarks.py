@@ -23,12 +23,14 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.benchmark_manifests import (
     build_job_manifest,
+    build_self_serving_bench_job,
     build_vllm_bench_job,
     job_name_for,
     nfs_fields_incomplete,
     resolve_bench_nfs,
 )
 from app.services.benchmark_serving import (
+    _clone_target_port,
     build_ephemeral_deployment,
     build_external_clone,
     ephemeral_manifests,
@@ -39,7 +41,12 @@ from app.services.benchmark_serving import (
     serving_target_url,
 )
 from app.services.clusters import k8s_for_cluster
-from app.services.model_deployment_manifests import k8s_resource_names, serving_api_key
+from app.services.model_deployment_manifests import (
+    VLLM_PORT,
+    build_deployment,
+    k8s_resource_names,
+    serving_api_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -362,7 +369,7 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=params,
-            status="provisioning",
+            status="pending",
             cluster_id=ext_cluster_uuid,
             deployment_id=None,
             ephemeral=True,
@@ -379,28 +386,34 @@ async def create_benchmark(
                 "pvc_mount_path": facts["pvc_mount_path"],
             },
         )
-        run.serving_k8s_name = ephemeral_model_name(run.id)
         run.k8s_job_name = job_name_for(run.id)
-        # Explicit key override beats the args/env-derived key (auth-gated targets).
+        run.serving_torn_down = True  # single Job — no separate serving to tear down
+        clone = build_external_clone(spec, name=ephemeral_model_name(run.id), overrides=body.serving_overrides)[0]
+        api_key = body.api_key or serving_api_key(serving_cli(spec["container"]), run.serving_snapshot["env"])
         if body.api_key:
             run.serving_snapshot["api_key_override"] = body.api_key
+        job = build_self_serving_bench_job(
+            run,
+            serving_deployment=clone,
+            serve_argv=serving_cli(spec["container"]),
+            port=_clone_target_port(spec["container"]),
+            api_key=api_key,
+            served_model=facts["served_model"],
+            tokenizer=params.get("tokenizer"),
+        )
         db.add(run)
         await db.flush()
         await db.refresh(run)
         try:
-            await ext_k8s.create_or_patch(
-                ext.namespace,
-                build_external_clone(spec, name=run.serving_k8s_name, overrides=body.serving_overrides),
-            )
+            await ext_k8s.create_job(ext.namespace, job)
         except K8sNotConfigured as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
-            logger.exception("External clone provisioning failed for benchmark %s", run.id)
+            logger.exception("Self-serving bench Job create failed for benchmark %s", run.id)
             run.status = "failed"
-            run.error_message = f"External clone provisioning failed: {e}"
-            run.serving_torn_down = True
+            run.error_message = f"Benchmark Job create failed: {e}"
             await db.flush()
-            raise HTTPException(status_code=502, detail="Failed to provision the benchmark clone; check logs")
+            raise HTTPException(status_code=502, detail="Failed to create the benchmark Job; check logs")
         return _serialize(run)
 
     # Ephemeral mode: clone a template deployment into a throwaway serving. The
@@ -427,7 +440,7 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=body.params,
-            status="provisioning",
+            status="provisioning" if kind != "performance" else "pending",
             cluster_id=cluster_uuid,
             k8s_namespace=namespace,
             deployment_id=base.id,
@@ -441,13 +454,42 @@ async def create_benchmark(
         eph = build_ephemeral_deployment(
             base, name=name, namespace=namespace, overrides=body.serving_overrides
         )
-        run.serving_k8s_name = name
         run.serving_snapshot = _serving_snapshot(eph)
-        # An explicit key overrides the auto-derived serving key; the reconciler
-        # (which builds the Job later) reads it back from the snapshot.
         if body.api_key:
             run.serving_snapshot["api_key_override"] = body.api_key
         run.k8s_job_name = job_name_for(run.id)
+
+        if kind == "performance":
+            # Single self-serving Job — no separate serving Deployment.
+            run.serving_torn_down = True
+            serve_argv = ["vllm", "serve", eph.model_path, "--port", str(VLLM_PORT), *(eph.vllm_extra_args or [])]
+            api_key = body.api_key or serving_api_key(eph.vllm_extra_args, eph.env)
+            job = build_self_serving_bench_job(
+                run,
+                serving_deployment=build_deployment(eph),
+                serve_argv=serve_argv,
+                port=VLLM_PORT,
+                api_key=api_key,
+                served_model=eph.model_path,
+                tokenizer=(run.params or {}).get("tokenizer"),
+            )
+            db.add(run)
+            await db.flush()
+            await db.refresh(run)
+            try:
+                await k8s.create_job(namespace, job)
+            except K8sNotConfigured as e:
+                raise HTTPException(status_code=503, detail=str(e))
+            except Exception as e:
+                logger.exception("Self-serving bench Job create failed for benchmark %s", run.id)
+                run.status = "failed"
+                run.error_message = f"Benchmark Job create failed: {e}"
+                await db.flush()
+                raise HTTPException(status_code=502, detail="Failed to create the benchmark Job; check logs")
+            return _serialize(run)
+
+        # Accuracy (lm_eval): keep the provisioning path — serving + later Job.
+        run.serving_k8s_name = name
         db.add(run)
         await db.flush()
         await db.refresh(run)
@@ -598,8 +640,22 @@ async def preview_benchmark(
         if spec is None:
             return {"manifests": [], "note": "external_serving_missing"}
         run.model_name = ext.deployment_name
-        clone_name = ephemeral_model_name(uuid.uuid4())
-        manifests.extend(build_external_clone(spec, name=clone_name, overrides=body.serving_overrides))
+        clone = build_external_clone(spec, name=ephemeral_model_name(run.id), overrides=body.serving_overrides)[0]
+        try:
+            facts = external_bench_facts(spec)
+        except ValueError:
+            return {"manifests": [], "note": "external_spec_unparseable"}
+        manifests.append(
+            build_self_serving_bench_job(
+                run,
+                serving_deployment=clone,
+                serve_argv=serving_cli(spec["container"]),
+                port=_clone_target_port(spec["container"]),
+                api_key="<redacted>",
+                served_model=facts["served_model"],
+                tokenizer=(body.params or {}).get("tokenizer") or facts["tokenizer"],
+            )
+        )
     elif body.ephemeral:
         if not body.deployment_id:
             return {"manifests": [], "note": "ephemeral_needs_deployment"}
@@ -615,16 +671,28 @@ async def preview_benchmark(
         name = ephemeral_model_name(run.id)
         eph = build_ephemeral_deployment(base, name=name, namespace=namespace, overrides=body.serving_overrides)
         run.model_name = base.model_name
-        manifests.extend(ephemeral_manifests(eph))
-        manifests.append(
-            _build_bench_job(
-                run,
-                deployment=eph,
-                target_base=serving_target_url(name, namespace),
-                api_key=body.api_key or serving_api_key(eph.vllm_extra_args, eph.env),
-                image_override=body.image or None,
+        if kind == "performance":
+            serve_argv = ["vllm", "serve", eph.model_path, "--port", str(VLLM_PORT), *(eph.vllm_extra_args or [])]
+            manifests.append(
+                build_self_serving_bench_job(
+                    run,
+                    serving_deployment=build_deployment(eph),
+                    serve_argv=serve_argv,
+                    port=VLLM_PORT,
+                    api_key="<redacted>",
+                    served_model=eph.model_path,
+                    tokenizer=(body.params or {}).get("tokenizer"),
+                )
             )
-        )
+        else:
+            manifests.extend(ephemeral_manifests(eph))
+            manifests.append(
+                _build_bench_job(
+                    run, deployment=eph, target_base=serving_target_url(name, namespace),
+                    api_key=body.api_key or serving_api_key(eph.vllm_extra_args, eph.env),
+                    image_override=body.image or None,
+                )
+            )
     else:
         deployment: CustomModelDeployment | None = None
         if body.deployment_id:

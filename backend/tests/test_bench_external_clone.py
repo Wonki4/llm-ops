@@ -6,6 +6,7 @@ import pytest
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.clients.k8s import K8sClient
+from app.services.benchmark_manifests import job_name_for
 from app.services.benchmark_serving import build_external_clone, external_bench_facts
 
 
@@ -261,25 +262,26 @@ def _spec_for_api():
 async def test_create_external_clone_run(client_for_user, super_user, mock_db):
     fake_k8s = MagicMock()
     fake_k8s.read_deployment = AsyncMock(return_value=_spec_for_api())
-    fake_k8s.create_or_patch = AsyncMock()
+    fake_k8s.create_job = AsyncMock()
     with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
     assert resp.status_code == 201, resp.text
     body = resp.json()
+    assert body["status"] == "pending"          # no provisioning phase
     assert body["ephemeral"] is True
     assert body["model_name"] == "llama-3"
-    # run row persisted with the snapshot contract the reconciler needs
     run = mock_db.add.call_args.args[0]
-    assert run.deployment_id is None and run.ephemeral is True
-    assert run.k8s_namespace == "team-a"
-    snap = run.serving_snapshot
-    assert snap["model_path"] == "llama-3"                # served name for the bench job
-    assert snap["vllm_extra_args"] == _spec_for_api()["container"]["args"]
-    assert run.params.get("tokenizer") == "/models/llama-3-8b"  # tokenizer preset from --model
-    # clone applied into the serving's namespace
-    ns, manifests = fake_k8s.create_or_patch.await_args.args
-    assert ns == "team-a" and manifests[0]["kind"] == "Deployment"
+    assert run.status == "pending"
+    assert run.serving_k8s_name is None          # no separate serving object
+    assert run.serving_torn_down is True
+    assert run.k8s_job_name == job_name_for(run.id)
+    # A single self-serving Job was created into the serving's namespace
+    assert fake_k8s.create_job.await_count == 1   # exactly one Job, no serving clone
+    ns, manifest = fake_k8s.create_job.await_args.args
+    assert ns == "team-a" and manifest["kind"] == "Job"
+    script = manifest["spec"]["template"]["spec"]["containers"][0]["command"][2]
+    assert "vllm bench serve" in script and "http://localhost:" in script
 
 
 async def test_create_external_missing_serving_404(client_for_user, super_user, mock_db):
@@ -314,19 +316,20 @@ async def test_preview_external_returns_clone_manifests(client_for_user, super_u
             resp = await client.post("/api/benchmarks/preview", json=EXTERNAL_BODY)
     assert resp.status_code == 200
     kinds = [m.get("kind") for m in resp.json().get("manifests", [])]
-    assert "Deployment" in kinds and "Service" in kinds
+    assert kinds == ["Job"]          # single self-serving Job — no separate serving clone
 
 
 async def test_create_external_api_key_override(client_for_user, super_user, mock_db):
     fake_k8s = MagicMock()
     fake_k8s.read_deployment = AsyncMock(return_value=_spec_for_api())
-    fake_k8s.create_or_patch = AsyncMock()
+    fake_k8s.create_job = AsyncMock()
     with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/benchmarks", json={**EXTERNAL_BODY, "api_key": "sk-gate"})
     assert resp.status_code == 201
-    run = mock_db.add.call_args.args[0]
-    assert run.serving_snapshot["api_key_override"] == "sk-gate"
+    _ns, manifest = fake_k8s.create_job.await_args.args
+    env = {e["name"]: e["value"] for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["OPENAI_API_KEY"] == "sk-gate"
 
 
 async def test_create_external_snapshot_merges_command_cli(client_for_user, super_user, mock_db):
@@ -336,7 +339,7 @@ async def test_create_external_snapshot_merges_command_cli(client_for_user, supe
     )
     fake_k8s = MagicMock()
     fake_k8s.read_deployment = AsyncMock(return_value=spec)
-    fake_k8s.create_or_patch = AsyncMock()
+    fake_k8s.create_job = AsyncMock()
     with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/benchmarks", json=EXTERNAL_BODY)
