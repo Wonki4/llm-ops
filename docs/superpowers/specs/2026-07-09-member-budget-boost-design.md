@@ -119,3 +119,22 @@ active).
   pytest 0 NEW failures (baseline 21), ruff 0 NEW (baseline 78).
 - Migration applies cleanly on the local docker DB (alembic → 038).
 - Frontend: lint 0 NEW (baseline 4 errors/13 warnings), build passes.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 10/10 checks PASS (end-to-end
+create→raise→worker-revert traced; the applied TOCTOU fix reserves the boost
+row before the LiteLLM call so a race yields 409 and a LiteLLM 502 rolls the
+row back with no orphan; unconditional snapshot restore; tz-aware throughout).
+Ship-as-is minors:
+
+- Frontend boost button disables on the members-list `total_max_budget`, which
+  is the dedicated-row budget only (no team-default fallback), while the
+  backend `resolve_effective_budget` does fall back. A member on the team
+  default with a NULL membership budget_id could see the button disabled even
+  though the backend would boost them. Fails SAFE (over-restricts, never
+  over-permits). Follow-up: gate the button on a resolved-effective-budget
+  signal if it bites in practice.
+- Classic dual-write window: LiteLLM raise succeeds but the commit fails →
+  orphaned raise with no boost row (extremely rare, commit-after-external-call).
+- History "By" shows raw user_id and omits a created_at column (cosmetic).
