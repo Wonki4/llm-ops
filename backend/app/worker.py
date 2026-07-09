@@ -6,6 +6,7 @@ import logging
 from app.config import settings
 from app.jobs.apply_cost_schedule import cost_schedule_loop
 from app.jobs.auto_deprecate import deprecation_loop
+from app.jobs.expire_budget_boosts import budget_boost_loop
 from app.jobs.expire_memberships import membership_expiry_loop
 from app.jobs.reconcile_benchmarks import reconcile_loop as benchmark_reconcile_loop
 from app.jobs.reconcile_deployments import reconcile_loop
@@ -19,6 +20,7 @@ async def main() -> None:
     logger.info("Starting background worker...")
     await asyncio.gather(
         deprecation_loop(interval_seconds=300),
+        budget_boost_loop(interval_seconds=300),
         membership_expiry_loop(interval_seconds=3600),
         team_membership_budget_reset_loop(interval_seconds=3600),
         cost_schedule_loop(interval_seconds=settings.cost_schedule_interval_seconds),
