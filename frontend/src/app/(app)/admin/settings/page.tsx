@@ -5,7 +5,7 @@ import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules, useCatalogList, useUpdateCatalogList } from "@/hooks/use-api";
+import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules, useCatalogList, useUpdateCatalogList, useDiscoverTeams } from "@/hooks/use-api";
 import type { DefaultTeamRule } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,13 @@ export default function PortalSettingsPage() {
   const updateCatalogList = useUpdateCatalogList();
   const catalogs: string[] = catalogListData?.catalogs ?? [];
   const [suffixInput, setSuffixInput] = useState("");
+
+  const { data: allTeams } = useDiscoverTeams();
+  const teamAlias = new Map((allTeams ?? []).map((tm) => [tm.team_id, tm.team_alias]));
+  const teamLabel = (id: string) => {
+    const alias = teamAlias.get(id);
+    return alias ? `${alias} (${id.slice(0, 8)}…)` : id;
+  };
 
   function handleAddSuffix() {
     const name = suffixInput.trim();
@@ -63,18 +70,22 @@ export default function PortalSettingsPage() {
 
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
-  const [defaultTeamId, setDefaultTeamId] = useState("");
-  const [newHiddenTeamId, setNewHiddenTeamId] = useState("");
+  const [defaultTeamIds, setDefaultTeamIds] = useState<string[]>([]);
   const { data: teamRules } = useDefaultTeamRules();
   const updateTeamRules = useUpdateDefaultTeamRules();
   const [newRulePrefix, setNewRulePrefix] = useState("");
-  const [newRuleTeams, setNewRuleTeams] = useState("");
+  const [newRuleTeamIds, setNewRuleTeamIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (settings) {
       setTpmLimit(String(settings.default_tpm_limit));
       setRpmLimit(String(settings.default_rpm_limit));
-      setDefaultTeamId(settings.default_team_id || "");
+      setDefaultTeamIds(
+        (settings.default_team_id || "")
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      );
     }
   }, [settings]);
 
@@ -83,7 +94,7 @@ export default function PortalSettingsPage() {
       {
         default_tpm_limit: Number(tpmLimit),
         default_rpm_limit: Number(rpmLimit),
-        default_team_id: defaultTeamId || undefined,
+        default_team_id: defaultTeamIds.join(",") || undefined,
       },
       {
         onSuccess: () => toast.success(t("saveSuccess")),
@@ -234,14 +245,28 @@ export default function PortalSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Base team */}
+              {/* Base team(s) — stored as one comma-joined default_team_id string */}
               <div className="space-y-2">
-                <Label htmlFor="default-team-id">{t("defaultTeamLabel")}</Label>
-                <Input
-                  id="default-team-id"
-                  value={defaultTeamId}
-                  onChange={(e) => setDefaultTeamId(e.target.value)}
-                  placeholder={t("defaultTeamPlaceholder")}
+                <Label htmlFor="default-team-select">{t("defaultTeamLabel")}</Label>
+                {defaultTeamIds.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {defaultTeamIds.map((id) => (
+                      <TeamBadge
+                        key={id}
+                        label={teamLabel(id)}
+                        onRemove={() =>
+                          setDefaultTeamIds(defaultTeamIds.filter((x) => x !== id))
+                        }
+                      />
+                    ))}
+                  </div>
+                )}
+                <TeamAddSelect
+                  id="default-team-select"
+                  teams={allTeams ?? []}
+                  exclude={defaultTeamIds}
+                  placeholder={t("teamSelectPlaceholder")}
+                  onAdd={(id) => setDefaultTeamIds([...defaultTeamIds, id])}
                 />
                 <p className="text-xs text-muted-foreground">
                   {t("defaultTeamHelp")}
@@ -255,35 +280,48 @@ export default function PortalSettingsPage() {
                     {t("extraTeamRulesHelp")}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-start gap-2">
                   <Input
                     placeholder={t("prefixPlaceholder")}
                     value={newRulePrefix}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRulePrefix(e.target.value)}
                     className="w-32"
                   />
-                  <Input
-                    placeholder={t("teamIdPlaceholder")}
-                    value={newRuleTeams}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewRuleTeams(e.target.value)}
-                    className="flex-1"
-                  />
+                  <div className="flex-1 space-y-2">
+                    <TeamAddSelect
+                      teams={allTeams ?? []}
+                      exclude={newRuleTeamIds}
+                      placeholder={t("teamSelectPlaceholder")}
+                      onAdd={(id) => setNewRuleTeamIds([...newRuleTeamIds, id])}
+                    />
+                    {newRuleTeamIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {newRuleTeamIds.map((id) => (
+                          <TeamBadge
+                            key={id}
+                            label={teamLabel(id)}
+                            onRemove={() =>
+                              setNewRuleTeamIds(newRuleTeamIds.filter((x) => x !== id))
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={!newRulePrefix.trim() || !newRuleTeams.trim() || updateTeamRules.isPending}
+                    disabled={!newRulePrefix.trim() || newRuleTeamIds.length === 0 || updateTeamRules.isPending}
                     onClick={() => {
-                      const teams = newRuleTeams.split(",").map((t_: string) => t_.trim()).filter(Boolean);
-                      if (teams.length === 0) return;
                       const updated: DefaultTeamRule[] = [
                         ...(teamRules || []),
-                        { prefix: newRulePrefix.trim().toUpperCase(), teams },
+                        { prefix: newRulePrefix.trim().toUpperCase(), teams: newRuleTeamIds },
                       ];
                       updateTeamRules.mutate(updated, {
                         onSuccess: () => {
                           toast.success(t("ruleAddSuccess"));
                           setNewRulePrefix("");
-                          setNewRuleTeams("");
+                          setNewRuleTeamIds([]);
                         },
                         onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("addFailed")),
                       });
@@ -300,7 +338,7 @@ export default function PortalSettingsPage() {
                         <Badge variant="default" className="shrink-0">{rule.prefix}</Badge>
                         <div className="flex flex-wrap gap-1 flex-1">
                           {rule.teams.map((teamId: string) => (
-                            <Badge key={teamId} variant="secondary">{teamId}</Badge>
+                            <Badge key={teamId} variant="secondary">{teamLabel(teamId)}</Badge>
                           ))}
                         </div>
                         <button
@@ -337,51 +375,23 @@ export default function PortalSettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Input
-                  placeholder={t("hiddenTeamPlaceholder")}
-                  value={newHiddenTeamId}
-                  onChange={(e) => setNewHiddenTeamId(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      if (!newHiddenTeamId.trim()) return;
-                      const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
-                      updateHiddenTeams.mutate(updated, {
-                        onSuccess: () => {
-                          toast.success(t("teamHideSuccess"));
-                          setNewHiddenTeamId("");
-                        },
-                        onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                      });
-                    }
-                  }}
-                />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={!newHiddenTeamId.trim() || updateHiddenTeams.isPending}
-                  onClick={() => {
-                    if (!newHiddenTeamId.trim()) return;
-                    const updated = [...(hiddenTeams || []), newHiddenTeamId.trim()];
-                    updateHiddenTeams.mutate(updated, {
-                      onSuccess: () => {
-                        toast.success(t("teamHideSuccess"));
-                        setNewHiddenTeamId("");
-                      },
-                      onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                    });
-                  }}
-                >
-                  <Plus className="size-4" />
-                  {t("addButton")}
-                </Button>
-              </div>
+              <TeamAddSelect
+                teams={allTeams ?? []}
+                exclude={hiddenTeams ?? []}
+                placeholder={t("hiddenTeamSelectPlaceholder")}
+                onAdd={(id) => {
+                  const updated = [...(hiddenTeams || []), id];
+                  updateHiddenTeams.mutate(updated, {
+                    onSuccess: () => toast.success(t("teamHideSuccess")),
+                    onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
+                  });
+                }}
+              />
               {hiddenTeams && hiddenTeams.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {hiddenTeams.map((teamId) => (
                     <Badge key={teamId} variant="secondary" className="gap-1 pr-1">
-                      {teamId}
+                      {teamLabel(teamId)}
                       <button
                         type="button"
                         className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
@@ -413,5 +423,54 @@ export default function PortalSettingsPage() {
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+function TeamAddSelect({
+  id,
+  teams,
+  exclude,
+  placeholder,
+  onAdd,
+}: {
+  id?: string;
+  teams: { team_id: string; team_alias: string }[];
+  exclude: string[];
+  placeholder: string;
+  onAdd: (teamId: string) => void;
+}) {
+  return (
+    <select
+      id={id}
+      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+      value=""
+      onChange={(e) => {
+        if (e.target.value) onAdd(e.target.value);
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {teams
+        .filter((tm) => !exclude.includes(tm.team_id))
+        .map((tm) => (
+          <option key={tm.team_id} value={tm.team_id}>
+            {tm.team_alias || tm.team_id}
+          </option>
+        ))}
+    </select>
+  );
+}
+
+function TeamBadge({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <Badge variant="secondary" className="gap-1 pr-1">
+      {label}
+      <button
+        type="button"
+        className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
+        onClick={onRemove}
+      >
+        <X className="size-3" />
+      </button>
+    </Badge>
   );
 }
