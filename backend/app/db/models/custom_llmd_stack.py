@@ -36,6 +36,14 @@ class CustomLlmdStack(CustomBase):
     helm_values: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     # The fully-rendered values actually sent to ArgoCD (base + helm_values).
     values_snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Air-gap overrides: chart source + EPP image. NULL = use the global
+    # settings default (resolved at render time in the API layer).
+    chart_repo: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    chart_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    chart_version: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    epp_registry: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    epp_repository: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    epp_tag: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
