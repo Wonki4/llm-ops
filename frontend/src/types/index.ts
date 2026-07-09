@@ -304,6 +304,19 @@ export interface TeamMembersResponse {
   page_size: number;
 }
 
+export interface MemberBudgetBoost {
+  id: string;
+  team_id: string;
+  user_id: string;
+  original_max_budget: number;
+  boost_max_budget: number;
+  expires_at: string | null;
+  status: "active" | "reverted" | "cancelled";
+  reverted_at: string | null;
+  created_by: string | null;
+  created_at: string | null;
+}
+
 // ─── Team Usage ───────────────────────────────────────────────
 
 export interface UsageTokenBreakdown {
