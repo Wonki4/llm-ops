@@ -3,7 +3,10 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import AsyncClient
+
+from app.db.models.custom_team_join_request import JoinRequestStatus
 
 
 @pytest.mark.asyncio
@@ -228,3 +231,47 @@ async def test_approve_budget_request_without_duration_is_permanent(
     assert resp.status_code == 200, resp.text
     m.assert_not_awaited()
     mock_litellm.update_team_member.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_approve_budget_request_409_when_active_boost_stays_pending(
+    admin_client: AsyncClient, mock_litellm, mock_db
+):
+    """If apply_member_budget_boost raises 409 because the member already has
+    an active boost, the approve endpoint must surface that 409 and must NOT
+    mark the request APPROVED — the status write happens strictly after the
+    boost call, so a raise there leaves the request PENDING."""
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    req = MagicMock()
+    req.status = JoinRequestStatus.PENDING
+    req.request_type = "budget"
+    req.team_id = "team-1"
+    req.requester_id = "user002"
+    req.requested_budget = 100.0
+    req.requested_duration_days = 30
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = req
+    mock_result.mappings.return_value.first.return_value = {"max_budget": 50.0}
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.flush = AsyncMock()
+
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+
+    with patch(
+        "app.api.team_requests.apply_member_budget_boost",
+        AsyncMock(
+            side_effect=HTTPException(
+                status_code=409, detail="An active boost already exists for this member"
+            )
+        ),
+    ):
+        resp = await admin_client.post(
+            "/api/team-requests/00000000-0000-0000-0000-000000000001/approve"
+        )
+
+    assert resp.status_code == 409, resp.text
+    assert req.status != JoinRequestStatus.APPROVED
+    assert req.status == JoinRequestStatus.PENDING
