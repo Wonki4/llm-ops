@@ -108,3 +108,19 @@ All nullable, no server defaults — NULL means "fall back to the corresponding
   (baseline 21), ruff 0 NEW (baseline 78). Migration applies (alembic → 039).
 - Frontend: lint 0 NEW (baseline 4 errors/13 warnings), build passes; the
   section prefills and round-trips.
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 8/8 checks PASS (air-gap
+end-to-end: an override reaches BOTH the Application `spec.source.repoURL`
+and the rendered helm values `inferenceExtension.image`; default-tracking
+preserved because the form submits null for unchanged fields; create/update
+ordering sets the fields before `values_snapshot` renders; migration 039
+chains off 038; `chartRepo` detail-label preserved via a separate
+`chartRepoUrl` key; the render-guarded prefill can't loop).
+
+The review's one Important finding — the spec said "new + edit form" but only
+the create form was built — was FIXED in-branch (87bf5b7): the stack edit page
+now exposes the same chart-source/EPP section, so an admin can correct the
+mirror URL on an ALREADY-CREATED stack (the ones currently failing in
+air-gap), not just at creation time.
