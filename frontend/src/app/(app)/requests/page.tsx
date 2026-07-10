@@ -275,6 +275,12 @@ export default function MyRequestsPage() {
                     <span className="font-medium text-purple-700 dark:text-purple-400">
                       ${detailRequest.requested_budget?.toFixed(2)}
                     </span>
+                    <span className="text-muted-foreground">{t("budgetDuration")}</span>
+                    <span className="font-medium">
+                      {detailRequest.requested_duration_days
+                        ? t("budgetDurationDays", { days: detailRequest.requested_duration_days })
+                        : t("budgetDurationPermanent")}
+                    </span>
                   </>
                 )}
                 {detailRequest.status !== "pending" && detailRequest.reviewed_by && (

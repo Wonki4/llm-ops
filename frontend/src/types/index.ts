@@ -172,6 +172,7 @@ export interface TeamJoinRequest {
   request_type: RequestType;
   message: string | null;
   requested_budget: number | null;
+  requested_duration_days: number | null;
   status: JoinRequestStatus;
   reviewed_by: string | null;
   review_comment: string | null;
@@ -197,6 +198,7 @@ export interface CreateBudgetRequestBody {
   team_id: string;
   requested_budget: number;
   message?: string;
+  requested_duration_days?: number | null;
 }
 
 export interface ReviewRequestBody {
