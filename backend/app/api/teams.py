@@ -6,7 +6,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select, text
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.key_limits import effective_model_limits
@@ -16,11 +15,10 @@ from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_member_budget_boost import CustomMemberBudgetBoost
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
-from app.services.member_budget_boost import resolve_effective_budget, serialize_boost
+from app.services.member_budget_boost import apply_member_budget_boost, serialize_boost
 
 import json
 import logging
-import uuid
 from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
@@ -897,19 +895,6 @@ class CreateBudgetBoostRequest(BaseModel):
     expires_at: datetime
 
 
-async def _active_boost_exists(db: AsyncSession, team_id: str, member_id: str) -> bool:
-    row = (
-        await db.execute(
-            select(CustomMemberBudgetBoost).where(
-                CustomMemberBudgetBoost.team_id == team_id,
-                CustomMemberBudgetBoost.user_id == member_id,
-                CustomMemberBudgetBoost.status == "active",
-            )
-        )
-    ).scalar_one_or_none()
-    return row is not None
-
-
 @router.post("/{team_id}/members/{member_id}/budget-boost", status_code=status.HTTP_201_CREATED)
 async def create_budget_boost(
     team_id: str,
@@ -927,47 +912,12 @@ async def create_budget_boost(
     team admin or super user.
     """
     await require_team_admin(user, team_id, litellm_db)
-    if body.max_budget <= 0:
-        raise HTTPException(status_code=400, detail="max_budget must be positive")
-    expires_at = body.expires_at
-    if expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=UTC)
-    if expires_at <= datetime.now(UTC):
-        raise HTTPException(status_code=400, detail="expires_at must be in the future")
-    if await _active_boost_exists(db, team_id, member_id):
-        raise HTTPException(status_code=409, detail="An active boost already exists for this member")
-
-    original = await resolve_effective_budget(litellm_db, team_id, member_id)
-    if original is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Member has no budget limit to boost — set a budget first",
-        )
-
-    boost = CustomMemberBudgetBoost(
-        id=uuid.uuid4(),
-        team_id=team_id,
-        user_id=member_id,
-        original_max_budget=original,
-        boost_max_budget=body.max_budget,
-        expires_at=expires_at,
-        status="active",
+    boost = await apply_member_budget_boost(
+        db, litellm, litellm_db,
+        team_id=team_id, user_id=member_id,
+        boost_max_budget=body.max_budget, expires_at=body.expires_at,
         created_by=user.user_id,
     )
-    db.add(boost)
-    try:
-        await db.flush()
-    except IntegrityError:
-        raise HTTPException(
-            status_code=409, detail="An active boost already exists for this member"
-        )
-
-    try:
-        await litellm.update_team_member(team_id, member_id, max_budget_in_team=body.max_budget)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to apply boosted budget: {e}")
-
-    await db.refresh(boost)
     return serialize_boost(boost)
 
 
