@@ -132,3 +132,25 @@ list shows whether the request is temporary and for how long.
   (baseline 21), ruff 0 NEW (baseline 78). Migration applies (alembic → 040).
 - Frontend: lint 0 NEW (baseline 4 errors/13 warnings), build passes; the
   dialog defaults to $20 / 30 days and round-trips permanent (null).
+
+## v1 implementation notes (post final review)
+
+Final whole-branch review: Ready to merge — 9/9 checks PASS (temporary request
+→ approve → boost row matches the worker's revert contract; permanent path and
+no-revertable fallback correct; 409 propagates before APPROVED so the request
+stays PENDING; the boost logic extraction into apply_member_budget_boost is
+behavior-preserving with the reserve-before-apply ordering intact; migration
+040 chains off 039).
+
+Two gaps closed in-branch after review:
+- The approver's page (admin/requests) did not show the requested period — Task
+  4 had only updated the member's own view. Fixed (7d4bc17): the admin review
+  dialog now shows "{n} days" / "Permanent", which is the feature's whole point
+  (the approver seeing the period before approving).
+- Added an integration test (500fba8) driving POST /approve to assert a 409
+  from an active-boost race surfaces and the request stays PENDING (the code
+  path was correct; this closes the coverage gap the review flagged).
+
+Ship-as-is minor (inherited from the boost feature): the dual-write window
+(LiteLLM applied but the final commit fails → boost row rolled back) is the
+same pre-existing edge as #199; extremely rare, unchanged here.
