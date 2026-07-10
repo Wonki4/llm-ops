@@ -1439,11 +1439,39 @@ export interface CreateLlmdStackBody {
   cluster_id: string | null;
   namespace?: string;
   values_yaml?: string;
+  chart_repo?: string | null;
+  chart_name?: string | null;
+  chart_version?: string | null;
+  epp_registry?: string | null;
+  epp_repository?: string | null;
+  epp_tag?: string | null;
 }
 
 export interface UpdateLlmdStackBody {
   namespace?: string;
   values_yaml?: string;
+  chart_repo?: string | null;
+  chart_name?: string | null;
+  chart_version?: string | null;
+  epp_registry?: string | null;
+  epp_repository?: string | null;
+  epp_tag?: string | null;
+}
+
+export interface LlmdChartDefaults {
+  chart_repo: string;
+  chart_name: string;
+  chart_version: string;
+  epp_registry: string;
+  epp_repository: string;
+  epp_tag: string;
+}
+
+export function useLlmdChartDefaults() {
+  return useQuery({
+    queryKey: ["llmd-stacks", "chart-defaults"],
+    queryFn: () => apiFetch<LlmdChartDefaults>("/api/admin/llmd-stacks/chart-defaults"),
+  });
 }
 
 export function useLlmdStacks() {

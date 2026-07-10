@@ -673,6 +673,14 @@ export interface LlmdStackSummary {
   chart_name: string;
   chart_version: string;
   epp_image: string;
+  chart_overrides: {
+    chart_repo: string | null;
+    chart_name: string | null;
+    chart_version: string | null;
+    epp_registry: string | null;
+    epp_repository: string | null;
+    epp_tag: string | null;
+  };
   helm_values: Record<string, unknown>;
   values_yaml: string;
   sync_status: string;

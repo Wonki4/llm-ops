@@ -12,6 +12,7 @@ import {
   useK8sClusters,
   useModelDeployments,
   useLlmdDefaultValues,
+  useLlmdChartDefaults,
   useExternalServings,
   type CreateLlmdStackBody,
   type ExternalServing,
@@ -29,6 +30,8 @@ type FormState = {
   cluster_id: string;
   namespace: string;
   values_yaml: string;
+  chart_repo: string; chart_name: string; chart_version: string;
+  epp_registry: string; epp_repository: string; epp_tag: string;
 };
 
 const EMPTY: FormState = {
@@ -39,6 +42,8 @@ const EMPTY: FormState = {
   cluster_id: "",
   namespace: "default",
   values_yaml: "",
+  chart_repo: "", chart_name: "", chart_version: "",
+  epp_registry: "", epp_repository: "", epp_tag: "",
 };
 
 export default function NewLlmdStackPage() {
@@ -51,9 +56,28 @@ export default function NewLlmdStackPage() {
   const [selectedExternal, setSelectedExternal] = useState<ExternalServing | null>(null);
   const createMut = useCreateLlmdStack();
   const defaultsMut = useLlmdDefaultValues();
+  const { data: chartDefaults } = useLlmdChartDefaults();
   const [form, setForm] = useState<FormState>(EMPTY);
   // Once the user edits the YAML, stop auto-overwriting it on target change.
   const [valuesTouched, setValuesTouched] = useState(false);
+
+  // Prefill the chart-source fields once chart-defaults arrive, without
+  // clobbering fields the admin has already touched. Adjusted during render
+  // (guarded by reference equality) rather than in an effect, per React's
+  // "you might not need an effect" pattern for syncing from fetched data.
+  const [appliedChartDefaults, setAppliedChartDefaults] = useState<typeof chartDefaults>(undefined);
+  if (chartDefaults && chartDefaults !== appliedChartDefaults) {
+    setAppliedChartDefaults(chartDefaults);
+    setForm((f) => ({
+      ...f,
+      chart_repo: f.chart_repo || chartDefaults.chart_repo,
+      chart_name: f.chart_name || chartDefaults.chart_name,
+      chart_version: f.chart_version || chartDefaults.chart_version,
+      epp_registry: f.epp_registry || chartDefaults.epp_registry,
+      epp_repository: f.epp_repository || chartDefaults.epp_repository,
+      epp_tag: f.epp_tag || chartDefaults.epp_tag,
+    }));
+  }
 
   const loadDefaults = defaultsMut.mutate;
   // Pre-fill / refresh the starter values.yaml from the chosen target model,
@@ -79,12 +103,20 @@ export default function NewLlmdStackPage() {
       toast.error(t("nameModelRequired"));
       return;
     }
+    const overrideOrNull = (val: string, def: string | undefined) =>
+      val && val !== def ? val : null;
     const body: CreateLlmdStackBody = {
       name: form.name,
       target_model_name: form.target_model_name,
       cluster_id: form.cluster_id || null,
       namespace: form.namespace,
       values_yaml: form.values_yaml,
+      chart_repo: overrideOrNull(form.chart_repo, chartDefaults?.chart_repo),
+      chart_name: overrideOrNull(form.chart_name, chartDefaults?.chart_name),
+      chart_version: overrideOrNull(form.chart_version, chartDefaults?.chart_version),
+      epp_registry: overrideOrNull(form.epp_registry, chartDefaults?.epp_registry),
+      epp_repository: overrideOrNull(form.epp_repository, chartDefaults?.epp_repository),
+      epp_tag: overrideOrNull(form.epp_tag, chartDefaults?.epp_tag),
     };
     createMut.mutate(body, {
       onSuccess: () => { toast.success(t("createSuccess")); router.push("/admin/llmd"); },
@@ -226,6 +258,43 @@ export default function NewLlmdStackPage() {
               />
               <p className="text-xs text-muted-foreground">{t("valuesYamlHint")}</p>
             </div>
+
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm font-medium">{t("chartSourceTitle")}</summary>
+              <p className="text-xs text-muted-foreground mt-1">{t("chartSourceHint")}</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div>
+                  <Label htmlFor="llmd-chart-repo">{t("chartRepoUrl")}</Label>
+                  <Input id="llmd-chart-repo" value={form.chart_repo}
+                    onChange={(e) => setForm({ ...form, chart_repo: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="llmd-chart-name">{t("chartName")}</Label>
+                  <Input id="llmd-chart-name" value={form.chart_name}
+                    onChange={(e) => setForm({ ...form, chart_name: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="llmd-chart-version">{t("chartVersion")}</Label>
+                  <Input id="llmd-chart-version" value={form.chart_version}
+                    onChange={(e) => setForm({ ...form, chart_version: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="llmd-epp-registry">{t("eppRegistry")}</Label>
+                  <Input id="llmd-epp-registry" value={form.epp_registry}
+                    onChange={(e) => setForm({ ...form, epp_registry: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="llmd-epp-repository">{t("eppRepository")}</Label>
+                  <Input id="llmd-epp-repository" value={form.epp_repository}
+                    onChange={(e) => setForm({ ...form, epp_repository: e.target.value })} />
+                </div>
+                <div>
+                  <Label htmlFor="llmd-epp-tag">{t("eppTag")}</Label>
+                  <Input id="llmd-epp-tag" value={form.epp_tag}
+                    onChange={(e) => setForm({ ...form, epp_tag: e.target.value })} />
+                </div>
+              </div>
+            </details>
           </CardContent>
         </Card>
 
