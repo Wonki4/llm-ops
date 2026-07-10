@@ -14,6 +14,7 @@ import {
   useDeleteLlmdStack,
   useLlmdStackApplied,
   useK8sClusters,
+  useLlmdChartDefaults,
 } from "@/hooks/use-api";
 import type { LlmdAppliedResource } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +23,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-type EditState = { namespace: string; values_yaml: string };
+type EditState = {
+  namespace: string;
+  values_yaml: string;
+  chart_repo: string; chart_name: string; chart_version: string;
+  epp_registry: string; epp_repository: string; epp_tag: string;
+};
 
 function Field({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
   return (
@@ -75,6 +81,7 @@ export default function LlmdDetailPage() {
   const stack = stacks?.find((s) => s.id === id);
   const { data: applied, isLoading: appliedLoading } = useLlmdStackApplied(id);
   const { data: clusters } = useK8sClusters();
+  const { data: chartDefaults } = useLlmdChartDefaults();
   const updateMut = useUpdateLlmdStack();
   const deleteMut = useDeleteLlmdStack();
 
@@ -83,14 +90,37 @@ export default function LlmdDetailPage() {
 
   const startEdit = () => {
     if (!stack) return;
-    setForm({ namespace: stack.namespace, values_yaml: stack.values_yaml });
+    setForm({
+      namespace: stack.namespace,
+      values_yaml: stack.values_yaml,
+      chart_repo: stack.chart_overrides.chart_repo ?? "",
+      chart_name: stack.chart_overrides.chart_name ?? "",
+      chart_version: stack.chart_overrides.chart_version ?? "",
+      epp_registry: stack.chart_overrides.epp_registry ?? "",
+      epp_repository: stack.chart_overrides.epp_repository ?? "",
+      epp_tag: stack.chart_overrides.epp_tag ?? "",
+    });
     setEditing(true);
   };
 
   const handleSave = () => {
     if (!stack || !form) return;
+    const overrideOrNull = (val: string, def: string | undefined) =>
+      val && val !== def ? val : null;
     updateMut.mutate(
-      { id: stack.id, body: { namespace: form.namespace, values_yaml: form.values_yaml } },
+      {
+        id: stack.id,
+        body: {
+          namespace: form.namespace,
+          values_yaml: form.values_yaml,
+          chart_repo: overrideOrNull(form.chart_repo, chartDefaults?.chart_repo),
+          chart_name: overrideOrNull(form.chart_name, chartDefaults?.chart_name),
+          chart_version: overrideOrNull(form.chart_version, chartDefaults?.chart_version),
+          epp_registry: overrideOrNull(form.epp_registry, chartDefaults?.epp_registry),
+          epp_repository: overrideOrNull(form.epp_repository, chartDefaults?.epp_repository),
+          epp_tag: overrideOrNull(form.epp_tag, chartDefaults?.epp_tag),
+        },
+      },
       {
         onSuccess: () => { toast.success(t("updateSuccess")); setEditing(false); },
         onError: (e) => toast.error(e instanceof Error ? e.message : t("saveFailed")),
@@ -214,6 +244,42 @@ export default function LlmdDetailPage() {
                 />
                 <p className="text-xs text-muted-foreground">{t("valuesYamlHint")}</p>
               </div>
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium">{t("chartSourceTitle")}</summary>
+                <p className="text-xs text-muted-foreground mt-1">{t("chartSourceHint")}</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <Label htmlFor="llmd-chart-repo">{t("chartRepoUrl")}</Label>
+                    <Input id="llmd-chart-repo" value={form.chart_repo} placeholder={chartDefaults?.chart_repo}
+                      onChange={(e) => setForm({ ...form, chart_repo: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-chart-name">{t("chartName")}</Label>
+                    <Input id="llmd-chart-name" value={form.chart_name} placeholder={chartDefaults?.chart_name}
+                      onChange={(e) => setForm({ ...form, chart_name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-chart-version">{t("chartVersion")}</Label>
+                    <Input id="llmd-chart-version" value={form.chart_version} placeholder={chartDefaults?.chart_version}
+                      onChange={(e) => setForm({ ...form, chart_version: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-epp-registry">{t("eppRegistry")}</Label>
+                    <Input id="llmd-epp-registry" value={form.epp_registry} placeholder={chartDefaults?.epp_registry}
+                      onChange={(e) => setForm({ ...form, epp_registry: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-epp-repository">{t("eppRepository")}</Label>
+                    <Input id="llmd-epp-repository" value={form.epp_repository} placeholder={chartDefaults?.epp_repository}
+                      onChange={(e) => setForm({ ...form, epp_repository: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-epp-tag">{t("eppTag")}</Label>
+                    <Input id="llmd-epp-tag" value={form.epp_tag} placeholder={chartDefaults?.epp_tag}
+                      onChange={(e) => setForm({ ...form, epp_tag: e.target.value })} />
+                  </div>
+                </div>
+              </details>
             </div>
           )}
         </CardContent>
