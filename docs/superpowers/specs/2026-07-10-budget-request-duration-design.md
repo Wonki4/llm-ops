@@ -1,8 +1,9 @@
 # Time-Limited Budget-Increase Requests — Design
 
 **Date:** 2026-07-10
-**Status:** Draft — awaiting user spec review (user answered Q1; Q2 assumed,
-noted below)
+**Status:** Approved — user said "작업 시작" (start). Q1 answered
+(temporary-default, permanent possible); Q2 assumed = approve-as-requested
+(no adjust-at-approval UI), noted below.
 
 ## Problem
 
@@ -29,21 +30,16 @@ UI. An admin who disagrees rejects, and the member re-requests. (If the user
 wants adjust-at-approval, the approve endpoint + review dialog gain optional
 amount/duration overrides — a small extension.)
 
-### Data model (migration 039_budget_request_duration)
+### Data model (migration 040_budget_request_duration)
 
 Add one nullable column to `custom_team_join_requests`:
 
 - `requested_duration_days INTEGER NULL` — the requested period in days. NULL =
   permanent. Only meaningful for `request_type="budget"`.
 
-> **Migration ordering hazard.** origin/main's head is `038_member_budget_boost`.
-> This migration is `039_budget_request_duration` revising
-> `038_member_budget_boost`. PR #201 (`feat/llmd-chart-source`, open) ALSO adds
-> `039_llmd_stack_chart_source` revising `038`. Two different 039 files both
-> branching from 038 → `alembic heads` shows two heads after the second merge.
-> Whichever of #201 / this PR merges **second** must rebase its migration to
-> chain after the other (rename to 040 + set `down_revision` to the 039 that
-> merged first). Filenames differ, so the conflict surfaces clearly at merge.
+Migration `040_budget_request_duration` revises `039_llmd_stack_chart_source`
+(origin/main's current head, after #199–#201 merged). No ordering hazard
+remains.
 
 ### Shared boost service (DRY refactor)
 
@@ -133,6 +129,6 @@ list shows whether the request is temporary and for how long.
   `update_team_member`; approval when an active boost exists → 409; the
   extracted `apply_member_budget_boost` preserves the reserve-before-apply
   ordering (existing boost tests still green). pytest 0 NEW failures
-  (baseline 21), ruff 0 NEW (baseline 78). Migration applies (alembic → 039).
+  (baseline 21), ruff 0 NEW (baseline 78). Migration applies (alembic → 040).
 - Frontend: lint 0 NEW (baseline 4 errors/13 warnings), build passes; the
   dialog defaults to $20 / 30 days and round-trips permanent (null).
