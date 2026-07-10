@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, Float, String, Text, func
+from sqlalchemy import DateTime, Enum, Float, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -32,6 +32,9 @@ class CustomTeamJoinRequest(CustomBase):
     request_type: Mapped[str] = mapped_column(String(32), nullable=False, server_default="join", index=True)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     requested_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Requested period for a budget increase, in days. NULL = permanent; a
+    # positive value = temporary (applied as a member budget boost on approval).
+    requested_duration_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[JoinRequestStatus] = mapped_column(
         Enum(
             JoinRequestStatus,
