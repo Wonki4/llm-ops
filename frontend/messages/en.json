@@ -152,7 +152,10 @@
     "empty": "No requests found.",
     "emptySearch": "No search results.",
     "detailTitle": "Request Detail",
-    "budgetAmount": "Budget Amount"
+    "budgetAmount": "Budget Amount",
+    "budgetDuration": "Period",
+    "budgetDurationDays": "{days} days",
+    "budgetDurationPermanent": "Permanent"
   },
   "adminRequests": {
     "title": "Request Management",
@@ -1074,6 +1077,9 @@
     "newBudget": "New budget",
     "budgetAmountLabel": "Amount ($)",
     "budgetAmountPlaceholder": "e.g. 100",
+    "budgetDurationLabel": "Period (days)",
+    "budgetDurationPlaceholder": "30",
+    "budgetDurationHint": "Default 30 days (≈1 month). Leave empty for a permanent increase.",
     "memberTpmLabel": "TPM limit",
     "memberRpmLabel": "RPM limit",
     "memberRateLimitPlaceholder": "Unlimited",

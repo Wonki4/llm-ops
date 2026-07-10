@@ -167,7 +167,8 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState("20");
+  const [durationDays, setDurationDays] = useState("30");
   const [message, setMessage] = useState("");
   const mutation = useCreateBudgetRequest();
 
@@ -211,6 +212,17 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
             />
           </div>
           <div>
+            <label className="text-sm font-medium">{t("budgetDurationLabel")}</label>
+            <Input
+              type="number"
+              min="1"
+              placeholder={t("budgetDurationPlaceholder")}
+              value={durationDays}
+              onChange={(e) => setDurationDays(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground mt-1">{t("budgetDurationHint")}</p>
+          </div>
+          <div>
             <label className="text-sm font-medium">{t("budgetReasonLabel")}</label>
             <Input
               placeholder={t("budgetReasonPlaceholder")}
@@ -227,12 +239,18 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
             disabled={!amount || Number(amount) <= 0 || mutation.isPending}
             onClick={() => {
               mutation.mutate(
-                { team_id: teamId, requested_budget: Number(amount), message: message || undefined },
+                {
+                  team_id: teamId,
+                  requested_budget: Number(amount),
+                  message: message || undefined,
+                  requested_duration_days: durationDays.trim() ? Number(durationDays) : null,
+                },
                 {
                   onSuccess: () => {
                     toast.success(t("budgetRequestSuccess"));
                     setOpen(false);
-                    setAmount("");
+                    setAmount("20");
+                    setDurationDays("30");
                     setMessage("");
                   },
                   onError: (err) => {

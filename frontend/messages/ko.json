@@ -152,7 +152,10 @@
     "empty": "요청 내역이 없습니다.",
     "emptySearch": "검색 결과가 없습니다.",
     "detailTitle": "요청 상세",
-    "budgetAmount": "변경 금액"
+    "budgetAmount": "변경 금액",
+    "budgetDuration": "기간",
+    "budgetDurationDays": "{days}일",
+    "budgetDurationPermanent": "영구"
   },
   "adminRequests": {
     "title": "요청 관리",
@@ -1074,6 +1077,9 @@
     "newBudget": "변경 후 예산",
     "budgetAmountLabel": "변경 금액 ($)",
     "budgetAmountPlaceholder": "예: 100",
+    "budgetDurationLabel": "기간 (일)",
+    "budgetDurationPlaceholder": "30",
+    "budgetDurationHint": "기본 30일 (≈1개월). 비우면 영구 증액입니다.",
     "memberTpmLabel": "TPM 한도",
     "memberRpmLabel": "RPM 한도",
     "memberRateLimitPlaceholder": "무제한",
