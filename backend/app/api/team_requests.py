@@ -1,6 +1,7 @@
 """Team request workflow endpoints (join + budget increase)."""
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ from app.clients.slack import send_slack_notification
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest, JoinRequestStatus
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
+from app.services.member_budget_boost import apply_member_budget_boost, resolve_effective_budget
 
 router = APIRouter(prefix="/api/team-requests", tags=["team-requests"])
 
@@ -27,6 +29,7 @@ class CreateBudgetRequest(BaseModel):
     team_id: str
     requested_budget: float
     message: str | None = None
+    requested_duration_days: int | None = 30
 
 
 class ReviewRequest(BaseModel):
@@ -42,6 +45,7 @@ def _request_to_dict(r: CustomTeamJoinRequest) -> dict:
         "request_type": r.request_type,
         "message": r.message,
         "requested_budget": r.requested_budget,
+        "requested_duration_days": r.requested_duration_days,
         "status": r.status.value,
         "reviewed_by": r.reviewed_by,
         "review_comment": r.review_comment,
@@ -115,6 +119,8 @@ async def create_budget_request(
     """Request a budget increase for the user's keys in a team."""
     if body.requested_budget <= 0:
         raise HTTPException(status_code=400, detail="Requested budget must be positive")
+    if body.requested_duration_days is not None and body.requested_duration_days <= 0:
+        raise HTTPException(status_code=400, detail="Requested duration must be positive")
 
     # Check duplicate pending budget request
     existing = await db.execute(
@@ -145,6 +151,7 @@ async def create_budget_request(
         team_alias=team_alias,
         request_type="budget",
         requested_budget=body.requested_budget,
+        requested_duration_days=body.requested_duration_days,
         message=body.message,
         status=JoinRequestStatus.PENDING,
     )
@@ -299,16 +306,31 @@ async def approve_request(
             {"user_id": req.requester_id, "team_id": req.team_id},
         )
     elif req.request_type == "budget":
-        # Delegate to LiteLLM /team/member_update — same path as a manual
-        # per-member budget change (teams.change_member_budget). LiteLLM
-        # clone-on-writes a dedicated budget row for this member, so approving
-        # two requests for the same amount never makes them share one row (the
-        # previous reuse-by-amount SQL silently did).
-        await litellm.update_team_member(
-            req.team_id,
-            req.requester_id,
-            max_budget_in_team=req.requested_budget,
+        original = (
+            await resolve_effective_budget(litellm_db, req.team_id, req.requester_id)
+            if req.requested_duration_days
+            else None
         )
+        if req.requested_duration_days and original is not None:
+            # Temporary increase → member budget boost (auto-reverts at expiry).
+            await apply_member_budget_boost(
+                db, litellm, litellm_db,
+                team_id=req.team_id, user_id=req.requester_id,
+                boost_max_budget=req.requested_budget,
+                expires_at=datetime.now(UTC) + timedelta(days=req.requested_duration_days),
+                created_by=user.user_id,
+            )
+        else:
+            # Permanent increase (no period, or nothing to revert to). Same
+            # path as a manual per-member budget change
+            # (teams.change_member_budget) — LiteLLM clone-on-writes a
+            # dedicated budget row for this member, so approving two requests
+            # for the same amount never makes them share one row.
+            await litellm.update_team_member(
+                req.team_id,
+                req.requester_id,
+                max_budget_in_team=req.requested_budget,
+            )
 
     req.status = JoinRequestStatus.APPROVED
     req.reviewed_by = user.user_id
