@@ -4,6 +4,7 @@ import types
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.clients.k8s import K8sNotConfigured
 from app.jobs.reconcile_benchmarks import _drive_sweeps
 from app.services.benchmark_manifests import job_name_for
 
@@ -91,3 +92,16 @@ async def test_all_terminal_completes_sweep():
     n = await _drive_sweeps(db)
     assert n == 1
     assert sweep.status == "completed" and sweep.finished_at is not None
+
+
+async def test_k8s_not_configured_skips_promotion_without_transition():
+    queued = _run(status="queued", sweep_index=0)
+    db = _db([_sweep()], [[queued]])
+    k8s = MagicMock()
+    k8s.create_job = AsyncMock(side_effect=K8sNotConfigured("no kubeconfig"))
+    with patch("app.jobs.reconcile_benchmarks.k8s_for_cluster", AsyncMock(return_value=k8s)):
+        n = await _drive_sweeps(db)
+    assert n == 0
+    assert queued.status == "queued"
+    assert queued.queued_job_manifest == {"kind": "Job"}
+    assert queued.k8s_job_name is None
