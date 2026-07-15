@@ -20,6 +20,9 @@ def _stack(**kw):
         namespace="llmd-my-stack",
         argo_app_name="llmd-my-stack",
         helm_values={},
+        epp_registry=None,
+        epp_repository=None,
+        epp_tag=None,
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -78,6 +81,34 @@ def test_build_values_user_helm_values_win_over_base():
     assert img["repository"] == "llm-d/llm-d-router-endpoint-picker"
     assert img["tag"] == "custom"  # user wins
     assert v["tracing"] == {"enabled": True}
+
+
+def test_build_values_stack_epp_override_wins_over_baked_helm_values():
+    # Create seeds helm_values via default_llmd_values(), which bakes the
+    # global EPP image into the user's YAML. An explicit per-stack override
+    # (the epp_* columns) must still reach the rendered values — otherwise
+    # the air-gap image fields on the form are dead.
+    helm_values = default_llmd_values(
+        "m",
+        epp_registry="ghcr.io",
+        epp_repository="llm-d/llm-d-router-endpoint-picker",
+        epp_tag="v0.9.0",
+    )
+    v = build_llmd_values(
+        _stack(
+            helm_values=helm_values,
+            epp_registry="mirror.internal",
+            epp_tag="v0.9.0-airgap",
+        ),
+        epp_registry="mirror.internal",
+        epp_repository="llm-d/llm-d-router-endpoint-picker",
+        epp_tag="v0.9.0-airgap",
+    )
+    assert v["inferenceExtension"]["image"] == {
+        "registry": "mirror.internal",
+        "repository": "llm-d/llm-d-router-endpoint-picker",
+        "tag": "v0.9.0-airgap",
+    }
 
 
 def test_default_values_is_real_router_template():
