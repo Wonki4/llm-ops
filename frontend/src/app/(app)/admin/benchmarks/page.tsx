@@ -2,15 +2,16 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Loader2, FlaskConical, X, Plus, GitCompare } from "lucide-react";
+import { Search, Loader2, FlaskConical, X, Plus, GitCompare, Layers } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useBenchmarks } from "@/hooks/use-api";
-import type { BenchmarkRun } from "@/types";
+import { useBenchmarks, useBenchmarkSweeps } from "@/hooks/use-api";
+import type { BenchmarkRun, BenchmarkSweep } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 const COMPARE_MAX = 5;
 import {
@@ -77,6 +78,7 @@ function formatDuration(
 export default function AdminBenchmarksPage() {
   const t = useTranslations("adminBenchmarks");
   const ts = useTranslations("benchmarkStatus");
+  const tw = useTranslations("benchmarkSweeps");
   const localeTag = useLocaleTag();
 
   const [modelInput, setModelInput] = useState("");
@@ -126,6 +128,12 @@ export default function AdminBenchmarksPage() {
               </Button>
             </Link>
           )}
+          <Link href="/admin/benchmarks/sweeps/new">
+            <Button variant="outline">
+              <Layers className="size-4 mr-1" />
+              {tw("newTitle")}
+            </Button>
+          </Link>
           <Link href="/admin/benchmarks/new">
             <Button>
               <Plus className="size-4 mr-1" />
@@ -135,138 +143,213 @@ export default function AdminBenchmarksPage() {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[240px] max-w-sm">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
-            placeholder={t("searchPlaceholder")}
-            value={modelInput}
-            onChange={(e) => setModelInput(e.target.value)}
-            className="pl-8 h-9"
-          />
-        </div>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          value={tool}
-          onChange={(e) => setTool(e.target.value)}
-        >
-          <option value="">{t("allTools")}</option>
-          {TOOL_OPTIONS.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          <option value="">{t("allStatuses")}</option>
-          {STATUS_OPTIONS.map((value) => (
-            <option key={value} value={value}>
-              {ts(value)}
-            </option>
-          ))}
-        </select>
-        {(tool || status || model) && (
-          <button
-            type="button"
-            className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
-            onClick={() => {
-              setTool("");
-              setStatus("");
-              setModelInput("");
-              setModel("");
-            }}
-          >
-            <X className="size-3" />
-            {t("resetFilters")}
-          </button>
-        )}
-      </div>
-
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10"></TableHead>
-              <TableHead>{t("colModel")}</TableHead>
-              <TableHead>{t("colTool")}</TableHead>
-              <TableHead>{t("colKind")}</TableHead>
-              <TableHead>{t("colStatus")}</TableHead>
-              <TableHead>{t("colDuration")}</TableHead>
-              <TableHead>{t("colCreatedBy")}</TableHead>
-              <TableHead>{t("colCreatedAt")}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading ? (
-              <TableRow>
-                <TableCell colSpan={8}>
-                  <div className="flex items-center justify-center py-10">
-                    <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : !runs || runs.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8}>
-                  <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
-                    <FlaskConical className="size-6" />
-                    <span className="text-sm">{t("empty")}</span>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              runs.map((r) => {
-                const isChecked = selected.has(r.id);
-                const disableCheck = !isChecked && selected.size >= COMPARE_MAX;
-                return (
-                <TableRow key={r.id} className="hover:bg-muted/40">
-                  <TableCell>
-                    <input
-                      type="checkbox"
-                      className="size-4 rounded border-input cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                      checked={isChecked}
-                      disabled={disableCheck}
-                      title={
-                        disableCheck
-                          ? t("compareMaxHint", { max: COMPARE_MAX })
-                          : undefined
-                      }
-                      onChange={() => toggleSelected(r.id)}
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    <Link
-                      href={`/admin/benchmarks/${r.id}`}
-                      className="hover:underline"
-                    >
-                      {r.model_name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">{r.tool}</TableCell>
-                  <TableCell className="text-sm">{r.kind}</TableCell>
-                  <TableCell>
-                    <Badge className={STATUS_STYLES[r.status]}>
-                      {ts(r.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {formatDuration(r.started_at, r.finished_at, "-")}
-                  </TableCell>
-                  <TableCell className="text-sm">{r.created_by}</TableCell>
-                  <TableCell className="text-sm">
-                    {formatDateTime(r.created_at, localeTag)}
-                  </TableCell>
-                </TableRow>
-                );
-              })
+      <Tabs defaultValue="runs">
+        <TabsList>
+          <TabsTrigger value="runs">{t("pageTitle")}</TabsTrigger>
+          <TabsTrigger value="sweeps">{tw("listTitle")}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="runs" className="mt-4 space-y-6">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[240px] max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                placeholder={t("searchPlaceholder")}
+                value={modelInput}
+                onChange={(e) => setModelInput(e.target.value)}
+                className="pl-8 h-9"
+              />
+            </div>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              value={tool}
+              onChange={(e) => setTool(e.target.value)}
+            >
+              <option value="">{t("allTools")}</option>
+              {TOOL_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+            <select
+              className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="">{t("allStatuses")}</option>
+              {STATUS_OPTIONS.map((value) => (
+                <option key={value} value={value}>
+                  {ts(value)}
+                </option>
+              ))}
+            </select>
+            {(tool || status || model) && (
+              <button
+                type="button"
+                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                onClick={() => {
+                  setTool("");
+                  setStatus("");
+                  setModelInput("");
+                  setModel("");
+                }}
+              >
+                <X className="size-3" />
+                {t("resetFilters")}
+              </button>
             )}
-          </TableBody>
-        </Table>
+          </div>
+
+          <div className="rounded-lg border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10"></TableHead>
+                  <TableHead>{t("colModel")}</TableHead>
+                  <TableHead>{t("colTool")}</TableHead>
+                  <TableHead>{t("colKind")}</TableHead>
+                  <TableHead>{t("colStatus")}</TableHead>
+                  <TableHead>{t("colDuration")}</TableHead>
+                  <TableHead>{t("colCreatedBy")}</TableHead>
+                  <TableHead>{t("colCreatedAt")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={8}>
+                      <div className="flex items-center justify-center py-10">
+                        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : !runs || runs.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8}>
+                      <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
+                        <FlaskConical className="size-6" />
+                        <span className="text-sm">{t("empty")}</span>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  runs.map((r) => {
+                    const isChecked = selected.has(r.id);
+                    const disableCheck = !isChecked && selected.size >= COMPARE_MAX;
+                    return (
+                    <TableRow key={r.id} className="hover:bg-muted/40">
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          className="size-4 rounded border-input cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                          checked={isChecked}
+                          disabled={disableCheck}
+                          title={
+                            disableCheck
+                              ? t("compareMaxHint", { max: COMPARE_MAX })
+                              : undefined
+                          }
+                          onChange={() => toggleSelected(r.id)}
+                        />
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          href={`/admin/benchmarks/${r.id}`}
+                          className="hover:underline"
+                        >
+                          {r.model_name}
+                        </Link>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{r.tool}</TableCell>
+                      <TableCell className="text-sm">{r.kind}</TableCell>
+                      <TableCell>
+                        <Badge className={STATUS_STYLES[r.status]}>
+                          {ts(r.status)}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {formatDuration(r.started_at, r.finished_at, "-")}
+                      </TableCell>
+                      <TableCell className="text-sm">{r.created_by}</TableCell>
+                      <TableCell className="text-sm">
+                        {formatDateTime(r.created_at, localeTag)}
+                      </TableCell>
+                    </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+        <TabsContent value="sweeps" className="mt-4">
+          <SweepsTable />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function SweepsTable() {
+  const tw = useTranslations("benchmarkSweeps");
+  const localeTag = useLocaleTag();
+  const { data: sweeps, isLoading } = useBenchmarkSweeps();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
       </div>
+    );
+  }
+  if (!sweeps || sweeps.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-12 text-muted-foreground">
+        <FlaskConical className="size-6 mb-2" />
+        <span className="text-sm">{tw("empty")}</span>
+      </div>
+    );
+  }
+  const done = (s: BenchmarkSweep) =>
+    Object.entries(s.progress?.by_status ?? {})
+      .filter(([k]) => ["succeeded", "failed", "cancelled"].includes(k))
+      .reduce((n, [, v]) => n + v, 0);
+  return (
+    <div className="rounded-lg border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{tw("colName")}</TableHead>
+            <TableHead>{tw("colBase")}</TableHead>
+            <TableHead>{tw("colPreset")}</TableHead>
+            <TableHead>{tw("colProgress")}</TableHead>
+            <TableHead>{tw("colStatus")}</TableHead>
+            <TableHead>{tw("colCreatedAt")}</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {sweeps.map((s) => (
+            <TableRow key={s.id} className="hover:bg-muted/40">
+              <TableCell className="font-medium">
+                <Link href={`/admin/benchmarks/sweeps/${s.id}`} className="hover:underline">
+                  {s.name || s.variables.map((v) => v.flag).join(" × ")}
+                </Link>
+              </TableCell>
+              <TableCell className="text-sm">
+                {s.external_source ? `${s.external_source.deployment_name} (${tw("external")})` : s.deployment_id}
+              </TableCell>
+              <TableCell className="font-mono text-xs">{s.preset}</TableCell>
+              <TableCell className="font-mono text-xs">
+                {done(s)}/{s.progress?.total ?? "-"}
+              </TableCell>
+              <TableCell>
+                <Badge variant={s.status === "running" ? "default" : "secondary"}>{s.status}</Badge>
+              </TableCell>
+              <TableCell className="text-sm">{formatDateTime(s.created_at, localeTag)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   );
 }
