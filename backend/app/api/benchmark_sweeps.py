@@ -7,10 +7,11 @@ promotes the next combo when the previous one reaches a terminal state."""
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.benchmarks import (
@@ -48,6 +49,10 @@ router = APIRouter(prefix="/api/benchmarks", tags=["benchmark-sweeps"])
 
 _FLAG_RE = re.compile(r"^--[a-z0-9][a-z0-9-]*$")
 SWEEP_TERMINAL = ("succeeded", "failed", "cancelled")
+
+
+def _now():
+    return datetime.now(UTC)
 
 
 class SweepVariable(BaseModel):
@@ -267,5 +272,93 @@ async def create_sweep(
         runs[0].status = "failed"
         runs[0].error_message = f"Benchmark Job create failed: {e}"
         runs[0].queued_job_manifest = None
+    await db.flush()
+    return _serialize_sweep(sweep, runs=[_serialize(r) for r in runs])
+
+
+@router.get("/sweeps")
+async def list_sweeps(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(CustomBenchmarkSweep).order_by(CustomBenchmarkSweep.created_at.desc()).limit(200)
+        )
+    ).scalars().all()
+    ids = [s.id for s in rows]
+    progress: dict = {sid: {"total": 0, "by_status": {}} for sid in ids}
+    if ids:
+        counts = await db.execute(
+            select(CustomBenchmarkRun.sweep_id, CustomBenchmarkRun.status, func.count())
+            .where(CustomBenchmarkRun.sweep_id.in_(ids))
+            .group_by(CustomBenchmarkRun.sweep_id, CustomBenchmarkRun.status)
+        )
+        for sweep_id, run_status, n in counts.all():
+            progress[sweep_id]["total"] += n
+            progress[sweep_id]["by_status"][run_status] = n
+    return {"sweeps": [_serialize_sweep(s, progress=progress[s.id]) for s in rows]}
+
+
+async def _get_sweep(db: AsyncSession, sweep_id: str) -> CustomBenchmarkSweep:
+    try:
+        sid = uuid.UUID(sweep_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Sweep not found")
+    sweep = (
+        await db.execute(select(CustomBenchmarkSweep).where(CustomBenchmarkSweep.id == sid))
+    ).scalar_one_or_none()
+    if not sweep:
+        raise HTTPException(status_code=404, detail="Sweep not found")
+    return sweep
+
+
+async def _sweep_runs(db: AsyncSession, sweep_id: uuid.UUID) -> list[CustomBenchmarkRun]:
+    return (
+        await db.execute(
+            select(CustomBenchmarkRun)
+            .where(CustomBenchmarkRun.sweep_id == sweep_id)
+            .order_by(CustomBenchmarkRun.sweep_index)
+        )
+    ).scalars().all()
+
+
+@router.get("/sweeps/{sweep_id}")
+async def get_sweep(
+    sweep_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    sweep = await _get_sweep(db, sweep_id)
+    runs = await _sweep_runs(db, sweep.id)
+    return _serialize_sweep(sweep, runs=[_serialize(r) for r in runs])
+
+
+@router.post("/sweeps/{sweep_id}/cancel")
+async def cancel_sweep(
+    sweep_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    sweep = await _get_sweep(db, sweep_id)
+    if sweep.status in ("completed", "cancelled"):
+        return _serialize_sweep(sweep)
+    runs = await _sweep_runs(db, sweep.id)
+    k8s = await k8s_for_cluster(db, sweep.cluster_id)
+    for run in runs:
+        if run.status in SWEEP_TERMINAL:
+            continue
+        if run.k8s_job_name and run.k8s_namespace:
+            try:
+                await k8s.delete_job(run.k8s_namespace, run.k8s_job_name)
+            except K8sNotConfigured as e:
+                raise HTTPException(status_code=503, detail=str(e))
+            except Exception:
+                logger.exception("Sweep run Job delete failed for %s", run.id)
+        run.status = "cancelled"
+        run.queued_job_manifest = None
+        run.finished_at = _now()
+    sweep.status = "cancelled"
+    sweep.finished_at = _now()
     await db.flush()
     return _serialize_sweep(sweep, runs=[_serialize(r) for r in runs])

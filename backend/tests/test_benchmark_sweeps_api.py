@@ -111,3 +111,66 @@ async def test_create_expands_grid_queues_all_and_promotes_first(
     payload = resp.json()
     assert "queued_job_manifest" not in str(payload)
     assert len(payload["runs"]) == 2
+
+
+def _sweep_row(**kw):
+    row = MagicMock()
+    row.id = uuid.uuid4()
+    row.name = None
+    row.deployment_id = None
+    row.external_source = None
+    row.cluster_id = None
+    row.k8s_namespace = "default"
+    row.preset = "chat"
+    row.variables = [{"flag": "--max-num-seqs", "values": [128, 256]}]
+    row.serving_overrides = None
+    row.status = "running"
+    row.created_by = "admin"
+    row.created_at = None
+    row.finished_at = None
+    for k, v in kw.items():
+        setattr(row, k, v)
+    return row
+
+
+async def test_list_returns_progress_rollup(client_for_user, super_user, mock_db):
+    sweep = _sweep_row()
+    sweeps_res = MagicMock()
+    sweeps_res.scalars.return_value.all.return_value = [sweep]
+    counts_res = MagicMock()
+    counts_res.all.return_value = [(sweep.id, "succeeded", 1), (sweep.id, "queued", 1)]
+    mock_db.execute = AsyncMock(side_effect=[sweeps_res, counts_res])
+    async with client_for_user(super_user) as client:
+        resp = await client.get("/api/benchmarks/sweeps")
+    assert resp.status_code == 200
+    s = resp.json()["sweeps"][0]
+    assert s["progress"] == {"total": 2, "by_status": {"succeeded": 1, "queued": 1}}
+
+
+async def test_cancel_cancels_active_job_and_queued_rest(client_for_user, super_user, mock_db):
+    sweep = _sweep_row()
+    active = MagicMock()
+    active.status = "running"
+    active.k8s_job_name = "bench-x"
+    active.k8s_namespace = "default"
+    active.queued_job_manifest = None
+    queued = MagicMock()
+    queued.status = "queued"
+    queued.k8s_job_name = None
+    queued.k8s_namespace = "default"
+    queued.queued_job_manifest = {"kind": "Job"}
+    sweep_res = MagicMock()
+    sweep_res.scalar_one_or_none.return_value = sweep
+    runs_res = MagicMock()
+    runs_res.scalars.return_value.all.return_value = [active, queued]
+    mock_db.execute = AsyncMock(side_effect=[sweep_res, runs_res])
+    fake_k8s = MagicMock()
+    fake_k8s.delete_job = AsyncMock()
+    with patch("app.api.benchmark_sweeps.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post(f"/api/benchmarks/sweeps/{sweep.id}/cancel")
+    assert resp.status_code == 200
+    fake_k8s.delete_job.assert_awaited_once_with("default", "bench-x")
+    assert active.status == "cancelled"
+    assert queued.status == "cancelled" and queued.queued_job_manifest is None
+    assert sweep.status == "cancelled" and sweep.finished_at is not None
