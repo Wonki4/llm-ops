@@ -75,14 +75,16 @@ def build_llmd_values(
 ) -> dict:
     """The values actually sent to ArgoCD: the user's ``helm_values`` with a thin
     base merged underneath, so the llm-d EPP image defaults apply even if the
-    user's values.yaml omits them. The user's values always win.
+    user's values.yaml omits them. The user's values win over the base — but an
+    explicit per-stack EPP override (the stack's ``epp_*`` columns) wins over
+    both: create seeds ``helm_values`` with the image already baked in, so
+    without this the override fields could never take effect.
     """
-    base = {
-        "inferenceExtension": {
-            "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag}
-        }
-    }
-    return deep_merge(base, stack.helm_values or {})
+    image = {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag}
+    out = deep_merge({"inferenceExtension": {"image": image}}, stack.helm_values or {})
+    if stack.epp_registry or stack.epp_repository or stack.epp_tag:
+        out = deep_merge(out, {"inferenceExtension": {"image": image}})
+    return out
 
 
 def build_argo_application(
