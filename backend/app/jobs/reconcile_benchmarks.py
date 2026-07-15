@@ -19,10 +19,12 @@ from sqlalchemy import select
 
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
+from app.db.models.custom_benchmark_sweep import CustomBenchmarkSweep
 from app.db.session import async_session_factory
 from app.config import settings
 from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
+from app.services.benchmark_sweeps import promote_queued_run
 from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import serving_api_key
 
@@ -197,6 +199,50 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
     return transitions
 
 
+ACTIVE = ("provisioning", "pending", "running")
+
+
+async def _drive_sweeps(db) -> int:
+    """Promote each running sweep's next queued combo once the previous one is
+    terminal; complete the sweep when no combos remain. A failed combo never
+    blocks the rest. Purely DB-state-driven, so portal restarts resume."""
+    transitions = 0
+    sweeps = (
+        await db.execute(select(CustomBenchmarkSweep).where(CustomBenchmarkSweep.status == "running"))
+    ).scalars().all()
+    for sweep in sweeps:
+        runs = (
+            await db.execute(
+                select(CustomBenchmarkRun)
+                .where(CustomBenchmarkRun.sweep_id == sweep.id)
+                .order_by(CustomBenchmarkRun.sweep_index)
+            )
+        ).scalars().all()
+        if any(r.status in ACTIVE for r in runs):
+            continue
+        queued = [r for r in runs if r.status == "queued"]
+        if not queued:
+            sweep.status = "completed"
+            sweep.finished_at = _now()
+            transitions += 1
+            continue
+        nxt = queued[0]
+        k8s = await k8s_for_cluster(db, nxt.cluster_id)
+        try:
+            await promote_queued_run(k8s, nxt)
+        except K8sNotConfigured:
+            logger.warning("K8s not configured; skipping sweep %s", sweep.id)
+            continue
+        except Exception as e:  # noqa: BLE001 — mark this combo failed, next tick continues
+            logger.exception("Sweep combo promotion failed for run %s", nxt.id)
+            nxt.status = "failed"
+            nxt.error_message = f"Benchmark Job create failed: {e}"
+            nxt.queued_job_manifest = None
+            nxt.finished_at = _now()
+        transitions += 1
+    return transitions
+
+
 async def reconcile_once() -> dict:
     polled = 0
     transitions = 0
@@ -235,6 +281,9 @@ async def reconcile_once() -> dict:
             for run in sweep.scalars().all():
                 k8s = await k8s_for_cluster(db, run.cluster_id)
                 await _teardown_serving(k8s, run)
+
+            # ❸ Sweeps: promote the next queued combo / complete finished sweeps.
+            transitions += await _drive_sweeps(db)
 
             await db.commit()
     except Exception:
