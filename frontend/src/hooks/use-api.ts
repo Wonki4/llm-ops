@@ -35,6 +35,9 @@ import type {
   BenchmarkRun,
   BenchmarkListResponse,
   CreateBenchmarkRequest,
+  BenchmarkSweep,
+  CreateBenchmarkSweepRequest,
+  LoadPreset,
   ModelDeployment,
   ModelDeploymentEvent,
   K8sClusterSummary,
@@ -1323,6 +1326,61 @@ export function useCreateBenchmark() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["benchmarks"] }),
+  });
+}
+
+export function useBenchmarkPresets() {
+  return useQuery({
+    queryKey: ["benchmark-presets"],
+    queryFn: () =>
+      apiFetch<{ presets: Record<string, LoadPreset> }>("/api/benchmarks/presets").then((r) => r.presets),
+    staleTime: Infinity,
+  });
+}
+
+export function useBenchmarkSweeps() {
+  return useQuery({
+    queryKey: ["benchmark-sweeps"],
+    queryFn: () =>
+      apiFetch<{ sweeps: BenchmarkSweep[] }>("/api/benchmarks/sweeps").then((r) => r.sweeps),
+    refetchInterval: 15000,
+  });
+}
+
+export function useBenchmarkSweep(id: string) {
+  return useQuery({
+    queryKey: ["benchmark-sweeps", id],
+    queryFn: () => apiFetch<BenchmarkSweep>(`/api/benchmarks/sweeps/${id}`),
+    refetchInterval: (query) =>
+      query.state.data && query.state.data.status !== "running" ? false : 5000,
+  });
+}
+
+export function useCreateBenchmarkSweep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateBenchmarkSweepRequest) =>
+      apiFetch<BenchmarkSweep>("/api/benchmarks/sweeps", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["benchmark-sweeps"] });
+      qc.invalidateQueries({ queryKey: ["benchmarks"] });
+    },
+  });
+}
+
+export function useCancelBenchmarkSweep() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<BenchmarkSweep>(`/api/benchmarks/sweeps/${id}/cancel`, { method: "POST" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["benchmark-sweeps"] });
+      qc.invalidateQueries({ queryKey: ["benchmark-sweeps", id] });
+      qc.invalidateQueries({ queryKey: ["benchmarks"] });
+    },
   });
 }
 

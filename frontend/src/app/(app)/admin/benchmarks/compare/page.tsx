@@ -12,40 +12,17 @@ import type { BenchmarkRun, ServingSnapshot } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { PERF_METRICS, getAt, fmt, pickBestWorst } from "@/lib/bench-metrics";
 
 const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
   provisioning: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  queued: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   succeeded: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
   cancelled: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
-
-// Perf metrics with direction. "higher" = bigger is better, "lower" = smaller is better.
-type Direction = "higher" | "lower";
-type MetricSpec = { key: string; path: (string | number)[]; direction: Direction };
-
-// Keys emitted by `vllm bench serve` result.json (throughput in req|tok/s,
-// latencies in ms). Flat schema — one path segment each.
-const PERF_METRICS: MetricSpec[] = [
-  { key: "request_throughput", path: ["request_throughput"], direction: "higher" },
-  { key: "output_throughput", path: ["output_throughput"], direction: "higher" },
-  { key: "total_token_throughput", path: ["total_token_throughput"], direction: "higher" },
-  { key: "completed", path: ["completed"], direction: "higher" },
-  { key: "total_output_tokens", path: ["total_output_tokens"], direction: "higher" },
-  { key: "duration", path: ["duration"], direction: "lower" },
-  { key: "mean_ttft_ms", path: ["mean_ttft_ms"], direction: "lower" },
-  { key: "median_ttft_ms", path: ["median_ttft_ms"], direction: "lower" },
-  { key: "p99_ttft_ms", path: ["p99_ttft_ms"], direction: "lower" },
-  { key: "mean_tpot_ms", path: ["mean_tpot_ms"], direction: "lower" },
-  { key: "median_tpot_ms", path: ["median_tpot_ms"], direction: "lower" },
-  { key: "p99_tpot_ms", path: ["p99_tpot_ms"], direction: "lower" },
-  { key: "mean_itl_ms", path: ["mean_itl_ms"], direction: "lower" },
-  { key: "p99_itl_ms", path: ["p99_itl_ms"], direction: "lower" },
-  { key: "mean_e2el_ms", path: ["mean_e2el_ms"], direction: "lower" },
-  { key: "p99_e2el_ms", path: ["p99_e2el_ms"], direction: "lower" },
-];
 
 // Serving config attributes shown side-by-side (the "same resources" axis).
 const SERVING_ATTRS: { key: string; get: (s: ServingSnapshot) => string }[] = [
@@ -64,43 +41,6 @@ const SERVING_ATTRS: { key: string; get: (s: ServingSnapshot) => string }[] = [
   { key: "replicas", get: (s) => (s.replicas != null ? String(s.replicas) : "-") },
   { key: "vllm_args", get: (s) => (s.vllm_extra_args || []).join(" ") || "-" },
 ];
-
-function getAt(obj: unknown, path: (string | number)[]): unknown {
-  let cur: unknown = obj;
-  for (const k of path) {
-    if (cur == null || typeof cur !== "object") return undefined;
-    cur = (cur as Record<string, unknown>)[k as string];
-  }
-  return cur;
-}
-
-function fmt(value: unknown): string {
-  if (value == null) return "-";
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) return String(value);
-    if (Number.isInteger(value)) return value.toString();
-    return value.toFixed(4);
-  }
-  return String(value);
-}
-
-function pickBestWorst(
-  values: (number | null)[],
-  direction: Direction,
-): { bestIdx: number | null; worstIdx: number | null } {
-  const nums = values
-    .map((v, i) => ({ v, i }))
-    .filter((x): x is { v: number; i: number } => x.v !== null && Number.isFinite(x.v));
-  if (nums.length < 2) return { bestIdx: null, worstIdx: null };
-  const best = nums.reduce((acc, x) =>
-    direction === "higher" ? (x.v > acc.v ? x : acc) : x.v < acc.v ? x : acc,
-  );
-  const worst = nums.reduce((acc, x) =>
-    direction === "higher" ? (x.v < acc.v ? x : acc) : x.v > acc.v ? x : acc,
-  );
-  if (best.i === worst.i) return { bestIdx: null, worstIdx: null };
-  return { bestIdx: best.i, worstIdx: worst.i };
-}
 
 export default function CompareBenchmarksPage() {
   return (

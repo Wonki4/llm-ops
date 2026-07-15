@@ -1350,6 +1350,7 @@
   },
   "benchmarkStatus": {
     "pending": "대기 중",
+    "queued": "대기중",
     "running": "실행 중",
     "succeeded": "성공",
     "failed": "실패",
