@@ -1484,6 +1484,7 @@
     "createError": "스윕 시작에 실패했습니다",
     "targetRequired": "베이스 서빙을 선택하세요",
     "flagInvalid": "플래그는 --소문자-케밥 형식이며 중복될 수 없습니다",
+    "rowIncomplete": "각 변수 행에 플래그와 값을 모두 입력하세요",
     "colCombo": "조합",
     "colStatus": "상태",
     "colDuration": "소요 시간",

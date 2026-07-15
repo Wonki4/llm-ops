@@ -61,9 +61,10 @@ export default function NewSweepPage() {
   const comboCount = variables.length
     ? variables.reduce((n, v) => n * v.values.length, 1)
     : 0;
+  const blankRows = rows.filter((r) => !r.flag.trim() && !r.values.trim());
+  const hasIncompleteRow = variables.length + blankRows.length !== rows.length;
   const flagsValid =
     variables.length >= 1 &&
-    variables.length === rows.length &&
     variables.every((v) => FLAG_RE.test(v.flag)) &&
     new Set(variables.map((v) => v.flag)).size === variables.length;
   const combosValid = comboCount >= 2 && comboCount <= 12;
@@ -71,6 +72,7 @@ export default function NewSweepPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!target) return toast.error(t("targetRequired"));
+    if (hasIncompleteRow) return toast.error(t("rowIncomplete"));
     if (!flagsValid) return toast.error(t("flagInvalid"));
     if (!combosValid) return toast.error(t("comboInvalid"));
     const body: CreateBenchmarkSweepRequest = {
@@ -209,8 +211,10 @@ export default function NewSweepPage() {
                   </Button>
                 )}
               </div>
-              <p className={`text-sm ${combosValid ? "text-muted-foreground" : "text-destructive"}`}>
-                {comboCount > 0 && (combosValid ? t("comboCount", { count: comboCount }) : t("comboInvalid"))}
+              <p className={`text-sm ${hasIncompleteRow || (comboCount > 0 && !combosValid) ? "text-destructive" : "text-muted-foreground"}`}>
+                {hasIncompleteRow
+                  ? t("rowIncomplete")
+                  : comboCount > 0 && (combosValid ? t("comboCount", { count: comboCount }) : t("comboInvalid"))}
               </p>
             </div>
 
