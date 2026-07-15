@@ -14,6 +14,7 @@ from app.api import (
     admin_users,
     announcements,
     auth,
+    benchmark_sweeps,
     benchmarks,
     budgets,
     catalog,
@@ -71,6 +72,9 @@ app.include_router(admin_users.router)
 app.include_router(admin_usage.router)
 app.include_router(announcements.router)
 app.include_router(model_deployments.router)
+# Must precede benchmarks.router: its /presets and /sweeps paths would
+# otherwise be captured by GET /api/benchmarks/{run_id}.
+app.include_router(benchmark_sweeps.router)
 app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
 app.include_router(llmd.router)
