@@ -35,6 +35,21 @@ def test_merge_replaces_space_and_equals_forms_and_appends_new():
     assert argv[4] == "64"  # input untouched
 
 
+def test_merge_inserts_value_after_bare_switch_without_corrupting_neighbor():
+    argv = ["vllm", "serve", "/m", "--enforce-eager", "--gpu-memory-utilization", "0.9"]
+    out = merge_serve_argv(argv, {"--enforce-eager": "true"})
+    assert out == [
+        "vllm", "serve", "/m", "--enforce-eager", "true",
+        "--gpu-memory-utilization", "0.9",
+    ]
+
+
+def test_merge_bare_switch_at_end_gets_value_no_duplicate():
+    out = merge_serve_argv(["vllm", "serve", "/m", "--enforce-eager"], {"--enforce-eager": "1"})
+    assert out == ["vllm", "serve", "/m", "--enforce-eager", "1"]
+    assert out.count("--enforce-eager") == 1
+
+
 async def test_promote_creates_job_and_clears_manifest():
     run = types.SimpleNamespace(
         id=uuid.uuid4(), k8s_namespace="bench", status="queued",
