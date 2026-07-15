@@ -18,12 +18,19 @@ def expand_combos(variables: list[dict]) -> list[dict]:
 def merge_serve_argv(argv: list, combo: dict) -> list:
     """Merge combo flags into a CLI token list (a full serve argv or a bare
     extra-args list): an existing ``--flag value`` or ``--flag=value`` is
-    replaced in place, otherwise the pair is appended. Returns a new list."""
+    replaced in place; a bare ``--flag`` (no value slot) gets the value
+    inserted after it; otherwise the pair is appended. Returns a new list."""
     out = list(argv)
     for flag, value in combo.items():
         for i, tok in enumerate(out):
-            if tok == flag and i + 1 < len(out):
-                out[i + 1] = str(value)
+            if tok == flag:
+                # `--flag value` → replace the value; bare `--flag` (next token
+                # is another flag, or end of list) → insert the value, never
+                # overwrite an unrelated token.
+                if i + 1 < len(out) and not str(out[i + 1]).startswith("--"):
+                    out[i + 1] = str(value)
+                else:
+                    out.insert(i + 1, str(value))
                 break
             if isinstance(tok, str) and tok.startswith(flag + "="):
                 out[i] = f"{flag}={value}"
