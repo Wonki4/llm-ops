@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -54,6 +54,19 @@ class CustomBenchmarkRun(CustomBase):
     serving_torn_down: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Sweep membership: a sweep's combos are ordinary runs ordered by
+    # sweep_index; sweep_combo holds the flag->value map for display.
+    sweep_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_benchmark_sweep.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    sweep_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sweep_combo: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # Job manifest prebuilt at submit (freeze-at-submit), created on promotion
+    # then cleared. Embeds the bench API key — NEVER serialized by the API.
+    queued_job_manifest: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending", index=True
     )
