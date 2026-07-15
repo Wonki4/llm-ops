@@ -1484,6 +1484,7 @@
     "createError": "Failed to start the sweep",
     "targetRequired": "Pick a base serving",
     "flagInvalid": "Flags must look like --lower-kebab-case and be distinct",
+    "rowIncomplete": "Each variable row needs both a flag and values",
     "colCombo": "Combination",
     "colStatus": "Status",
     "colDuration": "Duration",
