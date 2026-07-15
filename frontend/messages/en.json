@@ -1350,6 +1350,7 @@
   },
   "benchmarkStatus": {
     "pending": "Pending",
+    "queued": "Queued",
     "running": "Running",
     "succeeded": "Succeeded",
     "failed": "Failed",
