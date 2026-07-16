@@ -1173,6 +1173,7 @@
     "boostColStatus": "상태",
     "boostColBy": "요청자",
     "boostStatusActive": "진행 중",
+    "boostFilterAll": "전체",
     "boostStatusReverted": "원복됨",
     "boostStatusCancelled": "취소됨",
     "boostStatusPending": "원복 대기",
