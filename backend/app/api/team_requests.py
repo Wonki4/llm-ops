@@ -12,10 +12,15 @@ from app.auth.deps import get_current_user
 from app.auth.permissions import require_team_admin
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.clients.slack import send_slack_notification
+from app.db.models.custom_member_budget_boost import CustomMemberBudgetBoost
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest, JoinRequestStatus
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
-from app.services.member_budget_boost import apply_member_budget_boost, resolve_effective_budget
+from app.services.member_budget_boost import (
+    apply_member_budget_boost,
+    resolve_effective_budget,
+    serialize_boost,
+)
 
 router = APIRouter(prefix="/api/team-requests", tags=["team-requests"])
 
@@ -208,6 +213,54 @@ async def list_requests(
     requests = result.scalars().all()
 
     return {"requests": [_request_to_dict(r) for r in requests]}
+
+
+@router.get("/{request_id}/requester-history")
+async def requester_history(
+    request_id: str,
+    user: CustomUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Review context for the admin deciding a request: the requester's past
+    budget requests and budget boosts in the same team (newest first, 5 each).
+    Same gate as approve/reject — team admin or super user."""
+    result = await db.execute(
+        select(CustomTeamJoinRequest).where(CustomTeamJoinRequest.id == uuid.UUID(request_id))
+    )
+    req = result.scalar_one_or_none()
+    if not req:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
+    await require_team_admin(user, req.team_id, litellm_db)
+
+    past = (
+        await db.execute(
+            select(CustomTeamJoinRequest)
+            .where(
+                CustomTeamJoinRequest.requester_id == req.requester_id,
+                CustomTeamJoinRequest.team_id == req.team_id,
+                CustomTeamJoinRequest.request_type == "budget",
+                CustomTeamJoinRequest.id != req.id,
+            )
+            .order_by(CustomTeamJoinRequest.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
+    boosts = (
+        await db.execute(
+            select(CustomMemberBudgetBoost)
+            .where(
+                CustomMemberBudgetBoost.team_id == req.team_id,
+                CustomMemberBudgetBoost.user_id == req.requester_id,
+            )
+            .order_by(CustomMemberBudgetBoost.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
+    return {
+        "requests": [_request_to_dict(r) for r in past],
+        "boosts": [serialize_boost(b) for b in boosts],
+    }
 
 
 @router.post("/{request_id}/approve")
