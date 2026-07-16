@@ -4,7 +4,7 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useTeamBudgetBoosts, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useTeamActiveBoosts, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { InputTokens } from "@/components/input-tokens";
 import { MemberModelUsage } from "@/components/member-model-usage";
@@ -966,7 +966,7 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [expiryDate, setExpiryDate] = useState("");
   const [sortField, setSortField] = useState<"user_id" | "spend" | "budget" | "key_count">("user_id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const { data: boosts } = useTeamBudgetBoosts(teamId);
+  const { data: boosts } = useTeamActiveBoosts(teamId);
   const createBoost = useCreateBudgetBoost();
   const cancelBoost = useCancelBudgetBoost();
   const activeBoostByUser = new Map(

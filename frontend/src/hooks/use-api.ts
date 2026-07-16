@@ -194,13 +194,33 @@ export function useTeamMemberUsageByModel(
   });
 }
 
-export function useTeamBudgetBoosts(teamId: string) {
+export function useTeamBudgetBoosts(
+  teamId: string,
+  status: "active" | "all" = "active",
+  page = 1,
+  pageSize = 50,
+) {
+  const qs = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (status === "active") qs.set("status_filter", "active");
   return useQuery({
-    queryKey: ["teams", teamId, "budget-boosts"],
+    queryKey: ["teams", teamId, "budget-boosts", { status, page, pageSize }],
     queryFn: () =>
-      apiFetch<{ boosts: MemberBudgetBoost[] }>(`/api/teams/${teamId}/budget-boosts`).then(
-        (r) => r.boosts,
+      apiFetch<{ boosts: MemberBudgetBoost[]; total: number }>(
+        `/api/teams/${teamId}/budget-boosts?${qs.toString()}`,
       ),
+    enabled: !!teamId,
+  });
+}
+
+/** Every active boost (bounded by one-active-per-member; capped at 200) —
+ * feeds the members-table boost badges, which must not miss older boosts. */
+export function useTeamActiveBoosts(teamId: string) {
+  return useQuery({
+    queryKey: ["teams", teamId, "budget-boosts", "active-map"],
+    queryFn: () =>
+      apiFetch<{ boosts: MemberBudgetBoost[]; total: number }>(
+        `/api/teams/${teamId}/budget-boosts?status_filter=active&page_size=200`,
+      ).then((r) => r.boosts),
     enabled: !!teamId,
   });
 }
