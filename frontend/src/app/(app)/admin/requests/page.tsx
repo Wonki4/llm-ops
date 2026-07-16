@@ -442,9 +442,17 @@ export default function AdminRequestsPage() {
               {t("confirmDescriptionTeamSuffix", { type: TYPE_LABELS[reqType] })}{" "}
               {dialogAction === "approve" ? t("statusApproved") : t("statusRejected")}{t("confirmDescriptionSuffix")}
               {reqType === "budget" && selectedRequest?.requested_budget != null && (
-                <span className="block mt-1 font-semibold text-purple-700 dark:text-purple-400">
-                  {t("budgetAmount")}: ${selectedRequest.requested_budget.toFixed(2)}
-                </span>
+                <>
+                  <span className="block mt-1 font-semibold text-purple-700 dark:text-purple-400">
+                    {t("budgetAmount")}: ${selectedRequest.requested_budget.toFixed(2)}
+                  </span>
+                  <span className="block font-medium text-foreground">
+                    {t("budgetDuration")}:{" "}
+                    {selectedRequest.requested_duration_days
+                      ? t("budgetDurationDays", { days: selectedRequest.requested_duration_days })
+                      : t("budgetDurationPermanent")}
+                  </span>
+                </>
               )}
             </DialogDescription>
           </DialogHeader>
