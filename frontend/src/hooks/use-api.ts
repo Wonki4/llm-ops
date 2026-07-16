@@ -477,6 +477,19 @@ export function useRejectRequest() {
   });
 }
 
+/** Review context for the request-approval dialog: the requester's past
+ * budget requests and boosts in the same team (newest first, 5 each). */
+export function useRequesterHistory(requestId: string | null) {
+  return useQuery({
+    queryKey: ["requester-history", requestId],
+    queryFn: () =>
+      apiFetch<{ requests: TeamJoinRequest[]; boosts: MemberBudgetBoost[] }>(
+        `/api/team-requests/${requestId}/requester-history`,
+      ),
+    enabled: !!requestId,
+  });
+}
+
 // ─── Models ──────────────────────────────────────────────────
 
 export function useModels() {
