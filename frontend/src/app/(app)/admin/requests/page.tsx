@@ -8,6 +8,7 @@ import {
   useJoinRequests,
   useApproveRequest,
   useRejectRequest,
+  useRequesterHistory,
   useMe,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -86,6 +87,68 @@ function TableSkeleton() {
           <div className="h-8 w-28 animate-pulse rounded bg-muted" />
         </div>
       ))}
+    </div>
+  );
+}
+
+function RequesterHistorySection({ requestId }: { requestId: string | null }) {
+  const t = useTranslations("adminRequests");
+  const td = useTranslations("teamDetail");
+  const localeTag = useLocaleTag();
+  const { data, isLoading } = useRequesterHistory(requestId);
+
+  const boostStatus: Record<string, string> = {
+    active: td("boostStatusActive"),
+    reverted: td("boostStatusReverted"),
+    cancelled: td("boostStatusCancelled"),
+  };
+
+  if (isLoading) {
+    return <p className="text-xs text-muted-foreground">{t("historyLoading")}</p>;
+  }
+  if (!data || (data.requests.length === 0 && data.boosts.length === 0)) {
+    return <p className="text-xs text-muted-foreground">{t("historyEmpty")}</p>;
+  }
+  return (
+    <div className="max-h-48 space-y-2 overflow-y-auto rounded-md border p-3 text-xs">
+      <p className="font-medium">{t("historyTitle")}</p>
+      {data.requests.length > 0 && (
+        <div>
+          <p className="text-muted-foreground mb-1">{t("historyRequests")}</p>
+          {data.requests.map((r) => (
+            <div key={r.id} className="flex items-center justify-between gap-2 py-0.5">
+              <span className="font-mono">
+                ${r.requested_budget?.toFixed(2)}
+                {" · "}
+                {r.requested_duration_days
+                  ? t("budgetDurationDays", { days: r.requested_duration_days })
+                  : t("budgetDurationPermanent")}
+              </span>
+              <span className="flex items-center gap-2 text-muted-foreground">
+                {r.created_at ? formatDate(r.created_at, localeTag) : "-"}
+                <StatusBadge status={r.status} />
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      {data.boosts.length > 0 && (
+        <div>
+          <p className="text-muted-foreground mb-1">{t("historyBoosts")}</p>
+          {data.boosts.map((b) => (
+            <div key={b.id} className="flex items-center justify-between gap-2 py-0.5">
+              <span className="font-mono">
+                ${b.original_max_budget} → ${b.boost_max_budget}
+              </span>
+              <span className="text-muted-foreground">
+                {b.created_at ? formatDate(b.created_at, localeTag) : "-"}
+                {" · "}
+                {boostStatus[b.status] ?? b.status}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -456,6 +519,12 @@ export default function AdminRequestsPage() {
               )}
             </DialogDescription>
           </DialogHeader>
+
+          {reqType === "budget" && (
+            <RequesterHistorySection
+              requestId={dialogOpen ? (selectedRequest?.id ?? null) : null}
+            />
+          )}
 
           <div className="space-y-2">
             <Label htmlFor="review-comment">{t("commentLabel")}</Label>
