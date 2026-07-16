@@ -275,3 +275,77 @@ async def test_approve_budget_request_409_when_active_boost_stays_pending(
     assert resp.status_code == 409, resp.text
     assert req.status != JoinRequestStatus.APPROVED
     assert req.status == JoinRequestStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_requester_history_returns_budget_requests_and_boosts(
+    admin_client: AsyncClient, mock_db
+):
+    import types
+    import uuid
+    from datetime import UTC, datetime
+
+    now = datetime(2026, 7, 17, tzinfo=UTC)
+    req_id = uuid.uuid4()
+    current = MagicMock()
+    current.id = req_id
+    current.team_id = "team-1"
+    current.requester_id = "user002"
+    req_lookup = MagicMock()
+    req_lookup.scalar_one_or_none.return_value = current
+
+    past = MagicMock()
+    past.id = uuid.uuid4()
+    past.requester_id = "user002"
+    past.team_id = "team-1"
+    past.team_alias = "Alpha"
+    past.request_type = "budget"
+    past.message = None
+    past.requested_budget = 20.0
+    past.requested_duration_days = 30
+    past.status = JoinRequestStatus.APPROVED
+    past.reviewed_by = "admin001"
+    past.review_comment = None
+    past.created_at = now
+    past.updated_at = now
+    past_res = MagicMock()
+    past_res.scalars.return_value.all.return_value = [past]
+
+    boost = types.SimpleNamespace(
+        id=uuid.uuid4(), team_id="team-1", user_id="user002",
+        original_max_budget=10.0, boost_max_budget=30.0,
+        expires_at=now, status="reverted", reverted_at=now,
+        created_by="admin001", created_at=now,
+    )
+    boost_res = MagicMock()
+    boost_res.scalars.return_value.all.return_value = [boost]
+
+    mock_db.execute = AsyncMock(side_effect=[req_lookup, past_res, boost_res])
+    resp = await admin_client.get(f"/api/team-requests/{req_id}/requester-history")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["requests"]) == 1
+    assert body["requests"][0]["requested_budget"] == 20.0
+    assert body["requests"][0]["requested_duration_days"] == 30
+    assert body["requests"][0]["status"] == "approved"
+    assert len(body["boosts"]) == 1
+    assert body["boosts"][0]["boost_max_budget"] == 30.0
+    # Scoping: past-requests query is budget-only, excludes the current
+    # request, and both queries are capped.
+    past_sql = str(mock_db.execute.await_args_list[1].args[0])
+    assert "request_type" in past_sql and "!=" in past_sql and "LIMIT" in past_sql
+    boost_sql = str(mock_db.execute.await_args_list[2].args[0])
+    assert "user_id" in boost_sql and "LIMIT" in boost_sql
+
+
+@pytest.mark.asyncio
+async def test_requester_history_404_when_request_missing(
+    admin_client: AsyncClient, mock_db
+):
+    import uuid
+
+    res = MagicMock()
+    res.scalar_one_or_none.return_value = None
+    mock_db.execute = AsyncMock(return_value=res)
+    resp = await admin_client.get(f"/api/team-requests/{uuid.uuid4()}/requester-history")
+    assert resp.status_code == 404
