@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.key_limits import effective_model_limits
@@ -961,23 +961,39 @@ async def cancel_budget_boost(
 @router.get("/{team_id}/budget-boosts")
 async def list_budget_boosts(
     team_id: str,
-    limit: int = 50,
+    status_filter: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
     user: CustomUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """All budget boosts for the team, newest first (active + history)."""
+    """Budget boosts for the team, newest first, paginated.
+
+    ``status_filter`` scopes to one status (e.g. ``active``); None = all.
+    ``total`` counts the filtered set so the UI can render page controls.
+    """
     await require_team_admin(user, team_id, litellm_db)
-    limit = max(1, min(limit, 200))
+    page = max(1, page)
+    page_size = max(1, min(page_size, 200))
+    where = [CustomMemberBudgetBoost.team_id == team_id]
+    if status_filter:
+        where.append(CustomMemberBudgetBoost.status == status_filter)
+    total = (
+        await db.execute(
+            select(func.count()).select_from(CustomMemberBudgetBoost).where(*where)
+        )
+    ).scalar_one()
     rows = (
         await db.execute(
             select(CustomMemberBudgetBoost)
-            .where(CustomMemberBudgetBoost.team_id == team_id)
+            .where(*where)
             .order_by(CustomMemberBudgetBoost.created_at.desc())
-            .limit(limit)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         )
     ).scalars().all()
-    return {"boosts": [serialize_boost(r) for r in rows]}
+    return {"boosts": [serialize_boost(r) for r in rows], "total": total}
 
 
 class UpdateMemberKeyLimitsRequest(BaseModel):

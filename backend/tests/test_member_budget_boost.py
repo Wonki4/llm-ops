@@ -272,9 +272,9 @@ async def test_list_budget_boosts_returns_rows(super_user, mock_litellm, mock_db
             created_by="admin", created_at=now,
         ),
     ]
-    mock_db.execute = AsyncMock(
-        return_value=types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: rows))
-    )
+    count_res = types.SimpleNamespace(scalar_one=lambda: 2)
+    rows_res = types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: rows))
+    mock_db.execute = AsyncMock(side_effect=[count_res, rows_res])
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
         resp = await client.get("/api/teams/team-1/budget-boosts")
@@ -284,6 +284,7 @@ async def test_list_budget_boosts_returns_rows(super_user, mock_litellm, mock_db
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert len(body["boosts"]) == 2
+    assert body["total"] == 2
     first = body["boosts"][0]
     assert first["user_id"] == "user002"
     assert first["original_max_budget"] == 10.0
@@ -292,18 +293,48 @@ async def test_list_budget_boosts_returns_rows(super_user, mock_litellm, mock_db
     assert first["reverted_at"] is None
 
 
-async def test_list_budget_boosts_clamps_limit(super_user, mock_litellm, mock_db):
-    mock_db.execute = AsyncMock(
-        return_value=types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: []))
-    )
+async def test_list_budget_boosts_clamps_page_size(super_user, mock_litellm, mock_db):
+    count_res = types.SimpleNamespace(scalar_one=lambda: 0)
+    rows_res = types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: []))
+    mock_db.execute = AsyncMock(side_effect=[count_res, rows_res])
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
-        resp = await client.get("/api/teams/team-1/budget-boosts?limit=9999")
+        resp = await client.get("/api/teams/team-1/budget-boosts?page_size=9999")
     finally:
         from app.main import app
         app.dependency_overrides.clear()
     assert resp.status_code == 200, resp.text
     assert resp.json()["boosts"] == []
+    assert resp.json()["total"] == 0
+    # page_size clamped to 200
+    rows_stmt = mock_db.execute.await_args_list[1].args[0]
+    compiled = str(rows_stmt.compile(compile_kwargs={"literal_binds": True}))
+    assert "LIMIT 200" in compiled
+
+
+async def test_list_budget_boosts_active_filter_and_pagination(super_user, mock_litellm, mock_db):
+    count_res = types.SimpleNamespace(scalar_one=lambda: 120)
+    rows_res = types.SimpleNamespace(scalars=lambda: types.SimpleNamespace(all=lambda: []))
+    mock_db.execute = AsyncMock(side_effect=[count_res, rows_res])
+    client = await _admin_client(super_user, mock_litellm, mock_db)
+    try:
+        resp = await client.get(
+            "/api/teams/team-1/budget-boosts?status_filter=active&page=2&page_size=50"
+        )
+    finally:
+        from app.main import app
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["total"] == 120
+    count_stmt = mock_db.execute.await_args_list[0].args[0]
+    rows_stmt = mock_db.execute.await_args_list[1].args[0]
+    count_sql = str(count_stmt.compile(compile_kwargs={"literal_binds": True}))
+    rows_sql = str(rows_stmt.compile(compile_kwargs={"literal_binds": True}))
+    # status filter scopes BOTH the count and the rows query
+    assert "status" in count_sql and "'active'" in count_sql
+    assert "status" in rows_sql and "'active'" in rows_sql
+    # page 2 with page_size 50 → OFFSET 50
+    assert "LIMIT 50" in rows_sql and "OFFSET 50" in rows_sql
 
 
 async def test_create_boost_naive_expires_at_is_accepted(super_user, mock_litellm, mock_db):
