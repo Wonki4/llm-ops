@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ClampedDescription } from "@/components/clamped-description";
 import { Button } from "@/components/ui/button";
 import {
   Users,
@@ -116,7 +117,7 @@ export default function MyTeamsPage() {
                       {team.team_alias}
                     </CardTitle>
                     {team.description && (
-                      <p className="line-clamp-2 text-sm text-muted-foreground">{team.description}</p>
+                      <ClampedDescription text={team.description} />
                     )}
                   </CardHeader>
                   <CardContent className="space-y-3">
