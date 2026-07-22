@@ -769,27 +769,33 @@ export function useUpdateDefaultTeamRules() {
 
 // ─── Hidden Teams ──────────────────────────────────────────────
 
+export interface HiddenTeamsSettings {
+  /** Hidden from discovery only — members keep seeing the team. */
+  hidden_teams: string[];
+  /** Hidden from members too — only super users see it. */
+  hidden_teams_strict: string[];
+}
+
 export function useHiddenTeams() {
   return useQuery({
     queryKey: ["hidden-teams"],
-    queryFn: () =>
-      apiFetch<{ hidden_teams: string[] }>("/api/settings/hidden-teams").then(
-        (r) => r.hidden_teams,
-      ),
+    queryFn: () => apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams"),
   });
 }
 
 export function useUpdateHiddenTeams() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (teamIds: string[]) =>
-      apiFetch<{ hidden_teams: string[] }>("/api/settings/hidden-teams", {
+    mutationFn: (body: HiddenTeamsSettings) =>
+      apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams", {
         method: "PUT",
-        body: JSON.stringify(teamIds),
+        body: JSON.stringify(body),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hidden-teams"] });
       qc.invalidateQueries({ queryKey: ["portal-settings"] });
+      qc.invalidateQueries({ queryKey: queryKeys.myTeams });
+      qc.invalidateQueries({ queryKey: queryKeys.discoverTeams });
     },
   });
 }
