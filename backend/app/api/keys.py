@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = logging.getLogger(__name__)
 
 from app.api.key_limits import effective_model_limits
-from app.api.teams import _get_hidden_teams
+from app.api.teams import _get_hidden_team_settings
 from app.auth.deps import get_current_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
@@ -176,10 +176,11 @@ async def list_my_keys(
         for k in result.mappings()
     ]
 
-    # Hide keys belonging to hidden teams for non-super users
+    # Only STRICT-hidden teams take members' keys with them; default-hidden
+    # teams stay usable/visible for their members.
     if user.global_role != GlobalRole.SUPER_USER:
-        hidden = await _get_hidden_teams(db)
-        keys = [k for k in keys if k["team_id"] not in hidden]
+        _, strict = await _get_hidden_team_settings(db)
+        keys = [k for k in keys if k["team_id"] not in strict]
 
     return {"keys": keys}
 

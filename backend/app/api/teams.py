@@ -123,13 +123,25 @@ async def _get_default_member_limits(litellm_db: AsyncSession, team_id: str) -> 
     }
 
 
-async def _get_hidden_teams(db: AsyncSession) -> set[str]:
-    """Get hidden team IDs from portal settings."""
+async def _get_hidden_team_settings(db: AsyncSession) -> tuple[set[str], set[str]]:
+    """Hidden-team sets from portal settings: (discovery_hidden, strict_hidden).
+
+    Default hiding ('hidden_teams') only removes a team from discovery — its
+    members keep seeing it in my-teams/keys. Strict hiding
+    ('hidden_teams_strict') hides it from members everywhere too; only super
+    users see it. discovery_hidden is the union, so a strict team never
+    reappears in discovery.
+    """
     result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'hidden_teams'")
+        text(
+            "SELECT key, value FROM custom_portal_settings "
+            "WHERE key IN ('hidden_teams', 'hidden_teams_strict')"
+        )
     )
-    raw = result.scalar()
-    return set(json.loads(raw)) if raw else set()
+    rows = {r["key"]: r["value"] for r in result.mappings()}
+    base = set(json.loads(rows["hidden_teams"])) if rows.get("hidden_teams") else set()
+    strict = set(json.loads(rows["hidden_teams_strict"])) if rows.get("hidden_teams_strict") else set()
+    return base | strict, strict
 
 _TEAM_COLUMNS = (
     "t.team_id, t.team_alias, t.max_budget, t.spend, "
@@ -178,10 +190,11 @@ async def list_my_teams(
     )
     teams = [_row_to_team(r) for r in result.mappings()]
 
-    # Hide teams for non-super users
+    # Members keep seeing their default-hidden teams here; only strict-hidden
+    # teams disappear for non-super users.
     if user.global_role != GlobalRole.SUPER_USER:
-        hidden = await _get_hidden_teams(db)
-        teams = [t for t in teams if t["team_id"] not in hidden]
+        _, strict = await _get_hidden_team_settings(db)
+        teams = [t for t in teams if t["team_id"] not in strict]
 
     descriptions = await _get_team_descriptions(db, [t["team_id"] for t in teams])
     for t in teams:
@@ -223,10 +236,10 @@ async def discover_teams(
     )
     pending_team_ids = {r["team_id"] for r in pending_result.mappings()}
 
-    # Get hidden teams for non-super users
+    # Discovery hides BOTH modes for non-super users (default + strict).
     hidden = set()
     if user.global_role != GlobalRole.SUPER_USER:
-        hidden = await _get_hidden_teams(db)
+        hidden, _ = await _get_hidden_team_settings(db)
 
     teams = []
     for row in all_result.mappings():
