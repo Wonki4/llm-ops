@@ -33,6 +33,7 @@ async def get_settings(
         "default_rpm_limit": int(settings.get("default_rpm_limit", "1000")),
         "default_team_id": settings.get("default_team_id", ""),
         "hidden_teams": json.loads(settings.get("hidden_teams", "[]")),
+        "hidden_teams_strict": json.loads(settings.get("hidden_teams_strict", "[]")),
     }
 
 
@@ -93,33 +94,52 @@ async def update_default_team_rules(
     return {"rules": body}
 
 
+class HiddenTeamsBody(BaseModel):
+    # Default hiding: gone from discovery only; members keep the team.
+    hidden_teams: list[str] = []
+    # Strict hiding: gone from members too — only super users see it.
+    hidden_teams_strict: list[str] = []
+
+
 @router.get("/hidden-teams")
 async def get_hidden_teams(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Get hidden team IDs (Super User only)."""
+    """Get hidden team IDs per mode (Super User only)."""
     result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'hidden_teams'")
+        text(
+            "SELECT key, value FROM custom_portal_settings "
+            "WHERE key IN ('hidden_teams', 'hidden_teams_strict')"
+        )
     )
-    raw = result.scalar()
-    return {"hidden_teams": json.loads(raw) if raw else []}
+    rows = {r["key"]: r["value"] for r in result.mappings()}
+    return {
+        "hidden_teams": json.loads(rows["hidden_teams"]) if rows.get("hidden_teams") else [],
+        "hidden_teams_strict": (
+            json.loads(rows["hidden_teams_strict"]) if rows.get("hidden_teams_strict") else []
+        ),
+    }
 
 
 @router.put("/hidden-teams")
 async def update_hidden_teams(
-    body: list[str],
+    body: HiddenTeamsBody,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Update hidden team IDs (Super User only)."""
-    await db.execute(
-        text(
-            "INSERT INTO custom_portal_settings (key, value, updated_by) "
-            "VALUES ('hidden_teams', :value, :updated_by) "
-            "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
-        ),
-        {"value": json.dumps(body), "updated_by": user.user_id},
-    )
+    """Update hidden team IDs per mode (Super User only). A team can be in
+    only one mode — strict wins if sent in both lists."""
+    strict = list(dict.fromkeys(body.hidden_teams_strict))
+    base = [t for t in dict.fromkeys(body.hidden_teams) if t not in strict]
+    for key, value in (("hidden_teams", base), ("hidden_teams_strict", strict)):
+        await db.execute(
+            text(
+                "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                f"VALUES ('{key}', :value, :updated_by) "
+                "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+            ),
+            {"value": json.dumps(value), "updated_by": user.user_id},
+        )
     await db.commit()
-    return {"hidden_teams": body}
+    return {"hidden_teams": base, "hidden_teams_strict": strict}
