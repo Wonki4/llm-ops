@@ -377,41 +377,93 @@ export default function PortalSettingsPage() {
             <CardContent className="space-y-4">
               <TeamAddSelect
                 teams={allTeams ?? []}
-                exclude={hiddenTeams ?? []}
+                exclude={[...(hiddenTeams?.hidden_teams ?? []), ...(hiddenTeams?.hidden_teams_strict ?? [])]}
                 placeholder={t("hiddenTeamSelectPlaceholder")}
                 disabled={updateHiddenTeams.isPending}
                 onAdd={(id) => {
-                  const updated = [...(hiddenTeams || []), id];
-                  updateHiddenTeams.mutate(updated, {
-                    onSuccess: () => toast.success(t("teamHideSuccess")),
-                    onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                  });
+                  updateHiddenTeams.mutate(
+                    {
+                      hidden_teams: [...(hiddenTeams?.hidden_teams ?? []), id],
+                      hidden_teams_strict: hiddenTeams?.hidden_teams_strict ?? [],
+                    },
+                    {
+                      onSuccess: () => toast.success(t("teamHideSuccess")),
+                      onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
+                    },
+                  );
                 }}
               />
-              {hiddenTeams && hiddenTeams.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {hiddenTeams.map((teamId) => (
-                    <Badge key={teamId} variant="secondary" className="gap-1 pr-1">
-                      {teamLabel(teamId)}
-                      <button
-                        type="button"
-                        className="ml-1 rounded-full p-0.5 hover:bg-muted-foreground/20"
-                        onClick={() => {
-                          const updated = hiddenTeams.filter((id) => id !== teamId);
-                          updateHiddenTeams.mutate(updated, {
-                            onSuccess: () => toast.success(t("teamUnhideSuccess")),
-                            onError: (err) => toast.error(err instanceof Error ? err.message : t("removeFailed")),
-                          });
-                        }}
+              {(() => {
+                const base = hiddenTeams?.hidden_teams ?? [];
+                const strictList = hiddenTeams?.hidden_teams_strict ?? [];
+                const rows = [
+                  ...base.map((id) => ({ id, strict: false })),
+                  ...strictList.map((id) => ({ id, strict: true })),
+                ];
+                if (rows.length === 0) {
+                  return <p className="text-sm text-muted-foreground">{t("noHiddenTeams")}</p>;
+                }
+                const save = (
+                  body: { hidden_teams: string[]; hidden_teams_strict: string[] },
+                  successMsg: string,
+                ) =>
+                  updateHiddenTeams.mutate(body, {
+                    onSuccess: () => toast.success(successMsg),
+                    onError: (err) =>
+                      toast.error(err instanceof Error ? err.message : t("removeFailed")),
+                  });
+                return (
+                  <div className="space-y-2">
+                    {rows.map(({ id, strict }) => (
+                      <div
+                        key={id}
+                        className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
                       >
-                        <X className="size-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">{t("noHiddenTeams")}</p>
-              )}
+                        <span className="truncate text-sm font-medium">{teamLabel(id)}</span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <select
+                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
+                            value={strict ? "strict" : "default"}
+                            disabled={updateHiddenTeams.isPending}
+                            onChange={(e) => {
+                              const toStrict = e.target.value === "strict";
+                              save(
+                                {
+                                  hidden_teams: toStrict
+                                    ? base.filter((x) => x !== id)
+                                    : [...base, id],
+                                  hidden_teams_strict: toStrict
+                                    ? [...strictList, id]
+                                    : strictList.filter((x) => x !== id),
+                                },
+                                t("teamHideModeSuccess"),
+                              );
+                            }}
+                          >
+                            <option value="default">{t("hiddenModeDefault")}</option>
+                            <option value="strict">{t("hiddenModeStrict")}</option>
+                          </select>
+                          <button
+                            type="button"
+                            className="rounded-full p-1 hover:bg-muted-foreground/20"
+                            onClick={() =>
+                              save(
+                                {
+                                  hidden_teams: base.filter((x) => x !== id),
+                                  hidden_teams_strict: strictList.filter((x) => x !== id),
+                                },
+                                t("teamUnhideSuccess"),
+                              )
+                            }
+                          >
+                            <X className="size-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
             </CardContent>
           </Card>
 
