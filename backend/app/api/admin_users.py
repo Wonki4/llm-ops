@@ -10,6 +10,7 @@ from app.auth.deps import require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db, get_litellm_db
+from app.services.team_membership import remove_member_from_team
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
@@ -308,57 +309,27 @@ async def remove_user_from_team(
     user_id: str,
     team_id: str,
     _admin: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
     litellm_db: AsyncSession = Depends(get_litellm_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Force-remove a user from a team (super user only)."""
     result = await litellm_db.execute(
-        text('SELECT members, admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
+        text('SELECT admins FROM "LiteLLM_TeamTable" WHERE team_id = :team_id'),
         {"team_id": team_id},
     )
     row = result.mappings().first()
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Team not found")
 
-    all_members = list(row["members"] or [])
     all_admins = list(row["admins"] or [])
-
     if user_id in all_admins and len(all_admins) <= 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="마지막 관리자는 삭제할 수 없습니다.",
         )
 
-    if user_id in all_members:
-        all_members.remove(user_id)
-    if user_id in all_admins:
-        all_admins.remove(user_id)
-
-    await litellm_db.execute(
-        text(
-            'UPDATE "LiteLLM_TeamTable" SET admins = :admins, members = :members '
-            "WHERE team_id = :team_id"
-        ),
-        {"admins": all_admins, "members": all_members, "team_id": team_id},
-    )
-
-    await litellm_db.execute(
-        text('DELETE FROM "LiteLLM_TeamMembership" WHERE team_id = :team_id AND user_id = :user_id'),
-        {"team_id": team_id, "user_id": user_id},
-    )
-
-    user_result = await litellm_db.execute(
-        text('SELECT teams FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
-        {"user_id": user_id},
-    )
-    user_row = user_result.mappings().first()
-    if user_row and user_row["teams"]:
-        user_teams = [t for t in user_row["teams"] if t != team_id]
-        await litellm_db.execute(
-            text('UPDATE "LiteLLM_UserTable" SET teams = :teams WHERE user_id = :user_id'),
-            {"teams": user_teams, "user_id": user_id},
-        )
-
-    await litellm_db.commit()
+    await remove_member_from_team(litellm, litellm_db, db, team_id=team_id, user_id=user_id)
     return {"status": "removed", "user_id": user_id, "team_id": team_id}
 
 
