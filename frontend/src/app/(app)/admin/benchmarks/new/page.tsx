@@ -93,6 +93,8 @@ export default function NewBenchmarkPage() {
   const [namespace, setNamespace] = useState("");
   const [image, setImage] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [label, setLabel] = useState("");
+  const [note, setNote] = useState("");
   const [loadFromId, setLoadFromId] = useState("");
 
   const { data: pastRuns } = useBenchmarks({ limit: 50 });
@@ -123,6 +125,8 @@ export default function NewBenchmarkPage() {
     setClusterId(run.cluster_id ?? "");
     setNamespace(run.k8s_namespace ?? "");
     setImage(run.bench_image ?? "");
+    setLabel(run.label ?? "");
+    setNote(run.note ?? "");
     setServingOverridesText("");
 
     const params = run.params ?? {};
@@ -390,6 +394,8 @@ export default function NewBenchmarkPage() {
         ...extras.value,
         ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
+      label: label.trim() || undefined,
+      note: note.trim() || undefined,
     };
     if (mode === "clone" && externalTarget) {
       body.external_target = {
@@ -452,6 +458,31 @@ export default function NewBenchmarkPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
       <form onSubmit={handleSubmit} className="space-y-5 lg:col-span-3">
+        <Card>
+          <CardContent className="space-y-4 pt-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="run_label">{t("labelLabel")}</Label>
+              <Input
+                id="run_label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={t("labelPlaceholder")}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="run_note">{t("noteLabel")}</Label>
+              <textarea
+                id="run_note"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={t("notePlaceholder")}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("target")}</CardTitle>

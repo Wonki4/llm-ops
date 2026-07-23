@@ -177,7 +177,7 @@ function CompareInner() {
                       href={`/admin/benchmarks/${r.id}`}
                       className="hover:underline"
                     >
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </Link>
                   </th>
                 ))}
@@ -231,7 +231,7 @@ function CompareInner() {
                 </th>
                 {ordered.map((r) => (
                   <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                    {r.model_name}
+                    {r.label || r.model_name}
                   </th>
                 ))}
               </tr>
@@ -278,7 +278,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
@@ -327,7 +327,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
@@ -381,7 +381,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
