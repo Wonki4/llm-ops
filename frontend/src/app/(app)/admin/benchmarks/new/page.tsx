@@ -7,9 +7,19 @@ import { ArrowLeft, FileCode2, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateBenchmark, useModels, useModelDeployments, useK8sClusters, useBenchmarkPreview, useBenchmarks, useExternalServings } from "@/hooks/use-api";
+import {
+  useCreateBenchmark,
+  useModels,
+  useModelDeployments,
+  useK8sClusters,
+  useBenchmarkPreview,
+  useBenchmarks,
+  useBenchmarkPresets,
+  useExternalServings,
+} from "@/hooks/use-api";
 import type { ExternalServing } from "@/hooks/use-api";
-import type { BenchmarkTool, CreateBenchmarkRequest } from "@/types";
+import type { BenchmarkTool, CreateBenchmarkRequest, LoadPreset } from "@/types";
+import { buildBenchCommand } from "@/lib/bench-command";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -34,22 +44,11 @@ function externalKey(s: ExternalServing): string {
   return `ext::${s.cluster_id ?? ""}::${s.namespace}::${s.deployment_name}`;
 }
 
-// Maps to `vllm bench serve` flags (--num-prompts, --random-input-len, etc.).
-const DEFAULT_PERF_PARAMS = {
-  num_prompts: 200,
-  random_input_len: 1024,
-  random_output_len: 128,
-  max_concurrency: "",
-  request_rate: "",
-  ignore_eos: true,
-  seed: 0,
-  random_range_ratio: "",
-  goodput: "",
-  tokenizer: "",
-  // NFS override for a raw model_name target (deployment targets carry their own PVC).
-  nfs_server: "",
-  nfs_path: "",
-  nfs_mount_path: "",
+// Preset key -> i18n label key, mirrors the retired sweep form's mapping.
+const PRESET_LABEL_KEY: Record<string, string> = {
+  chat: "presetChat",
+  long_input: "presetLongInput",
+  long_output: "presetLongOutput",
 };
 
 const DEFAULT_ACCURACY_PARAMS = {
@@ -73,6 +72,7 @@ export default function NewBenchmarkPage() {
   const { data: deployments } = useModelDeployments();
   const { data: clusters } = useK8sClusters();
   const { data: external } = useExternalServings();
+  const { data: presets } = useBenchmarkPresets();
   const servings = external?.servings ?? [];
   const createMutation = useCreateBenchmark();
   const previewMutation = useBenchmarkPreview();
@@ -84,8 +84,10 @@ export default function NewBenchmarkPage() {
   const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
-  const [perfParams, setPerfParams] = useState(DEFAULT_PERF_PARAMS);
+  const [preset, setPreset] = useState("chat");
   const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
+  // JSON override merged on top of named params — accuracy path only; the
+  // performance path's equivalent is the preset + append-flags mechanism.
   const [extraParamsText, setExtraParamsText] = useState("");
   const [extraArgsText, setExtraArgsText] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -127,30 +129,10 @@ export default function NewBenchmarkPage() {
     const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
     const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
     if (TOOL_TO_KIND[run.tool] === "performance") {
-      const known = new Set([
-        "num_prompts", "random_input_len", "random_output_len", "max_concurrency",
-        "request_rate", "ignore_eos", "seed", "random_range_ratio", "goodput",
-        "tokenizer", "nfs_server", "nfs_path", "nfs_mount_path",
-        "extra_args",
-      ]);
-      setPerfParams({
-        num_prompts: num(params.num_prompts, DEFAULT_PERF_PARAMS.num_prompts),
-        random_input_len: num(params.random_input_len, DEFAULT_PERF_PARAMS.random_input_len),
-        random_output_len: num(params.random_output_len, DEFAULT_PERF_PARAMS.random_output_len),
-        max_concurrency: str(params.max_concurrency),
-        request_rate: str(params.request_rate),
-        ignore_eos: params.ignore_eos !== false,
-        seed: num(params.seed, DEFAULT_PERF_PARAMS.seed),
-        random_range_ratio: str(params.random_range_ratio),
-        goodput: str(params.goodput),
-        tokenizer: str(params.tokenizer),
-        nfs_server: str(params.nfs_server),
-        nfs_path: str(params.nfs_path),
-        nfs_mount_path: str(params.nfs_mount_path),
-      });
+      setPreset(typeof params.preset === "string" ? params.preset : "chat");
       setExtraArgsText(str(params.extra_args));
-      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
-      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
+      // The JSON-override card is accuracy-only now; nothing to restore here.
+      setExtraParamsText("");
     } else {
       const known = new Set([
         "tasks", "batch_size", "num_concurrent", "num_fewshot", "limit",
@@ -215,43 +197,16 @@ export default function NewBenchmarkPage() {
 
   const buildNamedParams = (): Record<string, unknown> => {
     if (kind === "performance") {
-      const params: Record<string, unknown> = {
-        num_prompts: perfParams.num_prompts,
-        random_input_len: perfParams.random_input_len,
-        random_output_len: perfParams.random_output_len,
+      const p = presets?.[preset];
+      return {
+        preset,
+        random_input_len: p?.random_input_len,
+        random_output_len: p?.random_output_len,
+        num_prompts: p?.num_prompts,
+        max_concurrency: p?.max_concurrency,
+        seed: 0,
+        ignore_eos: true,
       };
-      if (perfParams.max_concurrency !== "") {
-        params.max_concurrency = Number(perfParams.max_concurrency);
-      }
-      if (perfParams.request_rate !== "") {
-        params.request_rate = Number(perfParams.request_rate);
-      }
-      if (perfParams.ignore_eos) {
-        params.ignore_eos = true;
-      }
-      params.seed = perfParams.seed;
-      if (perfParams.random_range_ratio !== "") {
-        params.random_range_ratio = Number(perfParams.random_range_ratio);
-      }
-      if (perfParams.goodput.trim() !== "") {
-        params.goodput = perfParams.goodput.trim();
-      }
-      if (perfParams.tokenizer.trim() !== "") {
-        params.tokenizer = perfParams.tokenizer.trim();
-      }
-      // NFS override only applies to a raw model_name target; deployment and
-      // external-clone targets mount their own PVC.
-      const usesOwnPvc = mode !== "model";
-      if (!usesOwnPvc && perfParams.nfs_server.trim() !== "") {
-        params.nfs_server = perfParams.nfs_server.trim();
-      }
-      if (!usesOwnPvc && perfParams.nfs_path.trim() !== "") {
-        params.nfs_path = perfParams.nfs_path.trim();
-      }
-      if (!usesOwnPvc && perfParams.nfs_mount_path.trim() !== "") {
-        params.nfs_mount_path = perfParams.nfs_mount_path.trim();
-      }
-      return params;
     }
     const tasks = accParams.tasks
       .split(",")
@@ -332,7 +287,9 @@ export default function NewBenchmarkPage() {
             ? !!modelName.trim()
             : false;
     if (!hasTarget) return null;
-    const extras = parseExtras();
+    // The JSON-override card only applies to the accuracy path now — the
+    // performance path's params come solely from the preset + append-flags.
+    const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
     const body: CreateBenchmarkRequest = {
       tool,
       params: {
@@ -370,7 +327,7 @@ export default function NewBenchmarkPage() {
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    mode, deploymentId, directDeploymentId, externalTarget, modelName, tool, perfParams,
+    mode, deploymentId, directDeploymentId, externalTarget, modelName, tool, preset, presets,
     accParams, extraParamsText, extraArgsText, servingOverridesText, clusterId,
     namespace, image, apiKey,
   ]);
@@ -410,7 +367,9 @@ export default function NewBenchmarkPage() {
         return;
       }
     }
-    const extras = parseExtras();
+    // The JSON-override card only applies to the accuracy path now — the
+    // performance path's params come solely from the preset + append-flags.
+    const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
     if (!extras.ok) {
       toast.error(extras.error);
       return;
@@ -690,10 +649,13 @@ export default function NewBenchmarkPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {kind === "performance" ? (
-              <PerfParamsFields
-                params={perfParams}
-                onChange={setPerfParams}
-                showNfsOverride={mode === "model"}
+              <PerfPresetFields
+                presets={presets}
+                preset={preset}
+                onPresetChange={setPreset}
+                extraArgsText={extraArgsText}
+                onExtraArgsChange={setExtraArgsText}
+                model={modelName || selectedDeployment?.model_name}
               />
             ) : (
               <AccuracyParamsFields
@@ -704,34 +666,23 @@ export default function NewBenchmarkPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("extraParams")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
-            <JsonEditor
-              id="extra_params"
-              value={extraParamsText}
-              onChange={setExtraParamsText}
-              placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
-            />
-            <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
-            {kind === "performance" && (
-              <div className="space-y-1.5 pt-2">
-                <Label htmlFor="extra_args">{t("extraArgsLabel")}</Label>
-                <Input
-                  id="extra_args"
-                  value={extraArgsText}
-                  onChange={(e) => setExtraArgsText(e.target.value)}
-                  placeholder="--disable-tqdm --burstiness 0.5"
-                  className="font-mono"
-                />
-                <p className="text-xs text-muted-foreground">{t("extraArgsHint")}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        {kind === "accuracy" && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">{t("extraParams")}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
+              <JsonEditor
+                id="extra_params"
+                value={extraParamsText}
+                onChange={setExtraParamsText}
+                placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
+              />
+              <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
@@ -831,132 +782,62 @@ export default function NewBenchmarkPage() {
   );
 }
 
-function PerfParamsFields({
-  params,
-  onChange,
-  showNfsOverride,
+function PerfPresetFields({
+  presets,
+  preset,
+  onPresetChange,
+  extraArgsText,
+  onExtraArgsChange,
+  model,
 }: {
-  params: typeof DEFAULT_PERF_PARAMS;
-  onChange: (next: typeof DEFAULT_PERF_PARAMS) => void;
-  showNfsOverride: boolean;
+  presets: Record<string, LoadPreset> | undefined;
+  preset: string;
+  onPresetChange: (key: string) => void;
+  extraArgsText: string;
+  onExtraArgsChange: (v: string) => void;
+  model?: string;
 }) {
   const t = useTranslations("benchmarkForm");
+  const selected = presets?.[preset];
   return (
     <>
-      <div className="grid grid-cols-2 gap-4">
-        <NumberField
-          id="num_prompts"
-          label={t("numPromptsLabel")}
-          hint={t("numPromptsHint")}
-          value={params.num_prompts}
-          onChange={(v) => onChange({ ...params, num_prompts: v })}
-          min={1}
-        />
-        <OptionalNumberField
-          id="max_concurrency"
-          label={t("maxConcurrencyLabel")}
-          hint={t("maxConcurrencyHint")}
-          value={params.max_concurrency}
-          onChange={(v) => onChange({ ...params, max_concurrency: v })}
-        />
-        <NumberField
-          id="random_input_len"
-          label={t("randomInputLenLabel")}
-          hint={t("randomInputLenHint")}
-          value={params.random_input_len}
-          onChange={(v) => onChange({ ...params, random_input_len: v })}
-          min={1}
-        />
-        <NumberField
-          id="random_output_len"
-          label={t("randomOutputLenLabel")}
-          hint={t("randomOutputLenHint")}
-          value={params.random_output_len}
-          onChange={(v) => onChange({ ...params, random_output_len: v })}
-          min={1}
-        />
-        <OptionalNumberField
-          id="request_rate"
-          label={t("requestRateLabel")}
-          hint={t("requestRateHint")}
-          value={params.request_rate}
-          onChange={(v) => onChange({ ...params, request_rate: v })}
-        />
-        <NumberField
-          id="seed"
-          label={t("seedLabel")}
-          hint={t("seedHint")}
-          value={params.seed}
-          onChange={(v) => onChange({ ...params, seed: v })}
-          min={0}
-        />
-        <OptionalNumberField
-          id="random_range_ratio"
-          label={t("randomRangeRatioLabel")}
-          hint={t("randomRangeRatioHint")}
-          value={params.random_range_ratio}
-          onChange={(v) => onChange({ ...params, random_range_ratio: v })}
-          step="0.1"
-        />
-        <div className="flex items-center gap-2 mt-6">
-          <input
-            id="ignore_eos"
-            type="checkbox"
-            className="size-4 rounded border-input"
-            checked={params.ignore_eos}
-            onChange={(e) => onChange({ ...params, ignore_eos: e.target.checked })}
-          />
-          <Label htmlFor="ignore_eos" className="cursor-pointer">
-            {t("ignoreEosLabel")}
-          </Label>
+      <div className="space-y-2">
+        <Label>{t("presetLabel")}</Label>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {Object.entries(presets ?? {}).map(([key, p]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onPresetChange(key)}
+              className={`rounded-lg border p-3 text-left text-sm transition-colors ${
+                preset === key ? "border-primary ring-2 ring-primary/30" : "hover:bg-muted/40"
+              }`}
+            >
+              <div className="font-medium">{t(PRESET_LABEL_KEY[key] ?? key)}</div>
+              <div className="text-xs text-muted-foreground mt-1 font-mono">
+                {p.random_input_len}→{p.random_output_len} tok · {p.num_prompts} reqs · ×{p.max_concurrency}
+              </div>
+            </button>
+          ))}
         </div>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="goodput">{t("goodputLabel")}</Label>
-        <Input
-          id="goodput"
-          placeholder={t("goodputPlaceholder")}
-          value={params.goodput}
-          onChange={(e) => onChange({ ...params, goodput: e.target.value })}
-        />
-        <p className="text-xs text-muted-foreground">{t("goodputHint")}</p>
+        <Label>{t("commandPreview")}</Label>
+        <pre className="rounded-md border bg-muted/20 p-3 text-xs font-mono leading-relaxed overflow-auto whitespace-pre-wrap">
+          {selected ? buildBenchCommand(selected, extraArgsText, { model }) : "…"}
+        </pre>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="tokenizer">{t("tokenizerLabel")}</Label>
+        <Label htmlFor="extra_args">{t("additionalFlags")}</Label>
         <Input
-          id="tokenizer"
-          placeholder={t("tokenizerPlaceholder")}
-          value={params.tokenizer}
-          onChange={(e) => onChange({ ...params, tokenizer: e.target.value })}
+          id="extra_args"
+          value={extraArgsText}
+          onChange={(e) => onExtraArgsChange(e.target.value)}
+          placeholder="--disable-tqdm --burstiness 0.5"
+          className="font-mono"
         />
-        <p className="text-xs text-muted-foreground">{t("tokenizerHint")}</p>
+        <p className="text-xs text-muted-foreground">{t("additionalFlagsHint")}</p>
       </div>
-      {showNfsOverride && (
-        <div className="space-y-1.5">
-          <Label>{t("nfsOverrideLabel")}</Label>
-          <Input
-            id="nfs_server"
-            placeholder={t("nfsServerPlaceholder")}
-            value={params.nfs_server}
-            onChange={(e) => onChange({ ...params, nfs_server: e.target.value })}
-          />
-          <div className="grid grid-cols-2 gap-3">
-            <Input
-              id="nfs_path"
-              placeholder={t("nfsPathPlaceholder")}
-              value={params.nfs_path}
-              onChange={(e) => onChange({ ...params, nfs_path: e.target.value })}
-            />
-            <Input
-              id="nfs_mount_path"
-              placeholder={t("nfsMountPlaceholder")}
-              value={params.nfs_mount_path}
-              onChange={(e) => onChange({ ...params, nfs_mount_path: e.target.value })}
-            />
-          </div>
-          <p className="text-xs text-muted-foreground">{t("nfsOverrideHint")}</p>
-        </div>
-      )}
     </>
   );
 }
