@@ -29,6 +29,7 @@ from app.services.benchmark_manifests import (
     nfs_fields_incomplete,
     resolve_bench_nfs,
 )
+from app.services.benchmark_presets import LOAD_PRESETS
 from app.services.benchmark_serving import (
     _clone_target_port,
     build_ephemeral_deployment,
@@ -51,6 +52,12 @@ from app.services.model_deployment_manifests import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
+
+
+@router.get("/presets")
+async def list_presets(user: CustomUser = Depends(require_super_user)) -> dict:
+    """The fixed load presets — the benchmark measurement methodology."""
+    return {"presets": LOAD_PRESETS}
 
 
 ALLOWED_TOOLS = {"vllm_serving", "sglang_serving", "lm_eval"}
@@ -255,9 +262,6 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "serving_snapshot": r.serving_snapshot,
         "ephemeral": r.ephemeral,
         "serving_torn_down": r.serving_torn_down,
-        "sweep_id": str(r.sweep_id) if r.sweep_id else None,
-        "sweep_index": r.sweep_index,
-        "sweep_combo": r.sweep_combo,
         "status": r.status,
         "k8s_job_name": r.k8s_job_name,
         "k8s_namespace": r.k8s_namespace,
