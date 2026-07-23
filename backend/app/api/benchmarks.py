@@ -144,6 +144,8 @@ class CreateBenchmarkRequest(BaseModel):
         "auto-derived serving key / LiteLLM admin key when set. Use for auth-gated "
         "targets whose key the portal can't infer.",
     )
+    label: str | None = Field(None, description="Short human identifier for the run")
+    note: str | None = Field(None, description="Free-form note about the run")
 
 
 def _serving_snapshot(dep: CustomModelDeployment) -> dict:
@@ -256,6 +258,8 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "tool": r.tool,
         "kind": r.kind,
         "params": r.params,
+        "label": r.label,
+        "note": r.note,
         "bench_image": r.bench_image,
         "cluster_id": str(r.cluster_id) if r.cluster_id else None,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
@@ -376,6 +380,8 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=params,
+            label=(body.label or "").strip() or None,
+            note=(body.note or "").strip() or None,
             status="pending",
             cluster_id=ext_cluster_uuid,
             deployment_id=None,
@@ -447,6 +453,8 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=body.params,
+            label=(body.label or "").strip() or None,
+            note=(body.note or "").strip() or None,
             status="provisioning" if kind != "performance" else "pending",
             cluster_id=cluster_uuid,
             k8s_namespace=namespace,
@@ -544,6 +552,8 @@ async def create_benchmark(
         tool=body.tool,
         kind=kind,
         params=body.params,
+        label=(body.label or "").strip() or None,
+        note=(body.note or "").strip() or None,
         status="pending",
         cluster_id=cluster_uuid,
         k8s_namespace=namespace,

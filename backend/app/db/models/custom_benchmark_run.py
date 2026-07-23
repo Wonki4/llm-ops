@@ -24,6 +24,9 @@ class CustomBenchmarkRun(CustomBase):
     tool: Mapped[str] = mapped_column(String(32), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     params: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    # Optional human metadata for identifying/comparing runs.
+    label: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Which registered K8s cluster the run executes on. Null = portal default
     # (mounted kubeconfig). RESTRICT: a cluster can't be deleted while in use.
     cluster_id: Mapped[uuid.UUID | None] = mapped_column(
