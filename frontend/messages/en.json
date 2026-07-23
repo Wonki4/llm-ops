@@ -1470,7 +1470,8 @@
     "servingOverridesHint": "Override the cloned serving, e.g. {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
     "targetGroupPortal": "Portal deployments",
     "targetGroupExternal": "External servings (discovered)",
-    "statusNotReady": "not running"
+    "statusNotReady": "not running",
+    "presetsLoading": "Load presets are still loading — try again in a moment"
   },
   "benchmarkSweeps": {
     "listTitle": "Sweeps",
