@@ -357,6 +357,13 @@ export default function NewBenchmarkPage() {
       toast.error(t("errorModelRequired"));
       return;
     }
+    if (kind === "performance" && !presets?.[preset]) {
+      // Presets load async; submitting before they resolve would silently
+      // drop the preset's load numbers and run with backend defaults while
+      // still labeling the run with `preset: "<key>"`.
+      toast.error(t("presetsLoading"));
+      return;
+    }
     if (kind === "accuracy") {
       const tasks = accParams.tasks
         .split(",")
@@ -731,7 +738,14 @@ export default function NewBenchmarkPage() {
               {tc("cancel")}
             </Button>
           </Link>
-          <Button type="submit" disabled={createMutation.isPending || mode === "fromRun"}>
+          <Button
+            type="submit"
+            disabled={
+              createMutation.isPending ||
+              mode === "fromRun" ||
+              (kind === "performance" && !presets)
+            }
+          >
             {createMutation.isPending ? (
               <Loader2 className="size-4 mr-1 animate-spin" />
             ) : (

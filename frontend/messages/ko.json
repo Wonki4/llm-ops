@@ -1470,7 +1470,8 @@
     "servingOverridesHint": "복제 서빙을 덮어씀. 예: {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
     "targetGroupPortal": "포털 배포",
     "targetGroupExternal": "외부 서빙 (감지됨)",
-    "statusNotReady": "미실행"
+    "statusNotReady": "미실행",
+    "presetsLoading": "부하 프리셋을 불러오는 중입니다 — 잠시 후 다시 시도하세요"
   },
   "benchmarkSweeps": {
     "listTitle": "스윕",
