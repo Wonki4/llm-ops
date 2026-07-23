@@ -190,6 +190,7 @@ export default function AdminBenchmarksPage() {
             <TableRow>
               <TableHead className="w-10"></TableHead>
               <TableHead>{t("colModel")}</TableHead>
+              <TableHead>{t("colLabel")}</TableHead>
               <TableHead>{t("colTool")}</TableHead>
               <TableHead>{t("colKind")}</TableHead>
               <TableHead>{t("colStatus")}</TableHead>
@@ -201,7 +202,7 @@ export default function AdminBenchmarksPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={9}>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
                   </div>
@@ -209,7 +210,7 @@ export default function AdminBenchmarksPage() {
               </TableRow>
             ) : !runs || runs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8}>
+                <TableCell colSpan={9}>
                   <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                     <FlaskConical className="size-6" />
                     <span className="text-sm">{t("empty")}</span>
@@ -244,6 +245,7 @@ export default function AdminBenchmarksPage() {
                       {r.model_name}
                     </Link>
                   </TableCell>
+                  <TableCell className="text-sm">{r.label || "-"}</TableCell>
                   <TableCell className="font-mono text-xs">{r.tool}</TableCell>
                   <TableCell className="text-sm">{r.kind}</TableCell>
                   <TableCell>

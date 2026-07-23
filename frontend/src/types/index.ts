@@ -587,6 +587,8 @@ export interface CreateBenchmarkRequest {
   namespace?: string;
   image?: string;
   api_key?: string;
+  label?: string;
+  note?: string;
 }
 
 export interface LoadPreset {
