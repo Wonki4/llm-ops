@@ -69,6 +69,10 @@ _NON_CLI_PARAMS = frozenset(
         "nfs_path",
         "nfs_mount_path",
         "extra_args",
+        # Portal bookkeeping (historical-record / external-clone source), never
+        # `vllm bench serve` flags.
+        "preset",
+        "external_source",
     }
 )
 

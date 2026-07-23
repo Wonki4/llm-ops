@@ -83,3 +83,20 @@ def test_goodput_param_emits_space_separated_pairs():
         image="img", target_base_url="http://t", api_key="", served_model="m",
     )
     assert "--goodput ttft:200 tpot:50" in _script(m)
+
+
+def test_preset_and_external_source_are_not_emitted_as_cli_flags():
+    """`preset` (performance runs) and `external_source` (external-clone runs)
+    are portal bookkeeping keys stored on the run, never `vllm bench serve`
+    flags — the passthrough loop must not turn them into --preset/--external-source."""
+    m = build_vllm_bench_job(
+        _run(params={
+            "preset": "chat",
+            "external_source": {"namespace": "x"},
+            "num_prompts": 10,
+        }),
+        image="img", target_base_url="http://t", api_key="", served_model="m",
+    )
+    script = _script(m)
+    assert "--preset" not in script
+    assert "--external-source" not in script
