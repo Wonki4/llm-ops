@@ -1332,6 +1332,7 @@
     "resetFilters": "초기화",
     "empty": "아직 실행된 벤치마크가 없습니다.",
     "colModel": "모델",
+    "colLabel": "라벨",
     "colTool": "툴",
     "colKind": "종류",
     "colStatus": "상태",
@@ -1355,7 +1356,8 @@
     "confirmCancel": "이 벤치마크 실행을 취소할까요? K8s Job이 삭제됩니다.",
     "cancelSuccess": "벤치마크가 취소되었습니다.",
     "cancelFail": "벤치마크 취소 실패",
-    "serving": "서빙 구성"
+    "serving": "서빙 구성",
+    "note": "메모"
   },
   "benchmarkStatus": {
     "pending": "대기 중",
@@ -1370,6 +1372,10 @@
     "pageTitle": "벤치마크 실행",
     "pageDescription": "LiteLLM에 등록된 모델에 대해 벤치마크 Job을 띄웁니다. 입력한 파라미터는 결과와 함께 저장되어 나중에 동일 조건으로 재실행할 수 있습니다.",
     "backToList": "목록으로",
+    "labelLabel": "라벨",
+    "labelPlaceholder": "예: baseline-h100",
+    "noteLabel": "메모",
+    "notePlaceholder": "선택 메모",
     "target": "대상",
     "modelLabel": "모델",
     "modelPlaceholder": "모델 선택...",
@@ -1379,6 +1385,13 @@
     "toolHint_sglang_serving": "성능: sglang 스타일 동시성 부하 테스트 (TTFT / TPOT / 처리량).",
     "toolHint_lm_eval": "정확도: lm-evaluation-harness를 LiteLLM 프록시에 대고 실행.",
     "params": "파라미터",
+    "presetLabel": "부하 프리셋",
+    "presetChat": "채팅 — 짧은 입출력",
+    "presetLongInput": "긴 입력 — RAG",
+    "presetLongOutput": "긴 출력 — 생성",
+    "commandPreview": "명령어",
+    "additionalFlags": "추가 flag",
+    "additionalFlagsHint": "명령어 뒤에 그대로 덧붙습니다",
     "numPromptsLabel": "프롬프트 수",
     "numPromptsHint": "총 발사할 요청 수 (--num-prompts).",
     "maxConcurrencyLabel": "최대 동시성 (선택)",
@@ -1463,7 +1476,8 @@
     "servingOverridesHint": "복제 서빙을 덮어씀. 예: {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
     "targetGroupPortal": "포털 배포",
     "targetGroupExternal": "외부 서빙 (감지됨)",
-    "statusNotReady": "미실행"
+    "statusNotReady": "미실행",
+    "presetsLoading": "부하 프리셋을 불러오는 중입니다 — 잠시 후 다시 시도하세요"
   },
   "benchmarkSweeps": {
     "listTitle": "스윕",

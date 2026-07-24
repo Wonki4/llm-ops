@@ -29,6 +29,7 @@ from app.services.benchmark_manifests import (
     nfs_fields_incomplete,
     resolve_bench_nfs,
 )
+from app.services.benchmark_presets import LOAD_PRESETS
 from app.services.benchmark_serving import (
     _clone_target_port,
     build_ephemeral_deployment,
@@ -51,6 +52,12 @@ from app.services.model_deployment_manifests import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
+
+
+@router.get("/presets")
+async def list_presets(user: CustomUser = Depends(require_super_user)) -> dict:
+    """The fixed load presets — the benchmark measurement methodology."""
+    return {"presets": LOAD_PRESETS}
 
 
 ALLOWED_TOOLS = {"vllm_serving", "sglang_serving", "lm_eval"}
@@ -137,6 +144,8 @@ class CreateBenchmarkRequest(BaseModel):
         "auto-derived serving key / LiteLLM admin key when set. Use for auth-gated "
         "targets whose key the portal can't infer.",
     )
+    label: str | None = Field(None, description="Short human identifier for the run")
+    note: str | None = Field(None, description="Free-form note about the run")
 
 
 def _serving_snapshot(dep: CustomModelDeployment) -> dict:
@@ -249,15 +258,14 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "tool": r.tool,
         "kind": r.kind,
         "params": r.params,
+        "label": r.label,
+        "note": r.note,
         "bench_image": r.bench_image,
         "cluster_id": str(r.cluster_id) if r.cluster_id else None,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
         "serving_snapshot": r.serving_snapshot,
         "ephemeral": r.ephemeral,
         "serving_torn_down": r.serving_torn_down,
-        "sweep_id": str(r.sweep_id) if r.sweep_id else None,
-        "sweep_index": r.sweep_index,
-        "sweep_combo": r.sweep_combo,
         "status": r.status,
         "k8s_job_name": r.k8s_job_name,
         "k8s_namespace": r.k8s_namespace,
@@ -372,6 +380,8 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=params,
+            label=(body.label or "").strip() or None,
+            note=(body.note or "").strip() or None,
             status="pending",
             cluster_id=ext_cluster_uuid,
             deployment_id=None,
@@ -443,6 +453,8 @@ async def create_benchmark(
             tool=body.tool,
             kind=kind,
             params=body.params,
+            label=(body.label or "").strip() or None,
+            note=(body.note or "").strip() or None,
             status="provisioning" if kind != "performance" else "pending",
             cluster_id=cluster_uuid,
             k8s_namespace=namespace,
@@ -540,6 +552,8 @@ async def create_benchmark(
         tool=body.tool,
         kind=kind,
         params=body.params,
+        label=(body.label or "").strip() or None,
+        note=(body.note or "").strip() or None,
         status="pending",
         cluster_id=cluster_uuid,
         k8s_namespace=namespace,

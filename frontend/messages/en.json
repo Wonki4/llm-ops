@@ -1332,6 +1332,7 @@
     "resetFilters": "Reset",
     "empty": "No benchmark runs yet.",
     "colModel": "Model",
+    "colLabel": "Label",
     "colTool": "Tool",
     "colKind": "Kind",
     "colStatus": "Status",
@@ -1355,7 +1356,8 @@
     "confirmCancel": "Cancel this benchmark run? The K8s Job will be deleted.",
     "cancelSuccess": "Benchmark cancelled.",
     "cancelFail": "Failed to cancel benchmark",
-    "serving": "Serving config"
+    "serving": "Serving config",
+    "note": "Note"
   },
   "benchmarkStatus": {
     "pending": "Pending",
@@ -1370,6 +1372,10 @@
     "pageTitle": "Run a benchmark",
     "pageDescription": "Spawn a benchmark Job against a LiteLLM-registered model. Parameters are stored alongside the result so the run can be reproduced later.",
     "backToList": "Back to list",
+    "labelLabel": "Label",
+    "labelPlaceholder": "e.g. baseline-h100",
+    "noteLabel": "Note",
+    "notePlaceholder": "Optional note",
     "target": "Target",
     "modelLabel": "Model",
     "modelPlaceholder": "Select a model...",
@@ -1379,6 +1385,13 @@
     "toolHint_sglang_serving": "Performance: sglang-style concurrent load test (TTFT / TPOT / throughput).",
     "toolHint_lm_eval": "Accuracy: lm-evaluation-harness against the LiteLLM proxy.",
     "params": "Parameters",
+    "presetLabel": "Load preset",
+    "presetChat": "Chat — short in/out",
+    "presetLongInput": "Long input — RAG",
+    "presetLongOutput": "Long output — generation",
+    "commandPreview": "Command",
+    "additionalFlags": "Additional flags",
+    "additionalFlagsHint": "Appended to the command as-is",
     "numPromptsLabel": "# of prompts",
     "numPromptsHint": "Total requests issued (--num-prompts).",
     "maxConcurrencyLabel": "Max concurrency (optional)",
@@ -1463,7 +1476,8 @@
     "servingOverridesHint": "Override the cloned serving, e.g. {\"gpu_count\": 2, \"gpu_type\": \"NVIDIA-H100\", \"vllm_extra_args\": [\"--max-model-len\", \"8192\"]}",
     "targetGroupPortal": "Portal deployments",
     "targetGroupExternal": "External servings (discovered)",
-    "statusNotReady": "not running"
+    "statusNotReady": "not running",
+    "presetsLoading": "Load presets are still loading — try again in a moment"
   },
   "benchmarkSweeps": {
     "listTitle": "Sweeps",

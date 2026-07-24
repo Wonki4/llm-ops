@@ -508,7 +508,6 @@ export type BenchmarkKind = "performance" | "accuracy";
 export type BenchmarkStatus =
   | "provisioning"
   | "pending"
-  | "queued"
   | "running"
   | "succeeded"
   | "failed"
@@ -550,12 +549,11 @@ export interface BenchmarkRun {
   serving_snapshot: ServingSnapshot | null;
   ephemeral: boolean;
   serving_torn_down: boolean;
-  sweep_id: string | null;
-  sweep_index: number | null;
-  sweep_combo: Record<string, string | number> | null;
   tool: BenchmarkTool;
   kind: BenchmarkKind;
   params: Record<string, unknown>;
+  label: string | null;
+  note: string | null;
   bench_image: string | null;
   cluster_id: string | null;
   status: BenchmarkStatus;
@@ -589,13 +587,8 @@ export interface CreateBenchmarkRequest {
   namespace?: string;
   image?: string;
   api_key?: string;
-}
-
-export type SweepStatus = "running" | "completed" | "cancelled";
-
-export interface SweepVariable {
-  flag: string;
-  values: (number | string)[];
+  label?: string;
+  note?: string;
 }
 
 export interface LoadPreset {
@@ -603,36 +596,6 @@ export interface LoadPreset {
   random_output_len: number;
   num_prompts: number;
   max_concurrency: number;
-}
-
-export interface BenchmarkSweep {
-  id: string;
-  name: string | null;
-  deployment_id: string | null;
-  external_source: { cluster_id: string | null; namespace: string; deployment_name: string } | null;
-  cluster_id: string | null;
-  k8s_namespace: string;
-  preset: string;
-  variables: SweepVariable[];
-  serving_overrides: Record<string, unknown> | null;
-  status: SweepStatus;
-  created_by: string;
-  created_at: string | null;
-  finished_at: string | null;
-  progress?: { total: number; by_status: Record<string, number> };
-  runs?: BenchmarkRun[];
-}
-
-export interface CreateBenchmarkSweepRequest {
-  name?: string;
-  deployment_id?: string;
-  external_target?: { cluster_id: string | null; namespace: string; deployment_name: string };
-  cluster_id?: string;
-  namespace?: string;
-  preset: string;
-  variables: SweepVariable[];
-  serving_overrides?: Record<string, unknown>;
-  api_key?: string;
 }
 
 /** Portal-managed serving deployment. */

@@ -17,7 +17,6 @@ import { Separator } from "@/components/ui/separator";
 const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
   provisioning: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  queued: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   succeeded: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
@@ -106,6 +105,11 @@ export default function AdminBenchmarkDetailPage({
             {run.model_name}
             <Badge className={STATUS_STYLES[run.status]}>{ts(run.status)}</Badge>
           </h1>
+          {run.label && (
+            <p className="text-sm text-muted-foreground mt-1">
+              {t("colLabel")}: <span className="text-foreground font-medium">{run.label}</span>
+            </p>
+          )}
           <p className="text-sm text-muted-foreground mt-1 font-mono">
             {run.tool} · {run.kind} · {run.id}
           </p>
@@ -150,6 +154,17 @@ export default function AdminBenchmarkDetailPage({
           <Row label={t("k8sNamespace")} value={run.k8s_namespace ?? "-"} mono />
         </CardContent>
       </Card>
+
+      {run.note && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">{t("note")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm whitespace-pre-wrap break-words">{run.note}</p>
+          </CardContent>
+        </Card>
+      )}
 
       {run.serving_snapshot && (
         <Card>

@@ -17,7 +17,6 @@ import { PERF_METRICS, getAt, fmt, pickBestWorst } from "@/lib/bench-metrics";
 const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
   provisioning: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
   pending: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
-  queued: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300",
   running: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   succeeded: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
   failed: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
@@ -178,7 +177,7 @@ function CompareInner() {
                       href={`/admin/benchmarks/${r.id}`}
                       className="hover:underline"
                     >
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </Link>
                   </th>
                 ))}
@@ -232,7 +231,7 @@ function CompareInner() {
                 </th>
                 {ordered.map((r) => (
                   <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                    {r.model_name}
+                    {r.label || r.model_name}
                   </th>
                 ))}
               </tr>
@@ -279,7 +278,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
@@ -328,7 +327,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
@@ -382,7 +381,7 @@ function CompareInner() {
                   </th>
                   {ordered.map((r) => (
                     <th key={r.id} className="text-left py-2 px-3 font-medium font-mono text-xs">
-                      {r.model_name}
+                      {r.label || r.model_name}
                     </th>
                   ))}
                 </tr>
