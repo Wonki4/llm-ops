@@ -234,13 +234,15 @@ async def test_approve_budget_request_without_duration_is_permanent(
 
 
 @pytest.mark.asyncio
-async def test_approve_budget_request_409_when_active_boost_stays_pending(
+async def test_approve_budget_request_boost_failure_keeps_pending(
     admin_client: AsyncClient, mock_litellm, mock_db
 ):
-    """If apply_member_budget_boost raises 409 because the member already has
-    an active boost, the approve endpoint must surface that 409 and must NOT
-    mark the request APPROVED — the status write happens strictly after the
-    boost call, so a raise there leaves the request PENDING."""
+    """If apply_member_budget_boost raises (e.g. 502 when LiteLLM is down), the
+    approve endpoint must surface that error and must NOT mark the request
+    APPROVED — the status write happens strictly after the boost call, so a
+    raise there leaves the request PENDING. (An already-active boost no longer
+    raises — it is updated in place — so this guards the remaining failure
+    modes, not the active-boost case.)"""
     from app.db.session import get_litellm_db
     from app.main import app
 
@@ -264,7 +266,7 @@ async def test_approve_budget_request_409_when_active_boost_stays_pending(
         "app.api.team_requests.apply_member_budget_boost",
         AsyncMock(
             side_effect=HTTPException(
-                status_code=409, detail="An active boost already exists for this member"
+                status_code=502, detail="Failed to apply boosted budget: boom"
             )
         ),
     ):
@@ -272,7 +274,7 @@ async def test_approve_budget_request_409_when_active_boost_stays_pending(
             "/api/team-requests/00000000-0000-0000-0000-000000000001/approve"
         )
 
-    assert resp.status_code == 409, resp.text
+    assert resp.status_code == 502, resp.text
     assert req.status != JoinRequestStatus.APPROVED
     assert req.status == JoinRequestStatus.PENDING
 

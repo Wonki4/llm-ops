@@ -91,7 +91,7 @@ async def test_apply_boost_reserves_row_before_litellm(mock_db):
     mock_db.refresh = AsyncMock()
     litellm_db = MagicMock()
     with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-         patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+         patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
         boost = await apply_member_budget_boost(
             mock_db, litellm, litellm_db,
             team_id="t", user_id="u", boost_max_budget=100.0,
@@ -110,7 +110,7 @@ async def test_apply_boost_rejects_unlimited_member(mock_db):
     litellm = MagicMock()
     litellm.update_team_member = AsyncMock()
     with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=None)), \
-         patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+         patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
         with pytest.raises(HTTPException) as e:
             await apply_member_budget_boost(
                 mock_db, litellm, MagicMock(),
@@ -121,20 +121,41 @@ async def test_apply_boost_rejects_unlimited_member(mock_db):
     litellm.update_team_member.assert_not_awaited()
 
 
-async def test_apply_boost_409_when_active_exists(mock_db):
+async def test_apply_boost_updates_existing_active_preserving_original(mock_db):
+    import types
     from unittest.mock import AsyncMock, MagicMock
 
+    # An active boost already exists (member currently sits at the boosted 50).
+    existing = types.SimpleNamespace(
+        id="b1", team_id="t", user_id="u",
+        original_max_budget=10.0, boost_max_budget=50.0,
+        expires_at=datetime.now(UTC) + timedelta(days=5),
+        status="active", created_by="old",
+    )
     litellm = MagicMock()
     litellm.update_team_member = AsyncMock()
-    with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-         patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=True)):
-        with pytest.raises(HTTPException) as e:
-            await apply_member_budget_boost(
-                mock_db, litellm, MagicMock(),
-                team_id="t", user_id="u", boost_max_budget=100.0,
-                expires_at=datetime.now(UTC) + timedelta(days=1), created_by="a",
-            )
-    assert e.value.status_code == 409
+    mock_db.add = MagicMock()
+    mock_db.flush = AsyncMock()
+    mock_db.refresh = AsyncMock()
+    new_expiry = datetime.now(UTC) + timedelta(days=30)
+    with patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=existing)), \
+         patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=999.0)) as reb:
+        boost = await apply_member_budget_boost(
+            mock_db, litellm, MagicMock(),
+            team_id="t", user_id="u", boost_max_budget=100.0,
+            expires_at=new_expiry, created_by="approver",
+        )
+    # The existing row is updated in place: new amount/expiry/author...
+    assert boost is existing
+    assert boost.boost_max_budget == 100.0
+    assert boost.expires_at == new_expiry
+    assert boost.created_by == "approver"
+    # ...but original_max_budget is PRESERVED (never re-snapshotted from the
+    # already-boosted current budget), so revert still restores the true 10.
+    assert boost.original_max_budget == 10.0
+    reb.assert_not_awaited()
+    mock_db.add.assert_not_called()
+    litellm.update_team_member.assert_awaited_once_with("t", "u", max_budget_in_team=100.0)
 
 
 # ─── API ─────────────────────────────────────────────────────
@@ -157,7 +178,7 @@ async def test_create_boost_snapshots_and_applies(super_user, mock_litellm, mock
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
         with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-             patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+             patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
             resp = await client.post(
                 "/api/teams/team-1/members/user002/budget-boost",
                 json={"max_budget": 100.0, "expires_at": _future_iso()},
@@ -178,7 +199,7 @@ async def test_create_boost_rejects_unlimited_member(super_user, mock_litellm, m
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
         with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=None)), \
-             patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+             patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
             resp = await client.post(
                 "/api/teams/team-1/members/user002/budget-boost",
                 json={"max_budget": 100.0, "expires_at": _future_iso()},
@@ -193,7 +214,7 @@ async def test_create_boost_rejects_past_expiry(super_user, mock_litellm, mock_d
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
         with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-             patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+             patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
             resp = await client.post(
                 "/api/teams/team-1/members/user002/budget-boost",
                 json={"max_budget": 100.0, "expires_at": _future_iso(hours=-1)},
@@ -204,11 +225,20 @@ async def test_create_boost_rejects_past_expiry(super_user, mock_litellm, mock_d
     assert resp.status_code == 400
 
 
-async def test_create_boost_conflict_when_active_exists(super_user, mock_litellm, mock_db):
+async def test_create_boost_updates_when_active_exists(super_user, mock_litellm, mock_db):
+    # Re-boosting a member who already has an active boost updates it in place
+    # (no 409) — the endpoint returns 201 with the new amount.
+    mock_litellm.update_team_member = AsyncMock(return_value={"status": "ok"})
+    now = datetime(2026, 7, 28, tzinfo=UTC)
+    existing = types.SimpleNamespace(
+        id=uuid.uuid4(), team_id="team-1", user_id="user002",
+        original_max_budget=10.0, boost_max_budget=50.0,
+        expires_at=now, status="active", reverted_at=None,
+        created_by="old", created_at=now, updated_at=now,
+    )
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
-        with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-             patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=True)):
+        with patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=existing)):
             resp = await client.post(
                 "/api/teams/team-1/members/user002/budget-boost",
                 json={"max_budget": 100.0, "expires_at": _future_iso()},
@@ -216,7 +246,12 @@ async def test_create_boost_conflict_when_active_exists(super_user, mock_litellm
     finally:
         from app.main import app
         app.dependency_overrides.clear()
-    assert resp.status_code == 409
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["boost_max_budget"] == 100.0
+    assert resp.json()["original_max_budget"] == 10.0  # preserved
+    mock_litellm.update_team_member.assert_awaited_once_with(
+        "team-1", "user002", max_budget_in_team=100.0
+    )
 
 
 async def test_cancel_boost_restores_original(super_user, mock_litellm, mock_db):
@@ -343,7 +378,7 @@ async def test_create_boost_naive_expires_at_is_accepted(super_user, mock_litell
     client = await _admin_client(super_user, mock_litellm, mock_db)
     try:
         with patch("app.services.member_budget_boost.resolve_effective_budget", AsyncMock(return_value=10.0)), \
-             patch("app.services.member_budget_boost._active_boost_exists", AsyncMock(return_value=False)):
+             patch("app.services.member_budget_boost._get_active_boost", AsyncMock(return_value=None)):
             resp = await client.post(
                 "/api/teams/team-1/members/user002/budget-boost",
                 json={"max_budget": 100.0, "expires_at": naive_future},

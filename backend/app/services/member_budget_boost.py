@@ -74,8 +74,8 @@ def serialize_boost(row: CustomMemberBudgetBoost) -> dict:
     }
 
 
-async def _active_boost_exists(db, team_id: str, user_id: str) -> bool:
-    row = (
+async def _get_active_boost(db, team_id: str, user_id: str) -> "CustomMemberBudgetBoost | None":
+    return (
         await db.execute(
             select(CustomMemberBudgetBoost).where(
                 CustomMemberBudgetBoost.team_id == team_id,
@@ -84,7 +84,6 @@ async def _active_boost_exists(db, team_id: str, user_id: str) -> bool:
             )
         )
     ).scalar_one_or_none()
-    return row is not None
 
 
 async def apply_member_budget_boost(
@@ -98,42 +97,54 @@ async def apply_member_budget_boost(
     expires_at: datetime,
     created_by: str | None,
 ) -> CustomMemberBudgetBoost:
-    """Snapshot the member's effective budget, reserve the boost row, then apply
-    the raised budget via LiteLLM. Reserve-before-apply so a race yields 409 and
-    a LiteLLM failure rolls the reserved row back (get_db rolls back on the
-    raised HTTPException). Raises 400 (non-positive / non-future / no revertable
-    budget), 409 (active boost exists), 502 (LiteLLM failure)."""
+    """Apply (or re-apply) a member budget boost, then push the raised budget to
+    LiteLLM.
+
+    If the member already has an active boost, that row is UPDATED to the new
+    amount/expiry in place — its ``original_max_budget`` is preserved (never
+    re-snapshotted from the already-boosted current budget), so revert still
+    restores the true pre-boost budget. Otherwise the current effective budget
+    is snapshotted and a new row is reserved before the LiteLLM apply (so a
+    race yields 409 and a LiteLLM failure rolls the reserved row back).
+    Raises 400 (non-positive / non-future / no revertable budget for a first
+    boost), 409 (create race), 502 (LiteLLM failure)."""
     if boost_max_budget <= 0:
         raise HTTPException(status_code=400, detail="Boosted budget must be positive")
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at <= datetime.now(UTC):
         raise HTTPException(status_code=400, detail="Boost end time must be in the future")
-    if await _active_boost_exists(db, team_id, user_id):
-        raise HTTPException(status_code=409, detail="An active boost already exists for this member")
 
-    original = await resolve_effective_budget(litellm_db, team_id, user_id)
-    if original is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Member has no budget limit to boost — set a budget first",
-        )
-
-    boost = CustomMemberBudgetBoost(
-        id=uuid.uuid4(),
-        team_id=team_id,
-        user_id=user_id,
-        original_max_budget=original,
-        boost_max_budget=boost_max_budget,
-        expires_at=expires_at,
-        status="active",
-        created_by=created_by,
-    )
-    db.add(boost)
-    try:
+    existing = await _get_active_boost(db, team_id, user_id)
+    if existing is not None:
+        # Re-boost: change the amount/expiry, keep the original snapshot.
+        existing.boost_max_budget = boost_max_budget
+        existing.expires_at = expires_at
+        existing.created_by = created_by
+        boost = existing
         await db.flush()
-    except IntegrityError:
-        raise HTTPException(status_code=409, detail="An active boost already exists for this member")
+    else:
+        original = await resolve_effective_budget(litellm_db, team_id, user_id)
+        if original is None:
+            raise HTTPException(
+                status_code=400,
+                detail="Member has no budget limit to boost — set a budget first",
+            )
+        boost = CustomMemberBudgetBoost(
+            id=uuid.uuid4(),
+            team_id=team_id,
+            user_id=user_id,
+            original_max_budget=original,
+            boost_max_budget=boost_max_budget,
+            expires_at=expires_at,
+            status="active",
+            created_by=created_by,
+        )
+        db.add(boost)
+        try:
+            await db.flush()
+        except IntegrityError:
+            raise HTTPException(status_code=409, detail="An active boost already exists for this member")
 
     try:
         await litellm.update_team_member(team_id, user_id, max_budget_in_team=boost_max_budget)
