@@ -526,6 +526,18 @@ async def list_team_members(
         for r in expiry_result.mappings()
     }
 
+    # 6b. Active budget boost per paged member (portal DB, scoped to this page's
+    #     user_ids — so the badge is never limited by a team-wide fetch cap).
+    #     At most one active boost per member (enforced on create).
+    boost_result = await db.execute(
+        select(CustomMemberBudgetBoost).where(
+            CustomMemberBudgetBoost.team_id == team_id,
+            CustomMemberBudgetBoost.user_id.in_(paged_ids),
+            CustomMemberBudgetBoost.status == "active",
+        )
+    )
+    boost_map = {b.user_id: serialize_boost(b) for b in boost_result.scalars().all()}
+
     # 7. Build member objects
     members = []
     for uid in paged_ids:
@@ -543,6 +555,7 @@ async def list_team_members(
                 "total_rpm_limit": budget.get("rpm_limit"),
                 "expires_at": expiry["expires_at"] if expiry else None,
                 "expiry_status": expiry["status"] if expiry else None,
+                "active_boost": boost_map.get(uid),
                 "keys": user_keys,
             }
         )
