@@ -4,7 +4,7 @@ import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useTeamActiveBoosts, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { InputTokens } from "@/components/input-tokens";
 import { MemberModelUsage } from "@/components/member-model-usage";
@@ -966,12 +966,8 @@ function MembersTab({ teamId }: { teamId: string }) {
   const [expiryDate, setExpiryDate] = useState("");
   const [sortField, setSortField] = useState<"user_id" | "spend" | "budget" | "key_count">("user_id");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
-  const { data: boosts } = useTeamActiveBoosts(teamId);
   const createBoost = useCreateBudgetBoost();
   const cancelBoost = useCancelBudgetBoost();
-  const activeBoostByUser = new Map(
-    (boosts ?? []).filter((b) => b.status === "active").map((b) => [b.user_id, b]),
-  );
   const [boostTarget, setBoostTarget] = useState<{ userId: string; currentBudget: number | null } | null>(null);
   const [boostAmount, setBoostAmount] = useState("");
   const [boostExpires, setBoostExpires] = useState("");
@@ -1148,11 +1144,11 @@ function MembersTab({ teamId }: { teamId: string }) {
                             >
                               {t("actionChange")}
                             </Button>
-                            {activeBoostByUser.has(member.user_id) ? (
+                            {member.active_boost ? (
                               <Badge variant="outline" className="gap-1">
                                 {t("boostActiveBadge", {
                                   date: new Date(
-                                    activeBoostByUser.get(member.user_id)!.expires_at ?? "",
+                                    member.active_boost.expires_at ?? "",
                                   ).toLocaleDateString(),
                                 })}
                                 <button

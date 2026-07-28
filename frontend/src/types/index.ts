@@ -296,6 +296,9 @@ export interface TeamMember {
   total_rpm_limit: number | null;
   expires_at: string | null;
   expiry_status: string | null;
+  /** The member's active budget boost, reported directly by the members
+   * endpoint (null when none). Drives the boost badge — no separate fetch. */
+  active_boost: MemberBudgetBoost | null;
   keys: MemberKey[];
 }
 

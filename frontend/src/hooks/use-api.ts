@@ -212,19 +212,6 @@ export function useTeamBudgetBoosts(
   });
 }
 
-/** Every active boost (bounded by one-active-per-member; capped at 200) —
- * feeds the members-table boost badges, which must not miss older boosts. */
-export function useTeamActiveBoosts(teamId: string) {
-  return useQuery({
-    queryKey: ["teams", teamId, "budget-boosts", "active-map"],
-    queryFn: () =>
-      apiFetch<{ boosts: MemberBudgetBoost[]; total: number }>(
-        `/api/teams/${teamId}/budget-boosts?status_filter=active&page_size=200`,
-      ).then((r) => r.boosts),
-    enabled: !!teamId,
-  });
-}
-
 export function useCreateBudgetBoost() {
   const qc = useQueryClient();
   return useMutation({
