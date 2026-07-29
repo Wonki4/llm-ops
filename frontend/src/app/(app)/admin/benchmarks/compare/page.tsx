@@ -26,7 +26,7 @@ const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
 // Serving config attributes shown side-by-side (the "same resources" axis).
 const SERVING_ATTRS: { key: string; get: (s: ServingSnapshot) => string }[] = [
   { key: "engine", get: (s) => s.engine ?? "-" },
-  { key: "image", get: (s) => s.image },
+  { key: "image", get: (s) => s.image ?? "-" },
   { key: "model_path", get: (s) => s.model_path },
   {
     key: "gpu",

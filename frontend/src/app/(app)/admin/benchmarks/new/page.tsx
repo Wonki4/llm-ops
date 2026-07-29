@@ -51,6 +51,41 @@ const PRESET_LABEL_KEY: Record<string, string> = {
   long_output: "presetLongOutput",
 };
 
+// Editable `vllm bench serve` workload knobs. Presets (below) are one-click
+// prefill for these fields — every value is then directly editable.
+const DEFAULT_PERF_PARAMS = {
+  random_input_len: 1024,
+  random_output_len: 128,
+  num_prompts: 200,
+  max_concurrency: "" as number | string,
+  request_rate: "" as number | string,
+  seed: 0,
+  ignore_eos: true,
+  tokenizer: "",
+};
+type PerfParams = typeof DEFAULT_PERF_PARAMS;
+
+// Which preset (if any) the current workload values exactly match — drives the
+// highlighted card and the `preset:` record tag. Compares only the four knobs a
+// preset defines.
+function matchedPresetKey(
+  presets: Record<string, LoadPreset> | undefined,
+  p: PerfParams,
+): string | undefined {
+  if (!presets) return undefined;
+  for (const [key, preset] of Object.entries(presets)) {
+    if (
+      preset.random_input_len === p.random_input_len &&
+      preset.random_output_len === p.random_output_len &&
+      preset.num_prompts === p.num_prompts &&
+      String(preset.max_concurrency) === String(p.max_concurrency)
+    ) {
+      return key;
+    }
+  }
+  return undefined;
+}
+
 const DEFAULT_ACCURACY_PARAMS = {
   tasks: "mmlu",
   num_fewshot: "",
@@ -62,7 +97,7 @@ const DEFAULT_ACCURACY_PARAMS = {
 };
 
 // The active tab IS the start mode — no inference from which fields are set.
-type BenchMode = "clone" | "direct" | "model" | "fromRun";
+type BenchMode = "clone" | "direct" | "model" | "endpoint" | "fromRun";
 
 export default function NewBenchmarkPage() {
   const t = useTranslations("benchmarkForm");
@@ -84,10 +119,12 @@ export default function NewBenchmarkPage() {
   const [servingOverridesText, setServingOverridesText] = useState("");
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
-  const [preset, setPreset] = useState("chat");
+  const [perf, setPerf] = useState<PerfParams>(DEFAULT_PERF_PARAMS);
+  const [baseUrl, setBaseUrl] = useState("");
+  const [endpointModel, setEndpointModel] = useState("");
   const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
   // JSON override merged on top of named params — accuracy path only; the
-  // performance path's equivalent is the preset + append-flags mechanism.
+  // performance path's equivalent is the editable workload fields + append-flags.
   const [extraParamsText, setExtraParamsText] = useState("");
   const [extraArgsText, setExtraArgsText] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -119,8 +156,16 @@ export default function NewBenchmarkPage() {
       setMode(run.ephemeral || forceClone ? "clone" : "direct");
     } else {
       setDeploymentId("");
-      setModelName(run.model_name);
-      setMode("model");
+      const snap = run.serving_snapshot as { source?: string; base_url?: string } | null;
+      if (snap?.source === "endpoint" && snap.base_url) {
+        setBaseUrl(snap.base_url);
+        setEndpointModel(run.model_name);
+        setModelName("");
+        setMode("endpoint");
+      } else {
+        setModelName(run.model_name);
+        setMode("model");
+      }
     }
     setClusterId(run.cluster_id ?? "");
     setNamespace(run.k8s_namespace ?? "");
@@ -133,7 +178,16 @@ export default function NewBenchmarkPage() {
     const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
     const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
     if (TOOL_TO_KIND[run.tool] === "performance") {
-      setPreset(typeof params.preset === "string" ? params.preset : "chat");
+      setPerf({
+        random_input_len: num(params.random_input_len, DEFAULT_PERF_PARAMS.random_input_len),
+        random_output_len: num(params.random_output_len, DEFAULT_PERF_PARAMS.random_output_len),
+        num_prompts: num(params.num_prompts, DEFAULT_PERF_PARAMS.num_prompts),
+        max_concurrency: str(params.max_concurrency),
+        request_rate: str(params.request_rate),
+        seed: num(params.seed, DEFAULT_PERF_PARAMS.seed),
+        ignore_eos: params.ignore_eos !== false,
+        tokenizer: str(params.tokenizer),
+      });
       setExtraArgsText(str(params.extra_args));
       // The JSON-override card is accuracy-only now; nothing to restore here.
       setExtraParamsText("");
@@ -180,6 +234,19 @@ export default function NewBenchmarkPage() {
     ? deploymentId
     : "";
 
+  // The served-model name and base URL shown in the live command preview,
+  // resolved from whichever target tab is active.
+  const previewModel =
+    mode === "endpoint"
+      ? endpointModel
+      : mode === "model"
+        ? modelName
+        : selectedDeployment?.model_name ||
+          externalTarget?.model_path ||
+          externalTarget?.deployment_name ||
+          undefined;
+  const previewBaseUrl = mode === "endpoint" ? baseUrl : undefined;
+
   const handleCloneTargetChange = (value: string) => {
     if (value.startsWith("ext::")) {
       const serving = servings.find((s) => externalKey(s) === value) ?? null;
@@ -201,16 +268,29 @@ export default function NewBenchmarkPage() {
 
   const buildNamedParams = (): Record<string, unknown> => {
     if (kind === "performance") {
-      const p = presets?.[preset];
-      return {
-        preset,
-        random_input_len: p?.random_input_len,
-        random_output_len: p?.random_output_len,
-        num_prompts: p?.num_prompts,
-        max_concurrency: p?.max_concurrency,
-        seed: 0,
-        ignore_eos: true,
+      const params: Record<string, unknown> = {
+        random_input_len: perf.random_input_len,
+        random_output_len: perf.random_output_len,
+        num_prompts: perf.num_prompts,
+        seed: perf.seed,
       };
+      if (`${perf.max_concurrency}`.trim() !== "") {
+        params.max_concurrency = Number(perf.max_concurrency);
+      }
+      if (`${perf.request_rate}`.trim() !== "") {
+        params.request_rate = Number(perf.request_rate);
+      }
+      if (perf.ignore_eos) {
+        params.ignore_eos = true;
+      }
+      if (perf.tokenizer.trim() !== "") {
+        params.tokenizer = perf.tokenizer.trim();
+      }
+      // Tag the run with the preset only when the values still match one, so a
+      // historical run's `preset:` label never lies about edited numbers.
+      const matched = matchedPresetKey(presets, perf);
+      if (matched) params.preset = matched;
+      return params;
     }
     const tasks = accParams.tasks
       .split(",")
@@ -289,10 +369,12 @@ export default function NewBenchmarkPage() {
           ? !!directDeploymentId
           : mode === "model"
             ? !!modelName.trim()
-            : false;
+            : mode === "endpoint"
+              ? !!(baseUrl.trim() && endpointModel.trim() && kind === "performance")
+              : false;
     if (!hasTarget) return null;
     // The JSON-override card only applies to the accuracy path now — the
-    // performance path's params come solely from the preset + append-flags.
+    // performance path's params come solely from the editable workload fields.
     const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
     const body: CreateBenchmarkRequest = {
       tool,
@@ -319,6 +401,9 @@ export default function NewBenchmarkPage() {
       if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
     } else if (mode === "direct") {
       body.deployment_id = directDeploymentId;
+    } else if (mode === "endpoint") {
+      body.base_url = baseUrl.trim();
+      body.model_name = endpointModel.trim();
     } else {
       body.model_name = modelName.trim();
     }
@@ -331,9 +416,9 @@ export default function NewBenchmarkPage() {
     return body;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    mode, deploymentId, directDeploymentId, externalTarget, modelName, tool, preset, presets,
-    accParams, extraParamsText, extraArgsText, servingOverridesText, clusterId,
-    namespace, image, apiKey,
+    mode, deploymentId, directDeploymentId, externalTarget, modelName, baseUrl, endpointModel,
+    tool, perf, presets, accParams, extraParamsText, extraArgsText, servingOverridesText,
+    clusterId, namespace, image, apiKey,
   ]);
 
   const previewKey = previewBody ? JSON.stringify(previewBody) : "";
@@ -361,12 +446,15 @@ export default function NewBenchmarkPage() {
       toast.error(t("errorModelRequired"));
       return;
     }
-    if (kind === "performance" && !presets?.[preset]) {
-      // Presets load async; submitting before they resolve would silently
-      // drop the preset's load numbers and run with backend defaults while
-      // still labeling the run with `preset: "<key>"`.
-      toast.error(t("presetsLoading"));
-      return;
+    if (mode === "endpoint") {
+      if (!baseUrl.trim() || !endpointModel.trim()) {
+        toast.error(t("errorBaseUrlRequired"));
+        return;
+      }
+      if (kind === "accuracy") {
+        toast.error(t("endpointPerfOnly"));
+        return;
+      }
     }
     if (kind === "accuracy") {
       const tasks = accParams.tasks
@@ -379,7 +467,7 @@ export default function NewBenchmarkPage() {
       }
     }
     // The JSON-override card only applies to the accuracy path now — the
-    // performance path's params come solely from the preset + append-flags.
+    // performance path's params come solely from the editable workload fields.
     const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
     if (!extras.ok) {
       toast.error(extras.error);
@@ -420,6 +508,9 @@ export default function NewBenchmarkPage() {
       if (overrides.value) body.serving_overrides = overrides.value;
     } else if (mode === "direct") {
       body.deployment_id = directDeploymentId;
+    } else if (mode === "endpoint") {
+      body.base_url = baseUrl.trim();
+      body.model_name = endpointModel.trim();
     } else {
       body.model_name = modelName.trim();
     }
@@ -518,6 +609,7 @@ export default function NewBenchmarkPage() {
               <TabsList className="w-full">
                 <TabsTrigger value="clone">{t("tabClone")}</TabsTrigger>
                 <TabsTrigger value="direct">{t("tabDirect")}</TabsTrigger>
+                <TabsTrigger value="endpoint">{t("tabEndpoint")}</TabsTrigger>
                 <TabsTrigger value="model">{t("tabModel")}</TabsTrigger>
                 <TabsTrigger value="fromRun">{t("tabFromRun")}</TabsTrigger>
               </TabsList>
@@ -613,6 +705,38 @@ export default function NewBenchmarkPage() {
                 </div>
               </TabsContent>
 
+              <TabsContent value="endpoint" className="space-y-4 pt-2">
+                <p className="text-xs text-muted-foreground">{t("tabEndpointHint")}</p>
+                {kind === "accuracy" ? (
+                  <p className="text-sm text-muted-foreground">{t("endpointPerfOnly")}</p>
+                ) : (
+                  <>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="base_url">{t("baseUrlLabel")}</Label>
+                      <Input
+                        id="base_url"
+                        value={baseUrl}
+                        onChange={(e) => setBaseUrl(e.target.value)}
+                        placeholder={t("baseUrlPlaceholder")}
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">{t("baseUrlHint")}</p>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="endpoint_model">{t("endpointModelLabel")}</Label>
+                      <Input
+                        id="endpoint_model"
+                        value={endpointModel}
+                        onChange={(e) => setEndpointModel(e.target.value)}
+                        placeholder="meta-llama/Llama-3.1-8B-Instruct"
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">{t("endpointModelHint")}</p>
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+
               <TabsContent value="model" className="space-y-4 pt-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="model_name">{t("modelLabel")}</Label>
@@ -687,13 +811,14 @@ export default function NewBenchmarkPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             {kind === "performance" ? (
-              <PerfPresetFields
+              <PerfWorkloadFields
                 presets={presets}
-                preset={preset}
-                onPresetChange={setPreset}
+                perf={perf}
+                onChange={setPerf}
                 extraArgsText={extraArgsText}
                 onExtraArgsChange={setExtraArgsText}
-                model={modelName || selectedDeployment?.model_name}
+                model={previewModel}
+                baseUrl={previewBaseUrl}
               />
             ) : (
               <AccuracyParamsFields
@@ -771,11 +896,7 @@ export default function NewBenchmarkPage() {
           </Link>
           <Button
             type="submit"
-            disabled={
-              createMutation.isPending ||
-              mode === "fromRun" ||
-              (kind === "performance" && !presets)
-            }
+            disabled={createMutation.isPending || mode === "fromRun"}
           >
             {createMutation.isPending ? (
               <Loader2 className="size-4 mr-1 animate-spin" />
@@ -827,23 +948,25 @@ export default function NewBenchmarkPage() {
   );
 }
 
-function PerfPresetFields({
+function PerfWorkloadFields({
   presets,
-  preset,
-  onPresetChange,
+  perf,
+  onChange,
   extraArgsText,
   onExtraArgsChange,
   model,
+  baseUrl,
 }: {
   presets: Record<string, LoadPreset> | undefined;
-  preset: string;
-  onPresetChange: (key: string) => void;
+  perf: PerfParams;
+  onChange: (next: PerfParams) => void;
   extraArgsText: string;
   onExtraArgsChange: (v: string) => void;
   model?: string;
+  baseUrl?: string;
 }) {
   const t = useTranslations("benchmarkForm");
-  const selected = presets?.[preset];
+  const activePreset = matchedPresetKey(presets, perf);
   return (
     <>
       <div className="space-y-2">
@@ -853,9 +976,17 @@ function PerfPresetFields({
             <button
               key={key}
               type="button"
-              onClick={() => onPresetChange(key)}
+              onClick={() =>
+                onChange({
+                  ...perf,
+                  random_input_len: p.random_input_len,
+                  random_output_len: p.random_output_len,
+                  num_prompts: p.num_prompts,
+                  max_concurrency: String(p.max_concurrency),
+                })
+              }
               className={`rounded-lg border p-3 text-left text-sm transition-colors ${
-                preset === key ? "border-primary ring-2 ring-primary/30" : "hover:bg-muted/40"
+                activePreset === key ? "border-primary ring-2 ring-primary/30" : "hover:bg-muted/40"
               }`}
             >
               <div className="font-medium">{t(PRESET_LABEL_KEY[key] ?? key)}</div>
@@ -865,13 +996,90 @@ function PerfPresetFields({
             </button>
           ))}
         </div>
+        <p className="text-xs text-muted-foreground">{t("presetFillHint")}</p>
       </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <NumberField
+          id="random_input_len"
+          label={t("randomInputLenLabel")}
+          hint={t("randomInputLenHint")}
+          value={perf.random_input_len}
+          onChange={(v) => onChange({ ...perf, random_input_len: v })}
+          min={1}
+        />
+        <NumberField
+          id="random_output_len"
+          label={t("randomOutputLenLabel")}
+          hint={t("randomOutputLenHint")}
+          value={perf.random_output_len}
+          onChange={(v) => onChange({ ...perf, random_output_len: v })}
+          min={1}
+        />
+        <NumberField
+          id="num_prompts"
+          label={t("numPromptsLabel")}
+          hint={t("numPromptsHint")}
+          value={perf.num_prompts}
+          onChange={(v) => onChange({ ...perf, num_prompts: v })}
+          min={1}
+        />
+        <OptionalNumberField
+          id="max_concurrency"
+          label={t("maxConcurrencyLabel")}
+          hint={t("maxConcurrencyHint")}
+          value={`${perf.max_concurrency}`}
+          onChange={(v) => onChange({ ...perf, max_concurrency: v })}
+        />
+        <OptionalNumberField
+          id="request_rate"
+          label={t("requestRateLabel")}
+          hint={t("requestRateHint")}
+          value={`${perf.request_rate}`}
+          onChange={(v) => onChange({ ...perf, request_rate: v })}
+        />
+        <NumberField
+          id="seed"
+          label={t("seedLabel")}
+          hint={t("seedHint")}
+          value={perf.seed}
+          onChange={(v) => onChange({ ...perf, seed: v })}
+          min={0}
+        />
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="ignore_eos"
+          type="checkbox"
+          className="size-4 rounded border-input"
+          checked={perf.ignore_eos}
+          onChange={(e) => onChange({ ...perf, ignore_eos: e.target.checked })}
+        />
+        <Label htmlFor="ignore_eos" className="cursor-pointer">
+          {t("ignoreEosLabel")}
+        </Label>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="tokenizer">{t("tokenizerLabel")}</Label>
+        <Input
+          id="tokenizer"
+          value={perf.tokenizer}
+          onChange={(e) => onChange({ ...perf, tokenizer: e.target.value })}
+          placeholder={t("tokenizerPlaceholder")}
+          className="font-mono"
+        />
+        <p className="text-xs text-muted-foreground">{t("tokenizerHint")}</p>
+      </div>
+
       <div className="space-y-1.5">
         <Label>{t("commandPreview")}</Label>
         <pre className="rounded-md border bg-muted/20 p-3 text-xs font-mono leading-relaxed overflow-auto whitespace-pre-wrap">
-          {selected ? buildBenchCommand(selected, extraArgsText, { model }) : "…"}
+          {buildBenchCommand(perf, extraArgsText, { model, baseUrl })}
         </pre>
       </div>
+
       <div className="space-y-1.5">
         <Label htmlFor="extra_args">{t("additionalFlags")}</Label>
         <Input

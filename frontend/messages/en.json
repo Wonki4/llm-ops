@@ -1477,7 +1477,17 @@
     "targetGroupPortal": "Portal deployments",
     "targetGroupExternal": "External servings (discovered)",
     "statusNotReady": "not running",
-    "presetsLoading": "Load presets are still loading — try again in a moment"
+    "presetsLoading": "Load presets are still loading — try again in a moment",
+    "presetFillHint": "Click a preset to fill the fields below, then edit any value.",
+    "tabEndpoint": "Existing endpoint URL",
+    "tabEndpointHint": "Sends benchmark load straight to an already-running OpenAI-compatible endpoint. No serving is provisioned — enter the base URL and the served model name below (API key in Advanced). Performance tools only.",
+    "baseUrlLabel": "Base URL",
+    "baseUrlHint": "The endpoint's OpenAI-compatible base URL. The runner appends /v1/chat/completions.",
+    "baseUrlPlaceholder": "http://my-vllm.default.svc.cluster.local:8000",
+    "endpointModelLabel": "Served model name",
+    "endpointModelHint": "The model id to send in requests (the endpoint's served model name). Also used as the tokenizer unless you set one below.",
+    "endpointPerfOnly": "Endpoint URL benchmarking supports performance tools only. Switch the tool to vLLM or SGLang.",
+    "errorBaseUrlRequired": "Enter the endpoint base URL and served model name."
   },
   "benchmarkSweeps": {
     "listTitle": "Sweeps",

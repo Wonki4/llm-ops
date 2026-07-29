@@ -1477,7 +1477,17 @@
     "targetGroupPortal": "포털 배포",
     "targetGroupExternal": "외부 서빙 (감지됨)",
     "statusNotReady": "미실행",
-    "presetsLoading": "부하 프리셋을 불러오는 중입니다 — 잠시 후 다시 시도하세요"
+    "presetsLoading": "부하 프리셋을 불러오는 중입니다 — 잠시 후 다시 시도하세요",
+    "presetFillHint": "프리셋을 누르면 아래 값이 채워지고, 이후 자유롭게 수정할 수 있습니다.",
+    "tabEndpoint": "기존 엔드포인트 URL",
+    "tabEndpointHint": "이미 떠 있는 OpenAI 호환 엔드포인트로 벤치 부하를 바로 보냅니다. 서빙을 새로 띄우지 않고, 아래에 base URL과 서빙 모델명을 입력하세요(API 키는 고급에서). 성능 도구 전용입니다.",
+    "baseUrlLabel": "Base URL",
+    "baseUrlHint": "엔드포인트의 OpenAI 호환 base URL. 러너가 뒤에 /v1/chat/completions 를 붙여 호출합니다.",
+    "baseUrlPlaceholder": "http://my-vllm.default.svc.cluster.local:8000",
+    "endpointModelLabel": "서빙 모델명",
+    "endpointModelHint": "요청에 보낼 모델 id(엔드포인트의 서빙 모델명). 아래에서 토크나이저를 지정하지 않으면 이 값이 토크나이저로도 쓰입니다.",
+    "endpointPerfOnly": "엔드포인트 URL 벤치는 성능 도구만 지원합니다. 도구를 vLLM 또는 SGLang으로 바꾸세요.",
+    "errorBaseUrlRequired": "엔드포인트 base URL과 서빙 모델명을 입력하세요."
   },
   "benchmarkSweeps": {
     "listTitle": "스윕",

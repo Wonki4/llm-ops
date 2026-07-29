@@ -527,10 +527,14 @@ export interface ServingResources {
 
 /** Frozen serving config captured on a benchmark run (the deployment it tested). */
 export interface ServingSnapshot {
-  /** Present ("external") only for runs cloned from an externally-discovered
-   * serving instance; absent for portal-managed deployments. */
-  source?: "external";
-  image: string;
+  /** "external" for runs cloned from an externally-discovered serving,
+   * "endpoint" for a raw base-URL target; absent for portal-managed
+   * deployments. */
+  source?: "external" | "endpoint";
+  /** The base URL benchmarked, for "endpoint" snapshots. */
+  base_url?: string;
+  /** Absent for "endpoint" snapshots (no portal-managed serving image). */
+  image?: string;
   model_path: string;
   vllm_extra_args: string[];
   env: Record<string, string>;
@@ -585,6 +589,7 @@ export interface CreateBenchmarkRequest {
     namespace: string;
     deployment_name: string;
   } | null;
+  base_url?: string;
   tool: BenchmarkTool;
   params: Record<string, unknown>;
   namespace?: string;
