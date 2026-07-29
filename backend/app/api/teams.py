@@ -1144,6 +1144,27 @@ class UpdateTeamSettingsRequest(BaseModel):
     description: str | None = None
 
 
+def _changed_member_budget_kwargs(updates: dict, current: dict) -> dict:
+    """LiteLLM /team/update kwargs for ONLY the member-budget fields whose value
+    actually changed vs ``current`` ({"budget","tpm","rpm"}).
+
+    Returns {} when the member-budget group is unchanged. This is the guard that
+    stops a settings save that isn't touching the member budget (e.g. only the
+    description or TPM changed, while the frontend re-sends every field) from
+    forwarding ``team_member_budget``/tpm/rpm to LiteLLM — which would make it
+    rewrite ``metadata.team_member_budget_id`` and re-upsert the shared default
+    member budget row, releasing the team's default member budget.
+    """
+    kwargs: dict = {}
+    if "default_member_budget" in updates and updates["default_member_budget"] != current["budget"]:
+        kwargs["team_member_budget"] = updates["default_member_budget"]
+    if "default_member_tpm_limit" in updates and updates["default_member_tpm_limit"] != current["tpm"]:
+        kwargs["team_member_tpm_limit"] = updates["default_member_tpm_limit"]
+    if "default_member_rpm_limit" in updates and updates["default_member_rpm_limit"] != current["rpm"]:
+        kwargs["team_member_rpm_limit"] = updates["default_member_rpm_limit"]
+    return kwargs
+
+
 @router.put("/{team_id}/settings")
 async def update_team_settings(
     team_id: str,
@@ -1161,17 +1182,18 @@ async def update_team_settings(
         return {"status": "unchanged"}
 
     # Default member budget + per-member TPM/RPM all live on the team's shared
-    # default member budget row (team_member scope). Send them together via
-    # /team/update so LiteLLM writes them onto that one budget row; they then
-    # apply per-member (across all of a member's keys) to everyone without a
-    # dedicated override budget.
-    member_budget_kwargs: dict = {}
-    if "default_member_budget" in updates:
-        member_budget_kwargs["team_member_budget"] = updates["default_member_budget"]
-    if "default_member_tpm_limit" in updates:
-        member_budget_kwargs["team_member_tpm_limit"] = updates["default_member_tpm_limit"]
-    if "default_member_rpm_limit" in updates:
-        member_budget_kwargs["team_member_rpm_limit"] = updates["default_member_rpm_limit"]
+    # default member budget row (team_member scope, keyed off
+    # metadata.team_member_budget_id); they apply per-member (across all of a
+    # member's keys) to everyone without a dedicated override budget.
+    #
+    # Forward ONLY the member-budget fields that actually changed. The frontend
+    # re-sends every field on each save, so without this diff a save that doesn't
+    # touch the member budget (e.g. only the description or TPM changed) would
+    # still push team_member_budget to /team/update, making LiteLLM rewrite
+    # metadata.team_member_budget_id and re-upsert the shared budget row —
+    # releasing the team's default member budget.
+    current_member_limits = await _get_default_member_limits(litellm_db, team_id)
+    member_budget_kwargs = _changed_member_budget_kwargs(updates, current_member_limits)
     if member_budget_kwargs:
         await litellm.update_team(team_id, **member_budget_kwargs)
 
