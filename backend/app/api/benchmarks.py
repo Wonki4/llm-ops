@@ -131,6 +131,12 @@ class CreateBenchmarkRequest(BaseModel):
         description="Benchmark a discovered external serving by cloning its live spec "
         "(ephemeral; performance tools only). Mutually exclusive with deployment_id/ephemeral.",
     )
+    base_url: str | None = Field(
+        None,
+        description="Benchmark an already-running OpenAI-compatible endpoint at this base "
+        "URL — one bench Job hits it directly, no serving is provisioned (performance only). "
+        "Requires model_name; mutually exclusive with deployment_id/ephemeral/external_target.",
+    )
     tool: str = Field(..., description="vllm_serving | sglang_serving | lm_eval")
     params: dict = Field(default_factory=dict, description="Tool-specific args, stored verbatim")
     cluster_id: str | None = Field(
@@ -338,6 +344,86 @@ async def create_benchmark(
             detail="nfs_server, nfs_path and nfs_mount_path must be set together",
         )
     k8s = await k8s_for_cluster(db, cluster_uuid)
+
+    # Endpoint-URL mode: benchmark an already-running OpenAI-compatible endpoint
+    # at a user-supplied base URL. No serving is provisioned — a single bench Job
+    # hits the URL directly. Performance tools only (uses `vllm bench serve`).
+    if body.base_url:
+        if kind != "performance":
+            raise HTTPException(
+                status_code=400, detail="base_url supports performance benchmarks only"
+            )
+        if body.deployment_id or body.ephemeral or body.external_target:
+            raise HTTPException(
+                status_code=400,
+                detail="base_url is mutually exclusive with deployment_id/ephemeral/external_target",
+            )
+        if not body.model_name:
+            raise HTTPException(
+                status_code=400, detail="model_name is required for an endpoint URL benchmark"
+            )
+        base_url = body.base_url.strip()
+        if not base_url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="base_url must be an http:// or https:// URL")
+        run = CustomBenchmarkRun(
+            id=uuid.uuid4(),
+            model_name=body.model_name,
+            tool=body.tool,
+            kind=kind,
+            params=body.params,
+            label=(body.label or "").strip() or None,
+            note=(body.note or "").strip() or None,
+            status="pending",
+            cluster_id=cluster_uuid,
+            k8s_namespace=namespace,
+            deployment_id=None,
+            bench_image=body.image or settings.vllm_bench_image,
+            serving_snapshot={
+                "source": "endpoint",
+                "engine": "endpoint",
+                "base_url": base_url,
+                "model_path": body.model_name,
+                # No portal-managed serving — keep the shape the run detail /
+                # compare views expect (they read these without guards).
+                "vllm_extra_args": [],
+                "env": {},
+            },
+            created_by=user.user_id,
+        )
+        run.k8s_job_name = job_name_for(run.id)
+        db.add(run)
+        await db.flush()
+        await db.refresh(run)
+
+        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(db, cluster_uuid)
+        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
+            body.params,
+            default_server=cl_nfs_server,
+            default_path=cl_nfs_path,
+            default_mount_path=cl_nfs_mount,
+        )
+        manifest = build_vllm_bench_job(
+            run,
+            image=run.bench_image,
+            target_base_url=base_url.rstrip("/"),
+            api_key=body.api_key or "",
+            served_model=body.model_name,
+            tokenizer=body.params.get("tokenizer") or body.model_name,
+            nfs_server=nfs_server,
+            nfs_path=nfs_path,
+            nfs_mount_path=nfs_mount,
+        )
+        try:
+            await k8s.create_job(namespace, manifest)
+        except K8sNotConfigured as e:
+            raise HTTPException(status_code=503, detail=str(e))
+        except Exception as e:
+            logger.exception("Endpoint bench Job create failed for benchmark %s", run.id)
+            run.status = "failed"
+            run.error_message = f"Benchmark Job create failed: {e}"
+            await db.flush()
+            raise HTTPException(status_code=502, detail="Failed to create the benchmark Job; check logs")
+        return _serialize(run)
 
     # External-target mode: clone a serving discovered outside the portal (not
     # a portal-managed deployment) from its live K8s spec into a throwaway
@@ -645,7 +731,38 @@ async def preview_benchmark(
     run.k8s_job_name = job_name_for(run.id)
     manifests: list[dict] = []
 
-    if body.external_target:
+    if body.base_url:
+        base_url = body.base_url.strip()
+        if kind != "performance":
+            return {"manifests": [], "note": "base_url_performance_only"}
+        if not base_url.startswith(("http://", "https://")):
+            return {"manifests": [], "note": "invalid_base_url"}
+        if not body.model_name:
+            return {"manifests": [], "note": "target_required"}
+        run.model_name = body.model_name
+        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(
+            db, uuid.UUID(body.cluster_id) if body.cluster_id else None
+        )
+        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
+            body.params,
+            default_server=cl_nfs_server,
+            default_path=cl_nfs_path,
+            default_mount_path=cl_nfs_mount,
+        )
+        manifests.append(
+            build_vllm_bench_job(
+                run,
+                image=body.image or settings.vllm_bench_image,
+                target_base_url=base_url.rstrip("/"),
+                api_key="<redacted>",
+                served_model=body.model_name,
+                tokenizer=body.params.get("tokenizer") or body.model_name,
+                nfs_server=nfs_server,
+                nfs_path=nfs_path,
+                nfs_mount_path=nfs_mount,
+            )
+        )
+    elif body.external_target:
         if kind != "performance":
             raise HTTPException(status_code=400, detail="external_target supports performance benchmarks only")
         ext = body.external_target

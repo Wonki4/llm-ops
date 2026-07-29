@@ -173,7 +173,7 @@ export default function AdminBenchmarkDetailPage({
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             <Row label="Engine" value={run.serving_snapshot.engine ?? "-"} />
-            <Row label="Image" value={run.serving_snapshot.image} mono />
+            <Row label="Image" value={run.serving_snapshot.image ?? "-"} mono />
             <Row label="Model" value={run.serving_snapshot.model_path} mono />
             <Row
               label="GPU"

@@ -85,6 +85,28 @@ def test_goodput_param_emits_space_separated_pairs():
     assert "--goodput ttft:200 tpot:50" in _script(m)
 
 
+def test_editable_workload_values_become_flags_without_duplicates():
+    """Workload knobs (input/output len, num_prompts, max_concurrency) are
+    first-class param values — each appears exactly once in the argv, so an
+    edited value can never collide with a preset default (the form's old
+    append-flags override produced a duplicate `--random-input-len`)."""
+    m = build_vllm_bench_job(
+        _run(params={
+            "random_input_len": 2048,
+            "random_output_len": 512,
+            "num_prompts": 50,
+            "max_concurrency": 16,
+        }),
+        image="img", target_base_url="http://t", api_key="", served_model="m",
+    )
+    script = _script(m)
+    assert "--random-input-len 2048" in script
+    assert script.count("--random-input-len") == 1
+    assert "--random-output-len 512" in script
+    assert "--num-prompts 50" in script
+    assert "--max-concurrency 16" in script
+
+
 def test_preset_and_external_source_are_not_emitted_as_cli_flags():
     """`preset` (performance runs) and `external_source` (external-clone runs)
     are portal bookkeeping keys stored on the run, never `vllm bench serve`
