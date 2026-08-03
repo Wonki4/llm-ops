@@ -19,9 +19,9 @@ An MCP server, mounted in the portal backend, exposing two tools that let a call
 
 ## Architecture
 
-- A new MCP server mounted into the portal FastAPI app, exposed over **streamable HTTP**, at a portal route (e.g. `POST /mcp` — exact path decided in the plan).
-- **Transport implementation:** prefer the official MCP Python SDK's streamable-HTTP server mounted as an ASGI sub-app. Adding the `mcp` pip package is baked into the portal image (not a runtime/CDN fetch), so it is air-gap safe. If we want zero new dependencies, the fallback is a minimal hand-rolled JSON-RPC endpoint implementing `initialize` / `tools/list` / `tools/call` — decided in the plan.
-- Reuses existing portal helpers and DB sessions (`get_litellm_db`, `get_db`); runs in-process with no external calls beyond the portal's own databases.
+- A **standalone service** at top-level `mcp/` (mirrors `gateway/`: own `app/`, `Dockerfile`, `pyproject.toml`, `tests/`), separate from the backend process. Wired into `docker-compose.yml` as the `mcp` service.
+- Official **MCP Python SDK 2.0** (`MCPServer`) over **streamable HTTP** (`MCPServer.streamable_http_app()`, endpoint `/mcp`), served by uvicorn; a `/health` route mirrors the other services. DNS-rebinding host protection is disabled (an internal, key-authenticated service, not a browser-localhost target).
+- Connects directly to the same Postgres DBs (portal + LiteLLM) with its own async engines; no imports from `backend/` and no external calls beyond the databases (air-gap safe — the `mcp` pip package is baked into the image, not fetched at runtime).
 
 ## Authentication & identity
 
