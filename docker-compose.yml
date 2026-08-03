@@ -176,6 +176,30 @@ services:
       start_period: 15s
 
   # ═══════════════════════════════════════════
+  # Budget/Usage MCP (self-service; separate from the backend)
+  # ═══════════════════════════════════════════
+  mcp:
+    build:
+      context: ./mcp
+    container_name: litellm_mcp
+    ports:
+      - "8005:8000"
+    environment:
+      APP_DATABASE_URL: "postgresql+asyncpg://${PORTAL_DB_USER:-llmproxy}:${PORTAL_DB_PASSWORD:-dbpassword9090}@${PORTAL_DB_HOST:-db}:5432/${PORTAL_DB_NAME:-litellm_portal}"
+      APP_LITELLM_DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-llmproxy}:${POSTGRES_PASSWORD:-dbpassword9090}@db:5432/${POSTGRES_DB:-litellm}"
+      # MUST match the backend's key signing secret (keys.py _KEY_JWT_SECRET).
+      APP_KEY_JWT_SECRET: "${APP_KEY_JWT_SECRET:-litellm-portal-key-sign}"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ═══════════════════════════════════════════
   # Frontend (Next.js)
   # ═══════════════════════════════════════════
   frontend:
