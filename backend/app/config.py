@@ -62,12 +62,13 @@ class Settings(BaseSettings):
     # llm-d stack (ArgoCD-deployed). Air-gap: internal chart repo + image registry.
     # Isolation: every Application is scoped to a dedicated AppProject so it can
     # never affect other projects' apps.
-    # gateway-api-inference-extension "standalone" chart = the EPP / inference
-    # scheduler (prefix-cache-aware router). Air-gap: mirror the chart + EPP image
-    # to an internal registry and override these.
-    llmd_chart_repo: str = "oci://registry.k8s.io/gateway-api-inference-extension/charts"
-    llmd_chart_name: str = "standalone"
-    llmd_chart_version: str = "v1.5.0"
+    # llm-d-router "standalone" chart = the EPP router (Envoy sidecar + cache-aware
+    # scorers), using the router.* values schema. Air-gap: mirror the chart + EPP
+    # image to an internal registry and override these. The repoURL's oci:// scheme
+    # is stripped for ArgoCD 3.x by build_argo_application.
+    llmd_chart_repo: str = "oci://ghcr.io/llm-d/charts"
+    llmd_chart_name: str = "llm-d-router-standalone"
+    llmd_chart_version: str = "v0.9.0"
     llmd_image_registry: str = "registry.k8s.io"
     # llm-d router EPP image — GIE EPP extended with llm-d's routing intelligence.
     # Lives on ghcr.io (NOT the GIE registry.k8s.io). Air-gap: mirror + override all three.

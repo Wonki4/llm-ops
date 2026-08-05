@@ -30,9 +30,9 @@ def _stack(**kw):
 
 def test_llmd_settings_target_standalone_chart():
     assert settings.argo_project == "llm-d"
-    assert settings.llmd_chart_name == "standalone"
-    assert settings.llmd_chart_version == "v1.5.0"
-    assert "gateway-api-inference-extension" in settings.llmd_chart_repo
+    assert settings.llmd_chart_name == "llm-d-router-standalone"
+    assert settings.llmd_chart_version == "v0.9.0"
+    assert "llm-d" in settings.llmd_chart_repo
     # Real llm-d EPP image, on ghcr.io (overridable for air-gap).
     assert settings.llmd_epp_image_registry == "ghcr.io"
     assert settings.llmd_epp_image_repository == "llm-d/llm-d-router-endpoint-picker"
@@ -57,7 +57,7 @@ def test_build_values_merges_epp_image_base_under_helm_values():
         epp_repository="llm-d/llm-d-router-endpoint-picker",
         epp_tag="v0.8.1",
     )
-    assert v["inferenceExtension"]["image"] == {
+    assert v["router"]["epp"]["image"] == {
         "registry": "reg.local",
         "repository": "llm-d/llm-d-router-endpoint-picker",
         "tag": "v0.8.1",
@@ -68,7 +68,7 @@ def test_build_values_user_helm_values_win_over_base():
     v = build_llmd_values(
         _stack(
             helm_values={
-                "inferenceExtension": {"image": {"tag": "custom"}},
+                "router": {"epp": {"image": {"tag": "custom"}}},
                 "tracing": {"enabled": True},
             }
         ),
@@ -76,7 +76,7 @@ def test_build_values_user_helm_values_win_over_base():
         epp_repository="llm-d/llm-d-router-endpoint-picker",
         epp_tag="v0.8.1",
     )
-    img = v["inferenceExtension"]["image"]
+    img = v["router"]["epp"]["image"]
     assert img["registry"] == "reg.local"
     assert img["repository"] == "llm-d/llm-d-router-endpoint-picker"
     assert img["tag"] == "custom"  # user wins
@@ -104,7 +104,7 @@ def test_build_values_stack_epp_override_wins_over_baked_helm_values():
         epp_repository="llm-d/llm-d-router-endpoint-picker",
         epp_tag="v0.9.0-airgap",
     )
-    assert v["inferenceExtension"]["image"] == {
+    assert v["router"]["epp"]["image"] == {
         "registry": "mirror.internal",
         "repository": "llm-d/llm-d-router-endpoint-picker",
         "tag": "v0.9.0-airgap",
@@ -118,23 +118,21 @@ def test_default_values_is_real_router_template():
         epp_repository="llm-d/llm-d-router-endpoint-picker",
         epp_tag="v0.8.1",
     )
-    ie = v["inferenceExtension"]
+    router = v["router"]
     # llm-d EPP image (not vanilla GIE)
-    assert ie["image"] == {
+    assert router["epp"]["image"] == {
         "registry": "reg.local",
         "repository": "llm-d/llm-d-router-endpoint-picker",
         "tag": "v0.8.1",
     }
-    # Target existing model servers; don't create an InferencePool
-    es = ie["endpointsServer"]
-    assert es["createInferencePool"] is False
-    assert es["endpointSelector"] == "llm-ops/model-name=opt-125m"
-    assert es["targetPorts"] == 8000
-    assert es["modelServerType"] == "vllm"
-    # A1: sidecar + scorers come from the chart defaults — these values keys do
-    # NOT exist in the GIE standalone chart, so we must not emit them.
-    assert "proxy" not in ie
-    assert "plugins" not in ie
+    # Target existing model servers via matchLabels; don't create an InferencePool
+    ms = router["modelServers"]
+    assert router["inferencePool"]["create"] is False
+    assert ms["matchLabels"] == {"llm-ops/model-name": "opt-125m"}
+    assert ms["targetPorts"] == [{"number": 8000}]
+    assert ms["type"] == "vllm"
+    # The Envoy sidecar + scorers come from chart defaults — we don't emit proxy.
+    assert "proxy" not in router
 
 
 def test_default_values_blank_model_yields_empty_selector():
@@ -144,7 +142,7 @@ def test_default_values_blank_model_yields_empty_selector():
         epp_repository="llm-d/llm-d-router-endpoint-picker",
         epp_tag="v0.8.1",
     )
-    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == ""
+    assert v["router"]["modelServers"]["matchLabels"] == {}
 
 
 def test_build_application_is_isolated_to_project_and_namespace():
@@ -166,7 +164,7 @@ def test_build_application_is_isolated_to_project_and_namespace():
     assert app["metadata"]["namespace"] == "argocd"
     assert app["metadata"]["labels"]["app.kubernetes.io/managed-by"] == MANAGED_BY
     src = app["spec"]["source"]
-    assert src["repoURL"] == "oci://reg.local/charts"
+    assert src["repoURL"] == "reg.local/charts"  # oci:// stripped for ArgoCD 3.x
     assert src["chart"] == "llm-d-stack"
     assert src["targetRevision"] == "0.7.0"
     assert src["helm"]["valuesObject"] == {"replicas": 2}
@@ -178,12 +176,12 @@ def test_default_values_uses_explicit_endpoint_selector():
         "qwen", epp_registry="r", epp_repository="repo", epp_tag="t",
         endpoint_selector="app=my-vllm",
     )
-    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == "app=my-vllm"
+    assert v["router"]["modelServers"]["matchLabels"] == {"app": "my-vllm"}
 
 
 def test_default_values_falls_back_to_model_label():
     v = default_llmd_values("qwen", epp_registry="r", epp_repository="repo", epp_tag="t")
-    assert v["inferenceExtension"]["endpointsServer"]["endpointSelector"] == "llm-ops/model-name=qwen"
+    assert v["router"]["modelServers"]["matchLabels"] == {"llm-ops/model-name": "qwen"}
 
 
 def test_application_destination_server_configurable():

@@ -104,7 +104,7 @@ def test_application_uses_stack_chart_override_when_set():
     stack = _stack(chart_repo="oci://mirror.internal/charts", chart_name="llmd", chart_version="1.2.3")
     app = _application_for(stack, "argocd", "https://kubernetes.default.svc")
     src = app["spec"]["source"]
-    assert src["repoURL"] == "oci://mirror.internal/charts"
+    assert src["repoURL"] == "mirror.internal/charts"  # oci:// stripped for ArgoCD 3.x
     assert src["chart"] == "llmd"
     assert src["targetRevision"] == "1.2.3"
 
@@ -114,21 +114,21 @@ def test_application_falls_back_to_settings_when_override_null():
 
     app = _application_for(_stack(), "argocd", "https://kubernetes.default.svc")
     src = app["spec"]["source"]
-    assert src["repoURL"] == settings.llmd_chart_repo
+    assert src["repoURL"] == settings.llmd_chart_repo.removeprefix("oci://")
     assert src["chart"] == settings.llmd_chart_name
     assert src["targetRevision"] == settings.llmd_chart_version
 
 
 def test_values_use_stack_epp_override_when_set():
     stack = _stack(epp_registry="mirror.internal", epp_repository="llm-d/epp", epp_tag="v9")
-    img = _values_for(stack)["inferenceExtension"]["image"]
+    img = _values_for(stack)["router"]["epp"]["image"]
     assert img == {"registry": "mirror.internal", "repository": "llm-d/epp", "tag": "v9"}
 
 
 def test_values_fall_back_to_settings_epp_when_null():
     from app.config import settings
 
-    img = _values_for(_stack())["inferenceExtension"]["image"]
+    img = _values_for(_stack())["router"]["epp"]["image"]
     assert img["registry"] == settings.llmd_epp_image_registry
     assert img["repository"] == settings.llmd_epp_image_repository
     assert img["tag"] == settings.llmd_epp_image_tag

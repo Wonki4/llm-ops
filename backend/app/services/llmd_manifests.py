@@ -37,6 +37,23 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def selector_to_match_labels(selector: str) -> dict:
+    """Parse an equality label selector (``"k=v,k2=v2"``) into a matchLabels map.
+
+    The llm-d-router chart's ``router.modelServers.matchLabels`` is equality-only,
+    so non-equality terms (``!=``, set-based) are dropped. Empty/blank → ``{}``.
+    """
+    labels: dict[str, str] = {}
+    for term in (selector or "").split(","):
+        term = term.strip()
+        if "=" in term and "!=" not in term:
+            key, val = term.split("=", 1)
+            key = key.strip()
+            if key:
+                labels[key] = val.strip()
+    return labels
+
+
 def default_llmd_values(
     target_model_name: str,
     *,
@@ -45,27 +62,32 @@ def default_llmd_values(
     epp_tag: str,
     endpoint_selector: str | None = None,
 ) -> dict:
-    """The starter ``values.yaml`` for a new stack: the llm-d **standalone router**.
+    """The starter ``values.yaml`` for a new stack: the llm-d **standalone router**
+    (``llm-d-router-standalone`` chart, ``router.*`` values schema).
 
-    The GIE ``standalone`` chart already co-locates an Envoy sidecar with the EPP
-    and ships cache-aware scorers (queue / kv-cache / prefix-cache) in its default
-    EndpointPickerConfig. To get the *llm-d* router we only swap the EPP image to
-    llm-d's (GIE EPP extended with llm-d's routing intelligence); the sidecar and
-    scorers come from chart defaults. The router fronts already-running model
-    servers selected by ``endpointSelector`` on ``targetPorts`` (no InferencePool,
-    no Gateway API provider). The user edits this freely.
+    The chart co-locates an Envoy sidecar with the EPP and ships cache-aware
+    scorers in its defaults. We only pin the EPP image (llm-d's router
+    endpoint-picker) and point the router at already-running model servers via
+    ``router.modelServers.matchLabels`` with the InferencePool disabled; the
+    sidecar/scorers come from chart defaults. The user edits this freely.
+
+    (Superseded the older GIE ``standalone`` ``inferenceExtension.*`` schema when
+    the chart lineage moved to ``llm-d-router-standalone``, which hard-fails on
+    the deprecated top-level ``inferenceExtension`` key.)
     """
     selector = endpoint_selector or (f"{LABEL_MODEL}={target_model_name}" if target_model_name else "")
     return {
-        "inferenceExtension": {
-            "replicas": 1,
-            "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
-            "endpointsServer": {
-                "createInferencePool": False,
-                "endpointSelector": selector,
-                "targetPorts": 8000,
-                "modelServerType": "vllm",
+        "router": {
+            "epp": {
+                "replicas": 1,
+                "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
             },
+            "modelServers": {
+                "type": "vllm",
+                "targetPorts": [{"number": 8000}],
+                "matchLabels": selector_to_match_labels(selector),
+            },
+            "inferencePool": {"create": False},
         },
     }
 
@@ -81,9 +103,9 @@ def build_llmd_values(
     without this the override fields could never take effect.
     """
     image = {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag}
-    out = deep_merge({"inferenceExtension": {"image": image}}, stack.helm_values or {})
+    out = deep_merge({"router": {"epp": {"image": image}}}, stack.helm_values or {})
     if stack.epp_registry or stack.epp_repository or stack.epp_tag:
-        out = deep_merge(out, {"inferenceExtension": {"image": image}})
+        out = deep_merge(out, {"router": {"epp": {"image": image}}})
     return out
 
 
@@ -115,7 +137,10 @@ def build_argo_application(
         "spec": {
             "project": project,
             "source": {
-                "repoURL": chart_repo,
+                # ArgoCD 3.x reads an oci:// repoURL as a native OCI artifact and
+                # drops the Helm `chart` field (→ chart not found). Helm-over-OCI
+                # wants the bare registry path with `chart` set separately.
+                "repoURL": chart_repo.removeprefix("oci://"),
                 "chart": chart_name,
                 "targetRevision": chart_version,
                 "helm": {"valuesObject": values},
