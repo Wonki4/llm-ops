@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     llmd_epp_image_registry: str = "ghcr.io"
     llmd_epp_image_repository: str = "llm-d/llm-d-router-endpoint-picker"
     llmd_epp_image_tag: str = "v0.9.0"
+    # llm-d router Ingress. The portal always creates one Ingress per stack and
+    # manages its lifecycle directly (not via ArgoCD). Air-gap/ops override
+    # these globally; there are no per-stack ingress fields.
+    llmd_ingress_class: str = ""  # APP_LLMD_INGRESS_CLASS; empty -> cluster's default IngressClass
+    # APP_LLMD_INGRESS_DOMAIN; host = "{argo_app_name}.{domain}". Enforced non-empty
+    # via effective_ingress_domain so multi-stack hosts never collide.
+    llmd_ingress_domain: str = "llm-d.local"
+    llmd_ingress_path: str = "/"  # APP_LLMD_INGRESS_PATH; pathType Prefix
     argo_project: str = "llm-d"
     argocd_namespace: str = "argocd"  # ArgoCD control-plane ns for null-cluster stacks
 
@@ -87,6 +95,11 @@ class Settings(BaseSettings):
     @property
     def keycloak_issuer(self) -> str:
         return f"{self.keycloak_base_url}/realms/{self.keycloak_realm}"
+
+    @property
+    def effective_ingress_domain(self) -> str:
+        """The llm-d ingress domain, enforced non-empty (blank -> default)."""
+        return self.llmd_ingress_domain.strip() or "llm-d.local"
 
     @property
     def keycloak_internal_base(self) -> str:
