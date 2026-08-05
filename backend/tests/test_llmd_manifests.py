@@ -6,9 +6,11 @@ from app.services.llmd_manifests import (
     MANAGED_BY,
     argo_app_name_for,
     build_argo_application,
+    build_llmd_ingress,
     build_llmd_values,
     deep_merge,
     default_llmd_values,
+    llmd_service_name,
 )
 
 
@@ -167,6 +169,7 @@ def test_build_application_is_isolated_to_project_and_namespace():
     assert src["repoURL"] == "reg.local/charts"  # oci:// stripped for ArgoCD 3.x
     assert src["chart"] == "llm-d-stack"
     assert src["targetRevision"] == "0.7.0"
+    assert src["helm"]["releaseName"] == "llmd-my-stack"
     assert src["helm"]["valuesObject"] == {"replicas": 2}
     assert app["spec"]["syncPolicy"]["automated"] == {"prune": True, "selfHeal": True}
 
@@ -200,3 +203,41 @@ def test_application_destination_server_configurable():
         "server": "https://10.0.0.9:6443",
         "namespace": stack.namespace,
     }
+
+
+def test_llmd_service_name_is_release_epp():
+    assert llmd_service_name(_stack()) == "llmd-my-stack-epp"
+
+
+def test_build_ingress_shape_and_backend():
+    ing = build_llmd_ingress(
+        _stack(), ingress_class="nginx", ingress_domain="ai.corp.internal", ingress_path="/"
+    )
+    assert ing["apiVersion"] == "networking.k8s.io/v1"
+    assert ing["kind"] == "Ingress"
+    assert ing["metadata"]["name"] == "llmd-my-stack-ingress"
+    assert ing["metadata"]["namespace"] == "llmd-my-stack"
+    assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "litellm-portal"
+    rule = ing["spec"]["rules"][0]
+    assert rule["host"] == "llmd-my-stack.ai.corp.internal"
+    path = rule["http"]["paths"][0]
+    assert path["path"] == "/"
+    assert path["pathType"] == "Prefix"
+    assert path["backend"]["service"]["name"] == "llmd-my-stack-epp"
+    assert path["backend"]["service"]["port"] == {"name": "http"}
+    assert ing["spec"]["ingressClassName"] == "nginx"
+
+
+def test_build_ingress_omits_class_when_empty():
+    ing = build_llmd_ingress(
+        _stack(), ingress_class="", ingress_domain="llm-d.local", ingress_path="/"
+    )
+    assert "ingressClassName" not in ing["spec"]
+    assert ing["spec"]["rules"][0]["host"] == "llmd-my-stack.llm-d.local"
+
+
+def test_build_ingress_respects_path():
+    ing = build_llmd_ingress(
+        _stack(), ingress_class="nginx", ingress_domain="llm-d.local", ingress_path="/router"
+    )
+    assert ing["spec"]["rules"][0]["http"]["paths"][0]["path"] == "/router"

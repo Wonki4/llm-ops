@@ -54,6 +54,64 @@ def selector_to_match_labels(selector: str) -> dict:
     return labels
 
 
+def llmd_service_name(stack: CustomLlmdStack) -> str:
+    """The router's entry Service in sidecar mode: ``<release>-epp``.
+
+    ArgoCD's Helm release name is the Application name (``argo_app_name``), which
+    build_argo_application pins explicitly, so this name is deterministic.
+    """
+    return f"{stack.argo_app_name}-epp"
+
+
+def build_llmd_ingress(
+    stack: CustomLlmdStack,
+    *,
+    ingress_class: str,
+    ingress_domain: str,
+    ingress_path: str,
+) -> dict:
+    """An Ingress fronting the llm-d router's Envoy entry Service.
+
+    Backend: Service ``{argo_app_name}-epp`` port name ``http`` (chart sidecar
+    entry, 8081). Host is always ``{argo_app_name}.{ingress_domain}`` so multiple
+    stacks never collide. ``ingress_class`` empty omits ``ingressClassName`` (the
+    cluster's default IngressClass is used). Managed by the portal, not ArgoCD.
+    """
+    spec: dict = {
+        "rules": [
+            {
+                "host": f"{stack.argo_app_name}.{ingress_domain}",
+                "http": {
+                    "paths": [
+                        {
+                            "path": ingress_path,
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": llmd_service_name(stack),
+                                    "port": {"name": "http"},
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    if ingress_class:
+        spec["ingressClassName"] = ingress_class
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "Ingress",
+        "metadata": {
+            "name": f"{stack.argo_app_name}-ingress",
+            "namespace": stack.namespace,
+            "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
+        },
+        "spec": spec,
+    }
+
+
 def default_llmd_values(
     target_model_name: str,
     *,
@@ -143,7 +201,7 @@ def build_argo_application(
                 "repoURL": chart_repo.removeprefix("oci://"),
                 "chart": chart_name,
                 "targetRevision": chart_version,
-                "helm": {"valuesObject": values},
+                "helm": {"releaseName": stack.argo_app_name, "valuesObject": values},
             },
             "destination": {"server": destination_server, "namespace": stack.namespace},
             "syncPolicy": {
