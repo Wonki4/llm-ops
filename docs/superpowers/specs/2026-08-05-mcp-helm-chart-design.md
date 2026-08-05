@@ -48,11 +48,13 @@ platform. Deployment configuration only — no change to the MCP application cod
    `containerPort: 8000`. Every other service in this chart has
    `service.port == targetPort`; the MCP follows suit. In-cluster URL:
    `http://{fullname}-mcp:8000/mcp`.
-2. **Ingress entry included but gated** — an `ingress.mcp` block, rendered only
-   when `ingress.enabled` (master, default `false`) **and** `ingress.mcp.enabled`
-   are true, mirroring `backend`/`frontend`. The MCP is a self-service endpoint
-   users reach with their own `sk-` key, so external exposure is a first-class
-   (opt-in) option.
+2. **Ingress entry included but off by default** — an `ingress.mcp` block,
+   rendered only when `ingress.enabled` (master, default `false`) **and**
+   `ingress.mcp.enabled` are true. Unlike `frontend`/`backend` (which default
+   their ingress on), `ingress.mcp.enabled` defaults **false**: the MCP is a
+   sensitive authenticated endpoint, so enabling the platform ingress must not
+   silently expose it. External exposure is an explicit opt-in; the MCP is
+   always reachable in-cluster via its Service.
 3. **Env kept as plaintext `values`** — the chart's existing convention (backend
    env lives in `values`, not a `Secret`); the MCP follows it. No new `Secret`
    resource in this iteration.
@@ -237,7 +239,10 @@ mcp:
 ```yaml
   # under ingress:, alongside frontend/backend
   mcp:
-    enabled: true
+    # Off by default (unlike frontend/backend): the MCP is a sensitive
+    # authenticated endpoint, so turning on the platform ingress must not
+    # auto-expose it. In-cluster reachable via its Service regardless.
+    enabled: false
     host: "portal-mcp.example.com"
     path: "/"
     pathType: Prefix
@@ -266,7 +271,8 @@ mcp:
   three `APP_*` env vars (with `APP_DATABASE_URL` defaulting to the shared-DB
   URL when `mcp.env.APP_DATABASE_URL` is blank).
 - `helm template t deploy/helm/litellm-platform --set ingress.enabled=true`
-  additionally renders the MCP Ingress with host `portal-mcp.example.com`,
+  does **not** render the MCP Ingress (off by default); adding
+  `--set ingress.mcp.enabled=true` renders it with host `portal-mcp.example.com`,
   backend Service `{release}-mcp` port `8000`.
 - `helm template t deploy/helm/litellm-platform --set mcp.enabled=false` renders
   no MCP Deployment/Service/Ingress.

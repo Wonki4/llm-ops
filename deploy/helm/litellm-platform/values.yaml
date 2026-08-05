@@ -172,7 +172,10 @@ ingress:
     path: "/"
     pathType: Prefix
   mcp:
-    enabled: true
+    # Off by default: the MCP is a sensitive authenticated endpoint, so enabling
+    # the platform ingress must NOT auto-expose it. Reachable in-cluster via its
+    # Service; set this true to expose it publicly (host below).
+    enabled: false
     host: "portal-mcp.example.com"
     path: "/"
     pathType: Prefix
