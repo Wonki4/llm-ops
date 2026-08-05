@@ -28,10 +28,12 @@ async def test_create_stack_applies_application(client_for_user, super_user, moc
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock()
     fake_k8s.get_application = AsyncMock(return_value=None)
+    fake_target = MagicMock()
+    fake_target.create_or_patch = AsyncMock()
     with patch(
         "app.api.llmd.argocd_placement_for",
         AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ):
+    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "cluster_id": None,
@@ -43,6 +45,15 @@ async def test_create_stack_applies_application(client_for_user, super_user, moc
     assert ns == "argocd"
     assert manifest["metadata"]["namespace"] == "argocd"
     assert manifest["metadata"]["name"] == "llmd-demo"
+    # The Ingress is upserted to the target cluster in the stack's namespace.
+    fake_target.create_or_patch.assert_awaited_once()
+    ing_ns, manifests = fake_target.create_or_patch.await_args.args
+    assert ing_ns == "team-a"
+    ing = manifests[0]
+    assert ing["kind"] == "Ingress"
+    assert ing["metadata"]["name"] == "llmd-demo-ingress"
+    assert ing["spec"]["rules"][0]["host"] == "llmd-demo.llm-d.local"
+    assert ing["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] == "llmd-demo-epp"
 
 
 async def test_create_stack_argocd_rbac_denied_502(client_for_user, super_user, mock_db):
@@ -52,7 +63,7 @@ async def test_create_stack_argocd_rbac_denied_502(client_for_user, super_user, 
     with patch(
         "app.api.llmd.argocd_placement_for",
         AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ):
+    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=MagicMock())):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "namespace": "team-a", "values_yaml": "",
@@ -65,10 +76,12 @@ async def test_create_stack_destination_server_from_placement(client_for_user, s
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock()
     fake_k8s.get_application = AsyncMock(return_value=None)
+    fake_target = MagicMock()
+    fake_target.create_or_patch = AsyncMock()
     with patch(
         "app.api.llmd.argocd_placement_for",
         AsyncMock(return_value=(fake_k8s, "argo-central", "https://gpu-cluster:6443")),
-    ):
+    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "cluster_id": None,
@@ -159,3 +172,32 @@ async def test_chart_defaults_endpoint(client_for_user, super_user, mock_db):
     assert body["chart_repo"] == settings.llmd_chart_repo
     assert body["epp_registry"] == settings.llmd_epp_image_registry
     assert body["epp_tag"] == settings.llmd_epp_image_tag
+
+
+def _result_with(stack):
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = stack
+    return r
+
+
+async def test_delete_stack_removes_ingress(client_for_user, super_user, mock_db):
+    stack = _stack(name="demo", namespace="team-a", argo_app_name="llmd-demo", cluster_id=None)
+    mock_db.execute = AsyncMock(return_value=_result_with(stack))
+    fake_k8s = MagicMock()
+    fake_k8s.delete_application = AsyncMock()
+    fake_target = MagicMock()
+    fake_target.delete = AsyncMock()
+    with patch(
+        "app.api.llmd.argocd_placement_for",
+        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+        async with client_for_user(super_user) as client:
+            resp = await client.delete(f"/api/admin/llmd-stacks/{stack.id}")
+    assert resp.status_code == 200
+    fake_k8s.delete_application.assert_awaited_once()
+    fake_target.delete.assert_awaited_once_with("team-a", {"ingress": "llmd-demo-ingress"})
+
+
+def test_serialize_reports_ingress_host():
+    over = _serialize(_stack(argo_app_name="llmd-demo"), {"sync_status": "Synced"})
+    assert over["ingress_host"] == "llmd-demo.llm-d.local"
