@@ -105,3 +105,23 @@ spec:
     app.kubernetes.io/component: prometheus
     {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
 {{- end }}
+{{- if .Values.mcp.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-mcp
+  labels:
+    app.kubernetes.io/component: mcp
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.mcp.service.type }}
+  ports:
+    - port: {{ .Values.mcp.service.port }}
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/component: mcp
+    {{- include "litellm-platform.selectorLabels" . | nindent 4 }}
+{{- end }}

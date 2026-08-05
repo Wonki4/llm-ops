@@ -65,3 +65,36 @@ spec:
                 port:
                   number: {{ .Values.backend.service.port }}
 {{- end }}
+{{- if and .Values.ingress.enabled .Values.mcp.enabled .Values.ingress.mcp.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-mcp
+  labels:
+    app.kubernetes.io/component: mcp
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className | quote }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.mcp.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.mcp.path | quote }}
+            pathType: {{ .Values.ingress.mcp.pathType }}
+            backend:
+              service:
+                name: {{ include "litellm-platform.fullname" . }}-mcp
+                port:
+                  number: {{ .Values.mcp.service.port }}
+{{- end }}
