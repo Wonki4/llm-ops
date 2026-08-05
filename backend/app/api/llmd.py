@@ -23,10 +23,11 @@ from app.config import settings
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.clusters import argocd_placement_for
+from app.services.clusters import argocd_placement_for, k8s_for_cluster
 from app.services.llmd_manifests import (
     argo_app_name_for,
     build_argo_application,
+    build_llmd_ingress,
     build_llmd_values,
     default_llmd_values,
 )
@@ -127,6 +128,15 @@ def _values_for(stack: CustomLlmdStack) -> dict:
     return build_llmd_values(stack, epp_registry=registry, epp_repository=repository, epp_tag=tag)
 
 
+def _ingress_for(stack: CustomLlmdStack) -> dict:
+    return build_llmd_ingress(
+        stack,
+        ingress_class=settings.llmd_ingress_class,
+        ingress_domain=settings.effective_ingress_domain,
+        ingress_path=settings.llmd_ingress_path or "/",
+    )
+
+
 def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
     chart_repo, chart_name, chart_version = _chart_source(stack)
     return build_argo_application(
@@ -180,6 +190,7 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "chart_name": _chart_source(stack)[1],
         "chart_version": _chart_source(stack)[2],
         "epp_image": "{}/{}:{}".format(*_epp_image(stack)),
+        "ingress_host": f"{stack.argo_app_name}.{settings.effective_ingress_domain}",
         "chart_overrides": {
             "chart_repo": stack.chart_repo,
             "chart_name": stack.chart_name,
@@ -320,6 +331,8 @@ async def create_stack(
     try:
         k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
         await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
+        target_k8s = await k8s_for_cluster(db, stack.cluster_id)
+        await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
     except Exception as e:
         logger.exception("ArgoCD Application apply failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD apply failed: {_k8s_error_message(e)}")
@@ -374,6 +387,8 @@ async def update_stack(
     try:
         k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
         await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
+        target_k8s = await k8s_for_cluster(db, stack.cluster_id)
+        await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
     except Exception as e:
         logger.exception("ArgoCD Application update failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD update failed: {_k8s_error_message(e)}")
@@ -399,6 +414,11 @@ async def delete_stack(
     except Exception as e:
         logger.exception("ArgoCD Application delete failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD delete failed: {_k8s_error_message(e)}")
+    try:
+        target_k8s = await k8s_for_cluster(db, stack.cluster_id)
+        await target_k8s.delete(stack.namespace, {"ingress": f"{stack.argo_app_name}-ingress"})
+    except Exception as e:  # noqa: BLE001 — ingress cleanup is best-effort
+        logger.info("llm-d ingress cleanup failed for %s: %s", stack.name, e)
     await db.delete(stack)
     await db.commit()
     return {"ok": True}
