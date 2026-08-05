@@ -111,6 +111,30 @@ def test_build_values_stack_epp_override_wins_over_baked_helm_values():
     }
 
 
+def test_build_values_injects_proxy_image_when_set():
+    v = build_llmd_values(
+        _stack(), epp_registry="r", epp_repository="repo", epp_tag="t",
+        proxy_image="mirror.internal/envoyproxy/envoy:distroless-v1.33.2",
+    )
+    assert v["router"]["proxy"]["image"] == "mirror.internal/envoyproxy/envoy:distroless-v1.33.2"
+
+
+def test_build_values_omits_proxy_when_image_unset():
+    # Opt-in: no proxy_image -> don't emit router.proxy (chart preset image stands,
+    # and switching proxyType keeps that preset's own image).
+    v = build_llmd_values(_stack(), epp_registry="r", epp_repository="repo", epp_tag="t")
+    assert "proxy" not in v["router"]
+
+
+def test_build_values_user_proxy_image_wins_over_config():
+    v = build_llmd_values(
+        _stack(helm_values={"router": {"proxy": {"image": "user/envoy:custom"}}}),
+        epp_registry="r", epp_repository="repo", epp_tag="t",
+        proxy_image="mirror.internal/envoy:base",
+    )
+    assert v["router"]["proxy"]["image"] == "user/envoy:custom"
+
+
 def test_default_values_is_real_router_template():
     v = default_llmd_values(
         "opt-125m",

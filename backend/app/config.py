@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     llmd_epp_image_registry: str = "ghcr.io"
     llmd_epp_image_repository: str = "llm-d/llm-d-router-endpoint-picker"
     llmd_epp_image_tag: str = "v0.9.0"
+    # Air-gap: replace the chart preset's Envoy proxy sidecar image (a full image
+    # ref, e.g. "mirror.internal/envoyproxy/envoy:distroless-v1.33.2"). Empty =
+    # use the chart's preset image (and keep it correct if proxyType changes).
+    llmd_proxy_image: str = ""
     argo_project: str = "llm-d"
     argocd_namespace: str = "argocd"  # ArgoCD control-plane ns for null-cluster stacks
 

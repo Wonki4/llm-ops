@@ -93,7 +93,12 @@ def default_llmd_values(
 
 
 def build_llmd_values(
-    stack: CustomLlmdStack, *, epp_registry: str, epp_repository: str, epp_tag: str
+    stack: CustomLlmdStack,
+    *,
+    epp_registry: str,
+    epp_repository: str,
+    epp_tag: str,
+    proxy_image: str | None = None,
 ) -> dict:
     """The values actually sent to ArgoCD: the user's ``helm_values`` with a thin
     base merged underneath, so the llm-d EPP image defaults apply even if the
@@ -101,9 +106,17 @@ def build_llmd_values(
     explicit per-stack EPP override (the stack's ``epp_*`` columns) wins over
     both: create seeds ``helm_values`` with the image already baked in, so
     without this the override fields could never take effect.
+
+    ``proxy_image`` (a full image ref) replaces the chart preset's Envoy sidecar
+    image for air-gap. It is opt-in — when None the chart's preset image is used
+    (so switching ``router.proxy.proxyType`` keeps that preset's own image). The
+    user's ``helm_values`` still win over it.
     """
     image = {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag}
-    out = deep_merge({"router": {"epp": {"image": image}}}, stack.helm_values or {})
+    base: dict = {"router": {"epp": {"image": image}}}
+    if proxy_image:
+        base["router"]["proxy"] = {"image": proxy_image}
+    out = deep_merge(base, stack.helm_values or {})
     if stack.epp_registry or stack.epp_repository or stack.epp_tag:
         out = deep_merge(out, {"router": {"epp": {"image": image}}})
     return out

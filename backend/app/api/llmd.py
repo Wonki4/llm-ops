@@ -124,7 +124,13 @@ def _epp_image(stack: CustomLlmdStack) -> tuple[str, str, str]:
 
 def _values_for(stack: CustomLlmdStack) -> dict:
     registry, repository, tag = _epp_image(stack)
-    return build_llmd_values(stack, epp_registry=registry, epp_repository=repository, epp_tag=tag)
+    return build_llmd_values(
+        stack,
+        epp_registry=registry,
+        epp_repository=repository,
+        epp_tag=tag,
+        proxy_image=settings.llmd_proxy_image or None,
+    )
 
 
 def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
