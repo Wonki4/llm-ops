@@ -1,0 +1,53 @@
+{{- if .Values.mcp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "litellm-platform.fullname" . }}-mcp
+  labels:
+    app.kubernetes.io/component: mcp
+    {{- include "litellm-platform.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mcp.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: mcp
+      {{- include "litellm-platform.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: mcp
+        {{- include "litellm-platform.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: mcp
+          image: {{ include "litellm-platform.image" (dict "registry" .Values.global.imageRegistry "repository" .Values.mcp.image.repository "tag" .Values.mcp.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.mcp.image.pullPolicy }}
+          ports:
+            - containerPort: 8000
+              protocol: TCP
+          env:
+            - name: APP_DATABASE_URL
+              value: {{ default (printf "postgresql+asyncpg://%s:%s@%s:%s/%s" (include "litellm-platform.databaseUser" .) (include "litellm-platform.databasePassword" .) (include "litellm-platform.databaseHost" .) (include "litellm-platform.databasePort" .) (include "litellm-platform.databaseName" .)) (index .Values.mcp.env "APP_DATABASE_URL") | quote }}
+            - name: APP_LITELLM_DATABASE_URL
+              value: {{ index .Values.mcp.env "APP_LITELLM_DATABASE_URL" | quote }}
+            - name: APP_KEY_JWT_SECRET
+              value: {{ index .Values.mcp.env "APP_KEY_JWT_SECRET" | quote }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.mcp.resources | nindent 12 }}
+{{- end }}

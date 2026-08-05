@@ -58,6 +58,28 @@ backend:
       cpu: 500m
       memory: 512Mi
 
+mcp:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: llm-ops/mcp
+    tag: v0.0.1-rc1
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8000
+  env:
+    APP_DATABASE_URL: ""            # empty -> shared portal DB (same as backend)
+    APP_LITELLM_DATABASE_URL: ""    # empty -> MCP falls back to APP_DATABASE_URL
+    APP_KEY_JWT_SECRET: "litellm-portal-key-sign"  # MUST match backend keys.py
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 worker:
   enabled: true
   replicaCount: 1
@@ -147,5 +169,10 @@ ingress:
   backend:
     enabled: true
     host: "portal-api.example.com"
+    path: "/"
+    pathType: Prefix
+  mcp:
+    enabled: true
+    host: "portal-mcp.example.com"
     path: "/"
     pathType: Prefix
