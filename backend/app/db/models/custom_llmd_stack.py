@@ -44,6 +44,11 @@ class CustomLlmdStack(CustomBase):
     epp_registry: Mapped[str | None] = mapped_column(String(256), nullable=True)
     epp_repository: Mapped[str | None] = mapped_column(String(256), nullable=True)
     epp_tag: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    # Per-stack ingress overrides. NULL = global settings default. ingress_host
+    # is a full host; NULL -> "{argo_app_name}.{effective_ingress_domain}".
+    # ingress_class NULL -> settings.llmd_ingress_class.
+    ingress_host: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    ingress_class: Mapped[str | None] = mapped_column(String(253), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
