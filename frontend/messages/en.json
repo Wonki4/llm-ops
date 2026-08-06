@@ -1317,6 +1317,12 @@
     "eppRegistry": "EPP image registry",
     "eppRepository": "EPP image repository",
     "eppTag": "EPP image tag",
+    "ingressOverrideTitle": "Ingress (host / class)",
+    "ingressOverrideHint": "Override the ingress host and class for this stack. Leave blank to use the global defaults.",
+    "ingressHostLabel": "Ingress host",
+    "ingressHostHint": "Full host for the router ingress. Blank uses the [name].[global-domain] default.",
+    "ingressClassLabel": "Ingress class",
+    "ingressClassHint": "IngressClass name. Blank = global default (or the cluster's default IngressClass).",
     "liveErrorTitle": "Couldn't read live state from ArgoCD",
     "noResourcesError": "Live state unavailable — see the warning above."
   },

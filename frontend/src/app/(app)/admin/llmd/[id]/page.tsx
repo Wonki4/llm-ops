@@ -28,6 +28,7 @@ type EditState = {
   values_yaml: string;
   chart_repo: string; chart_name: string; chart_version: string;
   epp_registry: string; epp_repository: string; epp_tag: string;
+  ingress_host: string; ingress_class: string;
 };
 
 function Field({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
@@ -99,6 +100,8 @@ export default function LlmdDetailPage() {
       epp_registry: stack.chart_overrides.epp_registry ?? "",
       epp_repository: stack.chart_overrides.epp_repository ?? "",
       epp_tag: stack.chart_overrides.epp_tag ?? "",
+      ingress_host: stack.ingress_overrides.ingress_host ?? "",
+      ingress_class: stack.ingress_overrides.ingress_class ?? "",
     });
     setEditing(true);
   };
@@ -119,6 +122,8 @@ export default function LlmdDetailPage() {
           epp_registry: overrideOrNull(form.epp_registry, chartDefaults?.epp_registry),
           epp_repository: overrideOrNull(form.epp_repository, chartDefaults?.epp_repository),
           epp_tag: overrideOrNull(form.epp_tag, chartDefaults?.epp_tag),
+          ingress_host: form.ingress_host.trim() || null,
+          ingress_class: overrideOrNull(form.ingress_class, chartDefaults?.ingress_class),
         },
       },
       {
@@ -207,6 +212,8 @@ export default function LlmdDetailPage() {
             <Field label={t("chart")} mono>{stack.chart_name} {stack.chart_version}</Field>
             <Field label={t("eppImage")} mono>{stack.epp_image}</Field>
             <Field label={t("chartRepo")} mono>{stack.chart_repo}</Field>
+            <Field label={t("ingressHostLabel")} mono>{stack.ingress_host}</Field>
+            <Field label={t("ingressClassLabel")} mono>{stack.ingress_class || "-"}</Field>
             <Field label={t("createdBy")}>{stack.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmtDate(stack.created_at)}</Field>
             <Field label={t("updatedAt")}>{fmtDate(stack.updated_at)}</Field>
@@ -277,6 +284,24 @@ export default function LlmdDetailPage() {
                     <Label htmlFor="llmd-epp-tag">{t("eppTag")}</Label>
                     <Input id="llmd-epp-tag" value={form.epp_tag} placeholder={chartDefaults?.epp_tag}
                       onChange={(e) => setForm({ ...form, epp_tag: e.target.value })} />
+                  </div>
+                </div>
+              </details>
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium">{t("ingressOverrideTitle")}</summary>
+                <p className="text-xs text-muted-foreground mt-1">{t("ingressOverrideHint")}</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label htmlFor="llmd-ingress-host">{t("ingressHostLabel")}</Label>
+                    <Input id="llmd-ingress-host" value={form.ingress_host} placeholder={stack.ingress_host}
+                      onChange={(e) => setForm({ ...form, ingress_host: e.target.value })} />
+                    <p className="text-xs text-muted-foreground mt-1">{t("ingressHostHint")}</p>
+                  </div>
+                  <div>
+                    <Label htmlFor="llmd-ingress-class">{t("ingressClassLabel")}</Label>
+                    <Input id="llmd-ingress-class" value={form.ingress_class} placeholder={chartDefaults?.ingress_class || undefined}
+                      onChange={(e) => setForm({ ...form, ingress_class: e.target.value })} />
+                    <p className="text-xs text-muted-foreground mt-1">{t("ingressClassHint")}</p>
                   </div>
                 </div>
               </details>

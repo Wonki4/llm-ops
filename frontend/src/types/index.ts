@@ -702,6 +702,12 @@ export interface LlmdStackSummary {
     epp_repository: string | null;
     epp_tag: string | null;
   };
+  ingress_host: string;
+  ingress_class: string;
+  ingress_overrides: {
+    ingress_host: string | null;
+    ingress_class: string | null;
+  };
   helm_values: Record<string, unknown>;
   values_yaml: string;
   sync_status: string;
