@@ -32,6 +32,7 @@ type FormState = {
   values_yaml: string;
   chart_repo: string; chart_name: string; chart_version: string;
   epp_registry: string; epp_repository: string; epp_tag: string;
+  ingress_host: string; ingress_class: string;
 };
 
 const EMPTY: FormState = {
@@ -44,6 +45,7 @@ const EMPTY: FormState = {
   values_yaml: "",
   chart_repo: "", chart_name: "", chart_version: "",
   epp_registry: "", epp_repository: "", epp_tag: "",
+  ingress_host: "", ingress_class: "",
 };
 
 export default function NewLlmdStackPage() {
@@ -76,6 +78,7 @@ export default function NewLlmdStackPage() {
       epp_registry: f.epp_registry || chartDefaults.epp_registry,
       epp_repository: f.epp_repository || chartDefaults.epp_repository,
       epp_tag: f.epp_tag || chartDefaults.epp_tag,
+      ingress_class: f.ingress_class || chartDefaults.ingress_class,
     }));
   }
 
@@ -117,6 +120,10 @@ export default function NewLlmdStackPage() {
       epp_registry: overrideOrNull(form.epp_registry, chartDefaults?.epp_registry),
       epp_repository: overrideOrNull(form.epp_repository, chartDefaults?.epp_repository),
       epp_tag: overrideOrNull(form.epp_tag, chartDefaults?.epp_tag),
+      // host has no fixed default to diff against ({app}.{domain} is computed);
+      // blank simply means "use the computed default".
+      ingress_host: form.ingress_host.trim() || null,
+      ingress_class: overrideOrNull(form.ingress_class, chartDefaults?.ingress_class),
     };
     createMut.mutate(body, {
       onSuccess: () => { toast.success(t("createSuccess")); router.push("/admin/llmd"); },
@@ -292,6 +299,27 @@ export default function NewLlmdStackPage() {
                   <Label htmlFor="llmd-epp-tag">{t("eppTag")}</Label>
                   <Input id="llmd-epp-tag" value={form.epp_tag}
                     onChange={(e) => setForm({ ...form, epp_tag: e.target.value })} />
+                </div>
+              </div>
+            </details>
+
+            <details className="rounded-md border p-3">
+              <summary className="cursor-pointer text-sm font-medium">{t("ingressOverrideTitle")}</summary>
+              <p className="text-xs text-muted-foreground mt-1">{t("ingressOverrideHint")}</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="llmd-ingress-host">{t("ingressHostLabel")}</Label>
+                  <Input id="llmd-ingress-host" value={form.ingress_host}
+                    placeholder={chartDefaults ? `${form.name || "<name>"}.${chartDefaults.ingress_domain}` : undefined}
+                    onChange={(e) => setForm({ ...form, ingress_host: e.target.value })} />
+                  <p className="text-xs text-muted-foreground mt-1">{t("ingressHostHint")}</p>
+                </div>
+                <div>
+                  <Label htmlFor="llmd-ingress-class">{t("ingressClassLabel")}</Label>
+                  <Input id="llmd-ingress-class" value={form.ingress_class}
+                    placeholder={chartDefaults?.ingress_class || undefined}
+                    onChange={(e) => setForm({ ...form, ingress_class: e.target.value })} />
+                  <p className="text-xs text-muted-foreground mt-1">{t("ingressClassHint")}</p>
                 </div>
               </div>
             </details>

@@ -1481,6 +1481,8 @@ export interface CreateLlmdStackBody {
   epp_registry?: string | null;
   epp_repository?: string | null;
   epp_tag?: string | null;
+  ingress_host?: string | null;
+  ingress_class?: string | null;
 }
 
 export interface UpdateLlmdStackBody {
@@ -1492,6 +1494,8 @@ export interface UpdateLlmdStackBody {
   epp_registry?: string | null;
   epp_repository?: string | null;
   epp_tag?: string | null;
+  ingress_host?: string | null;
+  ingress_class?: string | null;
 }
 
 export interface LlmdChartDefaults {
@@ -1501,6 +1505,8 @@ export interface LlmdChartDefaults {
   epp_registry: string;
   epp_repository: string;
   epp_tag: string;
+  ingress_class: string;
+  ingress_domain: string;
 }
 
 export function useLlmdChartDefaults() {

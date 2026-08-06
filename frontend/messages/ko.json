@@ -1317,6 +1317,12 @@
     "eppRegistry": "EPP 이미지 registry",
     "eppRepository": "EPP 이미지 repository",
     "eppTag": "EPP 이미지 tag",
+    "ingressOverrideTitle": "Ingress (host / class)",
+    "ingressOverrideHint": "이 스택의 ingress host와 class를 오버라이드합니다. 비우면 전역 기본값을 사용합니다.",
+    "ingressHostLabel": "Ingress host",
+    "ingressHostHint": "라우터 ingress의 전체 host. 비우면 [스택명].[전역도메인] 기본값을 사용합니다.",
+    "ingressClassLabel": "Ingress class",
+    "ingressClassHint": "IngressClass 이름. 비우면 전역 기본값(또는 클러스터 기본 IngressClass).",
     "liveErrorTitle": "ArgoCD에서 라이브 상태를 가져오지 못했습니다",
     "noResourcesError": "라이브 상태를 가져올 수 없습니다 — 위 경고를 확인하세요."
   },
