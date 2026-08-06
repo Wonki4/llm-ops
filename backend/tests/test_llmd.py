@@ -107,6 +107,7 @@ def _stack(**kw):
         namespace="team-a", argo_app_name="llmd-s", helm_values={}, values_snapshot={},
         chart_repo=None, chart_name=None, chart_version=None,
         epp_registry=None, epp_repository=None, epp_tag=None,
+        ingress_host=None, ingress_class=None,
         created_by=None, created_at=None, updated_at=None,
     )
     base.update(kw)
@@ -200,4 +201,30 @@ async def test_delete_stack_removes_ingress(client_for_user, super_user, mock_db
 
 def test_serialize_reports_ingress_host():
     over = _serialize(_stack(argo_app_name="llmd-demo"), {"sync_status": "Synced"})
+    # No per-stack override -> effective host is {app}.{global domain}, class is
+    # the global default, and the raw overrides are null.
     assert over["ingress_host"] == "llmd-demo.llm-d.local"
+    assert over["ingress_overrides"] == {"ingress_host": None, "ingress_class": None}
+
+
+def test_serialize_reports_ingress_overrides_when_set():
+    over = _serialize(
+        _stack(argo_app_name="llmd-demo", ingress_host="my.corp.internal", ingress_class="nginx"),
+        {"sync_status": "Synced"},
+    )
+    assert over["ingress_host"] == "my.corp.internal"  # override wins over {app}.{domain}
+    assert over["ingress_class"] == "nginx"
+    assert over["ingress_overrides"] == {"ingress_host": "my.corp.internal", "ingress_class": "nginx"}
+
+
+def test_values_ingress_resolvers_prefer_override():
+    from app.api.llmd import _ingress_class, _ingress_host
+    from app.config import settings
+
+    over = _stack(argo_app_name="llmd-demo", ingress_host="host.x", ingress_class="cls")
+    assert _ingress_host(over) == "host.x"
+    assert _ingress_class(over) == "cls"
+    # NULL override -> computed host + global class default
+    base = _stack(argo_app_name="llmd-demo")
+    assert _ingress_host(base) == "llmd-demo.llm-d.local"
+    assert _ingress_class(base) == settings.llmd_ingress_class

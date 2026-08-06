@@ -66,21 +66,22 @@ def llmd_service_name(stack: CustomLlmdStack) -> str:
 def build_llmd_ingress(
     stack: CustomLlmdStack,
     *,
+    host: str,
     ingress_class: str,
-    ingress_domain: str,
     ingress_path: str,
 ) -> dict:
     """An Ingress fronting the llm-d router's Envoy entry Service.
 
     Backend: Service ``{argo_app_name}-epp`` port name ``http`` (chart sidecar
-    entry, 8081). Host is always ``{argo_app_name}.{ingress_domain}`` so multiple
-    stacks never collide. ``ingress_class`` empty omits ``ingressClassName`` (the
-    cluster's default IngressClass is used). Managed by the portal, not ArgoCD.
+    entry, 8081). ``host`` is the fully-resolved rule host (the caller applies
+    any per-stack override or the ``{argo_app_name}.{domain}`` default).
+    ``ingress_class`` empty omits ``ingressClassName`` (the cluster's default
+    IngressClass is used). Managed by the portal, not ArgoCD.
     """
     spec: dict = {
         "rules": [
             {
-                "host": f"{stack.argo_app_name}.{ingress_domain}",
+                "host": host,
                 "http": {
                     "paths": [
                         {

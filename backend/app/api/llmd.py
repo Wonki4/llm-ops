@@ -49,6 +49,8 @@ class CreateLlmdStackRequest(BaseModel):
     epp_registry: str | None = None
     epp_repository: str | None = None
     epp_tag: str | None = None
+    ingress_host: str | None = None  # full host override; empty -> {app}.{domain}
+    ingress_class: str | None = None  # empty -> global llmd_ingress_class
 
 
 class UpdateLlmdStackRequest(BaseModel):
@@ -60,6 +62,8 @@ class UpdateLlmdStackRequest(BaseModel):
     epp_registry: str | None = None
     epp_repository: str | None = None
     epp_tag: str | None = None
+    ingress_host: str | None = None
+    ingress_class: str | None = None
 
 
 class DefaultValuesRequest(BaseModel):
@@ -128,11 +132,22 @@ def _values_for(stack: CustomLlmdStack) -> dict:
     return build_llmd_values(stack, epp_registry=registry, epp_repository=repository, epp_tag=tag)
 
 
+def _ingress_host(stack: CustomLlmdStack) -> str:
+    """Effective ingress host: per-stack override, else {app}.{global domain}."""
+    return stack.ingress_host or f"{stack.argo_app_name}.{settings.effective_ingress_domain}"
+
+
+def _ingress_class(stack: CustomLlmdStack) -> str:
+    """Effective ingress class: per-stack override, else the global default
+    (which, when empty, omits ingressClassName -> cluster default)."""
+    return stack.ingress_class if stack.ingress_class is not None else settings.llmd_ingress_class
+
+
 def _ingress_for(stack: CustomLlmdStack) -> dict:
     return build_llmd_ingress(
         stack,
-        ingress_class=settings.llmd_ingress_class,
-        ingress_domain=settings.effective_ingress_domain,
+        host=_ingress_host(stack),
+        ingress_class=_ingress_class(stack),
         ingress_path=settings.llmd_ingress_path or "/",
     )
 
@@ -190,7 +205,8 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "chart_name": _chart_source(stack)[1],
         "chart_version": _chart_source(stack)[2],
         "epp_image": "{}/{}:{}".format(*_epp_image(stack)),
-        "ingress_host": f"{stack.argo_app_name}.{settings.effective_ingress_domain}",
+        "ingress_host": _ingress_host(stack),
+        "ingress_class": _ingress_class(stack),
         "chart_overrides": {
             "chart_repo": stack.chart_repo,
             "chart_name": stack.chart_name,
@@ -198,6 +214,10 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
             "epp_registry": stack.epp_registry,
             "epp_repository": stack.epp_repository,
             "epp_tag": stack.epp_tag,
+        },
+        "ingress_overrides": {
+            "ingress_host": stack.ingress_host,
+            "ingress_class": stack.ingress_class,
         },
         "helm_values": stack.helm_values,
         "values_yaml": (
@@ -285,6 +305,8 @@ async def chart_defaults(user: CustomUser = Depends(require_super_user)) -> dict
         "epp_registry": settings.llmd_epp_image_registry,
         "epp_repository": settings.llmd_epp_image_repository,
         "epp_tag": settings.llmd_epp_image_tag,
+        "ingress_class": settings.llmd_ingress_class,
+        "ingress_domain": settings.effective_ingress_domain,
     }
 
 
@@ -321,6 +343,8 @@ async def create_stack(
         epp_registry=(body.epp_registry or "").strip() or None,
         epp_repository=(body.epp_repository or "").strip() or None,
         epp_tag=(body.epp_tag or "").strip() or None,
+        ingress_host=(body.ingress_host or "").strip() or None,
+        ingress_class=(body.ingress_class or "").strip() or None,
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -376,7 +400,11 @@ async def update_stack(
         stack.namespace = body.namespace
     if body.values_yaml is not None:
         stack.helm_values = _parse_values_yaml(body.values_yaml)
-    for field in ("chart_repo", "chart_name", "chart_version", "epp_registry", "epp_repository", "epp_tag"):
+    for field in (
+        "chart_repo", "chart_name", "chart_version",
+        "epp_registry", "epp_repository", "epp_tag",
+        "ingress_host", "ingress_class",
+    ):
         val = getattr(body, field)
         if val is not None:
             setattr(stack, field, val.strip() or None)
