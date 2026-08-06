@@ -18,11 +18,17 @@ class Identity(BaseModel):
 
 
 def identity_from_key(token: str, secret: str) -> Identity:
-    """Decode a ``sk-<jwt>`` key into an Identity. Raises ValueError on any
-    failure (missing prefix, bad signature, malformed payload)."""
-    if not isinstance(token, str) or not token.startswith("sk-"):
-        raise ValueError("not a portal key (missing 'sk-' prefix)")
-    raw = token[len("sk-"):]
+    """Decode a portal key into an Identity. Raises ValueError on any failure
+    (empty token, bad signature, malformed payload).
+
+    The portal issues keys with the ``sk-`` prefix **stripped** (keys.py returns
+    ``sk_key.removeprefix("sk-")``), so the token a caller actually holds has no
+    ``sk-``. We therefore accept the JWT with or without a leading ``sk-`` —
+    strip it if present, otherwise decode the token as-is.
+    """
+    if not isinstance(token, str) or not token.strip():
+        raise ValueError("empty token")
+    raw = token.strip().removeprefix("sk-")
     try:
         # The key JWT has no exp/aud claims; disable audience verification.
         payload = jwt.decode(raw, secret, algorithms=["HS256"], options={"verify_aud": False})
