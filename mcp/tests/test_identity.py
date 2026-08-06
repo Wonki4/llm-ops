@@ -23,6 +23,16 @@ def test_decodes_reguserid_and_team():
     assert ident.key_team_id == "team-1"
 
 
+def test_decodes_bare_jwt_without_sk_prefix():
+    # The portal returns keys with the sk- prefix STRIPPED (keys.py removeprefix),
+    # so the token a caller actually holds has no sk-. It must still decode.
+    bare = _key().removeprefix("sk-")
+    assert not bare.startswith("sk-")
+    ident = identity_from_key(bare, SECRET)
+    assert ident.user_id == "E12345"
+    assert ident.key_team_id == "team-1"
+
+
 def test_rejects_tampered_signature():
     with pytest.raises(ValueError):
         identity_from_key(_key()[:-2] + "xx", SECRET)
@@ -33,6 +43,14 @@ def test_rejects_wrong_secret():
         identity_from_key(_key(), "wrong-secret")
 
 
-def test_rejects_non_sk_prefix():
+def test_rejects_garbage_token():
+    # A non-JWT token is rejected on decode (prefix no longer matters).
     with pytest.raises(ValueError):
         identity_from_key("not-a-key", SECRET)
+
+
+def test_rejects_empty_token():
+    with pytest.raises(ValueError):
+        identity_from_key("", SECRET)
+    with pytest.raises(ValueError):
+        identity_from_key("   ", SECRET)

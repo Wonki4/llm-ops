@@ -3,9 +3,11 @@
 Serve with: ``uvicorn app.main:app --host 0.0.0.0 --port 8000`` (MCP endpoint at
 ``/mcp``, health at ``/health``).
 
-The caller authenticates by sending their ``sk-<jwt>`` LiteLLM key as an HTTP
-bearer token (``Authorization: Bearer sk-...``). We decode it locally to the
-caller's ``user_id`` and answer only for that user.
+The caller authenticates by sending their portal LiteLLM key as an HTTP bearer
+token (``Authorization: Bearer <key>``). The portal issues the key with the
+``sk-`` prefix stripped, so it is the bare JWT; identity_from_key accepts it
+with or without ``sk-``. We decode it locally to the caller's ``user_id`` and
+answer only for that user.
 """
 
 import logging
@@ -42,7 +44,7 @@ def _bearer_from_context(ctx: Context) -> str:
 def _authenticate(ctx: Context) -> Identity:
     token = _bearer_from_context(ctx)
     if not token:
-        raise ValueError("unauthenticated: send your sk- key as 'Authorization: Bearer sk-...'")
+        raise ValueError("unauthenticated: send your portal key as 'Authorization: Bearer <key>'")
     try:
         return identity_from_key(token, settings.key_jwt_secret)
     except ValueError as e:
