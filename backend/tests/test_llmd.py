@@ -9,6 +9,21 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from app.api.llmd import _application_for, _argo_status, _k8s_error_message, _serialize, _values_for
 
 
+def test_dump_values_yaml_preserves_literal_blocks():
+    # A multi-line string value (e.g. an embedded envoy.yaml config) must render
+    # as a YAML `|` literal block, not a quoted string with escaped \n — the
+    # editor readback was mangled by plain safe_dump.
+    import yaml
+
+    from app.api.llmd import _dump_values_yaml
+
+    data = {"router": {"proxy": {"cfg": "admin:\n  port: 19000\nlisteners: []\n"}}}
+    out = _dump_values_yaml(data)
+    assert "cfg: |" in out           # literal block style
+    assert "\\n" not in out          # no escaped newlines
+    assert yaml.safe_load(out) == data  # lossless round-trip
+
+
 def test_argo_status_from_cr_object():
     obj = {"status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy", "message": "ok"}}}
     assert _argo_status(obj) == {"sync_status": "Synced", "health_status": "Healthy", "status_message": "ok"}

@@ -85,6 +85,29 @@ def _parse_values_yaml(text: str) -> dict:
     return parsed
 
 
+class _BlockDumper(yaml.SafeDumper):
+    """SafeDumper that emits multi-line strings as ``|`` literal blocks."""
+
+
+def _str_block_representer(dumper: yaml.SafeDumper, data: str):
+    # Plain safe_dump renders a multi-line string as a double-quoted scalar with
+    # escaped \n (and line-continuation backslashes) — an embedded config like
+    # the Envoy proxy YAML comes back mangled in the editor. Emit it as a `|`
+    # literal block instead so the readback matches what the user typed.
+    if "\n" in data:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+_BlockDumper.add_representer(str, _str_block_representer)
+
+
+def _dump_values_yaml(data: dict) -> str:
+    """Dump a values dict to YAML, preserving ``|`` literal blocks for
+    multi-line string values (readable, lossless round-trip)."""
+    return yaml.dump(data, Dumper=_BlockDumper, sort_keys=False, default_flow_style=False)
+
+
 def _argo_status(obj: dict | None) -> dict:
     """Extract sync/health from an Application CR (Unknown when absent)."""
     if not obj:
@@ -220,11 +243,7 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
             "ingress_class": stack.ingress_class,
         },
         "helm_values": stack.helm_values,
-        "values_yaml": (
-            yaml.safe_dump(stack.helm_values, sort_keys=False, default_flow_style=False)
-            if stack.helm_values
-            else ""
-        ),
+        "values_yaml": (_dump_values_yaml(stack.helm_values) if stack.helm_values else ""),
         "created_by": stack.created_by,
         "created_at": stack.created_at.isoformat() if stack.created_at else None,
         "updated_at": stack.updated_at.isoformat() if stack.updated_at else None,
@@ -379,7 +398,7 @@ async def default_values(
     )
     return {
         "values": values,
-        "values_yaml": yaml.safe_dump(values, sort_keys=False, default_flow_style=False),
+        "values_yaml": _dump_values_yaml(values),
     }
 
 
