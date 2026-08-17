@@ -201,7 +201,21 @@
     "commentPlaceholder": "코멘트를 입력하세요...",
     "processSuccess": "요청이 처리되었습니다",
     "processError": "요청 처리 중 오류가 발생했습니다",
-    "processing": "처리 중..."
+    "processing": "처리 중...",
+    "selectAll": "대기 전체 선택",
+    "clearSelection": "선택 해제",
+    "bulkSelectedCount": "{count}건 선택됨",
+    "bulkApprove": "선택 승인",
+    "bulkReject": "선택 거절",
+    "bulkConfirmTitle": "{count}건 {action}",
+    "bulkTypeBreakdown": "예산 {budget} · 가입 {join}",
+    "bulkBudgetCaution": "예산 승인은 시간이 걸려 한 건씩 순차 처리됩니다.",
+    "bulkProgress": "{done}/{total} · 실패 {failed}",
+    "bulkResultTitle": "결과",
+    "bulkSucceeded": "{count}건 성공",
+    "bulkFailedTitle": "실패 {count}건",
+    "bulkAllSucceeded": "모든 요청이 정상 처리되었습니다.",
+    "bulkClose": "닫기"
   },
   "modelsCalendar": {
     "title": "모델 캘린더",

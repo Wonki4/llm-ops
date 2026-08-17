@@ -201,7 +201,21 @@
     "commentPlaceholder": "Enter a comment...",
     "processSuccess": "Request processed successfully",
     "processError": "An error occurred while processing the request",
-    "processing": "Processing..."
+    "processing": "Processing...",
+    "selectAll": "Select all pending",
+    "clearSelection": "Clear",
+    "bulkSelectedCount": "{count} selected",
+    "bulkApprove": "Approve selected",
+    "bulkReject": "Reject selected",
+    "bulkConfirmTitle": "{action} {count} requests",
+    "bulkTypeBreakdown": "Budget {budget} · Join {join}",
+    "bulkBudgetCaution": "Budget approvals take time and are processed one at a time.",
+    "bulkProgress": "{done}/{total} · {failed} failed",
+    "bulkResultTitle": "Result",
+    "bulkSucceeded": "{count} succeeded",
+    "bulkFailedTitle": "{count} failed",
+    "bulkAllSucceeded": "All requests processed successfully.",
+    "bulkClose": "Close"
   },
   "modelsCalendar": {
     "title": "Model Calendar",
