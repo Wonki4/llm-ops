@@ -2,6 +2,8 @@
 
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
+import { runSequential } from "@/lib/bulk-review";
+import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
 import type {
   User,
   Team,
@@ -480,6 +482,38 @@ export function useRejectRequest() {
       qc.invalidateQueries({ queryKey: ["join-requests"] });
     },
   });
+}
+
+/**
+ * Bulk approve/reject: re-calls the single-item endpoint once per id, strictly
+ * serially (see runSequential), with one shared comment applied to every item.
+ * Never rejects — each item's outcome is in the returned results. The list is
+ * refetched exactly once, when the whole batch finishes.
+ */
+export function useBulkReview() {
+  const qc = useQueryClient();
+  const run = async (
+    action: "approve" | "reject",
+    ids: string[],
+    comment: string | undefined,
+    onProgress?: (p: BulkProgress) => void,
+  ): Promise<BulkItemResult[]> => {
+    const body = JSON.stringify(comment?.trim() ? { comment: comment.trim() } : {});
+    try {
+      return await runSequential(
+        ids,
+        (id) =>
+          apiFetch<{ status: string }>(`/api/team-requests/${id}/${action}`, {
+            method: "POST",
+            body,
+          }).then(() => undefined),
+        onProgress,
+      );
+    } finally {
+      qc.invalidateQueries({ queryKey: ["join-requests"] });
+    }
+  };
+  return { run };
 }
 
 /** Review context for the request-approval dialog: the requester's past
