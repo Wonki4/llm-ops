@@ -186,6 +186,7 @@ export default function AdminRequestsPage() {
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const [bulkResults, setBulkResults] = useState<BulkItemResult[] | null>(null);
+  const [bulkBatchCount, setBulkBatchCount] = useState(0);
 
   const filteredRequests = useMemo(() => {
     if (!requests) return [];
@@ -254,19 +255,25 @@ export default function AdminRequestsPage() {
   async function runBulk() {
     const ids = [...selectedIds];
     if (ids.length === 0) return;
+    setBulkBatchCount(ids.length);
     setBulkRunning(true);
     setBulkResults(null);
     setBulkProgress({ total: ids.length, done: 0, results: [] });
-    const results = await runBulkReview(
-      bulkAction,
-      ids,
-      bulkComment,
-      (p) => setBulkProgress(p),
-    );
-    setBulkRunning(false);
-    setBulkResults(results);
-    // Drop succeeded from the selection; keep failures selected for retry.
-    setSelectedIds(new Set(results.filter((r) => !r.ok).map((r) => r.id)));
+    try {
+      const results = await runBulkReview(
+        bulkAction,
+        ids,
+        bulkComment,
+        (p) => setBulkProgress(p),
+      );
+      setBulkResults(results);
+      // Drop succeeded from the selection; keep failures selected for retry.
+      setSelectedIds(new Set(results.filter((r) => !r.ok).map((r) => r.id)));
+    } finally {
+      // Always release the run lock so the dialog can never stay uncloseable,
+      // even if the batch runner unexpectedly rejects.
+      setBulkRunning(false);
+    }
   }
 
   const bulkActionLabel = (a: "approve" | "reject") =>
@@ -708,11 +715,13 @@ export default function AdminRequestsPage() {
             <DialogTitle>
               {t("bulkConfirmTitle", {
                 action: bulkActionLabel(bulkAction),
-                count: selectedIds.size,
+                count: bulkResults ? bulkBatchCount : selectedIds.size,
               })}
             </DialogTitle>
             <DialogDescription>
-              {t("bulkTypeBreakdown", { budget: bulkBudgetCount, join: bulkJoinCount })}
+              {bulkResults
+                ? ""
+                : t("bulkTypeBreakdown", { budget: bulkBudgetCount, join: bulkJoinCount })}
             </DialogDescription>
           </DialogHeader>
 
