@@ -10,6 +10,7 @@ import {
   useRejectRequest,
   useRequesterHistory,
   useMe,
+  useBulkReview,
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,6 +36,7 @@ import { Label } from "@/components/ui/label";
 import type { TeamJoinRequest, JoinRequestStatus, RequestType } from "@/types";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
+import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
   const t = useTranslations("adminRequests");
@@ -176,6 +178,15 @@ export default function AdminRequestsPage() {
   const pageSize = 20;
   const [comment, setComment] = useState("");
 
+  const { run: runBulkReview } = useBulkReview();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkAction, setBulkAction] = useState<"approve" | "reject">("approve");
+  const [bulkComment, setBulkComment] = useState("");
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
+  const [bulkResults, setBulkResults] = useState<BulkItemResult[] | null>(null);
+
   const filteredRequests = useMemo(() => {
     if (!requests) return [];
     return requests.filter((req) => {
@@ -195,6 +206,71 @@ export default function AdminRequestsPage() {
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / pageSize));
   const safePageValue = Math.min(page, totalPages);
   const pageRequests = filteredRequests.slice((safePageValue - 1) * pageSize, safePageValue * pageSize);
+
+  const requestById = useMemo(
+    () => new Map((requests ?? []).map((r) => [r.id, r] as const)),
+    [requests],
+  );
+  const pendingPageIds = useMemo(
+    () => pageRequests.filter((r) => r.status === "pending").map((r) => r.id),
+    [pageRequests],
+  );
+  const allPagePendingSelected =
+    pendingPageIds.length > 0 && pendingPageIds.every((id) => selectedIds.has(id));
+  const somePagePendingSelected = pendingPageIds.some((id) => selectedIds.has(id));
+
+  const selectedReqs = useMemo(
+    () => (requests ?? []).filter((r) => selectedIds.has(r.id)),
+    [requests, selectedIds],
+  );
+  const bulkBudgetCount = selectedReqs.filter(
+    (r) => (r.request_type ?? "join") === "budget",
+  ).length;
+  const bulkJoinCount = selectedReqs.length - bulkBudgetCount;
+
+  function toggleOne(id: string, checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  function toggleAllPage(checked: boolean) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) pendingPageIds.forEach((id) => next.add(id));
+      else pendingPageIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  }
+  function openBulk(action: "approve" | "reject") {
+    setBulkAction(action);
+    setBulkComment("");
+    setBulkProgress(null);
+    setBulkResults(null);
+    setBulkOpen(true);
+  }
+  async function runBulk() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    setBulkRunning(true);
+    setBulkResults(null);
+    setBulkProgress({ total: ids.length, done: 0, results: [] });
+    const results = await runBulkReview(
+      bulkAction,
+      ids,
+      bulkComment,
+      (p) => setBulkProgress(p),
+    );
+    setBulkRunning(false);
+    setBulkResults(results);
+    // Drop succeeded from the selection; keep failures selected for retry.
+    setSelectedIds(new Set(results.filter((r) => !r.ok).map((r) => r.id)));
+  }
+
+  const bulkActionLabel = (a: "approve" | "reject") =>
+    a === "approve" ? t("statusApproved") : t("statusRejected");
 
   function openActionDialog(
     request: TeamJoinRequest,
@@ -289,6 +365,33 @@ export default function AdminRequestsPage() {
         )}
       </div>
 
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2">
+          <span className="text-sm font-medium">
+            {t("bulkSelectedCount", { count: selectedIds.size })}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              size="sm"
+              className="bg-green-600 text-white hover:bg-green-700"
+              onClick={() => openBulk("approve")}
+            >
+              {t("bulkApprove")}
+            </Button>
+            <Button size="sm" variant="destructive" onClick={() => openBulk("reject")}>
+              {t("bulkReject")}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              {t("clearSelection")}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Status tabs + Table */}
       <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
         <TabsList>
@@ -307,6 +410,20 @@ export default function AdminRequestsPage() {
               <Table>
                 <TableHeader>
                   <TableRow>
+                    <TableHead className="w-8">
+                      <input
+                        type="checkbox"
+                        aria-label={t("selectAll")}
+                        className="size-4 cursor-pointer"
+                        checked={allPagePendingSelected}
+                        ref={(el) => {
+                          if (el)
+                            el.indeterminate =
+                              somePagePendingSelected && !allPagePendingSelected;
+                        }}
+                        onChange={(e) => toggleAllPage(e.target.checked)}
+                      />
+                    </TableHead>
                     <TableHead>{t("colType")}</TableHead>
                     <TableHead>{t("colRequester")}</TableHead>
                     <TableHead>{t("colTeam")}</TableHead>
@@ -320,6 +437,17 @@ export default function AdminRequestsPage() {
                 <TableBody>
                   {pageRequests.map((req) => (
                     <TableRow key={req.id}>
+                      <TableCell className="w-8">
+                        {req.status === "pending" ? (
+                          <input
+                            type="checkbox"
+                            aria-label={req.requester_id}
+                            className="size-4 cursor-pointer"
+                            checked={selectedIds.has(req.id)}
+                            onChange={(e) => toggleOne(req.id, e.target.checked)}
+                          />
+                        ) : null}
+                      </TableCell>
                       <TableCell>
                         <TypeBadge type={(req.request_type ?? "join") as RequestType} />
                       </TableCell>
@@ -564,6 +692,135 @@ export default function AdminRequestsPage() {
                   ? t("statusApproved")
                   : t("statusRejected")}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk approve / reject dialog */}
+      <Dialog
+        open={bulkOpen}
+        onOpenChange={(o) => {
+          if (!bulkRunning) setBulkOpen(o);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {t("bulkConfirmTitle", {
+                action: bulkActionLabel(bulkAction),
+                count: selectedIds.size,
+              })}
+            </DialogTitle>
+            <DialogDescription>
+              {t("bulkTypeBreakdown", { budget: bulkBudgetCount, join: bulkJoinCount })}
+            </DialogDescription>
+          </DialogHeader>
+
+          {bulkResults ? (
+            <div className="space-y-3 text-sm">
+              <p className="font-medium">{t("bulkResultTitle")}</p>
+              <p className="text-green-700 dark:text-green-400">
+                {t("bulkSucceeded", {
+                  count: bulkResults.filter((r) => r.ok).length,
+                })}
+              </p>
+              {bulkResults.some((r) => !r.ok) ? (
+                <div className="space-y-1">
+                  <p className="font-medium text-destructive">
+                    {t("bulkFailedTitle", {
+                      count: bulkResults.filter((r) => !r.ok).length,
+                    })}
+                  </p>
+                  <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2 text-xs">
+                    {bulkResults
+                      .filter((r) => !r.ok)
+                      .map((r) => {
+                        const req = requestById.get(r.id);
+                        return (
+                          <div key={r.id} className="flex justify-between gap-2">
+                            <span className="font-medium">
+                              {req?.requester_id ?? r.id}
+                              {req ? ` · ${req.team_alias || req.team_id}` : ""}
+                            </span>
+                            <span className="text-muted-foreground">{r.error}</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">{t("bulkAllSucceeded")}</p>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {bulkBudgetCount > 0 && (
+                <p className="text-xs text-muted-foreground">{t("bulkBudgetCaution")}</p>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="bulk-comment">{t("commentLabel")}</Label>
+                <textarea
+                  id="bulk-comment"
+                  rows={3}
+                  value={bulkComment}
+                  onChange={(e) => setBulkComment(e.target.value)}
+                  placeholder={t("commentPlaceholder")}
+                  disabled={bulkRunning}
+                  className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+                />
+              </div>
+              {bulkProgress && (
+                <div className="space-y-1">
+                  <div className="h-2 w-full overflow-hidden rounded bg-muted">
+                    <div
+                      className="h-full bg-primary transition-all"
+                      style={{
+                        width: `${
+                          bulkProgress.total
+                            ? (bulkProgress.done / bulkProgress.total) * 100
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {t("bulkProgress", {
+                      done: bulkProgress.done,
+                      total: bulkProgress.total,
+                      failed: bulkProgress.results.filter((r) => !r.ok).length,
+                    })}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            {bulkResults ? (
+              <Button onClick={() => setBulkOpen(false)}>{t("bulkClose")}</Button>
+            ) : (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkOpen(false)}
+                  disabled={bulkRunning}
+                >
+                  {tc("cancel")}
+                </Button>
+                <Button
+                  variant={bulkAction === "approve" ? "default" : "destructive"}
+                  onClick={runBulk}
+                  disabled={bulkRunning || selectedIds.size === 0}
+                  className={
+                    bulkAction === "approve"
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : undefined
+                  }
+                >
+                  {bulkRunning ? t("processing") : bulkActionLabel(bulkAction)}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
