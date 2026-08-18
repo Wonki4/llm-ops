@@ -215,6 +215,7 @@
     "bulkSucceeded": "{count}건 성공",
     "bulkFailedTitle": "실패 {count}건",
     "bulkAllSucceeded": "모든 요청이 정상 처리되었습니다.",
+    "bulkItemsTitle": "선택한 요청",
     "bulkClose": "닫기"
   },
   "modelsCalendar": {
