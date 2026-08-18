@@ -473,6 +473,10 @@ export default function AdminRequestsPage() {
                           {(req.request_type ?? "join") === "budget" ? (
                             <span className="font-medium text-purple-700 dark:text-purple-400">
                               ${req.requested_budget?.toFixed(2)}
+                              {" · "}
+                              {req.requested_duration_days
+                                ? t("budgetDurationDays", { days: req.requested_duration_days })
+                                : t("budgetDurationPermanent")}
                               {req.message && ` - ${req.message}`}
                             </span>
                           ) : (
@@ -763,6 +767,38 @@ export default function AdminRequestsPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              {selectedReqs.length > 0 && (
+                <div className="max-h-40 space-y-1 overflow-y-auto rounded-md border p-2 text-xs">
+                  <p className="font-medium text-muted-foreground">{t("bulkItemsTitle")}</p>
+                  {selectedReqs.map((r) => {
+                    const isBudget = (r.request_type ?? "join") === "budget";
+                    return (
+                      <div key={r.id} className="flex items-center justify-between gap-2 py-0.5">
+                        <span className="font-medium">
+                          {r.requester_id}
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {r.team_alias || r.team_id}
+                          </span>
+                        </span>
+                        <span className="shrink-0">
+                          {isBudget ? (
+                            <span className="text-purple-700 dark:text-purple-400">
+                              ${r.requested_budget?.toFixed(2)}
+                              {" · "}
+                              {r.requested_duration_days
+                                ? t("budgetDurationDays", { days: r.requested_duration_days })
+                                : t("budgetDurationPermanent")}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">{t("typeJoin")}</span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {bulkBudgetCount > 0 && (
                 <p className="text-xs text-muted-foreground">{t("bulkBudgetCaution")}</p>
               )}

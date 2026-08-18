@@ -215,6 +215,7 @@
     "bulkSucceeded": "{count} succeeded",
     "bulkFailedTitle": "{count} failed",
     "bulkAllSucceeded": "All requests processed successfully.",
+    "bulkItemsTitle": "Selected requests",
     "bulkClose": "Close"
   },
   "modelsCalendar": {
