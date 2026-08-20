@@ -318,7 +318,8 @@
       "outputCost": "Output Cost",
       "cacheReadCost": "Cache Read Cost",
       "context": "Context",
-      "nextTransition": "Next Transition"
+      "nextTransition": "Next Transition",
+      "copyName": "Copy model name"
     },
     "pagination": {
       "summary": "{start}–{end} of {total}",
