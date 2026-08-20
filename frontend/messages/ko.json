@@ -333,7 +333,8 @@
       "outputCost": "Output 비용",
       "cacheReadCost": "Cache Read 비용",
       "context": "컨텍스트",
-      "nextTransition": "다음 전환"
+      "nextTransition": "다음 전환",
+      "copyName": "모델명 복사"
     },
     "pagination": {
       "summary": "총 {total}개 중 {start}–{end}",

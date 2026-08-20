@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { useState } from "react";
+import { Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag } from "@/lib/locale";
@@ -90,9 +92,26 @@ function getNextTransition(catalog: ModelCatalog | null): { date: string; status
 }
 
 /** Shared model table: name (icon + link), status, modality, costs, context, next transition. */
-export function ModelTable({ rows }: { rows: ModelTableRow[] }) {
+export function ModelTable({
+  rows,
+  showCopyName = false,
+}: {
+  rows: ModelTableRow[];
+  showCopyName?: boolean;
+}) {
   const t = useTranslations("modelsDashboard");
   const localeTag = useLocaleTag();
+  const [copiedName, setCopiedName] = useState<string | null>(null);
+
+  async function copyName(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedName(value);
+      setTimeout(() => setCopiedName((c) => (c === value ? null : c)), 1500);
+    } catch {
+      // clipboard unavailable — no-op
+    }
+  }
 
   return (
     <Table>
@@ -112,31 +131,48 @@ export function ModelTable({ rows }: { rows: ModelTableRow[] }) {
         {rows.map(({ name, model }) => (
           <TableRow key={name}>
             <TableCell>
-              {model ? (
-                <Link
-                  href={`/models/${model.model_name.split("/").map(encodeURIComponent).join("/")}`}
-                  className="flex items-center gap-2 text-left hover:underline"
-                >
-                  <ModelIcon
-                    iconUrl={model.catalog?.icon_url}
-                    provider={model.litellm_info?.model_info?.litellm_provider}
-                    modelName={model.model_name}
-                  />
-                  <div className="max-w-[280px] truncate text-sm font-medium">
-                    {model.catalog?.display_name ?? model.model_name}
+              <div className="flex items-center gap-1">
+                {model ? (
+                  <Link
+                    href={`/models/${model.model_name.split("/").map(encodeURIComponent).join("/")}`}
+                    className="flex items-center gap-2 text-left hover:underline"
+                  >
+                    <ModelIcon
+                      iconUrl={model.catalog?.icon_url}
+                      provider={model.litellm_info?.model_info?.litellm_provider}
+                      modelName={model.model_name}
+                    />
+                    <div className="max-w-[280px] truncate text-sm font-medium">
+                      {model.catalog?.display_name ?? model.model_name}
+                    </div>
+                  </Link>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <ModelIcon modelName={name} />
+                    <div className="max-w-[280px] truncate text-sm font-medium text-muted-foreground">
+                      {name}
+                    </div>
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+                      {t("byTeam.notDeployed")}
+                    </Badge>
                   </div>
-                </Link>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <ModelIcon modelName={name} />
-                  <div className="max-w-[280px] truncate text-sm font-medium text-muted-foreground">
-                    {name}
-                  </div>
-                  <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-                    {t("byTeam.notDeployed")}
-                  </Badge>
-                </div>
-              )}
+                )}
+                {showCopyName && (
+                  <button
+                    type="button"
+                    onClick={() => copyName(model?.model_name ?? name)}
+                    title={t("table.copyName")}
+                    aria-label={t("table.copyName")}
+                    className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    {copiedName === (model?.model_name ?? name) ? (
+                      <Check className="size-3.5 text-green-600" />
+                    ) : (
+                      <Copy className="size-3.5" />
+                    )}
+                  </button>
+                )}
+              </div>
             </TableCell>
             <TableCell>
               {model?.catalog ? (

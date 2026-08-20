@@ -1950,7 +1950,7 @@ export default function TeamDetailPage({
             </div>
           ) : (
             <div className="rounded-lg border">
-              <ModelTable rows={teamModelRows} />
+              <ModelTable rows={teamModelRows} showCopyName />
             </div>
           )}
         </TabsContent>
