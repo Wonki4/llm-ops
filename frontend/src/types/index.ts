@@ -735,3 +735,60 @@ export interface LlmdAppliedResponse {
   revision: string | null;
   live_error: string | null;
 }
+
+// ─── Serving Recipes ──────────────────────────────────────────
+
+export interface ServingRecipe {
+  id: string;
+  name: string;
+  description: string | null;
+  model_path: string;
+  image: string;
+  gpu_count: number;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+  node_selector: Record<string, string> | null;
+  tolerations: unknown[] | null;
+  pvc_name: string | null;
+  pvc_mount_path: string | null;
+  vllm_extra_args: string[] | null;
+  env: Record<string, string> | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+// Editable fields for create/update (server sets id/audit/timestamps).
+export type ServingRecipeInput = Omit<
+  ServingRecipe,
+  "id" | "created_by" | "updated_by" | "created_at" | "updated_at"
+>;
+
+// Body for POST /api/model-deployments (recipe serving fields + instance fields).
+export interface CreateDeploymentBody {
+  model_name: string;
+  cluster_id: string | null;
+  namespace: string;
+  image: string;
+  replicas: number;
+  gpu_count: number;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+  node_selector: Record<string, string> | null;
+  tolerations: unknown[] | null;
+  pvc_name: string | null;
+  pvc_mount_path: string | null;
+  model_path: string;
+  vllm_extra_args: string[] | null;
+  env: Record<string, string> | null;
+  ingress_host: string;
+  ingress_path: string;
+  ingress_class: string;
+}
