@@ -90,3 +90,26 @@ async def test_delete_recipe(client_for_user, super_user, mock_db):
         resp = await client.delete(f"/api/admin/serving-recipes/{uuid.uuid4()}")
     assert resp.status_code == 200
     mock_db.delete.assert_awaited_once()
+
+
+async def test_update_keep_same_name_ok(client_for_user, super_user, mock_db):
+    rid = uuid.uuid4()
+    recipe = _recipe(id=rid, name="r1")
+    # _by_id -> recipe, then _by_name("r1") -> the SAME row (same id) => no 409.
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=recipe), _result(scalar=recipe)])
+    async with client_for_user(super_user) as client:
+        resp = await client.put(f"/api/admin/serving-recipes/{rid}", json=_BODY)
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "r1"
+
+
+async def test_update_name_taken_by_other_409(client_for_user, super_user, mock_db):
+    recipe = _recipe(id=uuid.uuid4(), name="r1")
+    other = _recipe(id=uuid.uuid4(), name="r2")
+    # _by_id -> recipe, then _by_name("r2") -> a DIFFERENT row => 409.
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=recipe), _result(scalar=other)])
+    async with client_for_user(super_user) as client:
+        resp = await client.put(
+            f"/api/admin/serving-recipes/{recipe.id}", json={**_BODY, "name": "r2"}
+        )
+    assert resp.status_code == 409
