@@ -45,6 +45,9 @@ import type {
   LlmdStackSummary,
   LlmdAppliedResponse,
   MemberBudgetBoost,
+  ServingRecipe,
+  ServingRecipeInput,
+  CreateDeploymentBody,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1618,5 +1621,62 @@ export function useLlmdDefaultValues() {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  });
+}
+
+// ─── Serving Recipes ──────────────────────────────────────────
+
+export function useServingRecipes() {
+  return useQuery({
+    queryKey: ["serving-recipes"],
+    queryFn: () =>
+      apiFetch<{ recipes: ServingRecipe[] }>("/api/admin/serving-recipes").then((r) => r.recipes),
+  });
+}
+
+export function useCreateServingRecipe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: ServingRecipeInput) =>
+      apiFetch<ServingRecipe>("/api/admin/serving-recipes", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+  });
+}
+
+export function useUpdateServingRecipe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: ServingRecipeInput }) =>
+      apiFetch<ServingRecipe>(`/api/admin/serving-recipes/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+  });
+}
+
+export function useDeleteServingRecipe() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/admin/serving-recipes/${id}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+  });
+}
+
+// Create a model deployment via the existing backend endpoint (no create UI
+// existed before; the Deploy-from-recipe dialog is the first caller).
+export function useCreateDeployment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: CreateDeploymentBody) =>
+      apiFetch<ModelDeployment>("/api/model-deployments", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
   });
 }
