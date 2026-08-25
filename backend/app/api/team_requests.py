@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.teams import _get_budget_request_policy
 from app.auth.deps import get_current_user
 from app.auth.permissions import require_team_admin
 from app.clients.litellm import LiteLLMClient, get_litellm_client
@@ -126,6 +127,22 @@ async def create_budget_request(
         raise HTTPException(status_code=400, detail="Requested budget must be positive")
     if body.requested_duration_days is not None and body.requested_duration_days <= 0:
         raise HTTPException(status_code=400, detail="Requested duration must be positive")
+
+    policy = await _get_budget_request_policy(db, body.team_id)
+    max_amount = policy["budget_request_max_amount"]
+    if max_amount is not None and body.requested_budget > max_amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Requested amount exceeds the team limit of ${max_amount:g}",
+        )
+    allowed_days = policy["budget_request_allowed_days"]
+    if allowed_days:
+        token = "permanent" if body.requested_duration_days is None else str(body.requested_duration_days)
+        if token not in allowed_days:
+            raise HTTPException(
+                status_code=400,
+                detail="Requested period is not allowed for this team",
+            )
 
     # Check duplicate pending budget request
     existing = await db.execute(
