@@ -49,6 +49,28 @@ async def _get_team_descriptions(db: AsyncSession, team_ids: list[str]) -> dict[
     return {key_to_tid[r["key"]]: r["value"] for r in result.mappings()}
 
 
+BUDGET_REQUEST_DAY_PRESETS = ["7", "30", "90", "365", "permanent"]
+
+
+async def _get_budget_request_policy(db: AsyncSession, team_id: str) -> dict:
+    """Team's budget-request bounds from portal settings. None/[] = unrestricted."""
+    amt_key = f"team:{team_id}:budget_request_max_amount"
+    days_key = f"team:{team_id}:budget_request_allowed_days"
+    result = await db.execute(
+        text("SELECT key, value FROM custom_portal_settings WHERE key IN (:amt, :days)"),
+        {"amt": amt_key, "days": days_key},
+    )
+    rows = {r["key"]: r["value"] for r in result.mappings()}
+    amt_raw = rows.get(amt_key)
+    days_raw = rows.get(days_key)
+    return {
+        "budget_request_max_amount": float(amt_raw) if amt_raw else None,
+        "budget_request_allowed_days": (
+            [d for d in days_raw.split(",") if d] if days_raw else None
+        ),
+    }
+
+
 async def _get_team_default_limits(db: AsyncSession, team_id: str) -> dict[str, int | None]:
     """Get team-scoped default TPM/RPM limits from portal settings. None when unset."""
     result = await db.execute(
@@ -369,6 +391,7 @@ async def get_team_detail(
         "default_member_rpm_limit": _dml["rpm"],
         "membership_duration": await _get_membership_duration(db, team_id),
         **(await _get_team_default_limits(db, team_id)),
+        **(await _get_budget_request_policy(db, team_id)),
         "is_admin": user.global_role == GlobalRole.SUPER_USER or user.user_id in all_admins,
         "my_membership": {
             "spend": float(membership_row["spend"]) if membership_row else 0,
@@ -1142,6 +1165,8 @@ class UpdateTeamSettingsRequest(BaseModel):
     default_tpm_limit: int | None = None
     default_rpm_limit: int | None = None
     description: str | None = None
+    budget_request_max_amount: float | None = None
+    budget_request_allowed_days: list[str] | None = None
 
 
 def _changed_member_budget_kwargs(updates: dict, current: dict) -> dict:
@@ -1223,5 +1248,41 @@ async def update_team_settings(
                 text("DELETE FROM custom_portal_settings WHERE key = :key"),
                 {"key": key},
             )
+
+    # Budget-request bounds (opt-in). max_amount stored as a string; allowed_days
+    # as a CSV of preset tokens validated against the fixed set. Empty -> delete.
+    if "budget_request_max_amount" in updates:
+        amt_key = f"team:{team_id}:budget_request_max_amount"
+        amt = updates["budget_request_max_amount"]
+        if amt is None or amt == "":
+            await db.execute(text("DELETE FROM custom_portal_settings WHERE key = :key"), {"key": amt_key})
+        else:
+            if float(amt) <= 0:
+                raise HTTPException(status_code=400, detail="budget_request_max_amount must be positive")
+            await db.execute(
+                text(
+                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                    "VALUES (:key, :value, :updated_by) "
+                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+                ),
+                {"key": amt_key, "value": str(amt), "updated_by": user.user_id},
+            )
+    if "budget_request_allowed_days" in updates:
+        days_key = f"team:{team_id}:budget_request_allowed_days"
+        days = updates["budget_request_allowed_days"] or []
+        bad = [d for d in days if d not in BUDGET_REQUEST_DAY_PRESETS]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Invalid period presets: {bad}")
+        if days:
+            await db.execute(
+                text(
+                    "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                    "VALUES (:key, :value, :updated_by) "
+                    "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+                ),
+                {"key": days_key, "value": ",".join(days), "updated_by": user.user_id},
+            )
+        else:
+            await db.execute(text("DELETE FROM custom_portal_settings WHERE key = :key"), {"key": days_key})
 
     return {"status": "updated", "team_id": team_id, **updates}
