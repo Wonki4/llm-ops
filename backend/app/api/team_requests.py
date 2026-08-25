@@ -133,7 +133,7 @@ async def create_budget_request(
     if max_amount is not None and body.requested_budget > max_amount:
         raise HTTPException(
             status_code=400,
-            detail=f"Requested amount exceeds the team limit of ${max_amount:g}",
+            detail=f"Requested amount exceeds the team limit of ${max_amount:,.2f}",
         )
     allowed_days = policy["budget_request_allowed_days"]
     if allowed_days:
