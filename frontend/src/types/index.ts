@@ -53,6 +53,8 @@ export interface TeamDetail {
   default_rpm_limit: number | null;
   is_admin: boolean;
   my_membership: TeamMembership;
+  budget_request_max_amount: number | null;
+  budget_request_allowed_days: string[] | null;
 }
 
 export interface ApiKey {
