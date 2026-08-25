@@ -61,6 +61,8 @@ import {
 } from "lucide-react";
 import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
 
+const BUDGET_PRESETS = ["7", "30", "90", "365", "permanent"] as const;
+
 const STATUS_STYLES: Record<ModelStatus, string> = {
   testing: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
   prerelease: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400",
@@ -558,6 +560,8 @@ function TeamSettingsTab({
   membershipDuration,
   defaultTpmLimit,
   defaultRpmLimit,
+  budgetRequestMaxAmount,
+  budgetRequestAllowedDays,
 }: {
   teamId: string;
   description: string | null;
@@ -567,6 +571,8 @@ function TeamSettingsTab({
   membershipDuration: string | null;
   defaultTpmLimit: number | null;
   defaultRpmLimit: number | null;
+  budgetRequestMaxAmount: number | null;
+  budgetRequestAllowedDays: string[] | null;
 }) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
@@ -581,21 +587,25 @@ function TeamSettingsTab({
   const [duration, setDuration] = useState(membershipDuration || "");
   const [tpmLimit, setTpmLimit] = useState(defaultTpmLimit != null ? String(defaultTpmLimit) : "");
   const [rpmLimit, setRpmLimit] = useState(defaultRpmLimit != null ? String(defaultRpmLimit) : "");
+  const [maxAmount, setMaxAmount] = useState(budgetRequestMaxAmount != null ? String(budgetRequestMaxAmount) : "");
+  const [allowedDays, setAllowedDays] = useState<string[]>(budgetRequestAllowedDays ?? []);
+  const togglePreset = (p: string) =>
+    setAllowedDays((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
 
   const handleSave = () => {
+    const body = {
+      description: desc.trim() || null,
+      default_member_budget: defaultBudget ? Number(defaultBudget) : null,
+      default_member_tpm_limit: memberTpm.trim() === "" ? null : Number(memberTpm),
+      default_member_rpm_limit: memberRpm.trim() === "" ? null : Number(memberRpm),
+      membership_duration: duration || null,
+      default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
+      default_rpm_limit: rpmLimit ? Number(rpmLimit) : null,
+      budget_request_max_amount: maxAmount.trim() === "" ? null : Number(maxAmount),
+      budget_request_allowed_days: allowedDays.length ? allowedDays : null,
+    };
     updateSettings.mutate(
-      {
-        teamId,
-        body: {
-          description: desc.trim() || null,
-          default_member_budget: defaultBudget ? Number(defaultBudget) : null,
-          default_member_tpm_limit: memberTpm.trim() === "" ? null : Number(memberTpm),
-          default_member_rpm_limit: memberRpm.trim() === "" ? null : Number(memberRpm),
-          membership_duration: duration || null,
-          default_tpm_limit: tpmLimit ? Number(tpmLimit) : null,
-          default_rpm_limit: rpmLimit ? Number(rpmLimit) : null,
-        },
-      },
+      { teamId, body },
       {
         onSuccess: () => toast.success(t("settingsSaved")),
         onError: (err) => toast.error(err instanceof Error ? err.message : t("settingsSaveFail")),
@@ -672,6 +682,35 @@ function TeamSettingsTab({
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t("settingsMemberRateLimitHint")}</p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("settingsBudgetRequestCard")}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t("settingsBudgetRequestMaxLabel")}</label>
+            <input
+              type="number" min="0" step="0.01" value={maxAmount}
+              onChange={(e) => setMaxAmount(e.target.value)}
+              className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            />
+            <p className="text-xs text-muted-foreground">{t("settingsBudgetRequestMaxHint")}</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">{t("settingsBudgetRequestPeriodsLabel")}</label>
+            <div className="flex flex-wrap gap-3">
+              {BUDGET_PRESETS.map((p) => (
+                <label key={p} className="flex items-center gap-1.5 text-sm">
+                  <input type="checkbox" className="size-4" checked={allowedDays.includes(p)} onChange={() => togglePreset(p)} />
+                  {t(`budgetPreset${p === "permanent" ? "Permanent" : p}`)}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">{t("settingsBudgetRequestPeriodsHint")}</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -1976,6 +2015,8 @@ export default function TeamDetailPage({
               membershipDuration={data.membership_duration ?? null}
               defaultTpmLimit={data.default_tpm_limit ?? null}
               defaultRpmLimit={data.default_rpm_limit ?? null}
+              budgetRequestMaxAmount={data.budget_request_max_amount}
+              budgetRequestAllowedDays={data.budget_request_allowed_days}
             />
           </TabsContent>
         )}
