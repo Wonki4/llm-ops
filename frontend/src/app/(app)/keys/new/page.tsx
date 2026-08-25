@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { CreateKeyRequest, Team } from "@/types";
+import { copyText } from "@/lib/clipboard";
 import { useTranslations } from "next-intl";
 
 function SuccessKeyDialog({
@@ -57,18 +58,10 @@ function SuccessKeyDialog({
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(token);
-    } catch {
-      // Fallback for non-HTTPS environments
-      const textarea = document.createElement("textarea");
-      textarea.value = token;
-      textarea.style.position = "fixed";
-      textarea.style.opacity = "0";
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand("copy");
-      document.body.removeChild(textarea);
+    const ok = await copyText(token);
+    if (!ok) {
+      toast.error(t("copyError"));
+      return;
     }
     setCopied(true);
     toast.success(t("copySuccess"));
