@@ -165,14 +165,22 @@ function DeleteKeyDialog({
   );
 }
 
-function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; currentBudget: number | null }) {
+function BudgetRequestDialog({ teamId, currentBudget, maxAmount, allowedDays }: {
+  teamId: string; currentBudget: number | null;
+  maxAmount: number | null; allowedDays: string[] | null;
+}) {
   const t = useTranslations("teamDetail");
   const tc = useTranslations("common");
   const [open, setOpen] = useState(false);
   const [amount, setAmount] = useState("20");
-  const [durationDays, setDurationDays] = useState("30");
+  const hasAllowedDays = !!allowedDays && allowedDays.length > 0;
+  const defaultDurationDays = hasAllowedDays
+    ? (allowedDays![0] === "permanent" ? "" : allowedDays![0])
+    : "30";
+  const [durationDays, setDurationDays] = useState(defaultDurationDays);
   const [message, setMessage] = useState("");
   const mutation = useCreateBudgetRequest();
+  const overLimit = maxAmount != null && amount !== "" && Number(amount) > maxAmount;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -208,21 +216,44 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
               type="number"
               step="0.01"
               min="0"
+              max={maxAmount ?? undefined}
               placeholder={t("budgetAmountPlaceholder")}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
             />
+            {maxAmount != null && (
+              <p className="text-xs text-muted-foreground mt-1">{t("budgetMaxHint", { max: maxAmount })}</p>
+            )}
+            {overLimit && (
+              <p className="text-xs text-destructive mt-1">{t("budgetAmountOverLimit")}</p>
+            )}
           </div>
           <div>
-            <label className="text-sm font-medium">{t("budgetDurationLabel")}</label>
-            <Input
-              type="number"
-              min="1"
-              placeholder={t("budgetDurationPlaceholder")}
-              value={durationDays}
-              onChange={(e) => setDurationDays(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground mt-1">{t("budgetDurationHint")}</p>
+            <label className="text-sm font-medium">{hasAllowedDays ? t("budgetPeriodLabel") : t("budgetDurationLabel")}</label>
+            {hasAllowedDays ? (
+              <select
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+                value={durationDays}
+                onChange={(e) => setDurationDays(e.target.value)}
+              >
+                {allowedDays!.map((p) => (
+                  <option key={p} value={p === "permanent" ? "" : p}>
+                    {t(`budgetPreset${p === "permanent" ? "Permanent" : p}`)}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <>
+                <Input
+                  type="number"
+                  min="1"
+                  placeholder={t("budgetDurationPlaceholder")}
+                  value={durationDays}
+                  onChange={(e) => setDurationDays(e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground mt-1">{t("budgetDurationHint")}</p>
+              </>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium">{t("budgetReasonLabel")}</label>
@@ -238,7 +269,7 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
             <Button variant="ghost">{tc("cancel")}</Button>
           </DialogClose>
           <Button
-            disabled={!amount || Number(amount) <= 0 || mutation.isPending}
+            disabled={!amount || Number(amount) <= 0 || overLimit || mutation.isPending}
             onClick={() => {
               mutation.mutate(
                 {
@@ -252,7 +283,7 @@ function BudgetRequestDialog({ teamId, currentBudget }: { teamId: string; curren
                     toast.success(t("budgetRequestSuccess"));
                     setOpen(false);
                     setAmount("20");
-                    setDurationDays("30");
+                    setDurationDays(defaultDurationDays);
                     setMessage("");
                   },
                   onError: (err) => {
@@ -276,6 +307,8 @@ function OverviewTab({
   myKeys,
   myMembership,
   modelsByName,
+  budgetRequestMaxAmount,
+  budgetRequestAllowedDays,
   onMoveToKeys,
   onMoveToModels,
   onSelectModel,
@@ -297,6 +330,8 @@ function OverviewTab({
   myKeys: ApiKey[];
   myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null };
   modelsByName: Map<string, ModelWithCatalog>;
+  budgetRequestMaxAmount: number | null;
+  budgetRequestAllowedDays: string[] | null;
   onMoveToKeys: () => void;
   onMoveToModels: () => void;
   onSelectModel: (model: ModelWithCatalog) => void;
@@ -429,7 +464,12 @@ function OverviewTab({
                 <p>{t("budgetCycle")}: {myMembership.budget_duration ? t("budgetCycleValue", { duration: formatBudgetDuration(myMembership.budget_duration, unitLabels) }) : "-"}</p>
                 <p>{t("budgetReset")}: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at, localeTag) : "-"}</p>
               </div>
-              <BudgetRequestDialog teamId={team.team_id} currentBudget={myMaxBudget} />
+              <BudgetRequestDialog
+                teamId={team.team_id}
+                currentBudget={myMaxBudget}
+                maxAmount={budgetRequestMaxAmount}
+                allowedDays={budgetRequestAllowedDays}
+              />
             </CardContent>
           </Card>
 
@@ -1858,6 +1898,8 @@ export default function TeamDetailPage({
             myKeys={my_keys}
             myMembership={my_membership}
             modelsByName={modelsByName}
+            budgetRequestMaxAmount={data.budget_request_max_amount}
+            budgetRequestAllowedDays={data.budget_request_allowed_days}
             onMoveToKeys={() => setActiveTab("keys")}
             onMoveToModels={() => setActiveTab("models")}
             onSelectModel={setDetailModel}
