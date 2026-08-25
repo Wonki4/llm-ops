@@ -1206,6 +1206,18 @@ async def update_team_settings(
     if not updates:
         return {"status": "unchanged"}
 
+    # Validate the opt-in budget-request bounds up front — before any LiteLLM or
+    # portal-settings write — so a bad value can never push a partial change.
+    _amt = updates.get("budget_request_max_amount")
+    if _amt not in (None, "") and float(_amt) <= 0:
+        raise HTTPException(status_code=400, detail="budget_request_max_amount must be positive")
+    _bad_presets = [
+        d for d in (updates.get("budget_request_allowed_days") or [])
+        if d not in BUDGET_REQUEST_DAY_PRESETS
+    ]
+    if _bad_presets:
+        raise HTTPException(status_code=400, detail=f"Invalid period presets: {_bad_presets}")
+
     # Default member budget + per-member TPM/RPM all live on the team's shared
     # default member budget row (team_member scope, keyed off
     # metadata.team_member_budget_id); they apply per-member (across all of a
@@ -1257,8 +1269,6 @@ async def update_team_settings(
         if amt is None or amt == "":
             await db.execute(text("DELETE FROM custom_portal_settings WHERE key = :key"), {"key": amt_key})
         else:
-            if float(amt) <= 0:
-                raise HTTPException(status_code=400, detail="budget_request_max_amount must be positive")
             await db.execute(
                 text(
                     "INSERT INTO custom_portal_settings (key, value, updated_by) "
@@ -1270,9 +1280,6 @@ async def update_team_settings(
     if "budget_request_allowed_days" in updates:
         days_key = f"team:{team_id}:budget_request_allowed_days"
         days = updates["budget_request_allowed_days"] or []
-        bad = [d for d in days if d not in BUDGET_REQUEST_DAY_PRESETS]
-        if bad:
-            raise HTTPException(status_code=400, detail=f"Invalid period presets: {bad}")
         if days:
             await db.execute(
                 text(

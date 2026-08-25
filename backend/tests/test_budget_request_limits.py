@@ -103,3 +103,39 @@ async def test_no_policy_configured_allows_any_amount_and_period(client_for_user
             "team_id": "team-1", "requested_budget": 100000, "requested_duration_days": None,
         })
     assert resp.status_code == 201, resp.text
+
+
+# --- Settings-write validation (update_team_settings) --------------------------
+# A super user passes require_team_admin without a DB query, and the budget-field
+# validation is hoisted to the top of the handler, so these reject before any
+# LiteLLM / portal-settings write.
+
+
+async def test_settings_rejects_unknown_period_preset(client_for_user, super_user, mock_db):
+    from app.db.session import get_litellm_db
+    from app.main import app
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+    try:
+        async with client_for_user(super_user) as client:
+            resp = await client.put(
+                "/api/teams/team-1/settings",
+                json={"budget_request_allowed_days": ["7", "999"]},
+            )
+        assert resp.status_code == 400, resp.text
+    finally:
+        app.dependency_overrides.pop(get_litellm_db, None)
+
+
+async def test_settings_rejects_nonpositive_max(client_for_user, super_user, mock_db):
+    from app.db.session import get_litellm_db
+    from app.main import app
+    app.dependency_overrides[get_litellm_db] = lambda: mock_db
+    try:
+        async with client_for_user(super_user) as client:
+            resp = await client.put(
+                "/api/teams/team-1/settings",
+                json={"budget_request_max_amount": 0},
+            )
+        assert resp.status_code == 400, resp.text
+    finally:
+        app.dependency_overrides.pop(get_litellm_db, None)

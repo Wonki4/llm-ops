@@ -345,7 +345,7 @@ export function useUpdateMemberKeyLimits() {
 export function useUpdateTeamSettings() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; default_member_tpm_limit?: number | null; default_member_rpm_limit?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null; description?: string | null } }) =>
+    mutationFn: ({ teamId, body }: { teamId: string; body: { default_member_budget?: number | null; default_member_tpm_limit?: number | null; default_member_rpm_limit?: number | null; membership_duration?: string | null; default_tpm_limit?: number | null; default_rpm_limit?: number | null; description?: string | null; budget_request_max_amount?: number | null; budget_request_allowed_days?: string[] | null } }) =>
       apiFetch<{ status: string }>(`/api/teams/${teamId}/settings`, {
         method: "PUT",
         body: JSON.stringify(body),
