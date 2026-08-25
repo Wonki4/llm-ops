@@ -450,6 +450,10 @@ async def test_team_usage_non_member_forbidden(user_client: AsyncClient, mock_li
     from app.main import app
 
     async def fake_execute(statement, params=None):
+        # A true non-member: not in the team's admins/members arrays AND not in
+        # UserTable.teams (the fallback get_team_access now also checks).
+        if "LiteLLM_UserTable" in str(statement):
+            return _FakeMappingsResult([])
         return _FakeMappingsResult([{"admins": [], "members": ["user002"]}])
 
     mock_db.execute = fake_execute
