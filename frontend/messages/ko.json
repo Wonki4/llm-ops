@@ -1085,6 +1085,7 @@
     "budgetCycle": "예산 주기",
     "budgetCycleValue": "{duration} 주기",
     "budgetReset": "예산 초기화",
+    "myRateLimit": "속도 제한 (TPM/RPM)",
     "teamMemberInfo": "팀원 정보",
     "memberCountLabel": "{count}명",
     "noAdmins": "관리자가 없습니다.",

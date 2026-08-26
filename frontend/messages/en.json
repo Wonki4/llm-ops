@@ -1085,6 +1085,7 @@
     "budgetCycle": "Budget cycle",
     "budgetCycleValue": "every {duration}",
     "budgetReset": "Budget reset",
+    "myRateLimit": "Rate limit (TPM/RPM)",
     "teamMemberInfo": "Team members",
     "memberCountLabel": "{count}",
     "noAdmins": "No admins.",

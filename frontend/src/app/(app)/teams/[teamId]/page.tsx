@@ -328,7 +328,7 @@ function OverviewTab({
   };
   isAdmin: boolean;
   myKeys: ApiKey[];
-  myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null };
+  myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null; tpm_limit: number | null; rpm_limit: number | null };
   modelsByName: Map<string, ModelWithCatalog>;
   budgetRequestMaxAmount: number | null;
   budgetRequestAllowedDays: string[] | null;
@@ -463,6 +463,7 @@ function OverviewTab({
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p>{t("budgetCycle")}: {myMembership.budget_duration ? t("budgetCycleValue", { duration: formatBudgetDuration(myMembership.budget_duration, unitLabels) }) : "-"}</p>
                 <p>{t("budgetReset")}: {myMembership.budget_reset_at ? formatResetDate(myMembership.budget_reset_at, localeTag) : "-"}</p>
+                <p>{t("myRateLimit")}: {myMembership.tpm_limit?.toLocaleString() ?? t("unlimited")} / {myMembership.rpm_limit?.toLocaleString() ?? t("unlimited")}</p>
               </div>
               <BudgetRequestDialog
                 teamId={team.team_id}
