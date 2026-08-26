@@ -339,7 +339,8 @@ async def get_team_detail(
     # Fetch user's team membership budget (spend + max_budget/duration/reset from BudgetTable)
     membership_result = await litellm_db.execute(
         text(
-            "SELECT m.spend, b.max_budget, b.budget_duration, b.budget_reset_at "
+            "SELECT m.spend, b.max_budget, b.budget_duration, b.budget_reset_at, "
+            "       b.tpm_limit, b.rpm_limit "
             'FROM "LiteLLM_TeamMembership" m '
             'LEFT JOIN "LiteLLM_BudgetTable" b ON m.budget_id = b.budget_id '
             "WHERE m.user_id = :user_id AND m.team_id = :team_id"
@@ -375,6 +376,8 @@ async def get_team_detail(
             "max_budget": membership_row["max_budget"] if membership_row else None,
             "budget_duration": membership_row["budget_duration"] if membership_row else None,
             "budget_reset_at": (membership_row["budget_reset_at"].isoformat() if membership_row and membership_row["budget_reset_at"] else None),
+            "tpm_limit": membership_row["tpm_limit"] if membership_row else None,
+            "rpm_limit": membership_row["rpm_limit"] if membership_row else None,
         },
     }
 
