@@ -6,11 +6,15 @@ from app.services.llmd_manifests import (
     MANAGED_BY,
     argo_app_name_for,
     build_argo_application,
+    build_clientip_ingress,
+    build_clientip_service,
     build_llmd_ingress,
     build_llmd_values,
+    clientip_service_name,
     deep_merge,
     default_llmd_values,
     llmd_service_name,
+    modelservers_target,
 )
 
 
@@ -242,3 +246,57 @@ def test_build_ingress_respects_path():
         _stack(), host="llmd-my-stack.llm-d.local", ingress_class="nginx", ingress_path="/router"
     )
     assert ing["spec"]["rules"][0]["http"]["paths"][0]["path"] == "/router"
+
+
+def test_clientip_service_name():
+    assert clientip_service_name(_stack()) == "llmd-my-stack-clientip"
+
+
+def test_build_clientip_service_shape():
+    svc = build_clientip_service(_stack(), match_labels={"app": "vllm"}, target_port=8000)
+    assert svc["apiVersion"] == "v1"
+    assert svc["kind"] == "Service"
+    assert svc["metadata"]["name"] == "llmd-my-stack-clientip"
+    assert svc["metadata"]["namespace"] == "llmd-my-stack"
+    assert svc["metadata"]["labels"]["app.kubernetes.io/managed-by"] == MANAGED_BY
+    spec = svc["spec"]
+    assert spec["type"] == "ClusterIP"
+    assert spec["sessionAffinity"] == "ClientIP"
+    assert spec["selector"] == {"app": "vllm"}
+    assert spec["ports"] == [{"name": "http", "port": 80, "targetPort": 8000, "protocol": "TCP"}]
+
+
+def test_build_clientip_service_uses_given_target_port():
+    svc = build_clientip_service(_stack(), match_labels={"app": "vllm"}, target_port=8001)
+    assert svc["spec"]["ports"][0]["targetPort"] == 8001
+
+
+def test_build_clientip_ingress_backend_is_clientip_service():
+    ing = build_clientip_ingress(
+        _stack(), host="direct.corp.internal", ingress_class="nginx", ingress_path="/"
+    )
+    assert ing["kind"] == "Ingress"
+    assert ing["metadata"]["name"] == "llmd-my-stack-clientip-ingress"
+    assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == MANAGED_BY
+    rule = ing["spec"]["rules"][0]
+    assert rule["host"] == "direct.corp.internal"
+    backend = rule["http"]["paths"][0]["backend"]["service"]
+    assert backend["name"] == "llmd-my-stack-clientip"
+    assert backend["port"] == {"number": 80}
+    assert ing["spec"]["ingressClassName"] == "nginx"
+
+
+def test_build_clientip_ingress_omits_class_when_empty():
+    ing = build_clientip_ingress(_stack(), host="x", ingress_class="", ingress_path="/")
+    assert "ingressClassName" not in ing["spec"]
+
+
+def test_modelservers_target_extracts_labels_and_port():
+    values = {"router": {"modelServers": {"matchLabels": {"app": "vllm"}, "targetPorts": [{"number": 8000}]}}}
+    assert modelservers_target(values) == ({"app": "vllm"}, 8000)
+
+
+def test_modelservers_target_defaults_when_missing():
+    assert modelservers_target({}) == ({}, 8000)
+    assert modelservers_target({"router": {"modelServers": {}}}) == ({}, 8000)
+    assert modelservers_target({"router": {"modelServers": {"targetPorts": []}}}) == ({}, 8000)
