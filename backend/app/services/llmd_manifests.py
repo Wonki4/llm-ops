@@ -113,6 +113,102 @@ def build_llmd_ingress(
     }
 
 
+def clientip_service_name(stack: CustomLlmdStack) -> str:
+    """The ClientIP direct-route Service: ``<argo_app_name>-clientip``.
+
+    Selects the model-server pods directly (router.modelServers.matchLabels)
+    with sessionAffinity ClientIP, so a client IP sticks to one vLLM pod —
+    a sticky path alongside (not through) the EPP router.
+    """
+    return f"{stack.argo_app_name}-clientip"
+
+
+def modelservers_target(values: dict) -> tuple[dict, int]:
+    """Extract ``(matchLabels, targetPort)`` from rendered router values.
+
+    Reads ``router.modelServers.matchLabels`` (the pods the router targets) and
+    ``router.modelServers.targetPorts[0].number`` (the vLLM port). Tolerant of
+    missing keys: labels default to ``{}``, port to ``8000``.
+    """
+    ms = ((values or {}).get("router") or {}).get("modelServers") or {}
+    labels = ms.get("matchLabels") or {}
+    ports = ms.get("targetPorts") or []
+    port = 8000
+    if ports and isinstance(ports[0], dict) and ports[0].get("number"):
+        port = int(ports[0]["number"])
+    return dict(labels), port
+
+
+def build_clientip_service(stack: CustomLlmdStack, *, match_labels: dict, target_port: int) -> dict:
+    """A ClusterIP Service with ``sessionAffinity: ClientIP`` selecting the
+    model-server pods (``match_labels``), fronting their vLLM port.
+
+    Port 80 -> targetPort ``target_port`` (the modelServers targetPort, 8000 by
+    default). ``sessionAffinityConfig`` is omitted -> K8s default (10800s).
+    Managed by the portal, not ArgoCD.
+    """
+    return {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {
+            "name": clientip_service_name(stack),
+            "namespace": stack.namespace,
+            "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
+        },
+        "spec": {
+            "type": "ClusterIP",
+            "sessionAffinity": "ClientIP",
+            "selector": dict(match_labels),
+            "ports": [{"name": "http", "port": 80, "targetPort": target_port, "protocol": "TCP"}],
+        },
+    }
+
+
+def build_clientip_ingress(
+    stack: CustomLlmdStack, *, host: str, ingress_class: str, ingress_path: str
+) -> dict:
+    """An Ingress fronting the ClientIP direct-route Service.
+
+    Backend: Service ``<argo_app_name>-clientip`` port number 80. ``host`` is the
+    fully-resolved rule host (the caller applies the override or the derived
+    default). ``ingress_class`` empty omits ``ingressClassName`` (cluster
+    default). Managed by the portal, not ArgoCD.
+    """
+    spec: dict = {
+        "rules": [
+            {
+                "host": host,
+                "http": {
+                    "paths": [
+                        {
+                            "path": ingress_path,
+                            "pathType": "Prefix",
+                            "backend": {
+                                "service": {
+                                    "name": clientip_service_name(stack),
+                                    "port": {"number": 80},
+                                }
+                            },
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+    if ingress_class:
+        spec["ingressClassName"] = ingress_class
+    return {
+        "apiVersion": "networking.k8s.io/v1",
+        "kind": "Ingress",
+        "metadata": {
+            "name": f"{stack.argo_app_name}-clientip-ingress",
+            "namespace": stack.namespace,
+            "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
+        },
+        "spec": spec,
+    }
+
+
 def default_llmd_values(
     target_model_name: str,
     *,
