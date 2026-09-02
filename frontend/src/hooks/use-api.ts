@@ -1520,6 +1520,8 @@ export interface CreateLlmdStackBody {
   epp_tag?: string | null;
   ingress_host?: string | null;
   ingress_class?: string | null;
+  clientip_enabled?: boolean;
+  clientip_ingress_host?: string | null;
 }
 
 export interface UpdateLlmdStackBody {
@@ -1533,6 +1535,8 @@ export interface UpdateLlmdStackBody {
   epp_tag?: string | null;
   ingress_host?: string | null;
   ingress_class?: string | null;
+  clientip_enabled?: boolean;
+  clientip_ingress_host?: string | null;
 }
 
 export interface LlmdChartDefaults {

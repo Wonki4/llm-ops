@@ -29,6 +29,7 @@ type EditState = {
   chart_repo: string; chart_name: string; chart_version: string;
   epp_registry: string; epp_repository: string; epp_tag: string;
   ingress_host: string; ingress_class: string;
+  clientip_enabled: boolean; clientip_ingress_host: string;
 };
 
 function Field({ label, children, mono }: { label: string; children: React.ReactNode; mono?: boolean }) {
@@ -102,6 +103,8 @@ export default function LlmdDetailPage() {
       epp_tag: stack.chart_overrides.epp_tag ?? "",
       ingress_host: stack.ingress_overrides.ingress_host ?? "",
       ingress_class: stack.ingress_overrides.ingress_class ?? "",
+      clientip_enabled: stack.clientip_enabled,
+      clientip_ingress_host: stack.clientip_overrides.ingress_host ?? "",
     });
     setEditing(true);
   };
@@ -124,6 +127,8 @@ export default function LlmdDetailPage() {
           epp_tag: overrideOrNull(form.epp_tag, chartDefaults?.epp_tag),
           ingress_host: form.ingress_host.trim() || null,
           ingress_class: overrideOrNull(form.ingress_class, chartDefaults?.ingress_class),
+          clientip_enabled: form.clientip_enabled,
+          clientip_ingress_host: form.clientip_ingress_host.trim() || null,
         },
       },
       {
@@ -214,6 +219,9 @@ export default function LlmdDetailPage() {
             <Field label={t("chartRepo")} mono>{stack.chart_repo}</Field>
             <Field label={t("ingressHostLabel")} mono>{stack.ingress_host}</Field>
             <Field label={t("ingressClassLabel")} mono>{stack.ingress_class || "-"}</Field>
+            <Field label={t("clientipEnableLabel")}>{stack.clientip_enabled ? t("clientipOn") : t("clientipOff")}</Field>
+            {stack.clientip_enabled && <Field label={t("clientipHostLabel")} mono>{stack.clientip_ingress_host}</Field>}
+            {stack.clientip_enabled && <Field label={t("clientipServiceLabel")} mono>{stack.clientip_service}</Field>}
             <Field label={t("createdBy")}>{stack.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmtDate(stack.created_at)}</Field>
             <Field label={t("updatedAt")}>{fmtDate(stack.updated_at)}</Field>
@@ -303,6 +311,25 @@ export default function LlmdDetailPage() {
                       onChange={(e) => setForm({ ...form, ingress_class: e.target.value })} />
                     <p className="text-xs text-muted-foreground mt-1">{t("ingressClassHint")}</p>
                   </div>
+                </div>
+              </details>
+              <details className="rounded-md border p-3">
+                <summary className="cursor-pointer text-sm font-medium">{t("clientipTitle")}</summary>
+                <p className="text-xs text-muted-foreground mt-1">{t("clientipHint")}</p>
+                <div className="mt-3 space-y-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={form.clientip_enabled}
+                      onChange={(e) => setForm({ ...form, clientip_enabled: e.target.checked })} />
+                    {t("clientipEnableLabel")}
+                  </label>
+                  {form.clientip_enabled && (
+                    <div>
+                      <Label htmlFor="llmd-clientip-host">{t("clientipHostLabel")}</Label>
+                      <Input id="llmd-clientip-host" value={form.clientip_ingress_host} placeholder={stack.clientip_ingress_host}
+                        onChange={(e) => setForm({ ...form, clientip_ingress_host: e.target.value })} />
+                      <p className="text-xs text-muted-foreground mt-1">{t("clientipHostHint")}</p>
+                    </div>
+                  )}
                 </div>
               </details>
             </div>
