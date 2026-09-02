@@ -27,9 +27,13 @@ from app.services.clusters import argocd_placement_for, k8s_for_cluster
 from app.services.llmd_manifests import (
     argo_app_name_for,
     build_argo_application,
+    build_clientip_ingress,
+    build_clientip_service,
     build_llmd_ingress,
     build_llmd_values,
+    clientip_service_name,
     default_llmd_values,
+    modelservers_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,8 @@ class CreateLlmdStackRequest(BaseModel):
     epp_tag: str | None = None
     ingress_host: str | None = None  # full host override; empty -> {app}.{domain}
     ingress_class: str | None = None  # empty -> global llmd_ingress_class
+    clientip_enabled: bool = False
+    clientip_ingress_host: str | None = None
 
 
 class UpdateLlmdStackRequest(BaseModel):
@@ -64,6 +70,8 @@ class UpdateLlmdStackRequest(BaseModel):
     epp_tag: str | None = None
     ingress_host: str | None = None
     ingress_class: str | None = None
+    clientip_enabled: bool | None = None
+    clientip_ingress_host: str | None = None
 
 
 class DefaultValuesRequest(BaseModel):
@@ -175,6 +183,52 @@ def _ingress_for(stack: CustomLlmdStack) -> dict:
     )
 
 
+def _clientip_host(stack: CustomLlmdStack) -> str:
+    """Effective ClientIP ingress host: per-stack override, else
+    {argo_app_name}-direct.{global domain}."""
+    return stack.clientip_ingress_host or f"{stack.argo_app_name}-direct.{settings.effective_ingress_domain}"
+
+
+def _clientip_selector(stack: CustomLlmdStack) -> tuple[dict, int]:
+    """(matchLabels, targetPort) the ClientIP Service should use, read from the
+    stack's rendered values (same modelServers block the router targets)."""
+    return modelservers_target(stack.values_snapshot)
+
+
+def _clientip_cleanup_names(stack: CustomLlmdStack) -> dict:
+    return {
+        "service": clientip_service_name(stack),
+        "ingress": f"{stack.argo_app_name}-clientip-ingress",
+    }
+
+
+def _clientip_manifests(stack: CustomLlmdStack) -> list[dict]:
+    """[Service, Ingress] for the ClientIP direct route when enabled, else []."""
+    if not stack.clientip_enabled:
+        return []
+    match_labels, target_port = _clientip_selector(stack)
+    return [
+        build_clientip_service(stack, match_labels=match_labels, target_port=target_port),
+        build_clientip_ingress(
+            stack,
+            host=_clientip_host(stack),
+            ingress_class=_ingress_class(stack),
+            ingress_path=settings.llmd_ingress_path or "/",
+        ),
+    ]
+
+
+def _require_clientip_selector(stack: CustomLlmdStack) -> None:
+    """400 when the ClientIP route is enabled but modelServers.matchLabels is
+    empty — a selector-less Service would bind no endpoints. Must be called
+    before any K8s write and outside the 502-mapping try block."""
+    if stack.clientip_enabled and not _clientip_selector(stack)[0]:
+        raise HTTPException(
+            status_code=400,
+            detail="modelServers.matchLabels is required to enable the ClientIP direct route.",
+        )
+
+
 def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
     chart_repo, chart_name, chart_version = _chart_source(stack)
     return build_argo_application(
@@ -242,6 +296,10 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
             "ingress_host": stack.ingress_host,
             "ingress_class": stack.ingress_class,
         },
+        "clientip_enabled": stack.clientip_enabled,
+        "clientip_ingress_host": _clientip_host(stack),
+        "clientip_service": clientip_service_name(stack),
+        "clientip_overrides": {"ingress_host": stack.clientip_ingress_host},
         "helm_values": stack.helm_values,
         "values_yaml": (_dump_values_yaml(stack.helm_values) if stack.helm_values else ""),
         "created_by": stack.created_by,
@@ -364,10 +422,13 @@ async def create_stack(
         epp_tag=(body.epp_tag or "").strip() or None,
         ingress_host=(body.ingress_host or "").strip() or None,
         ingress_class=(body.ingress_class or "").strip() or None,
+        clientip_enabled=body.clientip_enabled,
+        clientip_ingress_host=(body.clientip_ingress_host or "").strip() or None,
         created_by=user.user_id,
         updated_by=user.user_id,
     )
     stack.values_snapshot = _values_for(stack)
+    _require_clientip_selector(stack)  # 400 before any K8s write (outside the try)
     db.add(stack)
     await db.flush()
 
@@ -376,6 +437,9 @@ async def create_stack(
         await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
         await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
+        clientip = _clientip_manifests(stack)
+        if clientip:
+            await target_k8s.create_or_patch(stack.namespace, clientip)
     except Exception as e:
         logger.exception("ArgoCD Application apply failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD apply failed: {_k8s_error_message(e)}")
@@ -427,7 +491,12 @@ async def update_stack(
         val = getattr(body, field)
         if val is not None:
             setattr(stack, field, val.strip() or None)
+    if body.clientip_enabled is not None:
+        stack.clientip_enabled = body.clientip_enabled
+    if body.clientip_ingress_host is not None:
+        stack.clientip_ingress_host = body.clientip_ingress_host.strip() or None
     stack.values_snapshot = _values_for(stack)
+    _require_clientip_selector(stack)  # 400 before any K8s write (outside the try)
     stack.updated_by = user.user_id
     await db.flush()
 
@@ -436,9 +505,19 @@ async def update_stack(
         await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
         await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
+        clientip = _clientip_manifests(stack)
+        if clientip:
+            await target_k8s.create_or_patch(stack.namespace, clientip)
     except Exception as e:
         logger.exception("ArgoCD Application update failed for stack %s", stack.name)
         raise HTTPException(status_code=502, detail=f"ArgoCD update failed: {_k8s_error_message(e)}")
+    if not stack.clientip_enabled:
+        # Toggled off (or never on): best-effort remove the pair so the cluster
+        # matches the desired state. Cleanup failure must not fail the update.
+        try:
+            await target_k8s.delete(stack.namespace, _clientip_cleanup_names(stack))
+        except Exception as e:  # noqa: BLE001 — cleanup is best-effort
+            logger.info("llm-d clientip cleanup failed for %s: %s", stack.name, e)
     await db.commit()
     await db.refresh(stack)
     return _serialize(stack, await _live_status(db, stack))
@@ -464,6 +543,8 @@ async def delete_stack(
     try:
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
         await target_k8s.delete(stack.namespace, {"ingress": f"{stack.argo_app_name}-ingress"})
+        if stack.clientip_enabled:
+            await target_k8s.delete(stack.namespace, _clientip_cleanup_names(stack))
     except Exception as e:  # noqa: BLE001 — ingress cleanup is best-effort
         logger.info("llm-d ingress cleanup failed for %s: %s", stack.name, e)
     await db.delete(stack)
