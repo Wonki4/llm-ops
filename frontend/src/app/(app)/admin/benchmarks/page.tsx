@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Search, Loader2, FlaskConical, X, Plus, GitCompare } from "lucide-react";
+import { Search, Loader2, FlaskConical, X, Plus, GitCompare, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "sonner";
 
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useBenchmarks } from "@/hooks/use-api";
+import { useBenchmarks, useDeleteBenchmark } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -113,6 +114,14 @@ export default function AdminBenchmarksPage() {
       return next;
     });
   };
+  const deleteMut = useDeleteBenchmark();
+  const handleDelete = (r: BenchmarkRun) => {
+    if (!confirm(t("confirmDelete", { name: r.label || r.model_name }))) return;
+    deleteMut.mutate(r.id, {
+      onSuccess: () => toast.success(t("deleteSuccess")),
+      onError: (e) => toast.error(e instanceof Error ? e.message : t("deleteFail")),
+    });
+  };
   const compareHref = `/admin/benchmarks/compare?ids=${Array.from(selected).join(",")}`;
 
   return (
@@ -208,12 +217,13 @@ export default function AdminBenchmarksPage() {
               <TableHead>{t("colDuration")}</TableHead>
               <TableHead>{t("colCreatedBy")}</TableHead>
               <TableHead>{t("colCreatedAt")}</TableHead>
+              <TableHead className="w-10"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={13}>
+                <TableCell colSpan={14}>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
                   </div>
@@ -221,7 +231,7 @@ export default function AdminBenchmarksPage() {
               </TableRow>
             ) : !runs || runs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13}>
+                <TableCell colSpan={14}>
                   <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                     <FlaskConical className="size-6" />
                     <span className="text-sm">{t("empty")}</span>
@@ -274,6 +284,18 @@ export default function AdminBenchmarksPage() {
                   <TableCell className="text-sm">{r.created_by}</TableCell>
                   <TableCell className="text-sm">
                     {formatDateTime(r.created_at, localeTag)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground hover:text-destructive"
+                      onClick={() => handleDelete(r)}
+                      disabled={deleteMut.isPending}
+                      title={t("deleteAction")}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
                   </TableCell>
                 </TableRow>
                 );

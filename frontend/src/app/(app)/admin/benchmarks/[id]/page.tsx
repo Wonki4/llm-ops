@@ -2,12 +2,13 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { Loader2, ArrowLeft, Ban } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Loader2, ArrowLeft, Ban, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useBenchmark, useCancelBenchmark } from "@/hooks/use-api";
+import { useBenchmark, useCancelBenchmark, useDeleteBenchmark } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,21 @@ export default function AdminBenchmarkDetailPage({
     });
   };
 
+  const router = useRouter();
+  const deleteMutation = useDeleteBenchmark();
+  const handleDelete = () => {
+    if (!run) return;
+    if (!confirm(t("confirmDelete", { name: run.label || run.model_name }))) return;
+    deleteMutation.mutate(run.id, {
+      onSuccess: () => {
+        toast.success(t("deleteSuccess"));
+        router.push("/admin/benchmarks");
+      },
+      onError: (err) =>
+        toast.error(err instanceof Error ? err.message : t("deleteFail")),
+    });
+  };
+
   if (isLoading || !run) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -114,17 +130,29 @@ export default function AdminBenchmarkDetailPage({
             {run.tool} · {run.kind} · {run.id}
           </p>
         </div>
-        {canCancel && (
+        <div className="flex items-center gap-2">
+          {canCancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCancel}
+              disabled={cancelMutation.isPending}
+            >
+              <Ban className="size-4 mr-1" />
+              {t("cancel")}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
-            onClick={handleCancel}
-            disabled={cancelMutation.isPending}
+            className="text-destructive hover:text-destructive"
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
           >
-            <Ban className="size-4 mr-1" />
-            {t("cancel")}
+            <Trash2 className="size-4 mr-1" />
+            {t("delete")}
           </Button>
-        )}
+        </div>
       </div>
 
       <Card>

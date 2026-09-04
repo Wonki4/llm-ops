@@ -1405,6 +1405,11 @@
     "confirmCancel": "Cancel this benchmark run? The K8s Job will be deleted.",
     "cancelSuccess": "Benchmark cancelled.",
     "cancelFail": "Failed to cancel benchmark",
+    "delete": "Delete",
+    "deleteAction": "Delete run",
+    "confirmDelete": "Delete benchmark run \"{name}\"? Its K8s Job and any ephemeral serving will be removed.",
+    "deleteSuccess": "Benchmark run deleted",
+    "deleteFail": "Failed to delete the benchmark run",
     "serving": "Serving config",
     "note": "Note"
   },
