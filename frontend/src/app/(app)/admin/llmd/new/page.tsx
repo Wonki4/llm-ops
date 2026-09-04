@@ -33,7 +33,7 @@ type FormState = {
   chart_repo: string; chart_name: string; chart_version: string;
   epp_registry: string; epp_repository: string; epp_tag: string;
   ingress_host: string; ingress_class: string;
-  clientip_enabled: boolean; clientip_ingress_host: string;
+  direct_route_enabled: boolean; direct_ingress_host: string;
 };
 
 const EMPTY: FormState = {
@@ -47,7 +47,7 @@ const EMPTY: FormState = {
   chart_repo: "", chart_name: "", chart_version: "",
   epp_registry: "", epp_repository: "", epp_tag: "",
   ingress_host: "", ingress_class: "",
-  clientip_enabled: false, clientip_ingress_host: "",
+  direct_route_enabled: false, direct_ingress_host: "",
 };
 
 export default function NewLlmdStackPage() {
@@ -126,8 +126,8 @@ export default function NewLlmdStackPage() {
       // blank simply means "use the computed default".
       ingress_host: form.ingress_host.trim() || null,
       ingress_class: overrideOrNull(form.ingress_class, chartDefaults?.ingress_class),
-      clientip_enabled: form.clientip_enabled,
-      clientip_ingress_host: form.clientip_ingress_host.trim() || null,
+      direct_route_enabled: form.direct_route_enabled,
+      direct_ingress_host: form.direct_ingress_host.trim() || null,
     };
     createMut.mutate(body, {
       onSuccess: () => { toast.success(t("createSuccess")); router.push("/admin/llmd"); },
@@ -329,24 +329,24 @@ export default function NewLlmdStackPage() {
             </details>
 
             <details className="rounded-md border p-3">
-              <summary className="cursor-pointer text-sm font-medium">{t("clientipTitle")}</summary>
-              <p className="text-xs text-muted-foreground mt-1">{t("clientipHint")}</p>
+              <summary className="cursor-pointer text-sm font-medium">{t("directTitle")}</summary>
+              <p className="text-xs text-muted-foreground mt-1">{t("directHint")}</p>
               <div className="mt-3 space-y-3">
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={form.clientip_enabled}
-                    onChange={(e) => setForm({ ...form, clientip_enabled: e.target.checked })}
+                    checked={form.direct_route_enabled}
+                    onChange={(e) => setForm({ ...form, direct_route_enabled: e.target.checked })}
                   />
-                  {t("clientipEnableLabel")}
+                  {t("directEnableLabel")}
                 </label>
-                {form.clientip_enabled && (
+                {form.direct_route_enabled && (
                   <div>
-                    <Label htmlFor="llmd-clientip-host">{t("clientipHostLabel")}</Label>
-                    <Input id="llmd-clientip-host" value={form.clientip_ingress_host}
+                    <Label htmlFor="llmd-direct-host">{t("directHostLabel")}</Label>
+                    <Input id="llmd-direct-host" value={form.direct_ingress_host}
                       placeholder={chartDefaults ? `${form.name || "<name>"}-direct.${chartDefaults.ingress_domain}` : undefined}
-                      onChange={(e) => setForm({ ...form, clientip_ingress_host: e.target.value })} />
-                    <p className="text-xs text-muted-foreground mt-1">{t("clientipHostHint")}</p>
+                      onChange={(e) => setForm({ ...form, direct_ingress_host: e.target.value })} />
+                    <p className="text-xs text-muted-foreground mt-1">{t("directHostHint")}</p>
                   </div>
                 )}
               </div>

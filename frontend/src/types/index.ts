@@ -712,10 +712,10 @@ export interface LlmdStackSummary {
     ingress_host: string | null;
     ingress_class: string | null;
   };
-  clientip_enabled: boolean;
-  clientip_ingress_host: string;
-  clientip_service: string;
-  clientip_overrides: {
+  direct_route_enabled: boolean;
+  direct_ingress_host: string;
+  direct_service: string;
+  direct_overrides: {
     ingress_host: string | null;
   };
   helm_values: Record<string, unknown>;

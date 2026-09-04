@@ -123,7 +123,7 @@ def _stack(**kw):
         chart_repo=None, chart_name=None, chart_version=None,
         epp_registry=None, epp_repository=None, epp_tag=None,
         ingress_host=None, ingress_class=None,
-        clientip_enabled=False, clientip_ingress_host=None,
+        direct_route_enabled=False, direct_ingress_host=None,
         created_by=None, created_at=None, updated_at=None,
     )
     base.update(kw)
@@ -246,7 +246,7 @@ def test_values_ingress_resolvers_prefer_override():
     assert _ingress_class(base) == settings.llmd_ingress_class
 
 
-async def test_create_stack_with_clientip_upserts_service_and_ingress(client_for_user, super_user, mock_db):
+async def test_create_stack_with_direct_upserts_service_and_ingress(client_for_user, super_user, mock_db):
     mock_db.execute = AsyncMock(return_value=_none_result())
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock()
@@ -260,22 +260,23 @@ async def test_create_stack_with_clientip_upserts_service_and_ingress(client_for
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "qwen", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "", "clientip_enabled": True,
+                "namespace": "team-a", "values_yaml": "", "direct_route_enabled": True,
             })
     assert resp.status_code == 201
-    # Two create_or_patch calls: EPP ingress first, then the ClientIP pair.
+    # Two create_or_patch calls: EPP ingress first, then the direct pair.
     assert fake_target.create_or_patch.await_count == 2
-    _ns, clientip = fake_target.create_or_patch.await_args_list[1].args
-    by_kind = {m["kind"]: m for m in clientip}
-    assert by_kind["Service"]["spec"]["sessionAffinity"] == "ClientIP"
+    _ns, direct = fake_target.create_or_patch.await_args_list[1].args
+    by_kind = {m["kind"]: m for m in direct}
+    assert "sessionAffinity" not in by_kind["Service"]["spec"]
     assert by_kind["Service"]["spec"]["selector"] == {"llm-ops/model-name": "qwen"}
-    assert by_kind["Service"]["metadata"]["name"] == "llmd-demo-clientip"
-    assert by_kind["Ingress"]["metadata"]["name"] == "llmd-demo-clientip-ingress"
+    assert by_kind["Service"]["metadata"]["name"] == "llmd-demo-direct"
+    assert by_kind["Ingress"]["metadata"]["name"] == "llmd-demo-direct-ingress"
     assert by_kind["Ingress"]["spec"]["rules"][0]["host"] == "llmd-demo-direct.llm-d.local"
-    assert by_kind["Ingress"]["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] == "llmd-demo-clientip"
+    ing_svc = by_kind["Ingress"]["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]
+    assert ing_svc["name"] == "llmd-demo-direct"
 
 
-async def test_create_stack_clientip_without_labels_400(client_for_user, super_user, mock_db):
+async def test_create_stack_direct_without_labels_400(client_for_user, super_user, mock_db):
     mock_db.execute = AsyncMock(return_value=_none_result())
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
@@ -286,15 +287,15 @@ async def test_create_stack_clientip_without_labels_400(client_for_user, super_u
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/llmd-stacks", json={
                 "name": "demo", "target_model_name": "", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "", "clientip_enabled": True,
+                "namespace": "team-a", "values_yaml": "", "direct_route_enabled": True,
             })
     assert resp.status_code == 400
     assert "matchLabels" in resp.json()["detail"]
     fake_target.create_or_patch.assert_not_awaited()
 
 
-async def test_update_toggle_off_deletes_clientip(client_for_user, super_user, mock_db):
-    stack = _stack(name="demo", namespace="team-a", argo_app_name="llmd-demo", clientip_enabled=True)
+async def test_update_toggle_off_deletes_direct(client_for_user, super_user, mock_db):
+    stack = _stack(name="demo", namespace="team-a", argo_app_name="llmd-demo", direct_route_enabled=True)
     mock_db.execute = AsyncMock(return_value=_result_with(stack))
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock()
@@ -307,15 +308,15 @@ async def test_update_toggle_off_deletes_clientip(client_for_user, super_user, m
         AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
     ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
         async with client_for_user(super_user) as client:
-            resp = await client.put(f"/api/admin/llmd-stacks/{stack.id}", json={"clientip_enabled": False})
+            resp = await client.put(f"/api/admin/llmd-stacks/{stack.id}", json={"direct_route_enabled": False})
     assert resp.status_code == 200
     fake_target.delete.assert_awaited_once_with(
-        "team-a", {"service": "llmd-demo-clientip", "ingress": "llmd-demo-clientip-ingress"}
+        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ingress"}
     )
 
 
-async def test_delete_stack_enabled_removes_clientip(client_for_user, super_user, mock_db):
-    stack = _stack(name="demo", namespace="team-a", argo_app_name="llmd-demo", clientip_enabled=True)
+async def test_delete_stack_enabled_removes_direct(client_for_user, super_user, mock_db):
+    stack = _stack(name="demo", namespace="team-a", argo_app_name="llmd-demo", direct_route_enabled=True)
     mock_db.execute = AsyncMock(return_value=_result_with(stack))
     fake_k8s = MagicMock()
     fake_k8s.delete_application = AsyncMock()
@@ -330,20 +331,20 @@ async def test_delete_stack_enabled_removes_clientip(client_for_user, super_user
     assert resp.status_code == 200
     assert fake_target.delete.await_count == 2
     fake_target.delete.assert_any_await(
-        "team-a", {"service": "llmd-demo-clientip", "ingress": "llmd-demo-clientip-ingress"}
+        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ingress"}
     )
 
 
-def test_serialize_reports_clientip_fields():
+def test_serialize_reports_direct_fields():
     base = _serialize(_stack(argo_app_name="llmd-demo"), {"sync_status": "Synced"})
-    assert base["clientip_enabled"] is False
-    assert base["clientip_ingress_host"] == "llmd-demo-direct.llm-d.local"
-    assert base["clientip_service"] == "llmd-demo-clientip"
-    assert base["clientip_overrides"] == {"ingress_host": None}
+    assert base["direct_route_enabled"] is False
+    assert base["direct_ingress_host"] == "llmd-demo-direct.llm-d.local"
+    assert base["direct_service"] == "llmd-demo-direct"
+    assert base["direct_overrides"] == {"ingress_host": None}
     over = _serialize(
-        _stack(argo_app_name="llmd-demo", clientip_enabled=True, clientip_ingress_host="sticky.corp"),
+        _stack(argo_app_name="llmd-demo", direct_route_enabled=True, direct_ingress_host="sticky.corp"),
         {"sync_status": "Synced"},
     )
-    assert over["clientip_enabled"] is True
-    assert over["clientip_ingress_host"] == "sticky.corp"
-    assert over["clientip_overrides"] == {"ingress_host": "sticky.corp"}
+    assert over["direct_route_enabled"] is True
+    assert over["direct_ingress_host"] == "sticky.corp"
+    assert over["direct_overrides"] == {"ingress_host": "sticky.corp"}
