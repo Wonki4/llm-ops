@@ -918,3 +918,39 @@ async def cancel_benchmark(
     run.status = "cancelled"
     await db.flush()
     return _serialize(run)
+
+
+async def _best_effort_teardown(db: AsyncSession, run: CustomBenchmarkRun) -> None:
+    """Delete the run's K8s Job and any un-torn-down ephemeral serving,
+    swallowing every error — deleting the DB row must still succeed when the
+    cluster is unreachable or K8s is unconfigured."""
+    try:
+        k8s = await k8s_for_cluster(db, run.cluster_id)
+        if run.k8s_job_name and run.k8s_namespace:
+            await k8s.delete_job(run.k8s_namespace, run.k8s_job_name)
+        if run.ephemeral and run.serving_k8s_name and not run.serving_torn_down and run.k8s_namespace:
+            await k8s.delete(run.k8s_namespace, serving_resource_names(run.serving_k8s_name))
+    except Exception:  # noqa: BLE001 — cleanup is best-effort; the row still goes
+        logger.exception("K8s cleanup during benchmark delete failed for %s", run.id)
+
+
+@router.delete("/{run_id}")
+async def delete_benchmark(
+    run_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Remove a benchmark run and best-effort tear down its K8s Job / ephemeral
+    serving. Allowed in any status; cleanup never blocks the row removal."""
+    try:
+        rid = uuid.UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    result = await db.execute(select(CustomBenchmarkRun).where(CustomBenchmarkRun.id == rid))
+    run = result.scalar_one_or_none()
+    if not run:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    await _best_effort_teardown(db, run)
+    await db.delete(run)
+    await db.flush()
+    return {"ok": True}

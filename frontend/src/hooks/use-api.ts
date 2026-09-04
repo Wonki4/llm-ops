@@ -1361,6 +1361,18 @@ export function useCancelBenchmark() {
   });
 }
 
+export function useDeleteBenchmark() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/benchmarks/${id}`, { method: "DELETE" }),
+    onSuccess: (_data, id) => {
+      qc.invalidateQueries({ queryKey: ["benchmarks"] });
+      qc.removeQueries({ queryKey: ["benchmarks", id] });
+    },
+  });
+}
+
 export function useBenchmarkBulk(ids: string[]) {
   // Fetch N runs in parallel. Reuses the per-run query cache so opening a
   // comparison after viewing a detail page hits cache without re-fetching.
