@@ -75,6 +75,13 @@ function formatDuration(
 export default function AdminBenchmarksPage() {
   const t = useTranslations("adminBenchmarks");
   const ts = useTranslations("benchmarkStatus");
+  // Render a stored workload param (number, numeric string, or missing) for the
+  // table. Absent/empty -> "-"; numbers get thousands separators.
+  const fmtParam = (v: unknown): string => {
+    if (v === null || v === undefined || v === "") return "-";
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n.toLocaleString(localeTag) : String(v);
+  };
   const localeTag = useLocaleTag();
 
   const [modelInput, setModelInput] = useState("");
@@ -193,6 +200,10 @@ export default function AdminBenchmarksPage() {
               <TableHead>{t("colLabel")}</TableHead>
               <TableHead>{t("colTool")}</TableHead>
               <TableHead>{t("colKind")}</TableHead>
+              <TableHead>{t("colNumPrompts")}</TableHead>
+              <TableHead>{t("colConcurrency")}</TableHead>
+              <TableHead>{t("colInputLen")}</TableHead>
+              <TableHead>{t("colOutputLen")}</TableHead>
               <TableHead>{t("colStatus")}</TableHead>
               <TableHead>{t("colDuration")}</TableHead>
               <TableHead>{t("colCreatedBy")}</TableHead>
@@ -202,7 +213,7 @@ export default function AdminBenchmarksPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={9}>
+                <TableCell colSpan={13}>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
                   </div>
@@ -210,7 +221,7 @@ export default function AdminBenchmarksPage() {
               </TableRow>
             ) : !runs || runs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9}>
+                <TableCell colSpan={13}>
                   <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                     <FlaskConical className="size-6" />
                     <span className="text-sm">{t("empty")}</span>
@@ -248,6 +259,10 @@ export default function AdminBenchmarksPage() {
                   <TableCell className="text-sm">{r.label || "-"}</TableCell>
                   <TableCell className="font-mono text-xs">{r.tool}</TableCell>
                   <TableCell className="text-sm">{r.kind}</TableCell>
+                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.num_prompts)}</TableCell>
+                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.max_concurrency)}</TableCell>
+                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.random_input_len)}</TableCell>
+                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.random_output_len)}</TableCell>
                   <TableCell>
                     <Badge className={STATUS_STYLES[r.status]}>
                       {ts(r.status)}
