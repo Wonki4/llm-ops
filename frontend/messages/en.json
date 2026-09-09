@@ -1664,6 +1664,15 @@
     "deploySubmit": "Deploy",
     "deployRequired": "Deployment model name and ingress host are required",
     "deployError": "Failed to create deployment",
-    "deploySuccess": "Deployment created"
+    "deploySuccess": "Deployment created",
+    "backToList": "Back to recipes",
+    "createDescription": "Define a reusable vLLM serving configuration you can deploy from the recipe list.",
+    "sectionBasic": "Basics",
+    "sectionResources": "Resources",
+    "sectionStorage": "Storage",
+    "sectionAdvanced": "Advanced",
+    "notFound": "Recipe not found",
+    "createSuccess": "Recipe created",
+    "saveSuccess": "Recipe saved"
   }
 }
