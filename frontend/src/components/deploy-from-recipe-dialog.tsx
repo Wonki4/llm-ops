@@ -79,7 +79,7 @@ export function DeployFromRecipeDialog({
         <DialogHeader>
           <DialogTitle>{recipe ? t("deployTitle", { name: recipe.name }) : ""}</DialogTitle>
           <DialogDescription className="font-mono text-xs">
-            {recipe ? `${recipe.model_path} · ${recipe.image} · ${recipe.gpu_count}×${recipe.gpu_resource_key}` : ""}
+            {recipe ? `${recipe.engine} · ${recipe.model_path} · ${recipe.image} · ${recipe.gpu_count}×${recipe.gpu_resource_key}` : ""}
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-2 gap-3">
