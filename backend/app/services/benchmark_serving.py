@@ -20,6 +20,7 @@ from app.services.model_deployment_manifests import (
     build_service,
     k8s_resource_names,
 )
+from app.services.serving_engines import engine_of
 
 
 def ephemeral_model_name(run_id: uuid.UUID) -> str:
@@ -72,6 +73,8 @@ def build_ephemeral_deployment(
         model_path=base.model_path,
         vllm_extra_args=list(base.vllm_extra_args or []),
         env=dict(base.env or {}),
+        engine=engine_of(base),
+        engine_args=dict(getattr(base, "engine_args", None) or {}) or None,
         # Ingress is required by the column but unused for ephemeral servings
         # (we hit the Service directly); give it a harmless placeholder.
         ingress_host=f"{name}.invalid",
@@ -84,6 +87,8 @@ def build_ephemeral_deployment(
             setattr(dep, key, ov[key])
     if ov.get("vllm_extra_args") is not None:
         dep.vllm_extra_args = list(ov["vllm_extra_args"])
+    if ov.get("engine_args") is not None:
+        dep.engine_args = dict(ov["engine_args"])
     if ov.get("env") is not None:
         dep.env = dict(ov["env"])
     # GPU type → node selector label.
