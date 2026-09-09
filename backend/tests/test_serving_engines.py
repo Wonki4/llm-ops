@@ -124,3 +124,28 @@ def test_serve_argv_sglang():
         "python3", "-m", "sglang.launch_server", "--model-path", "/models/m",
         "--host", "0.0.0.0", "--port", "8000", "--tp-size", "2",
     ]
+
+
+from app.api.benchmarks import _serving_snapshot
+from app.services.benchmark_serving import build_ephemeral_deployment
+
+
+def test_ephemeral_deployment_copies_engine_and_args():
+    base = _dep(engine="sglang", engine_args={"tp-size": 2, "dtype": "bfloat16"})
+    eph = build_ephemeral_deployment(base, name="bench-x", namespace="ns", overrides=None)
+    assert eph.engine == "sglang"
+    assert eph.engine_args == {"tp-size": 2, "dtype": "bfloat16"}
+    assert eph.engine_args is not base.engine_args  # copied, not shared
+
+
+def test_ephemeral_deployment_engine_args_override():
+    base = _dep(engine="vllm", engine_args={"tensor-parallel-size": 2})
+    eph = build_ephemeral_deployment(base, name="bench-x", namespace="ns", overrides={"engine_args": {"tensor-parallel-size": 4}})
+    assert eph.engine_args == {"tensor-parallel-size": 4}
+
+
+def test_serving_snapshot_records_engine():
+    snap = _serving_snapshot(_dep(engine="sglang", engine_args={"tp-size": 2}))
+    assert snap["engine"] == "sglang"
+    assert snap["engine_args"] == {"tp-size": 2}
+    assert _serving_snapshot(_dep())["engine"] == "vllm"
