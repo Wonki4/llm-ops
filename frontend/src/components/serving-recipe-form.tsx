@@ -21,6 +21,7 @@ const BLANK: ServingRecipeInput = {
   gpu_resource_key: "nvidia.com/gpu", cpu_request: null, cpu_limit: null,
   memory_request: null, memory_limit: null, node_selector: null, tolerations: null,
   pvc_name: null, pvc_mount_path: null, vllm_extra_args: null, env: null,
+  engine: "vllm", engine_args: null,
 };
 
 const linesToList = (s: string): string[] | null => {
