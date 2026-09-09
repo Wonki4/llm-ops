@@ -631,6 +631,8 @@ export interface ModelDeployment {
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
@@ -748,6 +750,9 @@ export interface LlmdAppliedResponse {
 
 // ─── Serving Recipes ──────────────────────────────────────────
 
+export type ServingEngine = "vllm" | "sglang";
+export type EngineArgs = Record<string, string | number | boolean>;
+
 export interface ServingRecipe {
   id: string;
   name: string;
@@ -766,6 +771,8 @@ export interface ServingRecipe {
   pvc_mount_path: string | null;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string | null;
@@ -798,6 +805,8 @@ export interface CreateDeploymentBody {
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;

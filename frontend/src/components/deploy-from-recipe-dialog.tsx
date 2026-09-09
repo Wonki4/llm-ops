@@ -61,6 +61,8 @@ export function DeployFromRecipeDialog({
       model_path: recipe.model_path,
       vllm_extra_args: recipe.vllm_extra_args,
       env: recipe.env,
+      engine: recipe.engine,
+      engine_args: recipe.engine_args,
       ingress_host: ingressHost.trim(),
       ingress_path: ingressPath.trim() || "/",
       ingress_class: ingressClass.trim() || "nginx",
