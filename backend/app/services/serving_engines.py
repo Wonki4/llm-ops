@@ -47,8 +47,11 @@ def default_image(engine: str) -> str:
 
 def engine_of(dep) -> str:
     """Engine name for a row. In-memory rows built without the column (benchmark
-    clones, tests) read as None and are treated as vLLM."""
-    return getattr(dep, "engine", None) or DEFAULT_ENGINE
+    clones, mocks in tests) read as None or a non-string and are treated as
+    vLLM. The API validates ``engine`` on the way in, so persisted rows always
+    hold a known value."""
+    value = getattr(dep, "engine", None)
+    return value if isinstance(value, str) and value in ENGINES else DEFAULT_ENGINE
 
 
 def validate_engine_args(args: dict | None) -> dict | None:

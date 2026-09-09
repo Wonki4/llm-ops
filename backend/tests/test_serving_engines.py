@@ -64,6 +64,9 @@ def test_engine_of_defaults_to_vllm():
     assert engine_of(types.SimpleNamespace()) == "vllm"
     assert engine_of(types.SimpleNamespace(engine=None)) == "vllm"
     assert engine_of(types.SimpleNamespace(engine="sglang")) == "sglang"
+    # Mock rows (MagicMock attributes) and unknown strings fall back to vLLM.
+    assert engine_of(types.SimpleNamespace(engine=object())) == "vllm"
+    assert engine_of(types.SimpleNamespace(engine="tgi")) == "vllm"
 
 
 def test_default_image_per_engine():
