@@ -106,6 +106,7 @@ export default function DeploymentsPage() {
                         >
                           {d.model_name}
                         </Link>
+                        <Badge variant="secondary" className="ml-2 font-mono text-[10px] uppercase">{d.engine}</Badge>
                       </TableCell>
                       <TableCell><StatusBadge status={d.status} /></TableCell>
                       <TableCell className="text-right tabular-nums">{d.ready_replicas}/{d.replicas}</TableCell>
