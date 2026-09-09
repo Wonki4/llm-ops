@@ -9,10 +9,10 @@ from app.db.base import CustomBase
 
 
 class CustomServingRecipe(CustomBase):
-    """A named, reusable vLLM serving configuration.
+    """A named, reusable vLLM/SGLang serving configuration.
 
     Captures the reusable subset of a model deployment's serving spec (model
-    weights, image, compute, vLLM flags, env, placement hints) minus the
+    weights, image, compute, engine flags, env, placement hints) minus the
     per-instance fields (name, namespace, cluster, ingress, replicas). Applied by
     launching a deployment from it via the Deploy dialog.
     """
@@ -37,6 +37,8 @@ class CustomServingRecipe(CustomBase):
     pvc_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     pvc_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     vllm_extra_args: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
+    engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
