@@ -48,6 +48,7 @@ from app.services.model_deployment_manifests import (
     k8s_resource_names,
     serving_api_key,
 )
+from app.services.serving_engines import engine_of, serve_argv as engine_serve_argv
 
 logger = logging.getLogger(__name__)
 
@@ -158,7 +159,8 @@ def _serving_snapshot(dep: CustomModelDeployment) -> dict:
     """Freeze a serving deployment's config so benchmark runs stay comparable
     even if the deployment is later edited or deleted."""
     return {
-        "engine": "vllm",
+        "engine": engine_of(dep),
+        "engine_args": dict(getattr(dep, "engine_args", None) or {}),
         "image": dep.image,
         "model_path": dep.model_path,
         "vllm_extra_args": list(dep.vllm_extra_args or []),
@@ -563,7 +565,7 @@ async def create_benchmark(
         if kind == "performance":
             # Single self-serving Job — no separate serving Deployment.
             run.serving_torn_down = True
-            serve_argv = ["vllm", "serve", eph.model_path, "--port", str(VLLM_PORT), *(eph.vllm_extra_args or [])]
+            serve_argv = engine_serve_argv(eph, VLLM_PORT)
             api_key = body.api_key or serving_api_key(eph.vllm_extra_args, eph.env)
             job = build_self_serving_bench_job(
                 run,
@@ -806,7 +808,7 @@ async def preview_benchmark(
         eph = build_ephemeral_deployment(base, name=name, namespace=namespace, overrides=body.serving_overrides)
         run.model_name = base.model_name
         if kind == "performance":
-            serve_argv = ["vllm", "serve", eph.model_path, "--port", str(VLLM_PORT), *(eph.vllm_extra_args or [])]
+            serve_argv = engine_serve_argv(eph, VLLM_PORT)
             manifests.append(
                 build_self_serving_bench_job(
                     run,

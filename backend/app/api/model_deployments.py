@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,20 +24,21 @@ from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
+from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/model-deployments", tags=["model-deployments"])
 
 
-DEFAULT_VLLM_IMAGE = "vllm/vllm-openai:latest"
+DEFAULT_VLLM_IMAGE = DEFAULT_IMAGES["vllm"]  # kept for existing references
 
 
 class CreateDeploymentRequest(BaseModel):
     model_name: str
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
     namespace: str = "default"
-    image: str = DEFAULT_VLLM_IMAGE
+    image: str | None = None  # None → default_image(engine)
     replicas: int = Field(1, ge=0)
     gpu_count: int = Field(1, ge=0)
     gpu_resource_key: str = "nvidia.com/gpu"
@@ -52,9 +53,16 @@ class CreateDeploymentRequest(BaseModel):
     model_path: str
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
+    engine: ServingEngine = "vllm"
+    engine_args: dict[str, str | int | float | bool] | None = None
     ingress_host: str
     ingress_path: str = "/"
     ingress_class: str = "nginx"
+
+    @field_validator("engine_args")
+    @classmethod
+    def _check_engine_args(cls, v: dict | None) -> dict | None:
+        return validate_engine_args(v)
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -72,9 +80,16 @@ class UpdateDeploymentRequest(BaseModel):
     model_path: str | None = None
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
+    engine: ServingEngine | None = None
+    engine_args: dict[str, str | int | float | bool] | None = None
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
+
+    @field_validator("engine_args")
+    @classmethod
+    def _check_engine_args(cls, v: dict | None) -> dict | None:
+        return validate_engine_args(v)
 
 
 class RegisterExternalServingRequest(BaseModel):
@@ -108,6 +123,8 @@ def _serialize(d: CustomModelDeployment) -> dict:
         "model_path": d.model_path,
         "vllm_extra_args": d.vllm_extra_args,
         "env": d.env,
+        "engine": d.engine or "vllm",
+        "engine_args": d.engine_args,
         "ingress_host": d.ingress_host,
         "ingress_path": d.ingress_path,
         "ingress_class": d.ingress_class,
@@ -276,7 +293,7 @@ async def create_deployment(
         model_name=body.model_name,
         cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
         namespace=body.namespace,
-        image=body.image,
+        image=body.image or default_image(body.engine),
         replicas=body.replicas,
         gpu_count=body.gpu_count,
         gpu_resource_key=body.gpu_resource_key,
@@ -291,6 +308,8 @@ async def create_deployment(
         model_path=body.model_path,
         vllm_extra_args=body.vllm_extra_args,
         env=body.env,
+        engine=body.engine,
+        engine_args=body.engine_args,
         ingress_host=body.ingress_host,
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,

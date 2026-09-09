@@ -6,6 +6,7 @@ import { ArrowLeft, Loader2, Trash2, Server, AlertTriangle } from "lucide-react"
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
+import { engineArgsToFlags } from "@/lib/serving-engines";
 
 import {
   useModelDeployment,
@@ -86,6 +87,7 @@ export default function DeploymentDetailPage() {
             <Server className="size-5" />
             <h1 className="text-2xl font-bold">{dep.model_name}</h1>
             <StatusBadge status={dep.status} />
+            <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
             <span className="text-sm text-muted-foreground tabular-nums">{dep.ready_replicas}/{dep.replicas} ready</span>
           </div>
           <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
@@ -130,12 +132,15 @@ export default function DeploymentDetailPage() {
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
           </div>
-          {dep.vllm_extra_args && dep.vllm_extra_args.length > 0 && (
-            <div className="mt-4 space-y-1">
-              <div className="text-xs text-muted-foreground">{t("extraArgs")}</div>
-              <code className="block rounded-md border bg-muted/40 p-2 text-xs font-mono">{dep.vllm_extra_args.join(" ")}</code>
-            </div>
-          )}
+          {(() => {
+            const flags = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];
+            return flags.length > 0 ? (
+              <div className="mt-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{t("extraArgs")}</div>
+                <code className="block rounded-md border bg-muted/40 p-2 text-xs font-mono">{flags.join(" ")}</code>
+              </div>
+            ) : null;
+          })()}
         </CardContent>
       </Card>
 
