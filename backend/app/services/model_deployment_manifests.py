@@ -6,8 +6,9 @@ Pure functions, no side effects.
 """
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.services.serving_engines import SERVING_PORT, container_launch, engine_of
 
-VLLM_PORT = 8000
+VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
 LABEL_MODEL = "llm-ops/model-name"
 
@@ -72,10 +73,9 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
     if requests:
         resources["requests"] = requests
 
-    # vLLM command/args
-    args = ["--model", dep.model_path, "--port", str(VLLM_PORT)]
-    if dep.vllm_extra_args:
-        args.extend(dep.vllm_extra_args)
+    # Engine-specific launch (vLLM relies on the image entrypoint; SGLang sets
+    # an explicit command). See app.services.serving_engines.
+    command, args = container_launch(dep)
 
     # Env
     env_items = [{"name": k, "value": str(v)} for k, v in (dep.env or {}).items()]
@@ -87,25 +87,27 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         volumes.append({"name": "model-weights", "persistentVolumeClaim": {"claimName": dep.pvc_name}})
         volume_mounts.append({"name": "model-weights", "mountPath": dep.pvc_mount_path})
 
+    container: dict = {
+        "name": engine_of(dep),
+        "image": dep.image,
+        "args": args,
+        "ports": [{"containerPort": VLLM_PORT, "name": "http"}],
+        "resources": resources,
+        "env": env_items,
+        "volumeMounts": volume_mounts,
+        "readinessProbe": {
+            "httpGet": {"path": "/health", "port": VLLM_PORT},
+            "initialDelaySeconds": 60,
+            "periodSeconds": 10,
+            "timeoutSeconds": 5,
+            "failureThreshold": 30,
+        },
+    }
+    if command:
+        container["command"] = command
+
     pod_spec: dict = {
-        "containers": [
-            {
-                "name": "vllm",
-                "image": dep.image,
-                "args": args,
-                "ports": [{"containerPort": VLLM_PORT, "name": "http"}],
-                "resources": resources,
-                "env": env_items,
-                "volumeMounts": volume_mounts,
-                "readinessProbe": {
-                    "httpGet": {"path": "/health", "port": VLLM_PORT},
-                    "initialDelaySeconds": 60,
-                    "periodSeconds": 10,
-                    "timeoutSeconds": 5,
-                    "failureThreshold": 30,
-                },
-            }
-        ],
+        "containers": [container],
         "volumes": volumes,
     }
     if dep.node_selector:
