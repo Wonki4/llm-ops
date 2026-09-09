@@ -93,7 +93,7 @@ Both `custom_serving_recipe` and `custom_model_deployment` get:
 
 Downgrade drops both columns from both tables.
 
-### Launch rendering (`model_deployment_manifests.py`)
+### Launch rendering (new `backend/app/services/serving_engines.py`, imported by `model_deployment_manifests.py`)
 
 ```python
 SERVING_PORT = 8000  # VLLM_PORT stays as an alias for existing imports
