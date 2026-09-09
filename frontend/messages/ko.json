@@ -1664,6 +1664,15 @@
     "deploySubmit": "배포",
     "deployRequired": "배포 모델명과 인그레스 호스트는 필수입니다",
     "deployError": "배포 생성에 실패했습니다",
-    "deploySuccess": "배포가 생성되었습니다"
+    "deploySuccess": "배포가 생성되었습니다",
+    "backToList": "레시피 목록으로",
+    "createDescription": "레시피 목록에서 바로 배포할 수 있는 vLLM 서빙 설정을 정의합니다.",
+    "sectionBasic": "기본 정보",
+    "sectionResources": "리소스",
+    "sectionStorage": "스토리지",
+    "sectionAdvanced": "고급",
+    "notFound": "레시피를 찾을 수 없습니다",
+    "createSuccess": "레시피가 생성되었습니다",
+    "saveSuccess": "레시피가 저장되었습니다"
   }
 }
