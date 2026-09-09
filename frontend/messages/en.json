@@ -1621,7 +1621,7 @@
   },
   "servingRecipes": {
     "title": "Serving Recipes",
-    "subtitle": "Reusable vLLM serving configurations",
+    "subtitle": "Reusable vLLM / SGLang serving configurations",
     "newRecipe": "New recipe",
     "empty": "No recipes yet",
     "colName": "Name",
@@ -1667,7 +1667,7 @@
     "deployError": "Failed to create deployment",
     "deploySuccess": "Deployment created",
     "backToList": "Back to recipes",
-    "createDescription": "Define a reusable vLLM serving configuration you can deploy from the recipe list.",
+    "createDescription": "Define a reusable vLLM or SGLang serving configuration you can deploy from the recipe list.",
     "sectionBasic": "Basics",
     "sectionResources": "Resources",
     "sectionStorage": "Storage",

@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { useServingRecipes, useDeleteServingRecipe } from "@/hooks/use-api";
 import type { ServingRecipe } from "@/types";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -53,7 +54,12 @@ export default function AdminRecipesPage() {
             <TableBody>
               {recipes.map((r) => (
                 <TableRow key={r.id}>
-                  <TableCell className="font-medium">{r.name}</TableCell>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex items-center gap-2">
+                      <Badge variant="secondary" className="font-mono text-[10px] uppercase">{r.engine}</Badge>
+                      {r.name}
+                    </span>
+                  </TableCell>
                   <TableCell className="font-mono text-xs">{r.model_path}</TableCell>
                   <TableCell className="font-mono text-xs">{r.image}</TableCell>
                   <TableCell>{r.gpu_count} × {r.gpu_resource_key}</TableCell>

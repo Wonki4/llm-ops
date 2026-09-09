@@ -1621,7 +1621,7 @@
   },
   "servingRecipes": {
     "title": "서빙 레시피",
-    "subtitle": "재사용 가능한 vLLM 서빙 설정",
+    "subtitle": "재사용 가능한 vLLM / SGLang 서빙 설정",
     "newRecipe": "새 레시피",
     "empty": "레시피가 없습니다",
     "colName": "이름",
@@ -1667,7 +1667,7 @@
     "deployError": "배포 생성에 실패했습니다",
     "deploySuccess": "배포가 생성되었습니다",
     "backToList": "레시피 목록으로",
-    "createDescription": "레시피 목록에서 바로 배포할 수 있는 vLLM 서빙 설정을 정의합니다.",
+    "createDescription": "레시피 목록에서 바로 배포할 수 있는 vLLM 또는 SGLang 서빙 설정을 정의합니다.",
     "sectionBasic": "기본 정보",
     "sectionResources": "리소스",
     "sectionStorage": "스토리지",

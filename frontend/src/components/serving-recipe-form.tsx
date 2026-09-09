@@ -8,11 +8,14 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useCreateServingRecipe, useUpdateServingRecipe } from "@/hooks/use-api";
-import type { ServingRecipe, ServingRecipeInput } from "@/types";
+import type { EngineArgs, ServingEngine, ServingRecipe, ServingRecipeInput } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  ENGINES, ENGINE_ARG_FIELDS, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, argLabelKey, type EngineArgField,
+} from "@/lib/serving-engines";
 
 export const RECIPES_HREF = "/admin/recipes";
 
@@ -88,6 +91,25 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
   const optText = (k: OptionalText) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value || null }));
 
+  function switchEngine(next: ServingEngine) {
+    setForm((f) => {
+      if (f.engine === next) return f;
+      const otherDefault = ENGINE_DEFAULT_IMAGE[f.engine];
+      const image = !f.image.trim() || f.image === otherDefault ? ENGINE_DEFAULT_IMAGE[next] : f.image;
+      // Structured args are engine-specific; free-text extra args are the user's and stay.
+      return { ...f, engine: next, engine_args: null, image };
+    });
+  }
+
+  function setArg(key: string, value: string | number | boolean | undefined) {
+    setForm((f) => {
+      const next: EngineArgs = { ...(f.engine_args ?? {}) };
+      if (value === undefined || value === "" || value === false) delete next[key];
+      else next[key] = value;
+      return { ...f, engine_args: Object.keys(next).length ? next : null };
+    });
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim() || !form.model_path.trim() || !form.image.trim()) {
@@ -116,6 +138,25 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
       <Card>
         <CardHeader><CardTitle className="text-base">{t("sectionBasic")}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field id="recipe-engine" label={t("engine")} span2>
+            <div id="recipe-engine" role="radiogroup" className="inline-flex rounded-md border p-0.5">
+              {ENGINES.map((e) => (
+                <button
+                  key={e}
+                  type="button"
+                  role="radio"
+                  aria-checked={form.engine === e}
+                  onClick={() => switchEngine(e)}
+                  className={
+                    "rounded px-3 py-1 text-sm transition-colors " +
+                    (form.engine === e ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
+                  }
+                >
+                  {t(ENGINE_LABEL_KEY[e])}
+                </button>
+              ))}
+            </div>
+          </Field>
           <Field id="recipe-name" label={t("name")} required>
             <Input id="recipe-name" value={form.name} onChange={text("name")} />
           </Field>
@@ -175,11 +216,24 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
       </Card>
 
       <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("sectionEngineArgs")}</CardTitle>
+          <p className="text-xs text-muted-foreground">{t("engineArgsHint")}</p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <EngineArgsFields engine={form.engine} values={form.engine_args} onChange={setArg} />
+          <Field id="recipe-args" label={t("extraArgs")}>
+            <Area
+              id="recipe-args" value={argsText} onChange={setArgsText}
+              placeholder={form.engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
+            />
+          </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-base">{t("sectionAdvanced")}</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-          <Field id="recipe-args" label={t("vllmArgs")}>
-            <Area id="recipe-args" value={argsText} onChange={setArgsText} placeholder={"--max-model-len=8192\n--tensor-parallel-size=2"} />
-          </Field>
           <Field id="recipe-env" label={t("env")}>
             <Area id="recipe-env" value={envText} onChange={setEnvText} placeholder={"HF_HOME=/models/.cache\nVLLM_LOGGING_LEVEL=INFO"} />
           </Field>
@@ -228,5 +282,83 @@ function Area({
       onChange={(e) => onChange(e.target.value)}
       className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
     />
+  );
+}
+
+function EngineArgsFields({
+  engine, values, onChange,
+}: { engine: ServingEngine; values: EngineArgs | null; onChange: (key: string, value: string | number | boolean | undefined) => void }) {
+  const t = useTranslations("servingRecipes");
+  const fields = ENGINE_ARG_FIELDS[engine];
+  const scalar = fields.filter((f) => f.type !== "bool");
+  const bools = fields.filter((f) => f.type === "bool");
+  const get = (key: string) => values?.[key];
+  const num = (key: string): number | "" => {
+    const v = get(key);
+    return typeof v === "number" ? v : "";
+  };
+
+  const inputFor = (f: EngineArgField) => {
+    const id = `recipe-arg-${f.key}`;
+    switch (f.type) {
+      case "int":
+        return (
+          <Input
+            id={id} type="number" step={1} min={f.min} placeholder={f.placeholder}
+            value={num(f.key)}
+            onChange={(e) => onChange(f.key, e.target.value === "" ? undefined : Number(e.target.value))}
+          />
+        );
+      case "float":
+        return (
+          <Input
+            id={id} type="number" step={f.step} min={f.min} max={f.max} placeholder={f.placeholder}
+            value={num(f.key)}
+            onChange={(e) => onChange(f.key, e.target.value === "" ? undefined : Number(e.target.value))}
+          />
+        );
+      case "text":
+        return (
+          <Input id={id} placeholder={f.placeholder} value={String(get(f.key) ?? "")} onChange={(e) => onChange(f.key, e.target.value)} />
+        );
+      case "select":
+        return (
+          <select
+            id={id}
+            value={String(get(f.key) ?? "")}
+            onChange={(e) => onChange(f.key, e.target.value)}
+            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          >
+            {f.options.map((o) => <option key={o} value={o}>{o === "" ? "—" : o}</option>)}
+          </select>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {scalar.map((f) => (
+          <div key={f.key} className="space-y-2">
+            <Label htmlFor={`recipe-arg-${f.key}`}>
+              {t(argLabelKey(f.key))}
+              <span className="ml-2 font-mono text-[11px] text-muted-foreground">--{f.key}</span>
+            </Label>
+            {inputFor(f)}
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">
+        {bools.map((f) => (
+          <label key={f.key} className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={get(f.key) === true} onChange={(e) => onChange(f.key, e.target.checked)} />
+            {t(argLabelKey(f.key))}
+            <span className="font-mono text-[11px] text-muted-foreground">--{f.key}</span>
+          </label>
+        ))}
+      </div>
+    </>
   );
 }
