@@ -57,8 +57,8 @@
     "myRequests": "내 요청",
     "adminRequests": "요청 관리",
     "adminDashboard": "관리자 대시보드",
-    "adminModels": "모델 관리",
-    "adminDeployments": "서빙 디플로이먼트",
+    "adminModels": "카탈로그 등록",
+    "adminDeployments": "배포",
     "adminRecipes": "서빙 레시피",
     "adminBudgets": "예산 관리",
     "adminUsers": "사용자 관리",
@@ -67,7 +67,9 @@
     "adminLlmd": "llm-d",
     "adminSettings": "포털 설정",
     "adminSectionLabel": "관리자",
-    "logout": "로그아웃"
+    "logout": "로그아웃",
+    "servingSectionLabel": "모델 서빙",
+    "servingHome": "서빙 홈"
   },
   "theme": {
     "light": "라이트",
@@ -1712,5 +1714,34 @@
       "enableAutoToolChoice": "자동 tool choice"
     },
     "tolerations": "Tolerations (key=value:Effect, 줄바꿈으로 구분)"
+  },
+  "serving": {
+    "title": "서빙 홈",
+    "subtitle": "자체 서빙 중인 모델이 레시피 → 배포 → 벤치마크 → 카탈로그 파이프라인의 어디까지 왔는지 한눈에 봅니다.",
+    "stat": {
+      "models": "모델",
+      "ready": "Ready 배포",
+      "benchmarked": "벤치마크 완료",
+      "catalogued": "카탈로그 등록"
+    },
+    "empty": "아직 서빙 중인 모델이 없습니다.",
+    "emptyCta": "레시피부터 만들기",
+    "colModel": "모델",
+    "colRecipe": "레시피",
+    "colDeploy": "배포",
+    "colBenchmark": "벤치마크",
+    "colCatalog": "카탈로그",
+    "next": {
+      "recipe": "레시피 만들기",
+      "deploy": "배포하기",
+      "benchmark": "벤치마크 실행",
+      "catalog": "카탈로그 등록"
+    },
+    "perf": "성능",
+    "acc": "정확도",
+    "registered": "LiteLLM 등록됨",
+    "hidden": "숨김",
+    "tabDeployments": "서빙 디플로이먼트",
+    "tabLlmd": "llm-d 스택"
   }
 }

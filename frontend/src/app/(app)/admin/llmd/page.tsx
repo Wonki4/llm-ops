@@ -9,6 +9,7 @@ import { useLlmdStacks, useDeleteLlmdStack } from "@/hooks/use-api";
 import type { LlmdStackSummary } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 export default function LlmdPage() {
@@ -27,6 +28,8 @@ export default function LlmdPage() {
   };
 
   return (
+    <div className="space-y-6">
+    <ServingDeployTabs />
     <Card>
       <CardHeader>
         <div className="flex items-start justify-between gap-4">
@@ -82,5 +85,6 @@ export default function LlmdPage() {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }
