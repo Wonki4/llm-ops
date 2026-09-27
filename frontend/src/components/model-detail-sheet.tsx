@@ -16,6 +16,8 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { AccessGroupBadges } from "@/components/access-group-badges";
+import { accessGroupsOf } from "@/lib/access-groups";
 import { Separator } from "@/components/ui/separator";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ModelStatus, ModelWithCatalog } from "@/types";
@@ -135,6 +137,12 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
               {catalog && <Badge className={STATUS_STYLES[catalog.status]}>{tms(catalog.status)}</Badge>}
             </div>
             <SheetDescription>Provider: {provider}</SheetDescription>
+            {accessGroupsOf(model).length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span>{t("features.accessGroups")}</span>
+                <AccessGroupBadges groups={accessGroupsOf(model)} />
+              </div>
+            )}
           </div>
         </SheetHeader>
 

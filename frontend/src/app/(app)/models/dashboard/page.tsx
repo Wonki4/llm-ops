@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import type { ModelStatus, ModelWithCatalog, Team } from "@/types";
+import { buildAccessGroupIndex, expandModelGrants } from "@/lib/access-groups";
 
 // ─── Constants ────────────────────────────────────────────────
 
@@ -54,7 +55,7 @@ function explicitModels(team: Team): string[] {
 
 // A resolved row in the model table: the team's model name plus its merged
 // catalog/litellm record (null when the name has no matching deployed/catalog model).
-type ModelRow = { name: string; model: ModelWithCatalog | null };
+type ModelRow = { name: string; model: ModelWithCatalog | null; viaGroup?: string | null };
 
 // ─── Main Component ───────────────────────────────────────────
 
@@ -70,6 +71,7 @@ export default function ModelDashboardPage() {
     () => new Map((models ?? []).map((m) => [m.model_name, m])),
     [models],
   );
+  const accessGroupIndex = useMemo(() => buildAccessGroupIndex(models), [models]);
 
   // Selected team (defaults to the first team once loaded)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -92,10 +94,8 @@ export default function ModelDashboardPage() {
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }));
     } else {
-      rows = explicitModels(selectedTeam).map((name) => ({
-        name,
-        model: modelsByName.get(name) ?? null,
-      }));
+      // Access-group grants expand into their member models (tagged viaGroup).
+      rows = expandModelGrants(explicitModels(selectedTeam), accessGroupIndex, modelsByName);
     }
 
     const q = query.trim().toLowerCase();
@@ -116,7 +116,7 @@ export default function ModelDashboardPage() {
       const bn = b.model?.catalog?.display_name ?? b.name;
       return an.localeCompare(bn);
     });
-  }, [selectedTeam, models, modelsByName, query, statusFilter]);
+  }, [selectedTeam, models, modelsByName, accessGroupIndex, query, statusFilter]);
 
   // ── Filter handlers ──
   function resetFilters() {
@@ -134,7 +134,7 @@ export default function ModelDashboardPage() {
   function teamModelLabel(team: Team): string {
     return hasAllModels(team)
       ? t("byTeam.allModels")
-      : t("byTeam.modelCount", { count: explicitModels(team).length });
+      : t("byTeam.modelCount", { count: expandModelGrants(explicitModels(team), accessGroupIndex, modelsByName).length });
   }
 
   return (

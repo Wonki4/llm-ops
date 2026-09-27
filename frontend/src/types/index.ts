@@ -120,6 +120,7 @@ export interface LiteLLMModelInfo {
     supports_vision: boolean | null;
     supports_function_calling: boolean | null;
     mode: string | null;
+    access_groups?: string[] | null;
     [key: string]: unknown;
   };
 }

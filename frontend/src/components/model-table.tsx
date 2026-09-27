@@ -8,6 +8,8 @@ import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
 import { Badge } from "@/components/ui/badge";
+import { AccessGroupBadges } from "@/components/access-group-badges";
+import { accessGroupsOf } from "@/lib/access-groups";
 import {
   Table,
   TableBody,
@@ -20,7 +22,7 @@ import type { ModelStatus, ModelWithCatalog, ModelCatalog } from "@/types";
 
 // A row pairs the model name (as the team/source lists it) with its merged
 // catalog/litellm record, which is null when the name has no deployed/catalog match.
-export type ModelTableRow = { name: string; model: ModelWithCatalog | null };
+export type ModelTableRow = { name: string; model: ModelWithCatalog | null; viaGroup?: string | null };
 
 const STATUS_OPTIONS: { value: ModelStatus }[] = [
   { value: "testing" },
@@ -120,6 +122,7 @@ export function ModelTable({
           <TableHead className="min-w-[200px]">{t("table.modelName")}</TableHead>
           <TableHead className="w-[100px]">{t("table.status")}</TableHead>
           <TableHead className="whitespace-nowrap">{t("table.modality")}</TableHead>
+          <TableHead>{t("table.accessGroups")}</TableHead>
           <TableHead>{t("table.inputCost")}</TableHead>
           <TableHead>{t("table.outputCost")}</TableHead>
           <TableHead>{t("table.cacheReadCost")}</TableHead>
@@ -128,7 +131,7 @@ export function ModelTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map(({ name, model }) => (
+        {rows.map(({ name, model, viaGroup }) => (
           <TableRow key={name}>
             <TableCell>
               <div className="flex items-center gap-1">
@@ -142,8 +145,11 @@ export function ModelTable({
                       provider={model.litellm_info?.model_info?.litellm_provider}
                       modelName={model.model_name}
                     />
-                    <div className="max-w-[280px] truncate text-sm font-medium">
-                      {model.catalog?.display_name ?? model.model_name}
+                    <div className="max-w-[280px] min-w-0">
+                      <div className="truncate text-sm font-medium">{model.catalog?.display_name ?? model.model_name}</div>
+                      {viaGroup && (
+                        <div className="truncate text-[10px] text-muted-foreground">{t("byTeam.viaGroup", { group: viaGroup })}</div>
+                      )}
                     </div>
                   </Link>
                 ) : (
@@ -184,6 +190,13 @@ export function ModelTable({
             <TableCell className="whitespace-nowrap">
               {model?.litellm_info ? (
                 <ModalityValue info={model.litellm_info.model_info} size="size-4" />
+              ) : (
+                <span className="text-xs text-muted-foreground">-</span>
+              )}
+            </TableCell>
+            <TableCell>
+              {accessGroupsOf(model).length > 0 ? (
+                <AccessGroupBadges groups={accessGroupsOf(model)} />
               ) : (
                 <span className="text-xs text-muted-foreground">-</span>
               )}

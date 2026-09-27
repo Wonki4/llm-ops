@@ -1,9 +1,11 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail, useModels } from "@/hooks/use-api";
+import { buildAccessGroupIndex } from "@/lib/access-groups";
+import { Users } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -122,6 +124,8 @@ export default function CreateKeyPage({
   );
 
   const { data: teamDetail } = useTeamDetail(selectedTeamId);
+  const { data: allModels } = useModels();
+  const accessGroupIndex = useMemo(() => buildAccessGroupIndex(allModels), [allModels]);
 
   // Effective TPM/RPM for the to-be-created key: team override first, then global portal default.
   const teamTpm = teamDetail?.default_tpm_limit ?? null;
@@ -248,11 +252,22 @@ export default function CreateKeyPage({
                 <Label>{t("labelModels")}</Label>
                 <div className="flex flex-wrap gap-2">
                   {selectedTeam.models.length > 0 ? (
-                    selectedTeam.models.map((model) => (
-                      <Badge key={model} variant="secondary">
-                        {model}
-                      </Badge>
-                    ))
+                    selectedTeam.models.map((model) => {
+                      const members = accessGroupIndex.get(model);
+                      return members ? (
+                        <Badge
+                          key={model}
+                          variant="outline"
+                          className="gap-1"
+                          title={members.map((m) => m.model_name).join("\n")}
+                        >
+                          <Users className="size-3" />
+                          {t("accessGroupBadge", { group: model, count: members.length })}
+                        </Badge>
+                      ) : (
+                        <Badge key={model} variant="secondary">{model}</Badge>
+                      );
+                    })
                   ) : (
                     <p className="text-sm text-muted-foreground">{t("noModels")}</p>
                   )}
