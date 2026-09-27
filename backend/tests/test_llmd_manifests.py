@@ -134,7 +134,7 @@ def test_default_values_is_real_router_template():
     # Target existing model servers via matchLabels; don't create an InferencePool
     ms = router["modelServers"]
     assert router["inferencePool"]["create"] is False
-    assert ms["matchLabels"] == {"llm-ops/model-name": "opt-125m"}
+    assert ms["matchLabels"] == {"llm-d.ai/model": "opt-125m"}
     assert ms["targetPorts"] == [{"number": 8000}]
     assert ms["type"] == "vllm"
     # The Envoy sidecar + scorers come from chart defaults — we don't emit proxy.
@@ -188,7 +188,7 @@ def test_default_values_uses_explicit_endpoint_selector():
 
 def test_default_values_falls_back_to_model_label():
     v = default_llmd_values("qwen", epp_registry="r", epp_repository="repo", epp_tag="t")
-    assert v["router"]["modelServers"]["matchLabels"] == {"llm-ops/model-name": "qwen"}
+    assert v["router"]["modelServers"]["matchLabels"] == {"llm-d.ai/model": "qwen"}
 
 
 def test_application_destination_server_configurable():

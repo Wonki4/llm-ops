@@ -803,7 +803,10 @@
     "cancel": "Cancel",
     "submitRegister": "Register",
     "registerFailed": "Registration failed: {message}",
-    "engine": "Engine"
+    "engine": "Engine",
+    "llmdSection": "llm-d routers",
+    "llmdNone": "No llm-d stack selects this deployment's pods.",
+    "llmdLinkedHint": "{count} llm-d stack(s) route to this deployment"
   },
   "adminUsers": {
     "pageTitle": "User Management",
@@ -1370,7 +1373,14 @@
     "directHostHint": "Full host for the direct-route ingress. Blank uses the [name]-direct.[global-domain] default.",
     "directServiceLabel": "Direct-route service",
     "liveErrorTitle": "Couldn't read live state from ArgoCD",
-    "noResourcesError": "Live state unavailable — see the warning above."
+    "noResourcesError": "Live state unavailable — see the warning above.",
+    "linkedSection": "Model servers this router routes to",
+    "linkedSelector": "Selector",
+    "linkedNoSelector": "(none)",
+    "linkedNone": "The selector picks no known model server. Check router.modelServers.matchLabels against the pod labels (llm-d.ai/model).",
+    "linkedPortal": "Portal",
+    "linkedExternal": "External",
+    "linkedHint": "Linked by label selector, not by name: portal deployments carry llm-d.ai/model=<model>; external servings use the labels read from the cluster."
   },
   "adminBenchmarks": {
     "pageTitle": "Benchmarks",
@@ -1742,6 +1752,10 @@
     "registered": "Registered in LiteLLM",
     "hidden": "Hidden",
     "tabDeployments": "Serving deployments",
-    "tabLlmd": "llm-d stacks"
+    "tabLlmd": "llm-d stacks",
+    "unlinkedTitle": "{count} llm-d stack(s) not linked to any server",
+    "unlinkedHint": "Their label selector picks no portal deployment or scanned external serving.",
+    "unlinkedTarget": "target: {model}",
+    "unlinkedNoSelector": "no selector"
   }
 }

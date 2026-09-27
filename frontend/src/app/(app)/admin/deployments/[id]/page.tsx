@@ -144,6 +144,33 @@ export default function DeploymentDetailPage() {
         </CardContent>
       </Card>
 
+      {/* llm-d routers that select this deployment's pods */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">{t("llmdSection")}</CardTitle></CardHeader>
+        <CardContent>
+          {!dep.llmd_stacks || dep.llmd_stacks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("llmdNone")}</p>
+          ) : (
+            <div className="space-y-2">
+              {dep.llmd_stacks.map((s) => (
+                <Link key={s.id} href={`/admin/llmd/${s.id}`} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm hover:bg-muted/50">
+                  <Badge variant="outline">llm-d</Badge>
+                  <span className="font-medium">{s.name}</span>
+                  {s.namespace && <span className="font-mono text-xs text-muted-foreground">{s.namespace}</span>}
+                  {s.health_status && (
+                    <Badge variant={s.health_status === "Healthy" ? "default" : "secondary"}>{s.health_status}</Badge>
+                  )}
+                  {s.sync_status && <Badge variant="secondary">{s.sync_status}</Badge>}
+                  <code className="ml-auto text-[11px] text-muted-foreground">
+                    {Object.entries(s.selector).map(([k, v]) => `${k}=${v}`).join(",")}
+                  </code>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Events timeline */}
       <Card>
         <CardHeader><CardTitle className="text-base">{t("eventsSection")}</CardTitle></CardHeader>

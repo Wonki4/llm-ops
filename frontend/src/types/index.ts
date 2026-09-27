@@ -638,6 +638,10 @@ export interface ModelDeployment {
   ingress_path: string;
   ingress_class: string;
   status: string;
+  /** List endpoint: number of llm-d stacks whose selector picks this deployment. */
+  llmd_stack_count?: number;
+  /** Detail endpoint: those stacks with live ArgoCD status. */
+  llmd_stacks?: LinkedLlmdStack[];
   status_message: string | null;
   ready_replicas: number;
   service_cluster_ip: string | null;
@@ -743,6 +747,10 @@ export interface LlmdAppliedResource {
 
 export interface LlmdAppliedResponse {
   effective_values: Record<string, unknown>;
+  /** Router label selector (router.modelServers.matchLabels, or the legacy endpointSelector). */
+  selector: Record<string, string>;
+  /** Model servers the selector actually picks: portal deployments + scanned external servings. */
+  linked_servers: LinkedServer[];
   live_values: Record<string, unknown> | null;
   resources: LlmdAppliedResource[];
   revision: string | null;
@@ -814,13 +822,40 @@ export interface CreateDeploymentBody {
 }
 
 // ─── Serving home (GET /api/admin/serving/overview) ───────────
+export interface LinkedServer {
+  kind: "portal" | "external";
+  id: string | null;
+  model_name: string | null;
+  name: string;
+  namespace: string;
+  status: string | null;
+}
+
+/** An llm-d stack as seen from a model server it routes to. */
+export interface LinkedLlmdStack {
+  id: string;
+  name: string;
+  namespace?: string;
+  selector: Record<string, string>;
+  servers?: { kind: "portal" | "external"; name: string; namespace: string }[];
+  sync_status?: string;
+  health_status?: string;
+  status_message?: string | null;
+}
+
+export interface ServingOverview {
+  models: ServingOverviewRow[];
+  /** Stacks whose selector picks no known server. */
+  unlinked_stacks: (LinkedLlmdStack & { target_model_name: string })[];
+}
+
 export interface ServingOverviewRow {
   model_name: string;
   recipes: { id: string; name: string; engine: ServingEngine }[];
   deployments: {
     id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
   }[];
-  llmd_stacks: { id: string; name: string }[];
+  llmd_stacks: LinkedLlmdStack[];
   performance: {
     run_id: string; tool: string; finished_at: string | null;
     output_throughput?: number; request_throughput?: number; mean_ttft_ms?: number; p99_ttft_ms?: number; mean_tpot_ms?: number;

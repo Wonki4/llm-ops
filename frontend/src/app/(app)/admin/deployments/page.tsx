@@ -110,6 +110,9 @@ export default function DeploymentsPage() {
                           {d.model_name}
                         </Link>
                         <Badge variant="secondary" className="ml-2 font-mono text-[10px] uppercase">{d.engine}</Badge>
+                        {(d.llmd_stack_count ?? 0) > 0 && (
+                          <Badge variant="outline" className="ml-1 text-[10px]" title={t("llmdLinkedHint", { count: d.llmd_stack_count ?? 0 })}>llm-d ×{d.llmd_stack_count}</Badge>
+                        )}
                       </TableCell>
                       <TableCell><StatusBadge status={d.status} /></TableCell>
                       <TableCell className="text-right tabular-nums">{d.ready_replicas}/{d.replicas}</TableCell>

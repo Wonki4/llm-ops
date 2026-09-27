@@ -19,6 +19,13 @@ function deployVariant(status: string): "default" | "secondary" | "destructive" 
   return "secondary";
 }
 
+function llmdVariant(health: string | undefined): "default" | "secondary" | "destructive" | "outline" {
+  if (!health || health === "Unknown") return "outline";
+  if (health === "Healthy") return "default";
+  if (health === "Degraded" || health === "Missing") return "destructive";
+  return "secondary";
+}
+
 function fmt(n: number | undefined, digits: number, unit: string): string | null {
   return typeof n === "number" ? `${n.toFixed(digits)}${unit}` : null;
 }
@@ -34,7 +41,9 @@ function NextStep({ href, label }: { href: string; label: string }) {
 
 export default function ServingHomePage() {
   const t = useTranslations("serving");
-  const { data: rows, isLoading } = useServingOverview();
+  const { data, isLoading } = useServingOverview();
+  const rows = data?.models;
+  const unlinked = data?.unlinked_stacks ?? [];
 
   const stats = {
     models: rows?.length ?? 0,
@@ -84,6 +93,31 @@ export default function ServingHomePage() {
             </TableBody>
           </Table>
         </div>
+      )}
+
+      {unlinked.length > 0 && (
+        <Card>
+          <CardContent className="pt-6 space-y-3">
+            <div>
+              <div className="font-medium">{t("unlinkedTitle", { count: unlinked.length })}</div>
+              <p className="text-sm text-muted-foreground">{t("unlinkedHint")}</p>
+            </div>
+            <div className="space-y-2">
+              {unlinked.map((s) => (
+                <Link key={s.id} href={`/admin/llmd/${s.id}`} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm hover:bg-muted/50">
+                  <Badge variant="outline">llm-d</Badge>
+                  <span className="font-medium">{s.name}</span>
+                  <span className="text-xs text-muted-foreground">{t("unlinkedTarget", { model: s.target_model_name })}</span>
+                  <code className="ml-auto text-[11px] text-muted-foreground">
+                    {Object.keys(s.selector).length > 0
+                      ? Object.entries(s.selector).map(([k, v]) => `${k}=${v}`).join(",")
+                      : t("unlinkedNoSelector")}
+                  </code>
+                </Link>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
@@ -143,9 +177,17 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
               </Link>
             ))}
             {row.llmd_stacks.map((s) => (
-              <Link key={s.id} href={`/admin/llmd/${s.id}`} className="inline-flex items-center gap-2 text-sm hover:underline">
-                <Badge variant="outline">llm-d</Badge>
+              <Link
+                key={s.id}
+                href={`/admin/llmd/${s.id}`}
+                className="inline-flex items-center gap-2 text-sm hover:underline"
+                title={Object.entries(s.selector).map(([k, v]) => `${k}=${v}`).join(",")}
+              >
+                <Badge variant={llmdVariant(s.health_status)}>llm-d</Badge>
                 <span className="text-muted-foreground">{s.name}</span>
+                {s.health_status && s.health_status !== "Healthy" && s.health_status !== "Unknown" && (
+                  <span className="text-xs text-muted-foreground">{s.health_status}</span>
+                )}
               </Link>
             ))}
           </div>
