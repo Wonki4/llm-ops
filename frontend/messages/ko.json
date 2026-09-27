@@ -310,8 +310,7 @@
       "discoverTeams": "팀 둘러보기",
       "teamDetail": "팀 상세",
       "noModels": "이 팀에 모델이 없습니다.",
-      "notDeployed": "미배포",
-      "viaGroup": "{group} 그룹으로 접근"
+      "notDeployed": "미배포"
     },
     "filters": {
       "modelName": "모델명",
