@@ -22,7 +22,7 @@ import type { ModelStatus, ModelWithCatalog, ModelCatalog } from "@/types";
 
 // A row pairs the model name (as the team/source lists it) with its merged
 // catalog/litellm record, which is null when the name has no deployed/catalog match.
-export type ModelTableRow = { name: string; model: ModelWithCatalog | null; viaGroup?: string | null };
+export type ModelTableRow = { name: string; model: ModelWithCatalog | null };
 
 const STATUS_OPTIONS: { value: ModelStatus }[] = [
   { value: "testing" },
@@ -131,7 +131,7 @@ export function ModelTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map(({ name, model, viaGroup }) => (
+        {rows.map(({ name, model }) => (
           <TableRow key={name}>
             <TableCell>
               <div className="flex items-center gap-1">
@@ -145,11 +145,8 @@ export function ModelTable({
                       provider={model.litellm_info?.model_info?.litellm_provider}
                       modelName={model.model_name}
                     />
-                    <div className="max-w-[280px] min-w-0">
-                      <div className="truncate text-sm font-medium">{model.catalog?.display_name ?? model.model_name}</div>
-                      {viaGroup && (
-                        <div className="truncate text-[10px] text-muted-foreground">{t("byTeam.viaGroup", { group: viaGroup })}</div>
-                      )}
+                    <div className="max-w-[280px] truncate text-sm font-medium">
+                      {model.catalog?.display_name ?? model.model_name}
                     </div>
                   </Link>
                 ) : (
