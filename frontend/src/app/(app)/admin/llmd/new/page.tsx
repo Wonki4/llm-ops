@@ -145,7 +145,10 @@ export default function NewLlmdStackPage() {
       if (!serving) return;
       const labels = Object.entries(serving.labels);
       const preferred =
-        labels.find(([k]) => k === "app") ?? labels.find(([k]) => k === "app.kubernetes.io/name") ?? labels[0];
+        labels.find(([k]) => k === "llm-d.ai/model") ??
+        labels.find(([k]) => k === "app") ??
+        labels.find(([k]) => k === "app.kubernetes.io/name") ??
+        labels[0];
       setSelectedExternal(serving);
       setForm((f) => ({
         ...f,

@@ -268,7 +268,7 @@ async def test_create_stack_with_direct_upserts_service_and_ingress(client_for_u
     _ns, direct = fake_target.create_or_patch.await_args_list[1].args
     by_kind = {m["kind"]: m for m in direct}
     assert "sessionAffinity" not in by_kind["Service"]["spec"]
-    assert by_kind["Service"]["spec"]["selector"] == {"llm-ops/model-name": "qwen"}
+    assert by_kind["Service"]["spec"]["selector"] == {"llm-d.ai/model": "qwen"}
     assert by_kind["Service"]["metadata"]["name"] == "llmd-demo-direct"
     assert by_kind["Ingress"]["metadata"]["name"] == "llmd-demo-direct-ingress"
     assert by_kind["Ingress"]["spec"]["rules"][0]["host"] == "llmd-demo-direct.llm-d.local"

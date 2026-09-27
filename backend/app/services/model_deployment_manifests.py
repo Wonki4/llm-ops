@@ -11,6 +11,8 @@ from app.services.serving_engines import SERVING_PORT, container_launch, engine_
 VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
 LABEL_MODEL = "llm-ops/model-name"
+# llm-d's standard model-server label; llm-d routers select servers by it.
+LABEL_LLMD_MODEL = "llm-d.ai/model"
 
 
 def serving_api_key(vllm_extra_args: list | None, env: dict | None) -> str:
@@ -45,7 +47,14 @@ def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
 
 
 def _labels(dep: CustomModelDeployment) -> dict[str, str]:
+    """Selector labels: immutable once a Deployment exists, so never add here."""
     return {LABEL_OWNER: "litellm-portal", LABEL_MODEL: dep.model_name}
+
+
+def pod_labels(dep: CustomModelDeployment) -> dict[str, str]:
+    """Labels stamped on the serving pods: the selector labels plus llm-d's
+    ``llm-d.ai/model`` so an llm-d router can target this deployment."""
+    return {**_labels(dep), LABEL_LLMD_MODEL: dep.model_name}
 
 
 def build_deployment(dep: CustomModelDeployment) -> dict:
@@ -123,7 +132,7 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
             "replicas": dep.replicas,
             "selector": {"matchLabels": labels},
             "template": {
-                "metadata": {"labels": labels},
+                "metadata": {"labels": pod_labels(dep)},
                 "spec": pod_spec,
             },
         },

@@ -803,7 +803,10 @@
     "cancel": "취소",
     "submitRegister": "등록",
     "registerFailed": "등록 실패: {message}",
-    "engine": "엔진"
+    "engine": "엔진",
+    "llmdSection": "llm-d 라우터",
+    "llmdNone": "이 배포의 파드를 잡는 llm-d 스택이 없습니다.",
+    "llmdLinkedHint": "llm-d 스택 {count}개가 이 배포로 라우팅합니다"
   },
   "adminUsers": {
     "pageTitle": "사용자 관리",
@@ -1370,7 +1373,14 @@
     "directHostHint": "직결 인그레스의 전체 host. 비우면 [스택명]-direct.[전역도메인] 기본값을 사용합니다.",
     "directServiceLabel": "직결 서비스",
     "liveErrorTitle": "ArgoCD에서 라이브 상태를 가져오지 못했습니다",
-    "noResourcesError": "라이브 상태를 가져올 수 없습니다 — 위 경고를 확인하세요."
+    "noResourcesError": "라이브 상태를 가져올 수 없습니다 — 위 경고를 확인하세요.",
+    "linkedSection": "이 라우터가 잡는 모델 서버",
+    "linkedSelector": "셀렉터",
+    "linkedNoSelector": "(없음)",
+    "linkedNone": "셀렉터가 잡는 모델 서버가 없습니다. router.modelServers.matchLabels와 파드 라벨(llm-d.ai/model)을 대조하세요.",
+    "linkedPortal": "포털 배포",
+    "linkedExternal": "외부 서빙",
+    "linkedHint": "이름이 아니라 라벨 셀렉터로 연계를 판정합니다. 포털 배포는 llm-d.ai/model=<모델명> 라벨을 달고, 외부 서빙은 클러스터에서 읽은 라벨을 씁니다."
   },
   "adminBenchmarks": {
     "pageTitle": "벤치마크",
@@ -1742,6 +1752,10 @@
     "registered": "LiteLLM 등록됨",
     "hidden": "숨김",
     "tabDeployments": "서빙 디플로이먼트",
-    "tabLlmd": "llm-d 스택"
+    "tabLlmd": "llm-d 스택",
+    "unlinkedTitle": "어느 서버에도 연결되지 않은 llm-d 스택 {count}개",
+    "unlinkedHint": "라벨 셀렉터가 포털 배포나 스캔된 외부 서빙 중 아무것도 잡지 못합니다.",
+    "unlinkedTarget": "대상: {model}",
+    "unlinkedNoSelector": "셀렉터 없음"
   }
 }

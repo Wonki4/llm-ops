@@ -1,19 +1,29 @@
 """Serving home: one row per self-served model showing where it sits in the
 recipe → deployment → benchmark → catalog pipeline (Super User only)."""
 
+import logging
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
+from app.clients.k8s import K8sClient
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
+from app.db.models.custom_external_serving import CustomExternalServing
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_catalog import CustomModelCatalog
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services.clusters import k8s_for_cluster
+from app.services.external_servings import scan_clusters
+from app.services.llmd_links import external_server, link_stacks, portal_server
 from app.services.serving_engines import engine_of
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/serving", tags=["serving-overview"])
 
@@ -54,11 +64,45 @@ def build_overview(
     runs: list,
     recipes: list,
     catalog: list,
-) -> list[dict]:
-    """Pure aggregation; `runs` must be succeeded runs sorted newest first."""
+    external_servings: list[dict] | None = None,
+    external_registrations: list | None = None,
+    stack_status: dict[str, dict] | None = None,
+) -> dict:
+    """Pure aggregation; `runs` must be succeeded runs sorted newest first.
+
+    llm-d stacks attach to a model row only through their label selector
+    (see app.services.llmd_links), never by target name. Stacks whose
+    selector picks no known server are returned separately as
+    ``unlinked_stacks`` so an operator can see a router pointing at nothing.
+    """
+    stack_status = stack_status or {}
+    reg_by_key = {(r.namespace, r.deployment_name): r.model_name for r in (external_registrations or [])}
+    servers = [portal_server(d) for d in deployments] + [
+        external_server(sv, reg_by_key.get((sv.get("namespace"), sv.get("deployment_name"))))
+        for sv in (external_servings or [])
+    ]
+    links = link_stacks(stacks, servers)
+    stacks_by_model: dict[str, list[dict]] = {}
+    unlinked: list[dict] = []
+    for st in stacks:
+        info = links[str(st.id)]
+        entry = {
+            "id": str(st.id),
+            "name": st.name,
+            "selector": info["selector"],
+            "servers": [{"kind": x["kind"], "name": x["name"], "namespace": x["namespace"]} for x in info["servers"]],
+            **stack_status.get(str(st.id), {}),
+        }
+        if not info["servers"]:
+            unlinked.append({**entry, "target_model_name": st.target_model_name})
+            continue
+        for x in info["servers"]:
+            if x["model_name"]:
+                stacks_by_model.setdefault(x["model_name"], []).append(entry)
+
     names: set[str] = set()
     names.update(d.model_name for d in deployments)
-    names.update(s.target_model_name for s in stacks)
+    names.update(stacks_by_model)
     names.update(r.model_name for r in runs)
     catalog_by_name = {c.model_name: c for c in catalog}
     recipes_by_path: dict[str, list] = {}
@@ -88,7 +132,7 @@ def build_overview(
                     }
                     for d in deps
                 ],
-                "llmd_stacks": [{"id": str(s.id), "name": s.name} for s in stacks if s.target_model_name == name],
+                "llmd_stacks": stacks_by_model.get(name, []),
                 "performance": (
                     {
                         "run_id": str(perf.id),
@@ -117,7 +161,20 @@ def build_overview(
                 "litellm_registered": any(d.litellm_model_id for d in deps),
             }
         )
-    return rows
+    return {"models": rows, "unlinked_stacks": unlinked}
+
+
+async def _scan_external(db: AsyncSession) -> list[dict]:
+    """Best-effort cluster scan for non-portal servings; [] when nothing is reachable."""
+    try:
+        targets: list = [(None, "default", K8sClient())]
+        for row in (await db.execute(select(CustomK8sCluster))).scalars().all():
+            targets.append((str(row.id), row.name, await k8s_for_cluster(db, row.id)))
+        servings, _errors = await scan_clusters(targets)
+        return servings
+    except Exception as e:  # noqa: BLE001 — the board must render without a cluster
+        logger.info("serving overview: external scan skipped: %s", e)
+        return []
 
 
 @router.get("/overview")
@@ -140,4 +197,10 @@ async def serving_overview(
     )
     recipes = list((await db.execute(select(CustomServingRecipe))).scalars().all())
     catalog = list((await db.execute(select(CustomModelCatalog))).scalars().all())
-    return {"models": build_overview(deployments, stacks, runs, recipes, catalog)}
+    registrations = list((await db.execute(select(CustomExternalServing))).scalars().all())
+    external = await _scan_external(db)
+    # ArgoCD sync/health per stack (best-effort, one read each).
+    from app.api.llmd import _live_status  # local import: avoids a circular import at module load
+
+    status = {str(st.id): await _live_status(db, st) for st in stacks}
+    return build_overview(deployments, stacks, runs, recipes, catalog, external, registrations, status)

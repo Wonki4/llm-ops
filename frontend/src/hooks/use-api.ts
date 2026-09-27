@@ -47,7 +47,7 @@ import type {
   MemberBudgetBoost,
   ServingRecipe,
   ServingRecipeInput,
-  ServingOverviewRow,
+  ServingOverview,
   CreateDeploymentBody,
 } from "@/types";
 
@@ -1647,7 +1647,7 @@ export function useServingOverview() {
   return useQuery({
     queryKey: ["serving-overview"],
     queryFn: () =>
-      apiFetch<{ models: ServingOverviewRow[] }>("/api/admin/serving/overview").then((r) => r.models),
+      apiFetch<ServingOverview>("/api/admin/serving/overview"),
   });
 }
 

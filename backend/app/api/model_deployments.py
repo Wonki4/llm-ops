@@ -18,11 +18,14 @@ from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa:
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
+from app.services.llmd_links import portal_server, stacks_for_server
+from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 
@@ -147,7 +150,12 @@ async def list_deployments(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).order_by(CustomModelDeployment.created_at.desc()))
-    return {"deployments": [_serialize(d) for d in result.scalars().all()]}
+    stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
+    out = []
+    for d in result.scalars().all():
+        linked = stacks_for_server(portal_server(d), stacks)
+        out.append({**_serialize(d), "llmd_stack_count": len(linked)})
+    return {"deployments": out}
 
 
 def _serialize_registration(r: CustomExternalServing) -> dict:
@@ -272,7 +280,21 @@ async def get_deployment(
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    return _serialize(dep)
+    stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
+    from app.api.llmd import _live_status  # local import: avoids a circular import
+
+    linked = []
+    for st in stacks_for_server(portal_server(dep), stacks):
+        linked.append(
+            {
+                "id": str(st.id),
+                "name": st.name,
+                "namespace": st.namespace,
+                "selector": stack_selector(st.values_snapshot or {}),
+                **(await _live_status(db, st)),
+            }
+        )
+    return {**_serialize(dep), "llmd_stacks": linked}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -282,7 +304,9 @@ async def create_deployment(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     # Uniqueness on model_name
-    existing = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name))
+    existing = await db.execute(
+        select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Deployment for '{body.model_name}' already exists")
 
