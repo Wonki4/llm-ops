@@ -812,3 +812,20 @@ export interface CreateDeploymentBody {
   ingress_path: string;
   ingress_class: string;
 }
+
+// ─── Serving home (GET /api/admin/serving/overview) ───────────
+export interface ServingOverviewRow {
+  model_name: string;
+  recipes: { id: string; name: string; engine: ServingEngine }[];
+  deployments: {
+    id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
+  }[];
+  llmd_stacks: { id: string; name: string }[];
+  performance: {
+    run_id: string; tool: string; finished_at: string | null;
+    output_throughput?: number; request_throughput?: number; mean_ttft_ms?: number; p99_ttft_ms?: number; mean_tpot_ms?: number;
+  } | null;
+  accuracy: { run_id: string; tool: string; finished_at: string | null; metric: { name: string; value: number } | null } | null;
+  catalog: { id: string; display_name: string; status: ModelStatus; visible: boolean } | null;
+  litellm_registered: boolean;
+}

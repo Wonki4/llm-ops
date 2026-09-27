@@ -13,6 +13,7 @@ import {
 } from "@/hooks/use-api";
 import { ExternalServingRegisterDialog } from "@/components/external-serving-register-dialog";
 import { Badge } from "@/components/ui/badge";
+import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -55,6 +56,8 @@ export default function DeploymentsPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="size-5" />{t("pageTitle")}</h1>
         <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
       </div>
+
+      <ServingDeployTabs />
 
       {scanErrors.length > 0 && (
         <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 px-4 py-3 text-sm">

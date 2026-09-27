@@ -57,8 +57,8 @@
     "myRequests": "My Requests",
     "adminRequests": "Request Management",
     "adminDashboard": "Admin Dashboard",
-    "adminModels": "Model Management",
-    "adminDeployments": "Serving Deployments",
+    "adminModels": "Catalog",
+    "adminDeployments": "Deployments",
     "adminRecipes": "Serving Recipes",
     "adminBudgets": "Budget Management",
     "adminUsers": "User Management",
@@ -67,7 +67,9 @@
     "adminLlmd": "llm-d",
     "adminSettings": "Portal Settings",
     "adminSectionLabel": "Admin",
-    "logout": "Log out"
+    "logout": "Log out",
+    "servingSectionLabel": "Model serving",
+    "servingHome": "Serving home"
   },
   "theme": {
     "light": "Light",
@@ -1712,5 +1714,34 @@
       "enableAutoToolChoice": "Auto tool choice"
     },
     "tolerations": "Tolerations (key=value:Effect per line)"
+  },
+  "serving": {
+    "title": "Serving home",
+    "subtitle": "Every self-served model and where it sits in the pipeline: recipe → deployment → benchmark → catalog.",
+    "stat": {
+      "models": "Models",
+      "ready": "Ready deployments",
+      "benchmarked": "Benchmarked",
+      "catalogued": "In catalog"
+    },
+    "empty": "Nothing is being served yet.",
+    "emptyCta": "Start with a recipe",
+    "colModel": "Model",
+    "colRecipe": "Recipe",
+    "colDeploy": "Deployment",
+    "colBenchmark": "Benchmark",
+    "colCatalog": "Catalog",
+    "next": {
+      "recipe": "Create a recipe",
+      "deploy": "Deploy",
+      "benchmark": "Run a benchmark",
+      "catalog": "Register in catalog"
+    },
+    "perf": "Perf",
+    "acc": "Acc",
+    "registered": "Registered in LiteLLM",
+    "hidden": "Hidden",
+    "tabDeployments": "Serving deployments",
+    "tabLlmd": "llm-d stacks"
   }
 }

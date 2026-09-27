@@ -47,6 +47,7 @@ import type {
   MemberBudgetBoost,
   ServingRecipe,
   ServingRecipeInput,
+  ServingOverviewRow,
   CreateDeploymentBody,
 } from "@/types";
 
@@ -1637,6 +1638,16 @@ export function useLlmdDefaultValues() {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  });
+}
+
+// ─── Serving home ─────────────────────────────────────────────
+
+export function useServingOverview() {
+  return useQuery({
+    queryKey: ["serving-overview"],
+    queryFn: () =>
+      apiFetch<{ models: ServingOverviewRow[] }>("/api/admin/serving/overview").then((r) => r.models),
   });
 }
 
