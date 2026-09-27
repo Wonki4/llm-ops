@@ -1702,7 +1702,11 @@
       "maxRunningRequests": "Max running requests",
       "chunkedPrefillSize": "Chunked prefill size",
       "disableRadixCache": "Disable radix cache",
-      "enableTorchCompile": "Torch compile"
-    }
+      "enableTorchCompile": "Torch compile",
+      "reasoningParser": "Reasoning parser",
+      "toolCallParser": "Tool call parser",
+      "enableAutoToolChoice": "Auto tool choice"
+    },
+    "tolerations": "Tolerations (key=value:Effect per line)"
   }
 }
