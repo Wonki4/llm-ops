@@ -12,6 +12,7 @@ import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
+import { buildAccessGroupIndex, expandModelGrants, type AccessGroupIndex } from "@/lib/access-groups";
 import { TeamBoostHistory } from "@/components/team-boost-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -307,6 +308,7 @@ function OverviewTab({
   myKeys,
   myMembership,
   modelsByName,
+  accessGroupIndex,
   budgetRequestMaxAmount,
   budgetRequestAllowedDays,
   onMoveToKeys,
@@ -330,6 +332,7 @@ function OverviewTab({
   myKeys: ApiKey[];
   myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null; tpm_limit: number | null; rpm_limit: number | null };
   modelsByName: Map<string, ModelWithCatalog>;
+  accessGroupIndex: AccessGroupIndex;
   budgetRequestMaxAmount: number | null;
   budgetRequestAllowedDays: string[] | null;
   onMoveToKeys: () => void;
@@ -353,8 +356,8 @@ function OverviewTab({
   const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
   const hasAllProxyModels = team.models.includes("all-proxy-models");
-  const catalogTeamModels = team.models
-    .map((modelName) => ({ modelName, model: modelsByName.get(modelName) ?? null }))
+  const catalogTeamModels = expandModelGrants(team.models, accessGroupIndex, modelsByName)
+    .map(({ name, model }) => ({ modelName: name, model }))
     .filter(({ model }) => model?.catalog);
   const scopedModels = catalogTeamModels.slice(0, 5);
   const memberOnly = team.members.filter((member) => !team.admins.includes(member));
@@ -1797,6 +1800,7 @@ export default function TeamDetailPage({
     () => new Map(allModels?.map((m) => [m.model_name, m]) ?? []),
     [allModels],
   );
+  const accessGroupIndex = useMemo(() => buildAccessGroupIndex(allModels), [allModels]);
 
   const handleDeleteKey = (keyHash: string) => {
     setDeletingKeyId(keyHash);
@@ -1850,9 +1854,7 @@ export default function TeamDetailPage({
     ? (allModels ?? [])
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }))
-    : team.models
-        .filter((m) => m !== "all-proxy-models")
-        .map((name) => ({ name, model: modelsByName.get(name) ?? null }));
+    : expandModelGrants(team.models, accessGroupIndex, modelsByName);
 
   return (
     <div className="space-y-6">
@@ -1899,6 +1901,7 @@ export default function TeamDetailPage({
             myKeys={my_keys}
             myMembership={my_membership}
             modelsByName={modelsByName}
+            accessGroupIndex={accessGroupIndex}
             budgetRequestMaxAmount={data.budget_request_max_amount}
             budgetRequestAllowedDays={data.budget_request_allowed_days}
             onMoveToKeys={() => setActiveTab("keys")}

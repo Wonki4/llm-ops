@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 
 import { useModelSummary, type ModelSummary } from "@/hooks/use-api";
+import { AccessGroupBadges } from "@/components/access-group-badges";
 import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
@@ -199,6 +200,8 @@ function InfoDetailTab({ litellm }: { litellm: Record<string, unknown> | null })
       rows.push([k, typeof v === "number" ? v.toLocaleString() : String(v)]);
     }
   }
+  const groups = get(info, "access_groups");
+  if (Array.isArray(groups) && groups.length > 0) rows.push(["access_groups", groups.map(String).join(", ")]);
   if (rows.length === 0) return <EmptyTab text="모델 메타데이터가 없습니다." />;
   return <KVTable rows={rows} />;
 }
@@ -255,6 +258,12 @@ export default function ModelDetailPage() {
         </p>
         {summary.catalog?.description && (
           <p className="text-sm text-muted-foreground">{summary.catalog.description}</p>
+        )}
+        {Array.isArray(get(info, "access_groups")) && (get(info, "access_groups") as unknown[]).length > 0 && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Access groups</span>
+            <AccessGroupBadges groups={(get(info, "access_groups") as unknown[]).map(String)} />
+          </div>
         )}
       </div>
 

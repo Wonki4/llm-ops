@@ -15,6 +15,8 @@ import {
 } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { AccessGroupBadges } from "@/components/access-group-badges";
+import { accessGroupsOf } from "@/lib/access-groups";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -528,6 +530,7 @@ export default function ModelManagementPage() {
                   <TableHead>{t("table.model")}</TableHead>
                   <TableHead>{t("table.source")}</TableHead>
                   <TableHead>Provider</TableHead>
+                  <TableHead>{t("table.accessGroups")}</TableHead>
                   <TableHead>{t("table.status")}</TableHead>
                   <TableHead>{t("table.visible")}</TableHead>
                   <TableHead>{t("table.context")}</TableHead>
@@ -586,6 +589,15 @@ export default function ModelManagementPage() {
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
+
+                    {/* Access groups */}
+                    <TableCell>
+                      {accessGroupsOf(model).length > 0 ? (
+                        <AccessGroupBadges groups={accessGroupsOf(model)} />
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
                       )}
                     </TableCell>
 

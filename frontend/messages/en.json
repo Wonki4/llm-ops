@@ -125,7 +125,8 @@
     "errorEnterAlias": "Please enter a key alias.",
     "createSuccess": "API key created successfully.",
     "createError": "An error occurred while creating the key.",
-    "aliasPlaceholder": "e.g. my-project-key"
+    "aliasPlaceholder": "e.g. my-project-key",
+    "accessGroupBadge": "{group} (group · {count} models)"
   },
   "requests": {
     "title": "My Requests",
@@ -309,7 +310,8 @@
       "discoverTeams": "Discover teams",
       "teamDetail": "Team detail",
       "noModels": "This team has no models.",
-      "notDeployed": "Not deployed"
+      "notDeployed": "Not deployed",
+      "viaGroup": "via group {group}"
     },
     "filters": {
       "modelName": "Model Name",
@@ -335,7 +337,8 @@
       "cacheReadCost": "Cache Read Cost",
       "context": "Context",
       "nextTransition": "Next Transition",
-      "copyName": "Copy model name"
+      "copyName": "Copy model name",
+      "accessGroups": "Access groups"
     },
     "pagination": {
       "summary": "{start}–{end} of {total}",
@@ -372,7 +375,8 @@
       "visible": "Visible",
       "context": "Context",
       "nextTransition": "Next Transition",
-      "actions": "Actions"
+      "actions": "Actions",
+      "accessGroups": "Access groups"
     },
     "actions": {
       "editCatalog": "Edit catalog",
@@ -571,7 +575,8 @@
     },
     "features": {
       "visionSupport": "Vision Support",
-      "functionCallingSupport": "Function Calling Support"
+      "functionCallingSupport": "Function Calling Support",
+      "accessGroups": "Access groups"
     },
     "catalog": {
       "description": "Description",

@@ -125,7 +125,8 @@
     "errorEnterAlias": "키 별칭을 입력해주세요.",
     "createSuccess": "API 키가 성공적으로 생성되었습니다.",
     "createError": "키 생성 중 오류가 발생했습니다.",
-    "aliasPlaceholder": "예: my-project-key"
+    "aliasPlaceholder": "예: my-project-key",
+    "accessGroupBadge": "{group} (그룹 · 모델 {count}개)"
   },
   "requests": {
     "title": "내 요청",
@@ -309,7 +310,8 @@
       "discoverTeams": "팀 둘러보기",
       "teamDetail": "팀 상세",
       "noModels": "이 팀에 모델이 없습니다.",
-      "notDeployed": "미배포"
+      "notDeployed": "미배포",
+      "viaGroup": "{group} 그룹으로 접근"
     },
     "filters": {
       "modelName": "모델명",
@@ -335,7 +337,8 @@
       "cacheReadCost": "Cache Read 비용",
       "context": "컨텍스트",
       "nextTransition": "다음 전환",
-      "copyName": "모델명 복사"
+      "copyName": "모델명 복사",
+      "accessGroups": "접근 그룹"
     },
     "pagination": {
       "summary": "총 {total}개 중 {start}–{end}",
@@ -372,7 +375,8 @@
       "visible": "노출",
       "context": "컨텍스트",
       "nextTransition": "다음 전환",
-      "actions": "작업"
+      "actions": "작업",
+      "accessGroups": "접근 그룹"
     },
     "actions": {
       "editCatalog": "카탈로그 수정",
@@ -571,7 +575,8 @@
     },
     "features": {
       "visionSupport": "Vision 지원",
-      "functionCallingSupport": "Function Calling 지원"
+      "functionCallingSupport": "Function Calling 지원",
+      "accessGroups": "접근 그룹"
     },
     "catalog": {
       "description": "설명",
