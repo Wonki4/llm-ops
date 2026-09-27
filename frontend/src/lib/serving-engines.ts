@@ -25,20 +25,21 @@ export type EngineArgField =
   | { key: string; type: "bool" }
   | { key: string; type: "select"; options: string[] }; // "" option = unset
 
-const DTYPES = ["", "auto", "bfloat16", "float16", "float32"];
-
 export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
   vllm: [
     { key: "tensor-parallel-size", type: "int", min: 1, placeholder: "1" },
     { key: "pipeline-parallel-size", type: "int", min: 1, placeholder: "1" },
     { key: "max-model-len", type: "int", min: 1, placeholder: "8192" },
     { key: "gpu-memory-utilization", type: "float", step: 0.01, min: 0, max: 1, placeholder: "0.9" },
-    { key: "dtype", type: "select", options: DTYPES },
-    { key: "quantization", type: "select", options: ["", "fp8", "awq", "gptq", "gptq_marlin", "bitsandbytes"] },
-    { key: "kv-cache-dtype", type: "select", options: ["", "auto", "fp8"] },
+    { key: "dtype", type: "text", placeholder: "auto | bfloat16 | float16" },
+    { key: "quantization", type: "text", placeholder: "fp8 | awq | gptq | bitsandbytes" },
+    { key: "kv-cache-dtype", type: "text", placeholder: "auto | fp8" },
     { key: "max-num-seqs", type: "int", min: 1, placeholder: "256" },
     { key: "max-num-batched-tokens", type: "int", min: 1, placeholder: "8192" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },
+    { key: "reasoning-parser", type: "text", placeholder: "deepseek_r1 | qwen3 | ..." },
+    { key: "tool-call-parser", type: "text", placeholder: "hermes | llama3_json | mistral | ..." },
+    { key: "enable-auto-tool-choice", type: "bool" },
     { key: "enable-prefix-caching", type: "bool" },
     { key: "enable-chunked-prefill", type: "bool" },
     { key: "trust-remote-code", type: "bool" },
@@ -48,9 +49,9 @@ export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
     { key: "dp-size", type: "int", min: 1, placeholder: "1" },
     { key: "context-length", type: "int", min: 1, placeholder: "8192" },
     { key: "mem-fraction-static", type: "float", step: 0.01, min: 0, max: 1, placeholder: "0.88" },
-    { key: "dtype", type: "select", options: DTYPES },
-    { key: "quantization", type: "select", options: ["", "fp8", "awq", "gptq", "bitsandbytes"] },
-    { key: "kv-cache-dtype", type: "select", options: ["", "auto", "fp8_e5m2", "fp8_e4m3"] },
+    { key: "dtype", type: "text", placeholder: "auto | bfloat16 | float16" },
+    { key: "quantization", type: "text", placeholder: "fp8 | awq | gptq | bitsandbytes" },
+    { key: "kv-cache-dtype", type: "text", placeholder: "auto | fp8_e5m2 | fp8_e4m3" },
     { key: "max-running-requests", type: "int", min: 1, placeholder: "256" },
     { key: "chunked-prefill-size", type: "int", min: 1, placeholder: "8192" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },

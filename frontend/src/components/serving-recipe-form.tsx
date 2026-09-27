@@ -43,6 +43,37 @@ const linesToMap = (s: string): Record<string, string> | null => {
 const mapToLines = (m: Record<string, string> | null): string =>
   Object.entries(m ?? {}).map(([k, v]) => `${k}=${v}`).join("\n");
 
+/** One toleration per line, kubectl taint style: `key=value:Effect`, `key:Effect`, or `key`. */
+type Toleration = { key: string; operator: "Equal" | "Exists"; value?: string; effect?: string };
+const TOLERATION_EFFECTS = new Set(["NoSchedule", "PreferNoSchedule", "NoExecute"]);
+const linesToTolerations = (s: string): Toleration[] | null => {
+  const out: Toleration[] = [];
+  for (const raw of s.split("\n")) {
+    const line = raw.trim();
+    if (!line) continue;
+    const colon = line.lastIndexOf(":");
+    const effect = colon > 0 && TOLERATION_EFFECTS.has(line.slice(colon + 1)) ? line.slice(colon + 1) : undefined;
+    const kv = effect ? line.slice(0, colon) : line;
+    const eq = kv.indexOf("=");
+    const t: Toleration = eq > 0
+      ? { key: kv.slice(0, eq).trim(), operator: "Equal", value: kv.slice(eq + 1).trim() }
+      : { key: kv.trim(), operator: "Exists" };
+    if (effect) t.effect = effect;
+    if (t.key) out.push(t);
+  }
+  return out.length ? out : null;
+};
+const tolerationsToLines = (v: unknown[] | null): string =>
+  (v ?? [])
+    .map((item) => {
+      const t = item as Partial<Toleration>;
+      if (!t.key) return "";
+      const kv = t.operator === "Exists" || t.value == null ? t.key : `${t.key}=${t.value}`;
+      return t.effect ? `${kv}:${t.effect}` : kv;
+    })
+    .filter(Boolean)
+    .join("\n");
+
 function toInput(r: ServingRecipe): ServingRecipeInput {
   const { id, created_by, updated_by, created_at, updated_at, ...rest } = r;
   void id; void created_by; void updated_by; void created_at; void updated_at;
@@ -83,6 +114,7 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
   const [argsText, setArgsText] = useState(() => listToLines(recipe?.vllm_extra_args ?? null));
   const [envText, setEnvText] = useState(() => mapToLines(recipe?.env ?? null));
   const [nsText, setNsText] = useState(() => mapToLines(recipe?.node_selector ?? null));
+  const [tolText, setTolText] = useState(() => tolerationsToLines(recipe?.tolerations ?? null));
 
   const saving = createMut.isPending || updateMut.isPending;
 
@@ -121,6 +153,7 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
       vllm_extra_args: linesToList(argsText),
       env: linesToMap(envText),
       node_selector: linesToMap(nsText),
+      tolerations: linesToTolerations(tolText),
     };
     const opts = {
       onSuccess: () => {
@@ -239,6 +272,9 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
           </Field>
           <Field id="recipe-node-selector" label={t("nodeSelector")}>
             <Area id="recipe-node-selector" value={nsText} onChange={setNsText} placeholder="nvidia.com/gpu.product=NVIDIA-A100-SXM4-80GB" />
+          </Field>
+          <Field id="recipe-tolerations" label={t("tolerations")}>
+            <Area id="recipe-tolerations" value={tolText} onChange={setTolText} placeholder={"nvidia.com/gpu=present:NoSchedule\ndedicated=llm:NoExecute\nspot"} />
           </Field>
         </CardContent>
       </Card>

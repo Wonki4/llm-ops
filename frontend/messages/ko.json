@@ -1702,7 +1702,11 @@
       "maxRunningRequests": "최대 동시 요청 수",
       "chunkedPrefillSize": "청크 프리필 크기",
       "disableRadixCache": "Radix 캐시 비활성화",
-      "enableTorchCompile": "Torch compile"
-    }
+      "enableTorchCompile": "Torch compile",
+      "reasoningParser": "Reasoning 파서",
+      "toolCallParser": "Tool call 파서",
+      "enableAutoToolChoice": "자동 tool choice"
+    },
+    "tolerations": "Tolerations (key=value:Effect, 줄바꿈으로 구분)"
   }
 }
