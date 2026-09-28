@@ -616,6 +616,9 @@ export interface ModelDeployment {
   id: string;
   model_name: string;
   cluster_id: string | null;
+  /** Recipe this deployment was launched from, or captured into. Informational. */
+  recipe_id?: string | null;
+  recipe_name?: string | null;
   namespace: string;
   image: string;
   replicas: number;
@@ -794,10 +797,37 @@ export type ServingRecipeInput = Omit<
   "id" | "created_by" | "updated_by" | "created_at" | "updated_at"
 >;
 
+// POST body: a recipe captured from a portal deployment back-links it
+// (deployment.recipe_id) when that deployment has no recipe yet.
+export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_id?: string | null };
+
+/** One thing the reverse parser guessed or dropped; `code` maps to i18n `servingRecipes.warn.<code>`. */
+export interface RecipeDraftWarning {
+  code: string;
+  detail?: string;
+}
+
+// GET /api/model-deployments/external/recipe-draft — recipe fields parsed from
+// a live Deployment. `engine_args` holds every long flag found; the form moves
+// flags it has no field for into the free-text extra args.
+export interface RecipeDraftResponse {
+  draft: ServingRecipeInput;
+  warnings: RecipeDraftWarning[];
+  source: {
+    namespace: string | null;
+    deployment_name: string | null;
+    replicas: number | null;
+    command: string[];
+    args: string[];
+  };
+}
+
 // Body for POST /api/model-deployments (recipe serving fields + instance fields).
 export interface CreateDeploymentBody {
   model_name: string;
   cluster_id: string | null;
+  /** Recipe this deployment is launched from (informational; stored on the row). */
+  recipe_id?: string | null;
   namespace: string;
   image: string;
   replicas: number;
@@ -854,6 +884,7 @@ export interface ServingOverviewRow {
   recipes: { id: string; name: string; engine: ServingEngine }[];
   deployments: {
     id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
+    recipe_id?: string | null;
   }[];
   llmd_stacks: LinkedLlmdStack[];
   performance: {

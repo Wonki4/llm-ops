@@ -2,7 +2,7 @@
 
 import { Fragment, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, ChevronRight, Loader2, Server } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronRight, Loader2, ScrollText, Server } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import {
@@ -34,6 +34,13 @@ function StatusBadge({ status }: { status: string }) {
 
 function externalKey(s: ExternalServing) {
   return `${s.cluster_id ?? "default"}/${s.namespace}/${s.deployment_name}`;
+}
+
+/** New-recipe page pre-filled by reverse-parsing this external Deployment. */
+function externalRecipeHref(s: ExternalServing) {
+  const qs = new URLSearchParams({ from: "external", namespace: s.namespace, name: s.deployment_name });
+  if (s.cluster_id) qs.set("cluster", s.cluster_id);
+  return `/admin/recipes/new?${qs.toString()}`;
 }
 
 export default function DeploymentsPage() {
@@ -113,6 +120,13 @@ export default function DeploymentsPage() {
                         {(d.llmd_stack_count ?? 0) > 0 && (
                           <Badge variant="outline" className="ml-1 text-[10px]" title={t("llmdLinkedHint", { count: d.llmd_stack_count ?? 0 })}>llm-d ×{d.llmd_stack_count}</Badge>
                         )}
+                        {d.recipe_id && (
+                          <Badge asChild variant="outline" className="ml-1 gap-1 text-[10px]">
+                            <Link href={`/admin/recipes/${d.recipe_id}`} onClick={(e) => e.stopPropagation()} title={t("recipeLinkedHint")}>
+                              <ScrollText className="size-3" />{d.recipe_name ?? t("recipeLabel")}
+                            </Link>
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell><StatusBadge status={d.status} /></TableCell>
                       <TableCell className="text-right tabular-nums">{d.ready_replicas}/{d.replicas}</TableCell>
@@ -126,7 +140,16 @@ export default function DeploymentsPage() {
                           <span className="text-xs text-muted-foreground">—</span>
                         )}
                       </TableCell>
-                      <TableCell><ChevronRight className="size-4 text-muted-foreground" /></TableCell>
+                      <TableCell>
+                        <span className="flex items-center justify-end gap-1">
+                          <Button asChild variant="ghost" size="sm" className="h-7 text-xs" title={t("saveAsRecipe")}>
+                            <Link href={`/admin/recipes/new?from=deployment&id=${d.id}`} onClick={(e) => e.stopPropagation()}>
+                              <ScrollText className="size-3.5" />
+                            </Link>
+                          </Button>
+                          <ChevronRight className="size-4 text-muted-foreground" />
+                        </span>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {servings.map((s) => {
@@ -178,7 +201,15 @@ export default function DeploymentsPage() {
                               </Button>
                             )}
                           </TableCell>
-                          <TableCell />
+                          <TableCell>
+                            <span className="flex items-center justify-end">
+                              <Button asChild variant="ghost" size="sm" className="h-7 text-xs" title={t("saveAsRecipe")}>
+                                <Link href={externalRecipeHref(s)} onClick={(e) => e.stopPropagation()}>
+                                  <ScrollText className="size-3.5" />
+                                </Link>
+                              </Button>
+                            </span>
+                          </TableCell>
                         </TableRow>
                         {expanded && (
                           <TableRow className="bg-muted/30 hover:bg-muted/30">
@@ -191,6 +222,11 @@ export default function DeploymentsPage() {
                                   <p>labels: {Object.entries(s.labels).map(([k, v]) => `${k}=${v}`).join(", ")}</p>
                                 )}
                                 {s.registration && <p>api_base: {s.registration.api_base}</p>}
+                                <p className="pt-1 font-sans">
+                                  <Link href={externalRecipeHref(s)} className="inline-flex items-center gap-1 text-primary hover:underline">
+                                    <ScrollText className="size-3.5" />{t("saveAsRecipeExternal")}
+                                  </Link>
+                                </p>
                               </div>
                             </TableCell>
                           </TableRow>

@@ -114,6 +114,11 @@ def build_overview(
         deps = [d for d in deployments if d.model_name == name]
         model_paths = {d.model_path for d in deps}
         matched_recipes = [rc for p in model_paths for rc in recipes_by_path.get(p, [])]
+        # Recipes a deployment explicitly points at (launched from / captured into)
+        # join the row even when their model_path has since diverged.
+        linked_ids = {getattr(d, "recipe_id", None) for d in deps} - {None}
+        seen = {rc.id for rc in matched_recipes}
+        matched_recipes += [rc for rc in recipes if rc.id in linked_ids and rc.id not in seen]
         perf = next((r for r in runs if r.model_name == name and r.kind == "performance"), None)
         acc = next((r for r in runs if r.model_name == name and r.kind == "accuracy"), None)
         cat = catalog_by_name.get(name)
@@ -129,6 +134,7 @@ def build_overview(
                         "replicas": d.replicas,
                         "engine": engine_of(d),
                         "litellm_model_id": d.litellm_model_id,
+                        "recipe_id": str(d.recipe_id) if getattr(d, "recipe_id", None) else None,
                     }
                     for d in deps
                 ],

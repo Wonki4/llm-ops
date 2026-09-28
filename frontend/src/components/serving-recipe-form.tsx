@@ -102,19 +102,32 @@ export function RecipePageHeader({ title, description }: { title: string; descri
 /**
  * Full-page serving recipe form. Creates when `recipe` is absent, updates
  * otherwise. Navigates back to the list on success.
+ *
+ * `initial` pre-fills a new recipe (captured from a deployment); the caller
+ * remounts with a `key` when it changes. `sourceDeploymentId` is sent on
+ * create so the backend can point that deployment at the new recipe.
  */
-export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
+export function ServingRecipeForm({
+  recipe, initial, sourceDeploymentId, children,
+}: {
+  recipe?: ServingRecipe;
+  initial?: ServingRecipeInput;
+  sourceDeploymentId?: string | null;
+  /** Rendered above the form: import notice, parser warnings. */
+  children?: React.ReactNode;
+}) {
   const t = useTranslations("servingRecipes");
   const tc = useTranslations("common");
   const router = useRouter();
   const createMut = useCreateServingRecipe();
   const updateMut = useUpdateServingRecipe();
 
-  const [form, setForm] = useState<ServingRecipeInput>(() => (recipe ? toInput(recipe) : BLANK));
-  const [argsText, setArgsText] = useState(() => listToLines(recipe?.vllm_extra_args ?? null));
-  const [envText, setEnvText] = useState(() => mapToLines(recipe?.env ?? null));
-  const [nsText, setNsText] = useState(() => mapToLines(recipe?.node_selector ?? null));
-  const [tolText, setTolText] = useState(() => tolerationsToLines(recipe?.tolerations ?? null));
+  const seed: ServingRecipeInput = recipe ? toInput(recipe) : initial ?? BLANK;
+  const [form, setForm] = useState<ServingRecipeInput>(seed);
+  const [argsText, setArgsText] = useState(() => listToLines(seed.vllm_extra_args));
+  const [envText, setEnvText] = useState(() => mapToLines(seed.env));
+  const [nsText, setNsText] = useState(() => mapToLines(seed.node_selector));
+  const [tolText, setTolText] = useState(() => tolerationsToLines(seed.tolerations));
 
   const saving = createMut.isPending || updateMut.isPending;
 
@@ -163,11 +176,12 @@ export function ServingRecipeForm({ recipe }: { recipe?: ServingRecipe }) {
       onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("saveError")),
     };
     if (recipe) updateMut.mutate({ id: recipe.id, body }, opts);
-    else createMut.mutate(body, opts);
+    else createMut.mutate({ ...body, source_deployment_id: sourceDeploymentId ?? null }, opts);
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {children}
       <Card>
         <CardHeader><CardTitle className="text-base">{t("sectionBasic")}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">

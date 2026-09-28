@@ -154,3 +154,47 @@ async def test_create_bad_engine_args_key_422(client_for_user, super_user, mock_
         resp = await client.post("/api/admin/serving-recipes", json={**_BODY, "engine_args": {"--tp-size": 2}})
     assert resp.status_code == 422
     assert "--tp-size" in resp.text
+
+
+# ─── Capture from a deployment: source_deployment_id back-link ────────────────
+
+
+def _deployment(recipe_id=None):
+    return types.SimpleNamespace(id=uuid.uuid4(), recipe_id=recipe_id)
+
+
+async def test_create_from_deployment_links_unlinked_deployment(client_for_user, super_user, mock_db):
+    dep = _deployment()
+    # 1st execute: name lookup (free); 2nd: source deployment lookup.
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=dep)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(dep.id)}
+        )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["linked_deployment"] is True
+    assert "source_deployment_id" not in body
+    assert str(dep.recipe_id) == body["id"]
+
+
+async def test_create_from_deployment_keeps_existing_recipe_link(client_for_user, super_user, mock_db):
+    original = uuid.uuid4()
+    dep = _deployment(recipe_id=original)
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=dep)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(dep.id)}
+        )
+    assert resp.status_code == 201
+    assert resp.json()["linked_deployment"] is False
+    assert dep.recipe_id == original
+
+
+async def test_create_from_missing_deployment_still_creates_recipe(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=None)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(uuid.uuid4())}
+        )
+    assert resp.status_code == 201 and resp.json()["linked_deployment"] is False

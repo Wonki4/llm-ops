@@ -173,6 +173,7 @@ class K8sClient:
                         {"name": e.name, "value": e.value} for e in (c.env or [])
                     ],
                     "env_raw": sanitize(c.env) or [],
+                    "env_from": sanitize(c.env_from) or [],
                     "resources": sanitize(c.resources) or {},
                     "ports": sanitize(c.ports) or [],
                     "volume_mounts": sanitize(c.volume_mounts) or [],
@@ -180,6 +181,10 @@ class K8sClient:
                 "volumes": sanitize(pod.volumes) or [],
                 "node_selector": dict(pod.node_selector or {}) or None,
                 "tolerations": sanitize(pod.tolerations) or None,
+                # Facts the recipe importer can only warn about (not clonable).
+                "containers_count": len(pod.containers or []),
+                "init_containers": [ic.name for ic in (pod.init_containers or [])],
+                "affinity": sanitize(pod.affinity) or None,
             }
         finally:
             await api_client.close()

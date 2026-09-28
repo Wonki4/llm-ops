@@ -20,6 +20,7 @@ from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
@@ -27,6 +28,7 @@ from app.services.external_servings import scan_clusters
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
+from app.services.recipe_import import build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,7 @@ class CreateDeploymentRequest(BaseModel):
     ingress_host: str
     ingress_path: str = "/"
     ingress_class: str = "nginx"
+    recipe_id: str | None = None  # recipe this deployment is launched from (informational)
 
     @field_validator("engine_args")
     @classmethod
@@ -105,11 +108,14 @@ class RegisterExternalServingRequest(BaseModel):
     api_key: str | None = None
 
 
-def _serialize(d: CustomModelDeployment) -> dict:
+def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | None = None) -> dict:
+    recipe_id = getattr(d, "recipe_id", None)
     return {
         "id": str(d.id),
         "model_name": d.model_name,
         "cluster_id": str(d.cluster_id) if d.cluster_id else None,
+        "recipe_id": str(recipe_id) if recipe_id else None,
+        "recipe_name": (recipe_names or {}).get(recipe_id) if recipe_id else None,
         "namespace": d.namespace,
         "image": d.image,
         "replicas": d.replicas,
@@ -144,17 +150,32 @@ def _serialize(d: CustomModelDeployment) -> dict:
     }
 
 
+async def _recipe_names(db: AsyncSession, deployments: list[CustomModelDeployment]) -> dict[uuid.UUID, str]:
+    """id → name for the recipes referenced by ``deployments`` (one query, or none)."""
+    ids = {d.recipe_id for d in deployments if getattr(d, "recipe_id", None)}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CustomServingRecipe.id, CustomServingRecipe.name).where(CustomServingRecipe.id.in_(ids))
+        )
+    ).all()
+    return {rid: name for rid, name in rows}
+
+
 @router.get("")
 async def list_deployments(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).order_by(CustomModelDeployment.created_at.desc()))
+    deployments = list(result.scalars().all())
     stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
+    names = await _recipe_names(db, deployments)
     out = []
-    for d in result.scalars().all():
+    for d in deployments:
         linked = stacks_for_server(portal_server(d), stacks)
-        out.append({**_serialize(d), "llmd_stack_count": len(linked)})
+        out.append({**_serialize(d, names), "llmd_stack_count": len(linked)})
     return {"deployments": out}
 
 
@@ -190,6 +211,34 @@ async def list_external_servings(
         s["registration"] = _serialize_registration(r) if r else None
 
     return {"servings": servings, "errors": errors}
+
+
+@router.get("/external/recipe-draft")
+async def external_recipe_draft(
+    namespace: str,
+    deployment_name: str,
+    cluster_id: str | None = None,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Reverse-engineer a recipe draft from a live (non-portal) Deployment.
+
+    Reads the Deployment spec and parses its launch command, resources, env and
+    volumes into recipe fields. Nothing is saved: the response is a pre-filled
+    form plus warnings for every guess or dropped setting, and the operator
+    reviews it before creating the recipe.
+    """
+    k8s = await k8s_for_cluster(db, cluster_id)
+    try:
+        spec = await k8s.read_deployment(namespace, deployment_name)
+    except K8sNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        logger.exception("read_deployment failed for %s/%s", namespace, deployment_name)
+        raise HTTPException(status_code=502, detail="Failed to read the Deployment from the cluster; check logs")
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Deployment not found in the cluster")
+    return build_recipe_draft(spec)
 
 
 @router.post("/external/register", status_code=status.HTTP_201_CREATED)
@@ -294,7 +343,7 @@ async def get_deployment(
                 **(await _live_status(db, st)),
             }
         )
-    return {**_serialize(dep), "llmd_stacks": linked}
+    return {**_serialize(dep, await _recipe_names(db, [dep])), "llmd_stacks": linked}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -337,6 +386,7 @@ async def create_deployment(
         ingress_host=body.ingress_host,
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,
+        recipe_id=uuid.UUID(body.recipe_id) if body.recipe_id else None,
         status="Pending",
         created_by=user.user_id,
         updated_by=user.user_id,
