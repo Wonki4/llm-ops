@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Trash2, Server, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Loader2, ScrollText, Trash2, Server, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
@@ -89,10 +89,24 @@ export default function DeploymentDetailPage() {
             <StatusBadge status={dep.status} />
             <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
             <span className="text-sm text-muted-foreground tabular-nums">{dep.ready_replicas}/{dep.replicas} ready</span>
+            {dep.recipe_id && (
+              <Badge asChild variant="outline" className="gap-1">
+                <Link href={`/admin/recipes/${dep.recipe_id}`} title={t("recipeLinkedHint")}>
+                  <ScrollText className="size-3" />{dep.recipe_name ?? t("recipeLabel")}
+                </Link>
+              </Badge>
+            )}
           </div>
-          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
-            {deleteMut.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}{t("deleteButton")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/admin/recipes/new?from=deployment&id=${dep.id}`}>
+                <ScrollText className="size-3.5" />{t("saveAsRecipe")}
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}{t("deleteButton")}
+            </Button>
+          </div>
         </div>
         {dep.status_message && (
           <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">

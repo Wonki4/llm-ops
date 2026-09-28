@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
+from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
@@ -40,6 +41,13 @@ class RecipeBody(BaseModel):
     @classmethod
     def _check_engine_args(cls, v: dict | None) -> dict | None:
         return validate_engine_args(v)
+
+
+class CreateRecipeBody(RecipeBody):
+    # Deployment this recipe was captured from. When set, the deployment gets
+    # recipe_id = the new recipe unless it already points at one (a deployment
+    # launched from recipe A keeps A even if someone snapshots it into B).
+    source_deployment_id: str | None = None
 
 
 def _serialize(r: CustomServingRecipe) -> dict:
@@ -95,16 +103,27 @@ async def list_recipes(
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_recipe(
-    body: RecipeBody,
+    body: CreateRecipeBody,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     if await _by_name(db, body.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
-    recipe = CustomServingRecipe(id=uuid.uuid4(), created_by=user.user_id, updated_by=user.user_id, **body.model_dump())
+    fields = body.model_dump(exclude={"source_deployment_id"})
+    recipe = CustomServingRecipe(id=uuid.uuid4(), created_by=user.user_id, updated_by=user.user_id, **fields)
     db.add(recipe)
     await db.flush()
-    return _serialize(recipe)
+    linked = False
+    if body.source_deployment_id:
+        dep = (
+            await db.execute(
+                select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(body.source_deployment_id))
+            )
+        ).scalar_one_or_none()
+        if dep is not None and dep.recipe_id is None:
+            dep.recipe_id = recipe.id
+            linked = True
+    return {**_serialize(recipe), "linked_deployment": linked}
 
 
 @router.get("/{recipe_id}")

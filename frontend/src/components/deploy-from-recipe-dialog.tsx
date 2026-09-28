@@ -45,6 +45,7 @@ export function DeployFromRecipeDialog({
     const body: CreateDeploymentBody = {
       model_name: modelName.trim(),
       cluster_id: clusterId.trim() || null,
+      recipe_id: recipe.id,
       namespace: namespace.trim() || "default",
       image: recipe.image,
       replicas,
