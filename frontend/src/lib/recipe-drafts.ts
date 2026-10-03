@@ -31,6 +31,7 @@ export function recipeFromDeployment(dep: ModelDeployment, name: string, descrip
     env: dep.env,
     engine: dep.engine,
     engine_args: dep.engine_args,
+    probes: dep.probes ?? null,
   };
 }
 

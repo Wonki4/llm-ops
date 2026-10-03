@@ -20,6 +20,7 @@ import shlex
 from typing import Any
 
 from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT
+from app.services.serving_probes import probe_from_k8s
 
 # Program tokens that precede the engine's own flags. Anything here is dropped
 # from the flag stream without a warning.
@@ -310,6 +311,17 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
         _warn(warnings, "volume_unsupported", ", ".join(unsupported))
 
 
+def _probes(container: dict, warnings: list[dict]) -> dict | None:
+    out: dict = {}
+    for kind in ("readiness", "liveness"):
+        spec, code = probe_from_k8s(container.get(f"{kind}_probe"))
+        if code:
+            _warn(warnings, code, kind)
+        if spec is not None:
+            out[kind] = spec
+    return out or None
+
+
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 
@@ -350,6 +362,7 @@ def build_recipe_draft(spec: dict) -> dict:
     _resources(container, draft, warnings)
     draft["env"] = _env(container, warnings)
     _volumes(spec, container, draft, warnings)
+    draft["probes"] = _probes(container, warnings)
     draft["node_selector"] = dict(spec.get("node_selector") or {}) or None
     draft["tolerations"] = list(spec.get("tolerations") or []) or None
 

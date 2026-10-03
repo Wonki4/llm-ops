@@ -57,6 +57,7 @@ class CustomModelDeployment(CustomBase):
     vllm_extra_args: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
     engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ingress_host: Mapped[str] = mapped_column(String(256), nullable=False)
     ingress_path: Mapped[str] = mapped_column(String(256), nullable=False, default="/", server_default="/")

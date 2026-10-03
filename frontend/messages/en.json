@@ -810,7 +810,10 @@
     "saveAsRecipe": "Save as recipe",
     "saveAsRecipeExternal": "Capture as a portal recipe (reverse-parse this Deployment)",
     "recipeLabel": "Recipe",
-    "recipeLinkedHint": "Recipe this deployment was launched from or captured into"
+    "recipeLinkedHint": "Recipe this deployment was launched from or captured into",
+    "probeReadiness": "Readiness probe",
+    "probeLiveness": "Liveness probe",
+    "probeOff": "off"
   },
   "adminUsers": {
     "pageTitle": "User Management",
@@ -1766,8 +1769,20 @@
       "multi_container": "The pod has sidecar containers, which the recipe cannot reproduce. Count:",
       "init_containers": "Init containers are not reproduced:",
       "affinity_dropped": "Pod affinity/anti-affinity rules are not reproduced (only nodeSelector and tolerations).",
-      "relocated_flags": "Flags without a dedicated field were moved to extra args:"
-    }
+      "relocated_flags": "Flags without a dedicated field were moved to extra args:",
+      "probe_unsupported": "A non-HTTP probe (exec/tcp) cannot be expressed in a recipe and was dropped:",
+      "probe_port_changed": "The probe used a different port; the portal always probes the serving port:"
+    },
+    "sectionProbes": "Health checks",
+    "probesHint": "Kubernetes probes on the serving port. Leave a field empty to use the portal default shown as the placeholder. Liveness is off unless enabled: a restart during a long model load does more harm than good.",
+    "readiness": "Readiness probe (traffic only after it passes)",
+    "liveness": "Liveness probe (restart the container when it fails)",
+    "livenessEnable": "Enable liveness probe",
+    "probePath": "Path",
+    "probeInitialDelay": "Initial delay (s)",
+    "probePeriod": "Period (s)",
+    "probeTimeout": "Timeout (s)",
+    "probeFailureThreshold": "Failure threshold"
   },
   "serving": {
     "title": "Serving home",

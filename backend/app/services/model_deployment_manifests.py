@@ -7,6 +7,7 @@ Pure functions, no side effects.
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services.serving_engines import SERVING_PORT, container_launch, engine_of
+from app.services.serving_probes import render_probes
 
 VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
@@ -104,13 +105,7 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         "resources": resources,
         "env": env_items,
         "volumeMounts": volume_mounts,
-        "readinessProbe": {
-            "httpGet": {"path": "/health", "port": VLLM_PORT},
-            "initialDelaySeconds": 60,
-            "periodSeconds": 10,
-            "timeoutSeconds": 5,
-            "failureThreshold": 30,
-        },
+        **render_probes(dep),
     }
     if command:
         container["command"] = command
