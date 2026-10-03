@@ -13,7 +13,7 @@ import {
   useModelDeploymentEvents,
   useDeleteModelDeployment,
 } from "@/hooks/use-api";
-import type { ModelDeploymentEvent } from "@/types";
+import type { ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,18 @@ function Field({ label, children, mono }: { label: string; children: React.React
       <div className={`text-sm ${mono ? "font-mono break-all" : ""}`}>{children}</div>
     </div>
   );
+}
+
+/** `GET /health · delay 60s · every 10s · timeout 5s · fail ×30` with portal defaults filled in. */
+function probeSummary(spec: ProbeSpec | null, defaultPath: string, d: [number, number, number, number]): string {
+  const p = spec ?? {};
+  return [
+    `GET ${p.path ?? defaultPath}`,
+    `delay ${p.initial_delay_seconds ?? d[0]}s`,
+    `every ${p.period_seconds ?? d[1]}s`,
+    `timeout ${p.timeout_seconds ?? d[2]}s`,
+    `fail ×${p.failure_threshold ?? d[3]}`,
+  ].join(" · ");
 }
 
 function sevColor(sev: string): string {
@@ -145,6 +157,12 @@ export default function DeploymentDetailPage() {
             <Field label={t("ingressHost")} mono>{dep.ingress_host}</Field>
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
+            <Field label={t("probeLiveness")} mono>
+              {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, "/health", [120, 30, 5, 3])}
+            </Field>
           </div>
           {(() => {
             const flags = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];

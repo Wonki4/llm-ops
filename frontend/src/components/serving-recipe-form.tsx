@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useCreateServingRecipe, useUpdateServingRecipe } from "@/hooks/use-api";
-import type { EngineArgs, ServingEngine, ServingRecipe, ServingRecipeInput } from "@/types";
+import type { EngineArgs, ProbeSpec, ProbesSpec, ServingEngine, ServingRecipe, ServingRecipeInput } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,7 +24,7 @@ const BLANK: ServingRecipeInput = {
   gpu_resource_key: "nvidia.com/gpu", cpu_request: null, cpu_limit: null,
   memory_request: null, memory_limit: null, node_selector: null, tolerations: null,
   pvc_name: null, pvc_mount_path: null, vllm_extra_args: null, env: null,
-  engine: "vllm", engine_args: null,
+  engine: "vllm", engine_args: null, probes: null,
 };
 
 const linesToList = (s: string): string[] | null => {
@@ -155,6 +155,22 @@ export function ServingRecipeForm({
     });
   }
 
+  /** Probe fields: unset (undefined) means "portal default"; liveness null means off. */
+  function setProbe(kind: "readiness" | "liveness", key: keyof ProbeSpec, value: string) {
+    setForm((f) => {
+      const probes: ProbesSpec = { ...(f.probes ?? {}) };
+      const spec: ProbeSpec = { ...(probes[kind] ?? {}) };
+      if (value === "") delete spec[key];
+      else if (key === "path") spec.path = value;
+      else spec[key] = Number(value);
+      probes[kind] = spec;
+      return { ...f, probes };
+    });
+  }
+  function setLiveness(enabled: boolean) {
+    setForm((f) => ({ ...f, probes: { ...(f.probes ?? {}), liveness: enabled ? (f.probes?.liveness ?? {}) : null } }));
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.name.trim() || !form.model_path.trim() || !form.image.trim()) {
@@ -275,6 +291,37 @@ export function ServingRecipeForm({
               placeholder={form.engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
             />
           </Field>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t("sectionProbes")}</CardTitle>
+          <p className="text-xs text-muted-foreground">{t("probesHint")}</p>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <ProbeFields
+            kind="readiness"
+            title={t("readiness")}
+            spec={form.probes?.readiness ?? null}
+            defaults={READINESS_DEFAULTS}
+            onChange={(k, v) => setProbe("readiness", k, v)}
+          />
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={form.probes?.liveness != null} onChange={(e) => setLiveness(e.target.checked)} />
+              {t("livenessEnable")}
+            </label>
+            {form.probes?.liveness != null && (
+              <ProbeFields
+                kind="liveness"
+                title={t("liveness")}
+                spec={form.probes.liveness}
+                defaults={LIVENESS_DEFAULTS}
+                onChange={(k, v) => setProbe("liveness", k, v)}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -410,5 +457,54 @@ function EngineArgsFields({
         ))}
       </div>
     </>
+  );
+}
+
+/** Mirrors backend serving_probes defaults; shown as placeholders so an empty field reads as "default". */
+const READINESS_DEFAULTS: Required<ProbeSpec> = {
+  path: "/health", initial_delay_seconds: 60, period_seconds: 10, timeout_seconds: 5, failure_threshold: 30,
+};
+const LIVENESS_DEFAULTS: Required<ProbeSpec> = {
+  path: "/health", initial_delay_seconds: 120, period_seconds: 30, timeout_seconds: 5, failure_threshold: 3,
+};
+const PROBE_NUMERIC: (keyof ProbeSpec)[] = ["initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold"];
+const PROBE_LABEL: Record<keyof ProbeSpec, string> = {
+  path: "probePath", initial_delay_seconds: "probeInitialDelay", period_seconds: "probePeriod",
+  timeout_seconds: "probeTimeout", failure_threshold: "probeFailureThreshold",
+};
+
+function ProbeFields({
+  kind, title, spec, defaults, onChange,
+}: {
+  kind: "readiness" | "liveness";
+  title: string;
+  spec: ProbeSpec | null;
+  defaults: Required<ProbeSpec>;
+  onChange: (key: keyof ProbeSpec, value: string) => void;
+}) {
+  const t = useTranslations("servingRecipes");
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">{title}</div>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        <div className="space-y-1 col-span-2 sm:col-span-1">
+          <Label htmlFor={`probe-${kind}-path`} className="text-xs">{t("probePath")}</Label>
+          <Input
+            id={`probe-${kind}-path`} className="font-mono" placeholder={defaults.path}
+            value={spec?.path ?? ""} onChange={(e) => onChange("path", e.target.value)}
+          />
+        </div>
+        {PROBE_NUMERIC.map((k) => (
+          <div key={k} className="space-y-1">
+            <Label htmlFor={`probe-${kind}-${k}`} className="text-xs">{t(PROBE_LABEL[k])}</Label>
+            <Input
+              id={`probe-${kind}-${k}`} type="number" min={k === "initial_delay_seconds" ? 0 : 1} step={1}
+              placeholder={String(defaults[k])}
+              value={spec?.[k] ?? ""} onChange={(e) => onChange(k, e.target.value)}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

@@ -177,6 +177,8 @@ class K8sClient:
                     "resources": sanitize(c.resources) or {},
                     "ports": sanitize(c.ports) or [],
                     "volume_mounts": sanitize(c.volume_mounts) or [],
+                    "readiness_probe": sanitize(c.readiness_probe) or None,
+                    "liveness_probe": sanitize(c.liveness_probe) or None,
                 },
                 "volumes": sanitize(pod.volumes) or [],
                 "node_selector": dict(pod.node_selector or {}) or None,

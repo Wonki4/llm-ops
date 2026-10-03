@@ -637,6 +637,7 @@ export interface ModelDeployment {
   env: Record<string, string> | null;
   engine: ServingEngine;
   engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
@@ -785,10 +786,26 @@ export interface ServingRecipe {
   env: Record<string, string> | null;
   engine: ServingEngine;
   engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** One HTTP probe; every field optional (unset = portal default). Port is always the serving port. */
+export interface ProbeSpec {
+  path?: string;
+  initial_delay_seconds?: number;
+  period_seconds?: number;
+  timeout_seconds?: number;
+  failure_threshold?: number;
+}
+
+/** `liveness: null` = no liveness probe (default); `{}` = liveness on with defaults. */
+export interface ProbesSpec {
+  readiness?: ProbeSpec | null;
+  liveness?: ProbeSpec | null;
 }
 
 // Editable fields for create/update (server sets id/audit/timestamps).
@@ -846,6 +863,7 @@ export interface CreateDeploymentBody {
   env: Record<string, string> | null;
   engine: ServingEngine;
   engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;

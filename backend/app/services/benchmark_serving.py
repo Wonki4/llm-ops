@@ -75,6 +75,7 @@ def build_ephemeral_deployment(
         env=dict(base.env or {}),
         engine=engine_of(base),
         engine_args=dict(getattr(base, "engine_args", None) or {}) or None,
+        probes=dict(getattr(base, "probes", None) or {}) or None,
         # Ingress is required by the column but unused for ephemeral servings
         # (we hit the Service directly); give it a harmless placeholder.
         ingress_host=f"{name}.invalid",

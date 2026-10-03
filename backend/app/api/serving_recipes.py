@@ -13,6 +13,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.serving_engines import ServingEngine, validate_engine_args
+from app.services.serving_probes import validate_probes
 
 router = APIRouter(prefix="/api/admin/serving-recipes", tags=["serving-recipes"])
 
@@ -36,11 +37,17 @@ class RecipeBody(BaseModel):
     env: dict[str, str] | None = None
     engine: ServingEngine = "vllm"
     engine_args: dict[str, str | int | float | bool] | None = None
+    probes: dict | None = None
 
     @field_validator("engine_args")
     @classmethod
     def _check_engine_args(cls, v: dict | None) -> dict | None:
         return validate_engine_args(v)
+
+    @field_validator("probes")
+    @classmethod
+    def _check_probes(cls, v: dict | None) -> dict | None:
+        return validate_probes(v)
 
 
 class CreateRecipeBody(RecipeBody):
@@ -71,6 +78,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "env": r.env,
         "engine": r.engine or "vllm",
         "engine_args": r.engine_args,
+        "probes": getattr(r, "probes", None),
         "created_by": r.created_by,
         "updated_by": r.updated_by,
         "created_at": r.created_at.isoformat() if r.created_at else None,

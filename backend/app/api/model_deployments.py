@@ -30,6 +30,7 @@ from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
 from app.services.recipe_import import build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
+from app.services.serving_probes import validate_probes
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ class CreateDeploymentRequest(BaseModel):
     env: dict | None = None
     engine: ServingEngine = "vllm"
     engine_args: dict[str, str | int | float | bool] | None = None
+    probes: dict | None = None
     ingress_host: str
     ingress_path: str = "/"
     ingress_class: str = "nginx"
@@ -69,6 +71,11 @@ class CreateDeploymentRequest(BaseModel):
     @classmethod
     def _check_engine_args(cls, v: dict | None) -> dict | None:
         return validate_engine_args(v)
+
+    @field_validator("probes")
+    @classmethod
+    def _check_probes(cls, v: dict | None) -> dict | None:
+        return validate_probes(v)
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -88,6 +95,7 @@ class UpdateDeploymentRequest(BaseModel):
     env: dict | None = None
     engine: ServingEngine | None = None
     engine_args: dict[str, str | int | float | bool] | None = None
+    probes: dict | None = None
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
@@ -96,6 +104,11 @@ class UpdateDeploymentRequest(BaseModel):
     @classmethod
     def _check_engine_args(cls, v: dict | None) -> dict | None:
         return validate_engine_args(v)
+
+    @field_validator("probes")
+    @classmethod
+    def _check_probes(cls, v: dict | None) -> dict | None:
+        return validate_probes(v)
 
 
 class RegisterExternalServingRequest(BaseModel):
@@ -134,6 +147,7 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
         "env": d.env,
         "engine": d.engine or "vllm",
         "engine_args": d.engine_args,
+        "probes": getattr(d, "probes", None),
         "ingress_host": d.ingress_host,
         "ingress_path": d.ingress_path,
         "ingress_class": d.ingress_class,
@@ -383,6 +397,7 @@ async def create_deployment(
         env=body.env,
         engine=body.engine,
         engine_args=body.engine_args,
+        probes=body.probes,
         ingress_host=body.ingress_host,
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,

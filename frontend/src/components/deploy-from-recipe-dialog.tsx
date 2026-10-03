@@ -64,6 +64,7 @@ export function DeployFromRecipeDialog({
       env: recipe.env,
       engine: recipe.engine,
       engine_args: recipe.engine_args,
+      probes: recipe.probes ?? null,
       ingress_host: ingressHost.trim(),
       ingress_path: ingressPath.trim() || "/",
       ingress_class: ingressClass.trim() || "nginx",

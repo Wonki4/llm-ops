@@ -39,6 +39,8 @@ class CustomServingRecipe(CustomBase):
     vllm_extra_args: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
     engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # {"readiness": {...}, "liveness": {...}}; None = portal defaults (see serving_probes).
+    probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

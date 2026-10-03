@@ -810,7 +810,10 @@
     "saveAsRecipe": "레시피로 저장",
     "saveAsRecipeExternal": "포털 레시피로 가져오기 (이 Deployment 역파싱)",
     "recipeLabel": "레시피",
-    "recipeLinkedHint": "이 배포를 실행했거나 이 배포에서 가져온 레시피"
+    "recipeLinkedHint": "이 배포를 실행했거나 이 배포에서 가져온 레시피",
+    "probeReadiness": "Readiness 프로브",
+    "probeLiveness": "Liveness 프로브",
+    "probeOff": "사용 안 함"
   },
   "adminUsers": {
     "pageTitle": "사용자 관리",
@@ -1766,8 +1769,20 @@
       "multi_container": "파드에 사이드카 컨테이너가 있어 레시피로 재현할 수 없습니다. 컨테이너 수:",
       "init_containers": "init 컨테이너는 재현되지 않습니다:",
       "affinity_dropped": "파드 affinity/anti-affinity 규칙은 재현되지 않습니다(nodeSelector와 toleration만 지원).",
-      "relocated_flags": "전용 필드가 없는 플래그는 추가 인자로 옮겼습니다:"
-    }
+      "relocated_flags": "전용 필드가 없는 플래그는 추가 인자로 옮겼습니다:",
+      "probe_unsupported": "HTTP가 아닌 프로브(exec/tcp)는 레시피로 표현할 수 없어 버렸습니다:",
+      "probe_port_changed": "프로브가 다른 포트를 썼습니다. 포털은 항상 서빙 포트를 검사합니다:"
+    },
+    "sectionProbes": "헬스 체크",
+    "probesHint": "서빙 포트에 대한 Kubernetes 프로브입니다. 비워두면 플레이스홀더로 표시된 포털 기본값을 씁니다. Liveness는 켜지 않으면 적용되지 않습니다. 모델 로딩이 긴 서버는 재시작이 오히려 해가 될 수 있어서입니다.",
+    "readiness": "Readiness 프로브 (통과해야 트래픽을 받음)",
+    "liveness": "Liveness 프로브 (실패 시 컨테이너 재시작)",
+    "livenessEnable": "Liveness 프로브 사용",
+    "probePath": "경로",
+    "probeInitialDelay": "초기 지연 (초)",
+    "probePeriod": "주기 (초)",
+    "probeTimeout": "타임아웃 (초)",
+    "probeFailureThreshold": "실패 허용 횟수"
   },
   "serving": {
     "title": "서빙 홈",
