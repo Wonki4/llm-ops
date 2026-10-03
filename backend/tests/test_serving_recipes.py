@@ -20,7 +20,8 @@ def _recipe(**kw):
         gpu_count=1, gpu_resource_key="nvidia.com/gpu", cpu_request=None, cpu_limit=None,
         memory_request=None, memory_limit=None, node_selector=None, tolerations=None,
         pvc_name=None, pvc_mount_path=None, vllm_extra_args=["--tensor-parallel-size", "2"],
-        env=None, created_by=None, updated_by=None, created_at=None, updated_at=None,
+        env=None, engine="vllm", engine_args=None,
+        created_by=None, updated_by=None, created_at=None, updated_at=None,
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -113,3 +114,87 @@ async def test_update_name_taken_by_other_409(client_for_user, super_user, mock_
             f"/api/admin/serving-recipes/{recipe.id}", json={**_BODY, "name": "r2"}
         )
     assert resp.status_code == 409
+
+
+def test_serialize_includes_engine_fields():
+    out = _serialize(_recipe(engine="sglang", engine_args={"tp-size": 2}))
+    assert out["engine"] == "sglang"
+    assert out["engine_args"] == {"tp-size": 2}
+    assert _serialize(_recipe())["engine"] == "vllm"
+
+
+async def test_create_sglang_recipe_round_trips_engine_args(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(scalar=None))
+    body = {**_BODY, "engine": "sglang", "engine_args": {"tp-size": 2, "trust-remote-code": True, "mem-fraction-static": 0.85}}
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes", json=body)
+    assert resp.status_code == 201
+    out = resp.json()
+    assert out["engine"] == "sglang"
+    assert out["engine_args"] == {"tp-size": 2, "trust-remote-code": True, "mem-fraction-static": 0.85}
+
+
+async def test_create_defaults_engine_to_vllm(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(scalar=None))
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes", json=_BODY)
+    assert resp.status_code == 201
+    assert resp.json()["engine"] == "vllm"
+    assert resp.json()["engine_args"] is None
+
+
+async def test_create_invalid_engine_422(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes", json={**_BODY, "engine": "tgi"})
+    assert resp.status_code == 422
+
+
+async def test_create_bad_engine_args_key_422(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes", json={**_BODY, "engine_args": {"--tp-size": 2}})
+    assert resp.status_code == 422
+    assert "--tp-size" in resp.text
+
+
+# ─── Capture from a deployment: source_deployment_id back-link ────────────────
+
+
+def _deployment(recipe_id=None):
+    return types.SimpleNamespace(id=uuid.uuid4(), recipe_id=recipe_id)
+
+
+async def test_create_from_deployment_links_unlinked_deployment(client_for_user, super_user, mock_db):
+    dep = _deployment()
+    # 1st execute: name lookup (free); 2nd: source deployment lookup.
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=dep)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(dep.id)}
+        )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["linked_deployment"] is True
+    assert "source_deployment_id" not in body
+    assert str(dep.recipe_id) == body["id"]
+
+
+async def test_create_from_deployment_keeps_existing_recipe_link(client_for_user, super_user, mock_db):
+    original = uuid.uuid4()
+    dep = _deployment(recipe_id=original)
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=dep)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(dep.id)}
+        )
+    assert resp.status_code == 201
+    assert resp.json()["linked_deployment"] is False
+    assert dep.recipe_id == original
+
+
+async def test_create_from_missing_deployment_still_creates_recipe(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(scalar=None)])
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/serving-recipes", json={**_BODY, "source_deployment_id": str(uuid.uuid4())}
+        )
+    assert resp.status_code == 201 and resp.json()["linked_deployment"] is False

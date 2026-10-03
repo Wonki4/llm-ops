@@ -30,6 +30,15 @@ class CustomModelDeployment(CustomBase):
         nullable=True,
         index=True,
     )
+    # Recipe this deployment was launched from, or that was captured from it.
+    # Informational only: manifests render from the columns below. SET NULL so
+    # deleting a recipe never blocks or touches a running deployment.
+    recipe_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("custom_serving_recipe.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     image: Mapped[str] = mapped_column(String(512), nullable=False)
     replicas: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
@@ -46,6 +55,9 @@ class CustomModelDeployment(CustomBase):
     pvc_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     model_path: Mapped[str] = mapped_column(String(512), nullable=False)
     vllm_extra_args: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
+    engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ingress_host: Mapped[str] = mapped_column(String(256), nullable=False)
     ingress_path: Mapped[str] = mapped_column(String(256), nullable=False, default="/", server_default="/")

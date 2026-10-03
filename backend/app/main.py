@@ -25,6 +25,7 @@ from app.api import (
     model_deployments,
     models_catalog,
     portal_settings,
+    serving_overview,
     serving_recipes,
     team_requests,
     teams,
@@ -76,6 +77,7 @@ app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
 app.include_router(llmd.router)
 app.include_router(serving_recipes.router)
+app.include_router(serving_overview.router)
 
 
 @app.exception_handler(Exception)

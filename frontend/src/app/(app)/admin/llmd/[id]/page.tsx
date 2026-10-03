@@ -337,6 +337,46 @@ export default function LlmdDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Model servers this router's selector actually picks */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">{t("linkedSection")}</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          {appliedLoading ? (
+            <div className="flex justify-center py-6"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-muted-foreground">{t("linkedSelector")}</span>
+                <code className="rounded bg-muted/50 px-1.5 py-0.5 text-xs">
+                  {applied && Object.keys(applied.selector ?? {}).length > 0
+                    ? Object.entries(applied.selector).map(([k, v]) => `${k}=${v}`).join(",")
+                    : t("linkedNoSelector")}
+                </code>
+              </div>
+              {!applied || applied.linked_servers.length === 0 ? (
+                <p className="text-sm text-amber-600 dark:text-amber-400">{t("linkedNone")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {applied.linked_servers.map((srv) => (
+                    <div key={`${srv.kind}-${srv.namespace}-${srv.name}`} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
+                      <Badge variant="outline">{srv.kind === "portal" ? t("linkedPortal") : t("linkedExternal")}</Badge>
+                      {srv.kind === "portal" && srv.id ? (
+                        <Link href={`/admin/deployments/${srv.id}`} className="font-medium hover:underline">{srv.name}</Link>
+                      ) : (
+                        <span className="font-medium">{srv.name}</span>
+                      )}
+                      <span className="font-mono text-xs text-muted-foreground">{srv.namespace}</span>
+                      {srv.status && <Badge variant={srv.status === "Ready" ? "default" : "secondary"}>{srv.status}</Badge>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">{t("linkedHint")}</p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* How values were applied */}
       <Card>
         <CardHeader><CardTitle className="text-base">{t("appliedSection")}</CardTitle></CardHeader>

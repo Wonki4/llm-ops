@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from app.services.model_deployment_manifests import LABEL_MODEL
+from app.services.model_deployment_manifests import LABEL_LLMD_MODEL, LABEL_MODEL  # noqa: F401
 
 if TYPE_CHECKING:
     from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -122,6 +122,26 @@ def direct_service_name(stack: CustomLlmdStack) -> str:
     return f"{stack.argo_app_name}-direct"
 
 
+def stack_selector(values: dict) -> dict:
+    """The label selector a stack's router uses to pick model-server pods.
+
+    Reads the current chart schema (``router.modelServers.matchLabels``) and
+    falls back to the legacy standalone-GIE schema
+    (``inferenceExtension.endpointsServer.endpointSelector``, a ``k=v`` string)
+    so stacks created before the chart move still resolve. ``{}`` when neither.
+    """
+    values = values or {}
+    ms = ((values.get("router") or {}).get("modelServers") or {})
+    if ms.get("matchLabels"):
+        return dict(ms["matchLabels"])
+    legacy = ((values.get("inferenceExtension") or {}).get("endpointsServer") or {}).get("endpointSelector")
+    if isinstance(legacy, str) and legacy.strip():
+        return selector_to_match_labels(legacy)
+    if isinstance(legacy, dict):
+        return dict(legacy)
+    return {}
+
+
 def modelservers_target(values: dict) -> tuple[dict, int]:
     """Extract ``(matchLabels, targetPort)`` from rendered router values.
 
@@ -228,7 +248,7 @@ def default_llmd_values(
     the chart lineage moved to ``llm-d-router-standalone``, which hard-fails on
     the deprecated top-level ``inferenceExtension`` key.)
     """
-    selector = endpoint_selector or (f"{LABEL_MODEL}={target_model_name}" if target_model_name else "")
+    selector = endpoint_selector or (f"{LABEL_LLMD_MODEL}={target_model_name}" if target_model_name else "")
     return {
         "router": {
             "epp": {

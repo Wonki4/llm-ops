@@ -8,6 +8,8 @@ import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
 import { Badge } from "@/components/ui/badge";
+import { AccessGroupBadges } from "@/components/access-group-badges";
+import { accessGroupsOf } from "@/lib/access-groups";
 import {
   Table,
   TableBody,
@@ -120,6 +122,7 @@ export function ModelTable({
           <TableHead className="min-w-[200px]">{t("table.modelName")}</TableHead>
           <TableHead className="w-[100px]">{t("table.status")}</TableHead>
           <TableHead className="whitespace-nowrap">{t("table.modality")}</TableHead>
+          <TableHead>{t("table.accessGroups")}</TableHead>
           <TableHead>{t("table.inputCost")}</TableHead>
           <TableHead>{t("table.outputCost")}</TableHead>
           <TableHead>{t("table.cacheReadCost")}</TableHead>
@@ -184,6 +187,13 @@ export function ModelTable({
             <TableCell className="whitespace-nowrap">
               {model?.litellm_info ? (
                 <ModalityValue info={model.litellm_info.model_info} size="size-4" />
+              ) : (
+                <span className="text-xs text-muted-foreground">-</span>
+              )}
+            </TableCell>
+            <TableCell>
+              {accessGroupsOf(model).length > 0 ? (
+                <AccessGroupBadges groups={accessGroupsOf(model)} />
               ) : (
                 <span className="text-xs text-muted-foreground">-</span>
               )}

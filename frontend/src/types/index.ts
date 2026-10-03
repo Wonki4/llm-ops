@@ -120,6 +120,7 @@ export interface LiteLLMModelInfo {
     supports_vision: boolean | null;
     supports_function_calling: boolean | null;
     mode: string | null;
+    access_groups?: string[] | null;
     [key: string]: unknown;
   };
 }
@@ -615,6 +616,9 @@ export interface ModelDeployment {
   id: string;
   model_name: string;
   cluster_id: string | null;
+  /** Recipe this deployment was launched from, or captured into. Informational. */
+  recipe_id?: string | null;
+  recipe_name?: string | null;
   namespace: string;
   image: string;
   replicas: number;
@@ -631,10 +635,17 @@ export interface ModelDeployment {
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
   status: string;
+  /** List endpoint: number of llm-d stacks whose selector picks this deployment. */
+  llmd_stack_count?: number;
+  /** Detail endpoint: those stacks with live ArgoCD status. */
+  llmd_stacks?: LinkedLlmdStack[];
   status_message: string | null;
   ready_replicas: number;
   service_cluster_ip: string | null;
@@ -740,6 +751,10 @@ export interface LlmdAppliedResource {
 
 export interface LlmdAppliedResponse {
   effective_values: Record<string, unknown>;
+  /** Router label selector (router.modelServers.matchLabels, or the legacy endpointSelector). */
+  selector: Record<string, string>;
+  /** Model servers the selector actually picks: portal deployments + scanned external servings. */
+  linked_servers: LinkedServer[];
   live_values: Record<string, unknown> | null;
   resources: LlmdAppliedResource[];
   revision: string | null;
@@ -747,6 +762,9 @@ export interface LlmdAppliedResponse {
 }
 
 // ─── Serving Recipes ──────────────────────────────────────────
+
+export type ServingEngine = "vllm" | "sglang";
+export type EngineArgs = Record<string, string | number | boolean>;
 
 export interface ServingRecipe {
   id: string;
@@ -766,10 +784,28 @@ export interface ServingRecipe {
   pvc_mount_path: string | null;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string | null;
   updated_at: string | null;
+}
+
+/** One HTTP probe; every field optional (unset = portal default). Port is always the serving port. */
+export interface ProbeSpec {
+  path?: string;
+  initial_delay_seconds?: number;
+  period_seconds?: number;
+  timeout_seconds?: number;
+  failure_threshold?: number;
+}
+
+/** `liveness: null` = no liveness probe (default); `{}` = liveness on with defaults. */
+export interface ProbesSpec {
+  readiness?: ProbeSpec | null;
+  liveness?: ProbeSpec | null;
 }
 
 // Editable fields for create/update (server sets id/audit/timestamps).
@@ -778,10 +814,37 @@ export type ServingRecipeInput = Omit<
   "id" | "created_by" | "updated_by" | "created_at" | "updated_at"
 >;
 
+// POST body: a recipe captured from a portal deployment back-links it
+// (deployment.recipe_id) when that deployment has no recipe yet.
+export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_id?: string | null };
+
+/** One thing the reverse parser guessed or dropped; `code` maps to i18n `servingRecipes.warn.<code>`. */
+export interface RecipeDraftWarning {
+  code: string;
+  detail?: string;
+}
+
+// GET /api/model-deployments/external/recipe-draft — recipe fields parsed from
+// a live Deployment. `engine_args` holds every long flag found; the form moves
+// flags it has no field for into the free-text extra args.
+export interface RecipeDraftResponse {
+  draft: ServingRecipeInput;
+  warnings: RecipeDraftWarning[];
+  source: {
+    namespace: string | null;
+    deployment_name: string | null;
+    replicas: number | null;
+    command: string[];
+    args: string[];
+  };
+}
+
 // Body for POST /api/model-deployments (recipe serving fields + instance fields).
 export interface CreateDeploymentBody {
   model_name: string;
   cluster_id: string | null;
+  /** Recipe this deployment is launched from (informational; stored on the row). */
+  recipe_id?: string | null;
   namespace: string;
   image: string;
   replicas: number;
@@ -798,7 +861,55 @@ export interface CreateDeploymentBody {
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
+  engine: ServingEngine;
+  engine_args: EngineArgs | null;
+  probes: ProbesSpec | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
+}
+
+// ─── Serving home (GET /api/admin/serving/overview) ───────────
+export interface LinkedServer {
+  kind: "portal" | "external";
+  id: string | null;
+  model_name: string | null;
+  name: string;
+  namespace: string;
+  status: string | null;
+}
+
+/** An llm-d stack as seen from a model server it routes to. */
+export interface LinkedLlmdStack {
+  id: string;
+  name: string;
+  namespace?: string;
+  selector: Record<string, string>;
+  servers?: { kind: "portal" | "external"; name: string; namespace: string }[];
+  sync_status?: string;
+  health_status?: string;
+  status_message?: string | null;
+}
+
+export interface ServingOverview {
+  models: ServingOverviewRow[];
+  /** Stacks whose selector picks no known server. */
+  unlinked_stacks: (LinkedLlmdStack & { target_model_name: string })[];
+}
+
+export interface ServingOverviewRow {
+  model_name: string;
+  recipes: { id: string; name: string; engine: ServingEngine }[];
+  deployments: {
+    id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
+    recipe_id?: string | null;
+  }[];
+  llmd_stacks: LinkedLlmdStack[];
+  performance: {
+    run_id: string; tool: string; finished_at: string | null;
+    output_throughput?: number; request_throughput?: number; mean_ttft_ms?: number; p99_ttft_ms?: number; mean_tpot_ms?: number;
+  } | null;
+  accuracy: { run_id: string; tool: string; finished_at: string | null; metric: { name: string; value: number } | null } | null;
+  catalog: { id: string; display_name: string; status: ModelStatus; visible: boolean } | null;
+  litellm_registered: boolean;
 }

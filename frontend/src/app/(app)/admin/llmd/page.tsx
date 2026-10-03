@@ -9,7 +9,8 @@ import { useLlmdStacks, useDeleteLlmdStack } from "@/hooks/use-api";
 import type { LlmdStackSummary } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
+import { Card, CardContent } from "@/components/ui/card";
 
 export default function LlmdPage() {
   const t = useTranslations("llmd");
@@ -27,19 +28,21 @@ export default function LlmdPage() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <CardTitle className="text-base flex items-center gap-2"><Network className="size-4" />{t("title")}</CardTitle>
-            <CardDescription>{t("description")}</CardDescription>
-          </div>
-          <Link href="/admin/llmd/new">
-            <Button size="sm"><Plus className="size-4" />{t("addButton")}</Button>
-          </Link>
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Network className="size-5" />{t("title")}</h1>
+          <p className="text-muted-foreground mt-1">{t("description")}</p>
         </div>
-      </CardHeader>
-      <CardContent>
+        <Button asChild size="sm">
+          <Link href="/admin/llmd/new"><Plus className="size-4" />{t("addButton")}</Link>
+        </Button>
+      </div>
+
+      <ServingDeployTabs />
+
+      <Card>
+        <CardContent className="pt-6">
         {isLoading ? (
           <div className="flex justify-center py-8"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
         ) : stacks && stacks.length > 0 ? (
@@ -82,5 +85,6 @@ export default function LlmdPage() {
         )}
       </CardContent>
     </Card>
+    </div>
   );
 }

@@ -5,25 +5,25 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { cn } from "@/lib/utils";
 import {
-  Users,
-  Globe,
-  ShieldCheck,
+  BarChart3,
   BookOpen,
   Boxes,
+  Calendar,
+  DollarSign,
+  FlaskConical,
+  Globe,
+  Inbox,
+  Key,
   LayoutDashboard,
   LogOut,
-  Calendar,
-  BarChart3,
-  Key,
-  DollarSign,
-  Settings,
-  Inbox,
-  UserCog,
   Megaphone,
-  FlaskConical,
-  Network,
-  Server,
   ScrollText,
+  Server,
+  Settings,
+  ShieldCheck,
+  UserCog,
+  Users,
+  Workflow,
 } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
 import { LanguageSwitcher } from "@/components/language-switcher";
@@ -35,6 +35,10 @@ type NavItem = {
   href: string;
   icon: typeof Users;
   roles: UserRole[];
+  /** "serving" items render in their own LNB section; default is the admin section. */
+  section?: "serving";
+  /** Extra path prefixes that keep this item highlighted (e.g. sibling routes behind a tab bar). */
+  alsoMatches?: string[];
 };
 
 const navigation: NavItem[] = [
@@ -46,16 +50,18 @@ const navigation: NavItem[] = [
   { key: "discoverTeams", href: "/teams/discover", icon: Globe, roles: ["user", "team_admin", "super_user"] },
   { key: "myKeys", href: "/keys", icon: Key, roles: ["user", "team_admin", "super_user"] },
   { key: "myRequests", href: "/requests", icon: Inbox, roles: ["user", "team_admin", "super_user"] },
+  // Model serving: ordered as the pipeline runs (recipe → deploy → benchmark → catalog).
+  { key: "servingHome", href: "/admin/serving", icon: Workflow, roles: ["super_user"], section: "serving" },
+  { key: "adminRecipes", href: "/admin/recipes", icon: ScrollText, roles: ["super_user"], section: "serving" },
+  { key: "adminDeployments", href: "/admin/deployments", icon: Server, roles: ["super_user"], section: "serving", alsoMatches: ["/admin/llmd"] },
+  { key: "adminBenchmarks", href: "/admin/benchmarks", icon: FlaskConical, roles: ["super_user"], section: "serving" },
+  { key: "adminModels", href: "/admin/models", icon: Boxes, roles: ["super_user"], section: "serving" },
+  // Governance / operations.
   { key: "adminRequests", href: "/admin/requests", icon: ShieldCheck, roles: ["team_admin", "super_user"] },
   { key: "adminDashboard", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
-  { key: "adminModels", href: "/admin/models", icon: Boxes, roles: ["super_user"] },
-  { key: "adminDeployments", href: "/admin/deployments", icon: Server, roles: ["super_user"] },
-  { key: "adminRecipes", href: "/admin/recipes", icon: ScrollText, roles: ["super_user"] },
   { key: "adminBudgets", href: "/admin/budgets", icon: DollarSign, roles: ["super_user"] },
   { key: "adminUsers", href: "/admin/users", icon: UserCog, roles: ["super_user"] },
   { key: "adminUsage", href: "/admin/usage", icon: BarChart3, roles: ["super_user"] },
-  { key: "adminBenchmarks", href: "/admin/benchmarks", icon: FlaskConical, roles: ["super_user"] },
-  { key: "adminLlmd", href: "/admin/llmd", icon: Network, roles: ["super_user"] },
   { key: "adminSettings", href: "/admin/settings", icon: Settings, roles: ["super_user"] },
 ];
 
@@ -78,11 +84,13 @@ export function AppSidebar() {
         {(() => {
           const visible = navigation.filter((item) => item.roles.includes(userRole));
           const regular = visible.filter((item) => item.roles.includes("user"));
-          const admin = visible.filter((item) => !item.roles.includes("user"));
+          const serving = visible.filter((item) => item.section === "serving");
+          const admin = visible.filter((item) => !item.roles.includes("user") && item.section !== "serving");
 
           const renderLink = (item: NavItem) => {
             const isActive =
               pathname === item.href ||
+              (item.alsoMatches ?? []).some((p) => pathname === p || pathname.startsWith(p + "/")) ||
               (item.href !== "/admin/models" &&
                 item.href !== "/keys" &&
                 pathname.startsWith(item.href + "/") &&
@@ -112,6 +120,17 @@ export function AppSidebar() {
           return (
             <>
               <div className="space-y-1">{regular.map(renderLink)}</div>
+              {serving.length > 0 && (
+                <>
+                  <div className="mt-5 mb-2 flex items-center gap-2 px-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {t("servingSectionLabel")}
+                    </span>
+                    <div className="h-px flex-1 bg-sidebar-border" />
+                  </div>
+                  <div className="space-y-1">{serving.map(renderLink)}</div>
+                </>
+              )}
               {admin.length > 0 && (
                 <>
                   <div className="mt-5 mb-2 flex items-center gap-2 px-3">

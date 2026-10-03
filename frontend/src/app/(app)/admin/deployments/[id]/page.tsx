@@ -2,17 +2,18 @@
 
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Loader2, Trash2, Server, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Loader2, ScrollText, Trash2, Server, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
+import { engineArgsToFlags } from "@/lib/serving-engines";
 
 import {
   useModelDeployment,
   useModelDeploymentEvents,
   useDeleteModelDeployment,
 } from "@/hooks/use-api";
-import type { ModelDeploymentEvent } from "@/types";
+import type { ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,6 +31,18 @@ function Field({ label, children, mono }: { label: string; children: React.React
       <div className={`text-sm ${mono ? "font-mono break-all" : ""}`}>{children}</div>
     </div>
   );
+}
+
+/** `GET /health · delay 60s · every 10s · timeout 5s · fail ×30` with portal defaults filled in. */
+function probeSummary(spec: ProbeSpec | null, defaultPath: string, d: [number, number, number, number]): string {
+  const p = spec ?? {};
+  return [
+    `GET ${p.path ?? defaultPath}`,
+    `delay ${p.initial_delay_seconds ?? d[0]}s`,
+    `every ${p.period_seconds ?? d[1]}s`,
+    `timeout ${p.timeout_seconds ?? d[2]}s`,
+    `fail ×${p.failure_threshold ?? d[3]}`,
+  ].join(" · ");
 }
 
 function sevColor(sev: string): string {
@@ -86,11 +99,26 @@ export default function DeploymentDetailPage() {
             <Server className="size-5" />
             <h1 className="text-2xl font-bold">{dep.model_name}</h1>
             <StatusBadge status={dep.status} />
+            <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
             <span className="text-sm text-muted-foreground tabular-nums">{dep.ready_replicas}/{dep.replicas} ready</span>
+            {dep.recipe_id && (
+              <Badge asChild variant="outline" className="gap-1">
+                <Link href={`/admin/recipes/${dep.recipe_id}`} title={t("recipeLinkedHint")}>
+                  <ScrollText className="size-3" />{dep.recipe_name ?? t("recipeLabel")}
+                </Link>
+              </Badge>
+            )}
           </div>
-          <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
-            {deleteMut.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}{t("deleteButton")}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/admin/recipes/new?from=deployment&id=${dep.id}`}>
+                <ScrollText className="size-3.5" />{t("saveAsRecipe")}
+              </Link>
+            </Button>
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
+              {deleteMut.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}{t("deleteButton")}
+            </Button>
+          </div>
         </div>
         {dep.status_message && (
           <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
@@ -130,10 +158,46 @@ export default function DeploymentDetailPage() {
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
           </div>
-          {dep.vllm_extra_args && dep.vllm_extra_args.length > 0 && (
-            <div className="mt-4 space-y-1">
-              <div className="text-xs text-muted-foreground">{t("extraArgs")}</div>
-              <code className="block rounded-md border bg-muted/40 p-2 text-xs font-mono">{dep.vllm_extra_args.join(" ")}</code>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
+            <Field label={t("probeLiveness")} mono>
+              {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, "/health", [120, 30, 5, 3])}
+            </Field>
+          </div>
+          {(() => {
+            const flags = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];
+            return flags.length > 0 ? (
+              <div className="mt-4 space-y-1">
+                <div className="text-xs text-muted-foreground">{t("extraArgs")}</div>
+                <code className="block rounded-md border bg-muted/40 p-2 text-xs font-mono">{flags.join(" ")}</code>
+              </div>
+            ) : null;
+          })()}
+        </CardContent>
+      </Card>
+
+      {/* llm-d routers that select this deployment's pods */}
+      <Card>
+        <CardHeader><CardTitle className="text-base">{t("llmdSection")}</CardTitle></CardHeader>
+        <CardContent>
+          {!dep.llmd_stacks || dep.llmd_stacks.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t("llmdNone")}</p>
+          ) : (
+            <div className="space-y-2">
+              {dep.llmd_stacks.map((s) => (
+                <Link key={s.id} href={`/admin/llmd/${s.id}`} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm hover:bg-muted/50">
+                  <Badge variant="outline">llm-d</Badge>
+                  <span className="font-medium">{s.name}</span>
+                  {s.namespace && <span className="font-mono text-xs text-muted-foreground">{s.namespace}</span>}
+                  {s.health_status && (
+                    <Badge variant={s.health_status === "Healthy" ? "default" : "secondary"}>{s.health_status}</Badge>
+                  )}
+                  {s.sync_status && <Badge variant="secondary">{s.sync_status}</Badge>}
+                  <code className="ml-auto text-[11px] text-muted-foreground">
+                    {Object.entries(s.selector).map(([k, v]) => `${k}=${v}`).join(",")}
+                  </code>
+                </Link>
+              ))}
             </div>
           )}
         </CardContent>

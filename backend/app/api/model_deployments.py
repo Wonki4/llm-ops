@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,26 +18,33 @@ from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa:
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
+from app.services.llmd_links import portal_server, stacks_for_server
+from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
+from app.services.recipe_import import build_recipe_draft
+from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
+from app.services.serving_probes import validate_probes
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/model-deployments", tags=["model-deployments"])
 
 
-DEFAULT_VLLM_IMAGE = "vllm/vllm-openai:latest"
+DEFAULT_VLLM_IMAGE = DEFAULT_IMAGES["vllm"]  # kept for existing references
 
 
 class CreateDeploymentRequest(BaseModel):
     model_name: str
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
     namespace: str = "default"
-    image: str = DEFAULT_VLLM_IMAGE
+    image: str | None = None  # None → default_image(engine)
     replicas: int = Field(1, ge=0)
     gpu_count: int = Field(1, ge=0)
     gpu_resource_key: str = "nvidia.com/gpu"
@@ -52,9 +59,23 @@ class CreateDeploymentRequest(BaseModel):
     model_path: str
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
+    engine: ServingEngine = "vllm"
+    engine_args: dict[str, str | int | float | bool] | None = None
+    probes: dict | None = None
     ingress_host: str
     ingress_path: str = "/"
     ingress_class: str = "nginx"
+    recipe_id: str | None = None  # recipe this deployment is launched from (informational)
+
+    @field_validator("engine_args")
+    @classmethod
+    def _check_engine_args(cls, v: dict | None) -> dict | None:
+        return validate_engine_args(v)
+
+    @field_validator("probes")
+    @classmethod
+    def _check_probes(cls, v: dict | None) -> dict | None:
+        return validate_probes(v)
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -72,9 +93,22 @@ class UpdateDeploymentRequest(BaseModel):
     model_path: str | None = None
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
+    engine: ServingEngine | None = None
+    engine_args: dict[str, str | int | float | bool] | None = None
+    probes: dict | None = None
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
+
+    @field_validator("engine_args")
+    @classmethod
+    def _check_engine_args(cls, v: dict | None) -> dict | None:
+        return validate_engine_args(v)
+
+    @field_validator("probes")
+    @classmethod
+    def _check_probes(cls, v: dict | None) -> dict | None:
+        return validate_probes(v)
 
 
 class RegisterExternalServingRequest(BaseModel):
@@ -87,11 +121,14 @@ class RegisterExternalServingRequest(BaseModel):
     api_key: str | None = None
 
 
-def _serialize(d: CustomModelDeployment) -> dict:
+def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | None = None) -> dict:
+    recipe_id = getattr(d, "recipe_id", None)
     return {
         "id": str(d.id),
         "model_name": d.model_name,
         "cluster_id": str(d.cluster_id) if d.cluster_id else None,
+        "recipe_id": str(recipe_id) if recipe_id else None,
+        "recipe_name": (recipe_names or {}).get(recipe_id) if recipe_id else None,
         "namespace": d.namespace,
         "image": d.image,
         "replicas": d.replicas,
@@ -108,6 +145,9 @@ def _serialize(d: CustomModelDeployment) -> dict:
         "model_path": d.model_path,
         "vllm_extra_args": d.vllm_extra_args,
         "env": d.env,
+        "engine": d.engine or "vllm",
+        "engine_args": d.engine_args,
+        "probes": getattr(d, "probes", None),
         "ingress_host": d.ingress_host,
         "ingress_path": d.ingress_path,
         "ingress_class": d.ingress_class,
@@ -124,13 +164,33 @@ def _serialize(d: CustomModelDeployment) -> dict:
     }
 
 
+async def _recipe_names(db: AsyncSession, deployments: list[CustomModelDeployment]) -> dict[uuid.UUID, str]:
+    """id → name for the recipes referenced by ``deployments`` (one query, or none)."""
+    ids = {d.recipe_id for d in deployments if getattr(d, "recipe_id", None)}
+    if not ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(CustomServingRecipe.id, CustomServingRecipe.name).where(CustomServingRecipe.id.in_(ids))
+        )
+    ).all()
+    return {rid: name for rid, name in rows}
+
+
 @router.get("")
 async def list_deployments(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     result = await db.execute(select(CustomModelDeployment).order_by(CustomModelDeployment.created_at.desc()))
-    return {"deployments": [_serialize(d) for d in result.scalars().all()]}
+    deployments = list(result.scalars().all())
+    stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
+    names = await _recipe_names(db, deployments)
+    out = []
+    for d in deployments:
+        linked = stacks_for_server(portal_server(d), stacks)
+        out.append({**_serialize(d, names), "llmd_stack_count": len(linked)})
+    return {"deployments": out}
 
 
 def _serialize_registration(r: CustomExternalServing) -> dict:
@@ -165,6 +225,34 @@ async def list_external_servings(
         s["registration"] = _serialize_registration(r) if r else None
 
     return {"servings": servings, "errors": errors}
+
+
+@router.get("/external/recipe-draft")
+async def external_recipe_draft(
+    namespace: str,
+    deployment_name: str,
+    cluster_id: str | None = None,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Reverse-engineer a recipe draft from a live (non-portal) Deployment.
+
+    Reads the Deployment spec and parses its launch command, resources, env and
+    volumes into recipe fields. Nothing is saved: the response is a pre-filled
+    form plus warnings for every guess or dropped setting, and the operator
+    reviews it before creating the recipe.
+    """
+    k8s = await k8s_for_cluster(db, cluster_id)
+    try:
+        spec = await k8s.read_deployment(namespace, deployment_name)
+    except K8sNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception:
+        logger.exception("read_deployment failed for %s/%s", namespace, deployment_name)
+        raise HTTPException(status_code=502, detail="Failed to read the Deployment from the cluster; check logs")
+    if spec is None:
+        raise HTTPException(status_code=404, detail="Deployment not found in the cluster")
+    return build_recipe_draft(spec)
 
 
 @router.post("/external/register", status_code=status.HTTP_201_CREATED)
@@ -255,7 +343,21 @@ async def get_deployment(
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
-    return _serialize(dep)
+    stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
+    from app.api.llmd import _live_status  # local import: avoids a circular import
+
+    linked = []
+    for st in stacks_for_server(portal_server(dep), stacks):
+        linked.append(
+            {
+                "id": str(st.id),
+                "name": st.name,
+                "namespace": st.namespace,
+                "selector": stack_selector(st.values_snapshot or {}),
+                **(await _live_status(db, st)),
+            }
+        )
+    return {**_serialize(dep, await _recipe_names(db, [dep])), "llmd_stacks": linked}
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -265,7 +367,9 @@ async def create_deployment(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     # Uniqueness on model_name
-    existing = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name))
+    existing = await db.execute(
+        select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name)
+    )
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Deployment for '{body.model_name}' already exists")
 
@@ -276,7 +380,7 @@ async def create_deployment(
         model_name=body.model_name,
         cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
         namespace=body.namespace,
-        image=body.image,
+        image=body.image or default_image(body.engine),
         replicas=body.replicas,
         gpu_count=body.gpu_count,
         gpu_resource_key=body.gpu_resource_key,
@@ -291,9 +395,13 @@ async def create_deployment(
         model_path=body.model_path,
         vllm_extra_args=body.vllm_extra_args,
         env=body.env,
+        engine=body.engine,
+        engine_args=body.engine_args,
+        probes=body.probes,
         ingress_host=body.ingress_host,
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,
+        recipe_id=uuid.UUID(body.recipe_id) if body.recipe_id else None,
         status="Pending",
         created_by=user.user_id,
         updated_by=user.user_id,

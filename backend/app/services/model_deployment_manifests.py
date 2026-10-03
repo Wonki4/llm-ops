@@ -6,10 +6,14 @@ Pure functions, no side effects.
 """
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.services.serving_engines import SERVING_PORT, container_launch, engine_of
+from app.services.serving_probes import render_probes
 
-VLLM_PORT = 8000
+VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
 LABEL_MODEL = "llm-ops/model-name"
+# llm-d's standard model-server label; llm-d routers select servers by it.
+LABEL_LLMD_MODEL = "llm-d.ai/model"
 
 
 def serving_api_key(vllm_extra_args: list | None, env: dict | None) -> str:
@@ -44,7 +48,14 @@ def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
 
 
 def _labels(dep: CustomModelDeployment) -> dict[str, str]:
+    """Selector labels: immutable once a Deployment exists, so never add here."""
     return {LABEL_OWNER: "litellm-portal", LABEL_MODEL: dep.model_name}
+
+
+def pod_labels(dep: CustomModelDeployment) -> dict[str, str]:
+    """Labels stamped on the serving pods: the selector labels plus llm-d's
+    ``llm-d.ai/model`` so an llm-d router can target this deployment."""
+    return {**_labels(dep), LABEL_LLMD_MODEL: dep.model_name}
 
 
 def build_deployment(dep: CustomModelDeployment) -> dict:
@@ -72,10 +83,9 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
     if requests:
         resources["requests"] = requests
 
-    # vLLM command/args
-    args = ["--model", dep.model_path, "--port", str(VLLM_PORT)]
-    if dep.vllm_extra_args:
-        args.extend(dep.vllm_extra_args)
+    # Engine-specific launch (vLLM relies on the image entrypoint; SGLang sets
+    # an explicit command). See app.services.serving_engines.
+    command, args = container_launch(dep)
 
     # Env
     env_items = [{"name": k, "value": str(v)} for k, v in (dep.env or {}).items()]
@@ -87,25 +97,21 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         volumes.append({"name": "model-weights", "persistentVolumeClaim": {"claimName": dep.pvc_name}})
         volume_mounts.append({"name": "model-weights", "mountPath": dep.pvc_mount_path})
 
+    container: dict = {
+        "name": engine_of(dep),
+        "image": dep.image,
+        "args": args,
+        "ports": [{"containerPort": VLLM_PORT, "name": "http"}],
+        "resources": resources,
+        "env": env_items,
+        "volumeMounts": volume_mounts,
+        **render_probes(dep),
+    }
+    if command:
+        container["command"] = command
+
     pod_spec: dict = {
-        "containers": [
-            {
-                "name": "vllm",
-                "image": dep.image,
-                "args": args,
-                "ports": [{"containerPort": VLLM_PORT, "name": "http"}],
-                "resources": resources,
-                "env": env_items,
-                "volumeMounts": volume_mounts,
-                "readinessProbe": {
-                    "httpGet": {"path": "/health", "port": VLLM_PORT},
-                    "initialDelaySeconds": 60,
-                    "periodSeconds": 10,
-                    "timeoutSeconds": 5,
-                    "failureThreshold": 30,
-                },
-            }
-        ],
+        "containers": [container],
         "volumes": volumes,
     }
     if dep.node_selector:
@@ -121,7 +127,7 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
             "replicas": dep.replicas,
             "selector": {"matchLabels": labels},
             "template": {
-                "metadata": {"labels": labels},
+                "metadata": {"labels": pod_labels(dep)},
                 "spec": pod_spec,
             },
         },

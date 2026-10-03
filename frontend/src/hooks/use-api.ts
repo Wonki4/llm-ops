@@ -45,8 +45,11 @@ import type {
   LlmdStackSummary,
   LlmdAppliedResponse,
   MemberBudgetBoost,
+  RecipeDraftResponse,
   ServingRecipe,
+  ServingRecipeCreateBody,
   ServingRecipeInput,
+  ServingOverview,
   CreateDeploymentBody,
 } from "@/types";
 
@@ -1252,6 +1255,24 @@ export interface ExternalServingsResponse {
   errors: { cluster: string; message: string }[];
 }
 
+/** Reverse-parse a live non-portal Deployment into recipe form values (nothing is saved). */
+export function useExternalRecipeDraft(
+  target: { namespace: string; deployment_name: string; cluster_id?: string | null } | null,
+) {
+  const qs = new URLSearchParams();
+  if (target) {
+    qs.set("namespace", target.namespace);
+    qs.set("deployment_name", target.deployment_name);
+    if (target.cluster_id) qs.set("cluster_id", target.cluster_id);
+  }
+  return useQuery({
+    queryKey: ["external-recipe-draft", target?.cluster_id ?? null, target?.namespace, target?.deployment_name],
+    queryFn: () => apiFetch<RecipeDraftResponse>(`/api/model-deployments/external/recipe-draft?${qs.toString()}`),
+    enabled: !!target,
+    retry: false,
+  });
+}
+
 export function useExternalServings() {
   return useQuery({
     queryKey: ["external-servings"],
@@ -1640,6 +1661,16 @@ export function useLlmdDefaultValues() {
   });
 }
 
+// ─── Serving home ─────────────────────────────────────────────
+
+export function useServingOverview() {
+  return useQuery({
+    queryKey: ["serving-overview"],
+    queryFn: () =>
+      apiFetch<ServingOverview>("/api/admin/serving/overview"),
+  });
+}
+
 // ─── Serving Recipes ──────────────────────────────────────────
 
 export function useServingRecipes() {
@@ -1653,12 +1684,15 @@ export function useServingRecipes() {
 export function useCreateServingRecipe() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: ServingRecipeInput) =>
+    mutationFn: (body: ServingRecipeCreateBody) =>
       apiFetch<ServingRecipe>("/api/admin/serving-recipes", {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["serving-recipes"] });
+      qc.invalidateQueries({ queryKey: ["model-deployments"] });
+    },
   });
 }
 
