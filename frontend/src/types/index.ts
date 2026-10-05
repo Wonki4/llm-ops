@@ -638,6 +638,8 @@ export interface ModelDeployment {
   engine: ServingEngine;
   engine_args: EngineArgs | null;
   probes: ProbesSpec | null;
+  /** GPU type profile name; resolved per cluster at deploy time. */
+  gpu_type: string | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
@@ -685,6 +687,8 @@ export interface K8sClusterSummary {
   default_nfs_server: string | null;
   default_nfs_path: string | null;
   default_nfs_mount_path: string | null;
+  /** Node label key marking GPU kinds on this cluster (default gpu-type). */
+  gpu_label_key: string;
   has_kubeconfig: boolean;
   created_by: string | null;
   created_at: string | null;
@@ -787,6 +791,8 @@ export interface ServingRecipe {
   engine: ServingEngine;
   engine_args: EngineArgs | null;
   probes: ProbesSpec | null;
+  /** GPU type profile name; resolved per cluster at deploy time. */
+  gpu_type: string | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string | null;
@@ -864,6 +870,8 @@ export interface CreateDeploymentBody {
   engine: ServingEngine;
   engine_args: EngineArgs | null;
   probes: ProbesSpec | null;
+  /** GPU type profile name; resolved per cluster at deploy time. */
+  gpu_type: string | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
@@ -903,6 +911,7 @@ export interface ServingOverviewRow {
   deployments: {
     id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
     recipe_id?: string | null;
+    gpu_type?: string | null;
   }[];
   llmd_stacks: LinkedLlmdStack[];
   performance: {
@@ -912,4 +921,53 @@ export interface ServingOverviewRow {
   accuracy: { run_id: string; tool: string; finished_at: string | null; metric: { name: string; value: number } | null } | null;
   catalog: { id: string; display_name: string; status: ModelStatus; visible: boolean } | null;
   litellm_registered: boolean;
+}
+
+// ─── GPU type profiles ───────────────────────────────────────────────────────
+
+export interface GpuProfile {
+  id: string;
+  cluster_id: string | null;
+  name: string;
+  label_key: string | null;
+  /** label_key, or the cluster's gpu_label_key when null. */
+  effective_label_key: string;
+  label_value: string;
+  gpu_resource_key: string;
+  tolerations: unknown[] | null;
+  vram_gb: number | null;
+  description: string | null;
+  enabled: boolean;
+  created_by: string | null;
+  updated_at: string | null;
+}
+
+export type GpuProfileInput = Omit<GpuProfile, "id" | "cluster_id" | "effective_label_key" | "created_by" | "updated_at">;
+
+export interface GpuProfilesResponse {
+  label_key: string;
+  profiles: GpuProfile[];
+}
+
+export interface GpuNodeGroup {
+  label_value: string | null;
+  nodes: number;
+  allocatable: Record<string, number>;
+  requested: Record<string, number>;
+  available: Record<string, number>;
+  /** Profile on this cluster whose label value matches, if any. */
+  profile_name: string | null;
+}
+
+export interface GpuNodesResponse {
+  label_key: string;
+  resource_keys: string[];
+  groups: GpuNodeGroup[];
+  nodes: { name: string; label_value: string | null; schedulable: boolean; allocatable: Record<string, number>; requested: Record<string, number> }[];
+  errors: string[];
+}
+
+export interface GpuTypeOption {
+  name: string;
+  clusters: { cluster_id: string | null; cluster_name: string; profile_id: string; gpu_resource_key: string; vram_gb: number | null; label_value: string }[];
 }

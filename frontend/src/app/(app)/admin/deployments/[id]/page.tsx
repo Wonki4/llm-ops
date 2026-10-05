@@ -100,6 +100,7 @@ export default function DeploymentDetailPage() {
             <h1 className="text-2xl font-bold">{dep.model_name}</h1>
             <StatusBadge status={dep.status} />
             <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
+            {dep.gpu_type && <Badge variant="outline" className="font-mono text-[10px]">{dep.gpu_type}</Badge>}
             <span className="text-sm text-muted-foreground tabular-nums">{dep.ready_replicas}/{dep.replicas} ready</span>
             {dep.recipe_id && (
               <Badge asChild variant="outline" className="gap-1">
@@ -152,6 +153,12 @@ export default function DeploymentDetailPage() {
             <Field label={t("colNamespace")} mono>{dep.namespace}</Field>
             <Field label={t("cluster")} mono>{dep.cluster_id || t("portalDefault")}</Field>
             <Field label={t("colGpu")} mono>{dep.gpu_count} × {dep.gpu_resource_key}</Field>
+            <Field label={t("gpuType")} mono>
+              {dep.gpu_type ?? "-"}
+              {dep.node_selector && Object.keys(dep.node_selector).length > 0 && (
+                <span className="ml-2 text-xs text-muted-foreground">{Object.entries(dep.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")}</span>
+              )}
+            </Field>
             <Field label="CPU" mono>{dep.cpu_request || dep.cpu_limit ? `${dep.cpu_request ?? "-"} / ${dep.cpu_limit ?? "-"}` : "-"}</Field>
             <Field label={t("memory")} mono>{dep.memory_request || dep.memory_limit ? `${dep.memory_request ?? "-"} / ${dep.memory_limit ?? "-"}` : "-"}</Field>
             <Field label={t("ingressHost")} mono>{dep.ingress_host}</Field>

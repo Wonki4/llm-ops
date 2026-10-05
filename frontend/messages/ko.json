@@ -813,7 +813,9 @@
     "recipeLinkedHint": "이 배포를 실행했거나 이 배포에서 가져온 레시피",
     "probeReadiness": "Readiness 프로브",
     "probeLiveness": "Liveness 프로브",
-    "probeOff": "사용 안 함"
+    "probeOff": "사용 안 함",
+    "gpuType": "GPU 타입",
+    "gpuTypeNoProfile": "프로필 없음"
   },
   "adminUsers": {
     "pageTitle": "사용자 관리",
@@ -1018,7 +1020,9 @@
       "deleteFailed": "삭제 실패",
       "saveFailed": "저장 실패",
       "save": "저장",
-      "cancel": "취소"
+      "cancel": "취소",
+      "gpuLabelKey": "GPU 타입 라벨 키",
+      "gpuLabelKeyHint": "이 클러스터에서 GPU 종류를 표시하는 노드 라벨 키입니다. GPU 프로필이 따로 지정하지 않으면 이 키를 씁니다."
     }
   },
   "announcements": {
@@ -1565,7 +1569,10 @@
     "endpointModelLabel": "서빙 모델명",
     "endpointModelHint": "요청에 보낼 모델 id(엔드포인트의 서빙 모델명). 아래에서 토크나이저를 지정하지 않으면 이 값이 토크나이저로도 쓰입니다.",
     "endpointPerfOnly": "엔드포인트 URL 벤치는 성능 도구만 지원합니다. 도구를 vLLM 또는 SGLang으로 바꾸세요.",
-    "errorBaseUrlRequired": "엔드포인트 base URL과 서빙 모델명을 입력하세요."
+    "errorBaseUrlRequired": "엔드포인트 base URL과 서빙 모델명을 입력하세요.",
+    "gpuTypeLabel": "GPU 타입 (프로필)",
+    "gpuTypeNone": "— 오버라이드에 적은 대로 —",
+    "gpuTypeHint": "선택한 클러스터의 프로필을 골라 오버라이드의 gpu_type에 넣습니다."
   },
   "benchmarkSweeps": {
     "listTitle": "스윕",
@@ -1782,7 +1789,19 @@
     "probeInitialDelay": "초기 지연 (초)",
     "probePeriod": "주기 (초)",
     "probeTimeout": "타임아웃 (초)",
-    "probeFailureThreshold": "실패 허용 횟수"
+    "probeFailureThreshold": "실패 허용 횟수",
+    "gpuType": "GPU 타입",
+    "gpuTypeHint": "클러스터별로 정의한 프로필 이름입니다(설정 › 클러스터). 아직 없는 클러스터용이면 자유 입력도 되고, 배포 시점에 검사합니다.",
+    "advancedPlacement": "고급: 배치 직접 지정",
+    "advancedPlacementHint": "배포 시 GPU 프로필이 같은 키를 덮어씁니다. 프로필이 없는 클러스터에서만 이 값이 그대로 쓰입니다.",
+    "deployCluster": "클러스터",
+    "deployClusterDefault": "포털 기본",
+    "deployGpuType": "GPU 타입",
+    "deployGpuTypeNone": "— 없음 (레시피의 배치 값 사용) —",
+    "deployGpuTypeRequired": "GPU 타입을 고르세요. 이 클러스터에는 프로필이 있고 레시피는 GPU를 씁니다.",
+    "deployGpuTypeNoProfiles": "이 클러스터에는 GPU 프로필이 없어 레시피의 배치 값을 그대로 씁니다.",
+    "deployAvailable": "{available}/{total} 남음",
+    "resolvedPlacement": "풀린 배치 값"
   },
   "serving": {
     "title": "서빙 홈",
@@ -1816,5 +1835,46 @@
     "unlinkedHint": "라벨 셀렉터가 포털 배포나 스캔된 외부 서빙 중 아무것도 잡지 못합니다.",
     "unlinkedTarget": "대상: {model}",
     "unlinkedNoSelector": "셀렉터 없음"
+  },
+  "gpuProfiles": {
+    "title": "GPU 타입 프로필",
+    "description": "클러스터가 제공하는 GPU 종류에 이름을 붙입니다. 프로필은 짧은 이름을 노드 라벨·toleration·리소스 키로 풀어주고, 레시피는 이름만 고릅니다.",
+    "clusterSelect": "클러스터",
+    "portalDefaultCluster": "포털 기본 클러스터",
+    "labelKeyInfo": "이 클러스터는 노드 라벨 키 `{key}`로 GPU 종류를 구분합니다(클러스터 설정에서 변경).",
+    "addButton": "프로필 추가",
+    "empty": "프로필이 없습니다. 아래에서 노드를 스캔하거나 직접 추가하세요.",
+    "colName": "이름",
+    "colLabel": "노드 라벨",
+    "colResourceKey": "리소스 키",
+    "colTolerations": "Toleration",
+    "colVram": "VRAM",
+    "disabled": "비활성",
+    "edit": "수정",
+    "delete": "삭제",
+    "nodesTitle": "노드에서 가져오기",
+    "nodesHint": "읽기 전용 스캔: `{key}` 라벨 값별 GPU 노드와 남은/전체 GPU 수.",
+    "scanButton": "노드 스캔",
+    "nodesNone": "GPU 리소스를 가진 노드가 없습니다.",
+    "nodesUnlabelled": "(라벨 없는 GPU 노드)",
+    "nodesCount": "노드 {count}개",
+    "nodesAvailable": "남음 / 전체",
+    "makeProfile": "프로필 만들기",
+    "nodesLabelMissing": "노드에 라벨을 먼저 붙이세요",
+    "addTitle": "새 GPU 프로필",
+    "editTitle": "GPU 프로필 수정",
+    "labelValue": "라벨 값",
+    "labelKeyOverride": "라벨 키 (이 프로필만 다르게)",
+    "descriptionLabel": "설명",
+    "enabled": "사용",
+    "requiredError": "이름과 라벨 값은 필수입니다",
+    "createSuccess": "프로필을 만들었습니다",
+    "updateSuccess": "프로필을 저장했습니다",
+    "deleteConfirm": "GPU 프로필 \"{name}\"을(를) 삭제할까요? 기존 배포의 배치 값은 유지됩니다.",
+    "deleteSuccess": "프로필을 삭제했습니다",
+    "deleteFailed": "삭제 실패",
+    "saveFailed": "저장 실패",
+    "save": "저장",
+    "cancel": "취소"
   }
 }

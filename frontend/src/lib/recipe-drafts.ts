@@ -32,6 +32,7 @@ export function recipeFromDeployment(dep: ModelDeployment, name: string, descrip
     engine: dep.engine,
     engine_args: dep.engine_args,
     probes: dep.probes ?? null,
+    gpu_type: dep.gpu_type ?? null,
   };
 }
 

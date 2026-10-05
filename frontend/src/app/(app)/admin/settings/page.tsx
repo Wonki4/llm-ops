@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClusterSettingsTab } from "@/components/cluster-settings-tab";
+import { GpuProfilesCard } from "@/components/gpu-profiles-card";
 
 export default function PortalSettingsPage() {
   const t = useTranslations("settings");
@@ -473,6 +474,7 @@ export default function PortalSettingsPage() {
         {/* ── 클러스터 ── */}
         <TabsContent value="clusters" className="mt-4">
           <ClusterSettingsTab />
+          <GpuProfilesCard />
         </TabsContent>
       </Tabs>
     </div>
