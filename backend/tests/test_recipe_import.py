@@ -12,12 +12,27 @@ def _codes(result):
 
 def _spec(command=None, args=None, image="vllm/vllm-openai:v0.9.0", **extra):
     container = {
-        "name": "server", "image": image, "command": list(command or []), "args": list(args or []),
-        "env": [], "env_raw": [], "resources": {}, "ports": [{"containerPort": 8000}], "volume_mounts": [],
+        "name": "server",
+        "image": image,
+        "command": list(command or []),
+        "args": list(args or []),
+        "env": [],
+        "env_raw": [],
+        "resources": {},
+        "ports": [{"containerPort": 8000}],
+        "volume_mounts": [],
     }
     container.update(extra.pop("container", {}))
-    spec = {"name": "my-llm", "namespace": "ml", "labels": {}, "replicas": 2, "container": container,
-            "volumes": [], "node_selector": None, "tolerations": None}
+    spec = {
+        "name": "my-llm",
+        "namespace": "ml",
+        "labels": {},
+        "replicas": 2,
+        "container": container,
+        "volumes": [],
+        "node_selector": None,
+        "tolerations": None,
+    }
     spec.update(extra)
     return spec
 
@@ -27,27 +42,52 @@ def _manifest_to_spec(manifest: dict) -> dict:
     pod = manifest["spec"]["template"]["spec"]
     c = pod["containers"][0]
     return {
-        "name": manifest["metadata"]["name"], "namespace": manifest["metadata"]["namespace"],
-        "labels": manifest["metadata"]["labels"], "replicas": manifest["spec"]["replicas"],
+        "name": manifest["metadata"]["name"],
+        "namespace": manifest["metadata"]["namespace"],
+        "labels": manifest["metadata"]["labels"],
+        "replicas": manifest["spec"]["replicas"],
         "container": {
-            "name": c["name"], "image": c["image"], "command": c.get("command") or [], "args": c["args"],
-            "env": c["env"], "env_raw": c["env"], "resources": c["resources"], "ports": c["ports"],
+            "name": c["name"],
+            "image": c["image"],
+            "command": c.get("command") or [],
+            "args": c["args"],
+            "env": c["env"],
+            "env_raw": c["env"],
+            "resources": c["resources"],
+            "ports": c["ports"],
             "volume_mounts": c["volumeMounts"],
         },
-        "volumes": pod["volumes"], "node_selector": pod.get("nodeSelector"), "tolerations": pod.get("tolerations"),
+        "volumes": pod["volumes"],
+        "node_selector": pod.get("nodeSelector"),
+        "tolerations": pod.get("tolerations"),
     }
 
 
 def _dep(**kw):
     base = dict(
-        id="00000000-0000-0000-0000-000000000001", model_name="qwen", namespace="ml", image="vllm/vllm-openai:v0.9.0",
-        replicas=1, gpu_count=2, gpu_resource_key="nvidia.com/gpu", cpu_request="4", cpu_limit="8",
-        memory_request="32Gi", memory_limit="64Gi", node_selector={"gpu": "a100"},
+        id="00000000-0000-0000-0000-000000000001",
+        model_name="qwen",
+        namespace="ml",
+        image="vllm/vllm-openai:v0.9.0",
+        replicas=1,
+        gpu_count=2,
+        gpu_resource_key="nvidia.com/gpu",
+        cpu_request="4",
+        cpu_limit="8",
+        memory_request="32Gi",
+        memory_limit="64Gi",
+        node_selector={"gpu": "a100"},
         tolerations=[{"key": "gpu", "operator": "Exists", "effect": "NoSchedule"}],
-        pvc_name="weights", pvc_mount_path="/models", model_path="/models/Qwen3-32B",
-        vllm_extra_args=None, env={"HF_HOME": "/models/.cache"}, engine="vllm",
+        pvc_name="weights",
+        pvc_mount_path="/models",
+        model_path="/models/Qwen3-32B",
+        vllm_extra_args=None,
+        env={"HF_HOME": "/models/.cache"},
+        engine="vllm",
         engine_args={"tensor-parallel-size": 2, "max-model-len": 8192, "dtype": "bfloat16", "trust-remote-code": True},
-        ingress_host="x", ingress_path="/", ingress_class="nginx",
+        ingress_host="x",
+        ingress_path="/",
+        ingress_class="nginx",
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -72,9 +112,21 @@ def test_portal_vllm_manifest_round_trips_without_warnings():
 
 
 def test_portal_sglang_manifest_round_trips():
-    dep = _dep(engine="sglang", image="lmsysorg/sglang:v0.4", engine_args={"tp-size": 2, "context-length": 4096},
-               gpu_count=0, cpu_request=None, cpu_limit=None, memory_request=None, memory_limit=None,
-               pvc_name=None, pvc_mount_path=None, env=None, node_selector=None, tolerations=None)
+    dep = _dep(
+        engine="sglang",
+        image="lmsysorg/sglang:v0.4",
+        engine_args={"tp-size": 2, "context-length": 4096},
+        gpu_count=0,
+        cpu_request=None,
+        cpu_limit=None,
+        memory_request=None,
+        memory_limit=None,
+        pvc_name=None,
+        pvc_mount_path=None,
+        env=None,
+        node_selector=None,
+        tolerations=None,
+    )
     out = build_recipe_draft(_manifest_to_spec(build_deployment(dep)))
     d = out["draft"]
     assert out["warnings"] == []
@@ -106,10 +158,12 @@ def test_vllm_serve_positional_model():
 
 
 def test_python_module_launch_with_underscored_and_inline_flags():
-    out = build_recipe_draft(_spec(
-        command=["python3", "-m", "vllm.entrypoints.openai.api_server"],
-        args=["--model=/w/llama", "--tensor_parallel_size", "2", "--gpu-memory-utilization=0.95"],
-    ))
+    out = build_recipe_draft(
+        _spec(
+            command=["python3", "-m", "vllm.entrypoints.openai.api_server"],
+            args=["--model=/w/llama", "--tensor_parallel_size", "2", "--gpu-memory-utilization=0.95"],
+        )
+    )
     d = out["draft"]
     assert d["model_path"] == "/w/llama"
     assert d["engine_args"] == {"tensor-parallel-size": 2, "gpu-memory-utilization": 0.95}
@@ -118,11 +172,13 @@ def test_python_module_launch_with_underscored_and_inline_flags():
 
 
 def test_sglang_launch_detected_from_command_not_image():
-    out = build_recipe_draft(_spec(
-        command=["python", "-m", "sglang.launch_server"],
-        args=["--model-path", "Qwen/Qwen3-32B", "--tp", "4", "--host", "0.0.0.0", "--port", "30000"],
-        image="my-registry/custom-runtime:1",
-    ))
+    out = build_recipe_draft(
+        _spec(
+            command=["python", "-m", "sglang.launch_server"],
+            args=["--model-path", "Qwen/Qwen3-32B", "--tp", "4", "--host", "0.0.0.0", "--port", "30000"],
+            image="my-registry/custom-runtime:1",
+        )
+    )
     d = out["draft"]
     assert d["engine"] == "sglang" and d["model_path"] == "Qwen/Qwen3-32B"
     assert d["engine_args"] == {"tp": 4}
@@ -145,11 +201,15 @@ def test_unknown_image_and_no_command_falls_back_to_vllm_with_warning():
 
 
 def test_shell_wrapper_takes_last_segment_and_drops_inline_env():
-    out = build_recipe_draft(_spec(
-        command=["/bin/sh", "-c"],
-        args=["pip install -q flashinfer && exec HF_TOKEN=abc python -m sglang.launch_server --model-path /w/m --tp 2"],
-        image="lmsysorg/sglang:latest",
-    ))
+    out = build_recipe_draft(
+        _spec(
+            command=["/bin/sh", "-c"],
+            args=[
+                "pip install -q flashinfer && exec HF_TOKEN=abc python -m sglang.launch_server --model-path /w/m --tp 2"
+            ],
+            image="lmsysorg/sglang:latest",
+        )
+    )
     d = out["draft"]
     assert d["engine"] == "sglang" and d["model_path"] == "/w/m" and d["engine_args"] == {"tp": 2}
     codes = _codes(out)
@@ -181,8 +241,20 @@ def test_no_launch_information_at_all():
 def test_parse_flags_bool_negative_duplicate_short_and_terminator():
     warnings: list[dict] = []
     args, extra, pos = parse_flags(
-        ["--trust-remote-code", "--max-model-len", "-1", "--seed", "1", "--seed", "2", "-tp", "4", "--enforce-eager",
-         "--", "--not-a-flag"],
+        [
+            "--trust-remote-code",
+            "--max-model-len",
+            "-1",
+            "--seed",
+            "1",
+            "--seed",
+            "2",
+            "-tp",
+            "4",
+            "--enforce-eager",
+            "--",
+            "--not-a-flag",
+        ],
         warnings,
     )
     assert args == {"trust-remote-code": True, "max-model-len": -1, "seed": 2, "enforce-eager": True}
@@ -206,33 +278,35 @@ def test_positional_leftovers_are_warned_and_dropped():
 
 
 def test_resources_extended_key_env_value_from_and_volumes():
-    out = build_recipe_draft(_spec(
-        args=["--model", "/w/m"],
-        container={
-            "resources": {
-                "limits": {"amd.com/gpu": "4", "memory": "128Gi", "cpu": "16", "hugepages-2Mi": "1Gi"},
-                "requests": {"memory": "96Gi", "cpu": "8", "amd.com/gpu": "4"},
+    out = build_recipe_draft(
+        _spec(
+            args=["--model", "/w/m"],
+            container={
+                "resources": {
+                    "limits": {"amd.com/gpu": "4", "memory": "128Gi", "cpu": "16", "hugepages-2Mi": "1Gi"},
+                    "requests": {"memory": "96Gi", "cpu": "8", "amd.com/gpu": "4"},
+                },
+                "env_raw": [
+                    {"name": "HF_HOME", "value": "/w/.cache"},
+                    {"name": "HF_TOKEN", "valueFrom": {"secretKeyRef": {"name": "hf", "key": "token"}}},
+                    {"name": "EMPTY", "value": None},
+                ],
+                "volume_mounts": [
+                    {"name": "weights", "mountPath": "/w", "subPath": "llama"},
+                    {"name": "shm", "mountPath": "/dev/shm"},
+                    {"name": "cfg", "mountPath": "/etc/cfg"},
+                ],
             },
-            "env_raw": [
-                {"name": "HF_HOME", "value": "/w/.cache"},
-                {"name": "HF_TOKEN", "valueFrom": {"secretKeyRef": {"name": "hf", "key": "token"}}},
-                {"name": "EMPTY", "value": None},
+            volumes=[
+                {"name": "weights", "persistentVolumeClaim": {"claimName": "model-pvc"}},
+                {"name": "shm", "emptyDir": {"medium": "Memory"}},
+                {"name": "cfg", "configMap": {"name": "serve-cfg"}},
+                {"name": "scratch", "hostPath": {"path": "/mnt/x"}},
             ],
-            "volume_mounts": [
-                {"name": "weights", "mountPath": "/w", "subPath": "llama"},
-                {"name": "shm", "mountPath": "/dev/shm"},
-                {"name": "cfg", "mountPath": "/etc/cfg"},
-            ],
-        },
-        volumes=[
-            {"name": "weights", "persistentVolumeClaim": {"claimName": "model-pvc"}},
-            {"name": "shm", "emptyDir": {"medium": "Memory"}},
-            {"name": "cfg", "configMap": {"name": "serve-cfg"}},
-            {"name": "scratch", "hostPath": {"path": "/mnt/x"}},
-        ],
-        node_selector={"kubernetes.io/arch": "amd64"},
-        tolerations=[{"key": "gpu", "operator": "Exists"}],
-    ))
+            node_selector={"kubernetes.io/arch": "amd64"},
+            tolerations=[{"key": "gpu", "operator": "Exists"}],
+        )
+    )
     d = out["draft"]
     assert (d["gpu_resource_key"], d["gpu_count"]) == ("amd.com/gpu", 4)
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("8", "16", "96Gi", "128Gi")
@@ -248,13 +322,19 @@ def test_resources_extended_key_env_value_from_and_volumes():
 
 
 def test_multiple_gpu_resources_and_pvcs_keep_first_and_warn():
-    out = build_recipe_draft(_spec(
-        args=["--model", "/w/m"],
-        container={"resources": {"limits": {"nvidia.com/gpu": "1", "nvidia.com/mig-1g.5gb": "2"}},
-                   "volume_mounts": [{"name": "a", "mountPath": "/a"}, {"name": "b", "mountPath": "/b"}]},
-        volumes=[{"name": "a", "persistentVolumeClaim": {"claimName": "pvc-a"}},
-                 {"name": "b", "persistentVolumeClaim": {"claimName": "pvc-b"}}],
-    ))
+    out = build_recipe_draft(
+        _spec(
+            args=["--model", "/w/m"],
+            container={
+                "resources": {"limits": {"nvidia.com/gpu": "1", "nvidia.com/mig-1g.5gb": "2"}},
+                "volume_mounts": [{"name": "a", "mountPath": "/a"}, {"name": "b", "mountPath": "/b"}],
+            },
+            volumes=[
+                {"name": "a", "persistentVolumeClaim": {"claimName": "pvc-a"}},
+                {"name": "b", "persistentVolumeClaim": {"claimName": "pvc-b"}},
+            ],
+        )
+    )
     d = out["draft"]
     assert (d["gpu_resource_key"], d["gpu_count"], d["pvc_name"]) == ("nvidia.com/gpu", 1, "pvc-a")
     by_code = {w["code"]: w.get("detail") for w in out["warnings"]}
@@ -268,10 +348,15 @@ def test_no_gpu_limit_means_cpu_only_recipe():
 
 
 def test_pod_level_things_the_recipe_cannot_hold_are_warned():
-    out = build_recipe_draft(_spec(
-        args=["--model", "/w/m"], containers_count=2, init_containers=["download-weights"],
-        affinity={"nodeAffinity": {}}, container={"ports": [{"containerPort": 9000}]},
-    ))
+    out = build_recipe_draft(
+        _spec(
+            args=["--model", "/w/m"],
+            containers_count=2,
+            init_containers=["download-weights"],
+            affinity={"nodeAffinity": {}},
+            container={"ports": [{"containerPort": 9000}]},
+        )
+    )
     by_code = {w["code"]: w.get("detail") for w in out["warnings"]}
     assert by_code["multi_container"] == "2"
     assert by_code["init_containers"] == "download-weights"
@@ -281,5 +366,56 @@ def test_pod_level_things_the_recipe_cannot_hold_are_warned():
 
 def test_source_echoes_the_original_launch():
     out = build_recipe_draft(_spec(command=["vllm", "serve", "/w/m"], args=["--dtype", "auto"]))
-    assert out["source"] == {"namespace": "ml", "deployment_name": "my-llm", "replicas": 2,
-                             "command": ["vllm", "serve", "/w/m"], "args": ["--dtype", "auto"]}
+    assert out["source"] == {
+        "namespace": "ml",
+        "deployment_name": "my-llm",
+        "replicas": 2,
+        "command": ["vllm", "serve", "/w/m"],
+        "args": ["--dtype", "auto"],
+    }
+
+
+def test_pd_pool_imports_as_base_with_pd_detected_warning():
+    from app.services.model_deployment_manifests import build_pd_deployments
+
+    dep = types.SimpleNamespace(
+        model_name="glm",
+        namespace="ml",
+        image="vllm/vllm-openai:latest",
+        model_path="/models/glm",
+        replicas=1,
+        gpu_count=8,
+        gpu_resource_key="nvidia.com/gpu",
+        cpu_request=None,
+        cpu_limit=None,
+        memory_request=None,
+        memory_limit=None,
+        node_selector=None,
+        tolerations=None,
+        pvc_name=None,
+        pvc_mount_path=None,
+        vllm_extra_args=None,
+        env={"VLLM_KV_CACHE_LAYOUT": "HND"},
+        engine="vllm",
+        engine_args={"tensor-parallel-size": 8},
+        probes=None,
+        runtime=None,
+        serving_mode="pd",
+        pd_config={"prefill": {"replicas": 1}, "decode": {"replicas": 2, "engine_args": {"max-num-seqs": 512}}},
+    )
+    prefill, decode = build_pd_deployments(dep)
+    spec = _manifest_to_spec(decode)
+    spec["init_containers"] = ["routing-proxy"]
+    out = build_recipe_draft(spec)
+    draft = out["draft"]
+    assert draft["model_path"] == "/models/glm"
+    assert "kv-transfer-config" not in draft["engine_args"]
+    assert draft["engine_args"]["tensor-parallel-size"] == 8 and draft["engine_args"]["max-num-seqs"] == 512
+    codes = _codes(out)
+    assert "pd_detected" in codes and "init_containers" in codes and "port_changed" in codes
+    pd = next(w for w in out["warnings"] if w["code"] == "pd_detected")
+    assert pd["detail"].startswith("decode (")  # role from the pool label, kv config echoed
+    # the prefill pool reports its role too
+    assert next(w for w in build_recipe_draft(_manifest_to_spec(prefill))["warnings"] if w["code"] == "pd_detected")[
+        "detail"
+    ].startswith("prefill")

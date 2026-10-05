@@ -18,9 +18,11 @@ from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa:
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import pd_serving
 from app.services.benchmark_manifests import (
     build_job_manifest,
     build_self_serving_bench_job,
@@ -43,6 +45,7 @@ from app.services.benchmark_serving import (
 )
 from app.services.clusters import k8s_for_cluster
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
+from app.services.llmd_manifests import router_target_url
 from app.services.model_deployment_manifests import (
     VLLM_PORT,
     build_deployment,
@@ -53,6 +56,7 @@ from app.services.serving_engines import engine_of
 from app.services.serving_engines import serve_argv as engine_serve_argv
 
 logger = logging.getLogger(__name__)
+
 
 async def _overrides_with_gpu_profile(
     db: AsyncSession, cluster_id: uuid.UUID | None, overrides: dict | None
@@ -159,9 +163,7 @@ class CreateBenchmarkRequest(BaseModel):
     )
     tool: str = Field(..., description="vllm_serving | sglang_serving | lm_eval")
     params: dict = Field(default_factory=dict, description="Tool-specific args, stored verbatim")
-    cluster_id: str | None = Field(
-        None, description="Registered K8s cluster to run on; None = portal default"
-    )
+    cluster_id: str | None = Field(None, description="Registered K8s cluster to run on; None = portal default")
     namespace: str | None = None
     image: str | None = None
     api_key: str | None = Field(
@@ -197,7 +199,22 @@ def _serving_snapshot(dep: CustomModelDeployment) -> dict:
         "namespace": dep.namespace,
         "pvc_name": dep.pvc_name,
         "pvc_mount_path": dep.pvc_mount_path,
+        **(
+            {"serving_mode": "pd", "pd_config": dict(getattr(dep, "pd_config", None) or {})}
+            if pd_serving.is_pd(dep)
+            else {}
+        ),
     }
+
+
+async def _router_target_base(db: AsyncSession, deployment: CustomModelDeployment) -> str:
+    """P/D servings are benchmarked through their llm-d router (the pools have no entry of their own)."""
+    stack = await db.get(CustomLlmdStack, deployment.router_stack_id) if deployment.router_stack_id else None
+    if stack is None:
+        raise HTTPException(
+            status_code=409, detail="This P/D serving has no llm-d router stack linked; nothing to benchmark"
+        )
+    return router_target_url(stack)
 
 
 def _build_bench_job(
@@ -268,11 +285,7 @@ async def _cluster_nfs_defaults(
     """
     if cluster_uuid is None:
         return None, None, None
-    row = (
-        await db.execute(
-            select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_uuid)
-        )
-    ).scalar_one_or_none()
+    row = (await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_uuid))).scalar_one_or_none()
     if row is None:
         return None, None, None
     return row.default_nfs_server, row.default_nfs_path, row.default_nfs_mount_path
@@ -371,18 +384,14 @@ async def create_benchmark(
     # hits the URL directly. Performance tools only (uses `vllm bench serve`).
     if body.base_url:
         if kind != "performance":
-            raise HTTPException(
-                status_code=400, detail="base_url supports performance benchmarks only"
-            )
+            raise HTTPException(status_code=400, detail="base_url supports performance benchmarks only")
         if body.deployment_id or body.ephemeral or body.external_target:
             raise HTTPException(
                 status_code=400,
                 detail="base_url is mutually exclusive with deployment_id/ephemeral/external_target",
             )
         if not body.model_name:
-            raise HTTPException(
-                status_code=400, detail="model_name is required for an endpoint URL benchmark"
-            )
+            raise HTTPException(status_code=400, detail="model_name is required for an endpoint URL benchmark")
         base_url = body.base_url.strip()
         if not base_url.startswith(("http://", "https://")):
             raise HTTPException(status_code=400, detail="base_url must be an http:// or https:// URL")
@@ -547,9 +556,7 @@ async def create_benchmark(
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid deployment_id")
         base = (
-            await db.execute(
-                select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id)
-            )
+            await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id))
         ).scalar_one_or_none()
         if not base:
             raise HTTPException(status_code=404, detail="Template deployment not found")
@@ -573,10 +580,15 @@ async def create_benchmark(
             created_by=user.user_id,
         )
         name = ephemeral_model_name(run.id)
-        eph = build_ephemeral_deployment(
-            base, name=name, namespace=namespace,
-            overrides=await _overrides_with_gpu_profile(db, cluster_uuid, body.serving_overrides),
-        )
+        try:
+            eph = build_ephemeral_deployment(
+                base,
+                name=name,
+                namespace=namespace,
+                overrides=await _overrides_with_gpu_profile(db, cluster_uuid, body.serving_overrides),
+            )
+        except ValueError as e:  # P/D templates cannot be cloned into one pod
+            raise HTTPException(status_code=400, detail=str(e))
         run.serving_snapshot = _serving_snapshot(eph)
         if body.api_key:
             run.serving_snapshot["api_key_override"] = body.api_key
@@ -638,9 +650,7 @@ async def create_benchmark(
             dep_id = uuid.UUID(body.deployment_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid deployment_id")
-        dep_res = await db.execute(
-            select(CustomModelDeployment).where(CustomModelDeployment.id == dep_id)
-        )
+        dep_res = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == dep_id))
         deployment = dep_res.scalar_one_or_none()
         if not deployment:
             raise HTTPException(status_code=404, detail="Serving deployment not found")
@@ -676,8 +686,11 @@ async def create_benchmark(
 
     # Where the runner sends requests. An explicit body.api_key always wins.
     if deployment is not None:
-        svc = k8s_resource_names(deployment)["service"]
-        target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
+        if pd_serving.is_pd(deployment):
+            target_base = await _router_target_base(db, deployment)
+        else:
+            svc = k8s_resource_names(deployment)["service"]
+            target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
         api_key = body.api_key or serving_api_key(deployment.vllm_extra_args, deployment.env)
     else:
         target_base = settings.litellm_base_url.rstrip("/")
@@ -826,7 +839,9 @@ async def preview_benchmark(
             return {"manifests": [], "note": "deployment_not_found"}
         name = ephemeral_model_name(run.id)
         eph = build_ephemeral_deployment(
-            base, name=name, namespace=namespace,
+            base,
+            name=name,
+            namespace=namespace,
             overrides=await _overrides_with_gpu_profile(
                 db, uuid.UUID(body.cluster_id) if body.cluster_id else None, body.serving_overrides
             ),
@@ -849,7 +864,9 @@ async def preview_benchmark(
             manifests.extend(ephemeral_manifests(eph))
             manifests.append(
                 _build_bench_job(
-                    run, deployment=eph, target_base=serving_target_url(name, namespace),
+                    run,
+                    deployment=eph,
+                    target_base=serving_target_url(name, namespace),
                     api_key=body.api_key or serving_api_key(eph.vllm_extra_args, eph.env),
                     image_override=body.image or None,
                 )

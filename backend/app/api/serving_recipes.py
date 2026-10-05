@@ -3,7 +3,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.gpu_profiles import validate_profile_name
+from app.services.pd_serving import ServingMode, validate_pd_config, validate_runtime
 from app.services.serving_engines import ServingEngine, validate_engine_args
 from app.services.serving_probes import validate_probes
 
@@ -40,11 +41,29 @@ class RecipeBody(BaseModel):
     engine_args: dict[str, str | int | float | bool] | None = None
     probes: dict | None = None
     gpu_type: str | None = None  # GPU profile name, resolved per cluster at deploy time
+    serving_mode: ServingMode = "aggregated"
+    pd_config: dict | None = None  # per-role overrides etc. (pd only; see pd_serving)
+    runtime: dict | None = None  # shm / hostIPC / privileged / extra resources
 
     @field_validator("gpu_type")
     @classmethod
     def _check_gpu_type(cls, v: str | None) -> str | None:
         return validate_profile_name(v) if v and v.strip() else None
+
+    @field_validator("runtime")
+    @classmethod
+    def _check_runtime(cls, v: dict | None) -> dict | None:
+        return validate_runtime(v)
+
+    @model_validator(mode="after")
+    def _check_pd(self):
+        if self.serving_mode == "pd":
+            self.pd_config = validate_pd_config(
+                self.pd_config, engine=self.engine, base_extra_args=self.vllm_extra_args
+            )
+        else:
+            self.pd_config = None
+        return self
 
     @field_validator("engine_args")
     @classmethod
@@ -87,6 +106,9 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "engine_args": r.engine_args,
         "probes": getattr(r, "probes", None),
         "gpu_type": getattr(r, "gpu_type", None),
+        "serving_mode": getattr(r, "serving_mode", None) or "aggregated",
+        "pd_config": getattr(r, "pd_config", None),
+        "runtime": getattr(r, "runtime", None),
         "created_by": r.created_by,
         "updated_by": r.updated_by,
         "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -95,9 +117,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
 
 
 async def _by_name(db: AsyncSession, name: str) -> CustomServingRecipe | None:
-    return (
-        await db.execute(select(CustomServingRecipe).where(CustomServingRecipe.name == name))
-    ).scalar_one_or_none()
+    return (await db.execute(select(CustomServingRecipe).where(CustomServingRecipe.name == name))).scalar_one_or_none()
 
 
 async def _by_id(db: AsyncSession, recipe_id: str) -> CustomServingRecipe | None:
@@ -112,8 +132,8 @@ async def list_recipes(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     rows = (
-        await db.execute(select(CustomServingRecipe).order_by(CustomServingRecipe.created_at.desc()))
-    ).scalars().all()
+        (await db.execute(select(CustomServingRecipe).order_by(CustomServingRecipe.created_at.desc()))).scalars().all()
+    )
     return {"recipes": [_serialize(r) for r in rows]}
 
 

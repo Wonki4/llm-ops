@@ -232,7 +232,11 @@ async def test_pd_register_failure_records_error_event_once():
 async def test_reconcile_once_routes_pd_rows_to_pd_pass(monkeypatch):
     dep = _dep()
     agg = _dep(
-        model_name="agg", serving_mode="aggregated", router_stack_id=None, pd_config=None, ingress_host="agg.example.com"
+        model_name="agg",
+        serving_mode="aggregated",
+        router_stack_id=None,
+        pd_config=None,
+        ingress_host="agg.example.com",
     )
     db = _db(stack=_stack(host="r.example.com"))
     rows = MagicMock()
