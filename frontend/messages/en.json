@@ -1853,7 +1853,7 @@
     "runtimeHostIpc": "hostIPC (--ipc=host)",
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "Extra resources",
-    "runtimeExtraResourcesHint": "One <vendor>/<name>=<quantity> per line, e.g. rdma/ib=1",
+    "runtimeExtraResourcesHint": "One vendor/name=quantity per line, e.g. rdma/ib=1",
     "startup": "Startup",
     "startupEnable": "Startup probe",
     "startupPdHint": "P/D pools get a startup probe by default (every 30 s, up to 60 min) so slow weight loads never trip liveness.",
