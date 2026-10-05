@@ -15,6 +15,7 @@ Pure functions, no I/O.
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 from typing import Any
@@ -325,6 +326,25 @@ def _probes(container: dict, warnings: list[dict]) -> dict | None:
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 
+def _detect_pd(spec: dict, engine_args: dict, warnings: list[dict]) -> None:
+    """A prefill/decode pool imports as an aggregated draft of its vLLM base.
+
+    ``--kv-transfer-config`` is portal-managed in P/D mode (it would be rejected
+    by the recipe API), so it is dropped and reported as ``pd_detected`` with the
+    role so the operator can switch the draft to P/D and pick the role overrides.
+    """
+    labels = spec.get("labels") or {}
+    role = labels.get("llm-d.ai/role") or labels.get("llm-ops/pd-role")
+    kv = engine_args.pop("kv-transfer-config", None)
+    if kv is not None and not role:
+        try:
+            role = (json.loads(str(kv)) or {}).get("kv_role")
+        except ValueError:
+            role = None
+    if kv is not None or role:
+        _warn(warnings, "pd_detected", f"{role or 'unknown'}" + (f" ({kv})" if kv is not None else ""))
+
+
 def build_recipe_draft(spec: dict) -> dict:
     """Return ``{"draft": <RecipeBody-shaped dict>, "warnings": [...], "source": {...}}``.
 
@@ -348,6 +368,7 @@ def build_recipe_draft(spec: dict) -> dict:
         _warn(warnings, "port_changed", f"{port} → {SERVING_PORT}")
     for key in _PORTAL_FLAGS:
         engine_args.pop(key, None)  # the portal always rebinds host/port itself
+    _detect_pd(spec, engine_args, warnings)
 
     draft: dict[str, Any] = {
         "name": spec.get("name") or "",

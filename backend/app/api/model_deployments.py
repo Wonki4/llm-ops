@@ -9,13 +9,14 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
 from app.clients.litellm import LiteLLMClient, get_litellm_client
+from app.config import settings
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -23,12 +24,13 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import llmd_stacks, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, validate_profile_name
 from app.services.llmd_links import portal_server, stacks_for_server
-from app.services.llmd_manifests import stack_selector
+from app.services.llmd_manifests import default_llmd_values, stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
 from app.services.recipe_import import build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
@@ -65,10 +67,14 @@ class CreateDeploymentRequest(BaseModel):
     engine_args: dict[str, str | int | float | bool] | None = None
     probes: dict | None = None
     gpu_type: str | None = None
-    ingress_host: str
+    ingress_host: str  # P/D: the router's host (the pools get no Ingress of their own)
     ingress_path: str = "/"
     ingress_class: str = "nginx"
     recipe_id: str | None = None  # recipe this deployment is launched from (informational)
+    serving_mode: pd_serving.ServingMode = "aggregated"
+    pd_config: dict | None = None
+    runtime: dict | None = None
+    router_stack_id: str | None = None  # P/D: link this llm-d stack instead of auto-creating one
 
     @field_validator("engine_args")
     @classmethod
@@ -84,6 +90,22 @@ class CreateDeploymentRequest(BaseModel):
     @classmethod
     def _check_gpu_type(cls, v: str | None) -> str | None:
         return validate_profile_name(v) if v and v.strip() else None
+
+    @field_validator("runtime")
+    @classmethod
+    def _check_runtime(cls, v: dict | None) -> dict | None:
+        return pd_serving.validate_runtime(v)
+
+    @model_validator(mode="after")
+    def _check_pd(self):
+        if self.serving_mode == "pd":
+            self.pd_config = pd_serving.validate_pd_config(
+                self.pd_config, engine=self.engine, base_extra_args=self.vllm_extra_args
+            )
+        else:
+            self.pd_config = None
+            self.router_stack_id = None
+        return self
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -108,6 +130,8 @@ class UpdateDeploymentRequest(BaseModel):
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
+    pd_config: dict | None = None  # validated against the row's engine/extra args in the handler
+    runtime: dict | None = None
 
     @field_validator("engine_args")
     @classmethod
@@ -123,6 +147,11 @@ class UpdateDeploymentRequest(BaseModel):
     @classmethod
     def _check_gpu_type(cls, v: str | None) -> str | None:
         return validate_profile_name(v) if v and v.strip() else None
+
+    @field_validator("runtime")
+    @classmethod
+    def _check_runtime(cls, v: dict | None) -> dict | None:
+        return pd_serving.validate_runtime(v)
 
 
 class RegisterExternalServingRequest(BaseModel):
@@ -163,6 +192,13 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
         "engine_args": d.engine_args,
         "probes": getattr(d, "probes", None),
         "gpu_type": getattr(d, "gpu_type", None),
+        "serving_mode": getattr(d, "serving_mode", None) or "aggregated",
+        "pd_config": getattr(d, "pd_config", None),
+        "runtime": getattr(d, "runtime", None),
+        "pd_status": getattr(d, "pd_status", None),
+        "pd_summary": pd_serving.pd_status_summary(getattr(d, "pd_status", None)),
+        "router_stack_id": str(d.router_stack_id) if getattr(d, "router_stack_id", None) else None,
+        "router_stack_created": bool(getattr(d, "router_stack_created", False)),
         "ingress_host": d.ingress_host,
         "ingress_path": d.ingress_path,
         "ingress_class": d.ingress_class,
@@ -231,10 +267,7 @@ async def list_external_servings(
     servings, errors = await scan_clusters(targets)
 
     regs = (await db.execute(select(CustomExternalServing))).scalars().all()
-    reg_map = {
-        (str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r
-        for r in regs
-    }
+    reg_map = {(str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r for r in regs}
     for s in servings:
         r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))
         s["registration"] = _serialize_registration(r) if r else None
@@ -372,7 +405,6 @@ async def get_deployment(
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
     stacks = list((await db.execute(select(CustomLlmdStack))).scalars().all())
-    from app.api.llmd import _live_status  # local import: avoids a circular import
 
     linked = []
     for st in stacks_for_server(portal_server(dep), stacks):
@@ -382,10 +414,77 @@ async def get_deployment(
                 "name": st.name,
                 "namespace": st.namespace,
                 "selector": stack_selector(st.values_snapshot or {}),
-                **(await _live_status(db, st)),
+                **(await llmd_stacks.live_status(db, st)),
             }
         )
-    return {**_serialize(dep, await _recipe_names(db, [dep])), "llmd_stacks": linked}
+    return {
+        **_serialize(dep, await _recipe_names(db, [dep])),
+        "llmd_stacks": linked,
+        "router_stack": await _router_stack_summary(db, dep),
+    }
+
+
+async def _router_stack_summary(db: AsyncSession, dep: CustomModelDeployment) -> dict | None:
+    """The P/D serving's router stack (id/name/host + live ArgoCD state), None when unlinked."""
+    stack_id = getattr(dep, "router_stack_id", None)
+    if not stack_id:
+        return None
+    stack = await db.get(CustomLlmdStack, stack_id)
+    if stack is None:
+        return None
+    return {
+        "id": str(stack.id),
+        "name": stack.name,
+        "namespace": stack.namespace,
+        "ingress_host": llmd_stacks.ingress_host(stack),
+        "created_by_deployment": bool(getattr(dep, "router_stack_created", False)),
+        **(await llmd_stacks.live_status(db, stack)),
+    }
+
+
+async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: CreateDeploymentRequest, user_id) -> None:
+    """Link the P/D serving to an llm-d router: the given stack, an existing
+    ``<model>-router``, or a freshly created one (its failure is reported in
+    status_message rather than failing the deploy — the pools are already up)."""
+    if body.router_stack_id:
+        stack = await db.get(CustomLlmdStack, uuid.UUID(body.router_stack_id))
+        if stack is None:
+            raise HTTPException(status_code=400, detail="router_stack_id does not match an llm-d stack")
+        dep.router_stack_id = stack.id
+        dep.router_stack_created = False
+        return
+    name = f"{dep.model_name}-router"
+    existing = (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == name))).scalar_one_or_none()
+    if existing is not None:
+        dep.router_stack_id = existing.id
+        dep.router_stack_created = False
+        return
+    values = default_llmd_values(
+        dep.model_name,
+        epp_registry=settings.llmd_epp_image_registry,
+        epp_repository=settings.llmd_epp_image_repository,
+        epp_tag=settings.llmd_epp_image_tag,
+        serving_mode="pd",
+        pd_router=(dep.pd_config or {}).get("router"),
+    )
+    try:
+        stack = await llmd_stacks.create_stack(
+            db,
+            name=name,
+            target_model_name=dep.model_name,
+            cluster_id=dep.cluster_id,
+            namespace=dep.namespace,
+            values=values,
+            user_id=user_id,
+            ingress_host=dep.ingress_host,
+            ingress_class=dep.ingress_class,
+        )
+    except HTTPException as e:
+        logger.warning("Router stack %s was not created for %s: %s", name, dep.model_name, e.detail)
+        dep.status_message = f"Router stack '{name}' was not created: {e.detail}"
+        return
+    dep.router_stack_id = stack.id
+    dep.router_stack_created = True
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -436,6 +535,9 @@ async def create_deployment(
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,
         recipe_id=uuid.UUID(body.recipe_id) if body.recipe_id else None,
+        serving_mode=body.serving_mode,
+        pd_config=body.pd_config,
+        runtime=body.runtime,
         status="Pending",
         created_by=user.user_id,
         updated_by=user.user_id,
@@ -445,14 +547,17 @@ async def create_deployment(
     await db.flush()
     await db.refresh(dep)
 
-    # Apply to K8s
+    # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
     try:
-        await k8s.create_or_patch(dep.namespace, build_all(dep))
+        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:
         logger.exception("K8s apply failed for %s", dep.model_name)
         raise HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
+
+    if pd_serving.is_pd(dep):
+        await _attach_router(db, dep, body, user.user_id)
 
     return _serialize(dep)
 
@@ -477,6 +582,15 @@ async def update_deployment(
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(dep, field, value)
+    if pd_serving.is_pd(dep):
+        try:
+            dep.pd_config = pd_serving.validate_pd_config(
+                dep.pd_config, engine=dep.engine, base_extra_args=dep.vllm_extra_args
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    else:
+        dep.pd_config = None
     if updates.get("gpu_type"):
         try:
             gpu_profile, gpu_label_key = await resolve_gpu_type(db, dep.cluster_id, updates["gpu_type"])
@@ -490,7 +604,7 @@ async def update_deployment(
     await db.refresh(dep)
 
     try:
-        await k8s.create_or_patch(dep.namespace, build_all(dep))
+        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:
@@ -519,6 +633,15 @@ async def delete_deployment(
     except Exception:
         logger.exception("K8s delete failed for %s", dep.model_name)
         # Continue to delete the row — orphan K8s resources are easier to clean than orphan DB rows.
+
+    if getattr(dep, "router_stack_created", False) and getattr(dep, "router_stack_id", None):
+        # The portal created this router for the serving; take it down with it.
+        stack = await db.get(CustomLlmdStack, dep.router_stack_id)
+        if stack is not None:
+            try:
+                await llmd_stacks.delete_stack(db, stack)
+            except HTTPException as e:
+                logger.warning("Router stack %s delete failed: %s", stack.name, e.detail)
 
     await db.delete(dep)
     return {"deleted": True, "id": deployment_id}

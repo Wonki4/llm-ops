@@ -26,6 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.services.serving_engines import SERVING_PORT, engine_of, render_engine_args, validate_engine_args
 
 Role = Literal["prefill", "decode"]
+ServingMode = Literal["aggregated", "pd"]
 ROLES: tuple[Role, ...] = ("prefill", "decode")
 
 PREFILL_PORT = SERVING_PORT  # 8000

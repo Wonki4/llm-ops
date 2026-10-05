@@ -18,9 +18,11 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import llmd_stacks
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.llmd_links import external_server, link_stacks, portal_server
+from app.services.pd_serving import pd_status_summary
 from app.services.serving_engines import engine_of
 
 logger = logging.getLogger(__name__)
@@ -136,6 +138,9 @@ def build_overview(
                         "litellm_model_id": d.litellm_model_id,
                         "recipe_id": str(d.recipe_id) if getattr(d, "recipe_id", None) else None,
                         "gpu_type": getattr(d, "gpu_type", None),
+                        "serving_mode": getattr(d, "serving_mode", None) or "aggregated",
+                        "pd_summary": pd_status_summary(getattr(d, "pd_status", None)),
+                        "router_stack_id": (str(d.router_stack_id) if getattr(d, "router_stack_id", None) else None),
                     }
                     for d in deps
                 ],
@@ -207,7 +212,5 @@ async def serving_overview(
     registrations = list((await db.execute(select(CustomExternalServing))).scalars().all())
     external = await _scan_external(db)
     # ArgoCD sync/health per stack (best-effort, one read each).
-    from app.api.llmd import _live_status  # local import: avoids a circular import at module load
-
-    status = {str(st.id): await _live_status(db, st) for st in stacks}
+    status = {str(st.id): await llmd_stacks.live_status(db, st) for st in stacks}
     return build_overview(deployments, stacks, runs, recipes, catalog, external, registrations, status)

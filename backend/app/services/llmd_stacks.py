@@ -320,7 +320,13 @@ async def create_stack(
     require_direct_selector(stack)  # 400 before any K8s write (outside the try)
     db.add(stack)
     await db.flush()
-    await apply_stack(db, stack, verb="apply")
+    try:
+        await apply_stack(db, stack, verb="apply")
+    except HTTPException:
+        # Callers that swallow the 502 (P/D deploy) must not keep a row for a
+        # stack that never reached ArgoCD.
+        await db.delete(stack)
+        raise
     return stack
 
 

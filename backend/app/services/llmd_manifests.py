@@ -54,6 +54,14 @@ def selector_to_match_labels(selector: str) -> dict:
     return labels
 
 
+LLMD_EPP_HTTP_PORT = 8081  # the chart's sidecar entry port (Service port name "http")
+
+
+def router_target_url(stack: CustomLlmdStack) -> str:
+    """In-cluster base URL of the router's entry Service (benchmark runners hit this)."""
+    return f"http://{llmd_service_name(stack)}.{stack.namespace}.svc.cluster.local:{LLMD_EPP_HTTP_PORT}"
+
+
 def llmd_service_name(stack: CustomLlmdStack) -> str:
     """The router's entry Service in sidecar mode: ``<release>-epp``.
 
