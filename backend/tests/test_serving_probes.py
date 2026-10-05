@@ -63,7 +63,7 @@ def test_validate_rejects_bad_values(bad):
 
 def test_effective_probes_defaults_and_merge():
     eff = effective_probes(None)
-    assert eff == {"readiness": READINESS_DEFAULTS, "liveness": None}
+    assert eff == {"readiness": READINESS_DEFAULTS, "liveness": None, "startup": None}
     eff = effective_probes({"readiness": {"initial_delay_seconds": 5}, "liveness": {"path": "/live"}})
     assert eff["readiness"] == {**READINESS_DEFAULTS, "initial_delay_seconds": 5}
     assert eff["liveness"] == {**LIVENESS_DEFAULTS, "path": "/live"}

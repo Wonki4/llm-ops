@@ -110,15 +110,19 @@ class K8sClient:
             await create_fn(namespace=namespace, body=manifest)
 
     async def delete(self, namespace: str, names: dict[str, str]) -> None:
-        """Delete the per-deployment trio. names = {'deployment': X, 'service': Y, 'ingress': Z}."""
+        """Delete a deployment's resources. ``names`` maps ``<prefix>deployment`` /
+        ``<prefix>service`` / ``<prefix>ingress`` keys to object names (the
+        aggregated trio or the P/D ``prefill_*``/``decode_*`` quartet).
+        Ingresses go first, Deployments last; 404s are ignored."""
         api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
             net = client.NetworkingV1Api(api_client)
-            for kind, n in (("Ingress", names.get("ingress")), ("Service", names.get("service")), ("Deployment", names.get("deployment"))):
-                if not n:
-                    continue
+            ordered: list[tuple[str, str]] = []
+            for kind, suffix in (("Ingress", "ingress"), ("Service", "service"), ("Deployment", "deployment")):
+                ordered += [(kind, n) for key, n in names.items() if key.endswith(suffix) and n]
+            for kind, n in ordered:
                 try:
                     if kind == "Deployment":
                         await apps.delete_namespaced_deployment(name=n, namespace=namespace)
@@ -201,6 +205,7 @@ class K8sClient:
                     "volume_mounts": sanitize(c.volume_mounts) or [],
                     "readiness_probe": sanitize(c.readiness_probe) or None,
                     "liveness_probe": sanitize(c.liveness_probe) or None,
+                    "startup_probe": sanitize(c.startup_probe) or None,
                 },
                 "volumes": sanitize(pod.volumes) or [],
                 "node_selector": dict(pod.node_selector or {}) or None,

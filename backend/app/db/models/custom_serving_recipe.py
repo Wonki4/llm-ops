@@ -43,6 +43,13 @@ class CustomServingRecipe(CustomBase):
     probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # GPU type profile *name*; resolved per cluster at deploy time (see gpu_profiles).
     gpu_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # 'aggregated' (one pool) or 'pd' (prefill + decode pools behind an llm-d router).
+    serving_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="aggregated", server_default="aggregated"
+    )
+    pd_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # {"shm_size_gi", "host_ipc", "privileged", "extra_resources"} (see pd_serving.Runtime)
+    runtime: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

@@ -59,6 +59,19 @@ class ProbeSpec(BaseModel):
 class ProbesSpec(BaseModel):
     readiness: ProbeSpec | None = None
     liveness: ProbeSpec | None = None
+    startup: ProbeSpec | None = None
+
+
+# P/D servers load weights for minutes: the llm-d guide probes /v1/models every
+# 30 s for up to 60 min before giving up. Used as the default startup probe for
+# P/D pools; aggregated servings get no startup probe unless the recipe sets one.
+STARTUP_DEFAULTS_PD: dict = {
+    "path": "/health",
+    "initial_delay_seconds": 15,
+    "period_seconds": 30,
+    "timeout_seconds": 5,
+    "failure_threshold": 120,
+}
 
 
 def validate_probes(value: dict | None) -> dict | None:
@@ -70,24 +83,35 @@ def validate_probes(value: dict | None) -> dict | None:
         return None
     spec = ProbesSpec.model_validate(value)
     out = spec.model_dump(exclude_none=True)
-    # {"liveness": {}} still means "liveness on, defaults" — keep the empty dict.
+    # {"liveness": {}} / {"startup": {}} still mean "on, defaults" — keep the empty dict.
     if spec.liveness is not None:
         out["liveness"] = spec.liveness.model_dump(exclude_none=True)
+    if spec.startup is not None:
+        out["startup"] = spec.startup.model_dump(exclude_none=True)
     return out or None
 
 
-def effective_probes(probes: dict | None) -> dict:
-    """``{"readiness": {...full...}, "liveness": {...full...} | None}`` after defaults."""
+def effective_probes(probes: dict | None, *, startup_default: dict | None = None) -> dict:
+    """``{"readiness": {...full...}, "liveness": {...} | None, "startup": {...} | None}`` after defaults.
+
+    ``startup_default`` (e.g. ``STARTUP_DEFAULTS_PD``) turns the startup probe on
+    when the recipe did not set one; a recipe's own ``startup`` block merges on top.
+    """
     probes = probes or {}
     readiness = {**READINESS_DEFAULTS, **(probes.get("readiness") or {})}
     liveness_in = probes.get("liveness")
     liveness = None if liveness_in is None else {**LIVENESS_DEFAULTS, **liveness_in}
-    return {"readiness": readiness, "liveness": liveness}
+    startup_in = probes.get("startup")
+    if startup_in is None and startup_default is None:
+        startup = None
+    else:
+        startup = {**(startup_default or STARTUP_DEFAULTS_PD), **(startup_in or {})}
+    return {"readiness": readiness, "liveness": liveness, "startup": startup}
 
 
-def _k8s_probe(spec: dict) -> dict:
+def _k8s_probe(spec: dict, port: int = SERVING_PORT) -> dict:
     return {
-        "httpGet": {"path": spec["path"], "port": SERVING_PORT},
+        "httpGet": {"path": spec["path"], "port": port},
         "initialDelaySeconds": spec["initial_delay_seconds"],
         "periodSeconds": spec["period_seconds"],
         "timeoutSeconds": spec["timeout_seconds"],
@@ -95,16 +119,20 @@ def _k8s_probe(spec: dict) -> dict:
     }
 
 
-def render_probes(dep) -> dict:
+def render_probes(dep, *, port: int = SERVING_PORT, startup_default: dict | None = None) -> dict:
     """Container-level probe fields for a Deployment manifest.
 
-    Always a ``readinessProbe``; a ``livenessProbe`` only when the row opts in.
-    Rows built without the column (benchmark clones, mocks) read as None.
+    Always a ``readinessProbe``; ``livenessProbe``/``startupProbe`` only when the
+    row opts in (or, for startup, when the caller passes a default). ``port`` is
+    the server's listen port (8200 for a P/D decode container). Rows built
+    without the column (benchmark clones, mocks) read as None.
     """
-    eff = effective_probes(getattr(dep, "probes", None))
-    out = {"readinessProbe": _k8s_probe(eff["readiness"])}
+    eff = effective_probes(getattr(dep, "probes", None), startup_default=startup_default)
+    out = {"readinessProbe": _k8s_probe(eff["readiness"], port)}
     if eff["liveness"] is not None:
-        out["livenessProbe"] = _k8s_probe(eff["liveness"])
+        out["livenessProbe"] = _k8s_probe(eff["liveness"], port)
+    if eff["startup"] is not None:
+        out["startupProbe"] = _k8s_probe(eff["startup"], port)
     return out
 
 
