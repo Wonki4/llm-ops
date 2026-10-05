@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,6 +59,21 @@ class CustomModelDeployment(CustomBase):
     engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     gpu_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    serving_mode: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="aggregated", server_default="aggregated"
+    )
+    pd_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    runtime: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # P/D only: {"prefill": {desired, ready, available, status, message}, "decode": {...}}
+    pd_status: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # P/D only: the llm-d router stack that fronts both pools; created with the
+    # deployment (router_stack_created) or linked to an existing one.
+    router_stack_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_llmd_stack.id", ondelete="SET NULL"), nullable=True
+    )
+    router_stack_created: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ingress_host: Mapped[str] = mapped_column(String(256), nullable=False)
     ingress_path: Mapped[str] = mapped_column(String(256), nullable=False, default="/", server_default="/")

@@ -313,7 +313,7 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
 
 def _probes(container: dict, warnings: list[dict]) -> dict | None:
     out: dict = {}
-    for kind in ("readiness", "liveness"):
+    for kind in ("readiness", "liveness", "startup"):
         spec, code = probe_from_k8s(container.get(f"{kind}_probe"))
         if code:
             _warn(warnings, code, kind)

@@ -55,6 +55,8 @@ def build_ephemeral_deployment(
     only to render K8s manifests. `overrides` may set resource / arg / env knobs;
     `gpu_type` is folded into the node selector under the `gpu-type` label.
     """
+    if getattr(base, "serving_mode", None) == "pd":
+        raise ValueError("P/D recipes cannot be cloned for ephemeral benchmarks; benchmark the router instead")
     ov = dict(overrides or {})
     dep = CustomModelDeployment(
         model_name=name,
@@ -77,6 +79,7 @@ def build_ephemeral_deployment(
         engine=engine_of(base),
         engine_args=dict(getattr(base, "engine_args", None) or {}) or None,
         probes=dict(getattr(base, "probes", None) or {}) or None,
+        runtime=dict(getattr(base, "runtime", None) or {}) or None,
         # Ingress is required by the column but unused for ephemeral servings
         # (we hit the Service directly); give it a harmless placeholder.
         ingress_host=f"{name}.invalid",
