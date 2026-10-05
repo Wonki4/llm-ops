@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     llmd_epp_image_registry: str = "ghcr.io"
     llmd_epp_image_repository: str = "llm-d/llm-d-router-endpoint-picker"
     llmd_epp_image_tag: str = "v0.9.0"
+    # llm-d routing sidecar for P/D decode pods (guide pins `main`; air-gapped
+    # clusters point the registry at their mirror).
+    llmd_sidecar_image_registry: str = "ghcr.io"
+    llmd_sidecar_image_repository: str = "llm-d/llm-d-router-disagg-sidecar"
+    llmd_sidecar_image_tag: str = "main"
     # llm-d router Ingress. The portal always creates one Ingress per stack and
     # manages its lifecycle directly (not via ArgoCD). Air-gap/ops override
     # these globally; there are no per-stack ingress fields.
@@ -91,6 +96,10 @@ class Settings(BaseSettings):
     debug: bool = False
 
     model_config = {"env_prefix": "APP_", "env_file": ".env", "extra": "ignore"}
+
+    @property
+    def llmd_sidecar_image(self) -> str:
+        return f"{self.llmd_sidecar_image_registry}/{self.llmd_sidecar_image_repository}:{self.llmd_sidecar_image_tag}"
 
     @property
     def keycloak_issuer(self) -> str:
