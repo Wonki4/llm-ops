@@ -335,3 +335,31 @@ def test_pd_router_values_embed_the_llm_d_pd_scheduler_config():
     # aggregated values are untouched
     agg = default_llmd_values("glm", epp_registry="r", epp_repository="p", epp_tag="t")
     assert "pluginsConfigFile" not in agg["router"]["epp"]
+
+
+def test_application_carries_the_resources_finalizer_so_delete_cascades():
+    import types
+    import uuid
+
+    from app.services.llmd_manifests import build_argo_application
+
+    stack = types.SimpleNamespace(
+        id=uuid.uuid4(),
+        name="r",
+        argo_app_name="llmd-r",
+        namespace="default",
+        target_model_name="m",
+        values_snapshot={},
+        cluster_id=None,
+    )
+    app = build_argo_application(
+        stack,
+        chart_repo="oci://x",
+        chart_name="c",
+        chart_version="v1",
+        values={},
+        project="llm-d",
+        argocd_namespace="argocd",
+        destination_server="https://kubernetes.default.svc",
+    )
+    assert app["metadata"]["finalizers"] == ["resources-finalizer.argocd.argoproj.io"]
