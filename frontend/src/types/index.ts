@@ -640,6 +640,17 @@ export interface ModelDeployment {
   probes: ProbesSpec | null;
   /** GPU type profile name; resolved per cluster at deploy time. */
   gpu_type: string | null;
+  serving_mode: ServingMode;
+  pd_config: PdConfig | null;
+  runtime: RuntimeOptions | null;
+  /** P/D: per-role observed status from the reconciler. */
+  pd_status: PdStatus | null;
+  /** P/D: `D 2/2 · P 1/1` for list cells. */
+  pd_summary: string | null;
+  router_stack_id: string | null;
+  router_stack_created: boolean;
+  /** Detail endpoint: the linked router with live ArgoCD state. */
+  router_stack?: RouterStackSummary | null;
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
@@ -770,6 +781,69 @@ export interface LlmdAppliedResponse {
 export type ServingEngine = "vllm" | "sglang";
 export type EngineArgs = Record<string, string | number | boolean>;
 
+// ─── Prefill/decode disaggregation ───────────────────────────
+export type ServingMode = "aggregated" | "pd";
+
+/** Per-role overrides on top of the recipe base (see backend pd_serving). */
+export interface PdRoleOverride {
+  replicas?: number;
+  /** null/undefined = the recipe's gpu_count. */
+  gpu_count?: number | null;
+  gpu_type?: string | null;
+  /** Merged over the base engine args (role wins). */
+  engine_args?: EngineArgs | null;
+  /** Appended after the base extra args. */
+  vllm_extra_args?: string[] | null;
+  env?: Record<string, string> | null;
+}
+
+export interface PdRouterConfig {
+  peak_prefill_throughput?: number;
+  prefix_tokens_to_match?: number;
+}
+
+export interface PdConfig {
+  prefill?: PdRoleOverride;
+  decode?: PdRoleOverride;
+  nixl_port?: number;
+  kv_transfer_extra?: Record<string, unknown>;
+  sidecar_image?: string | null;
+  router?: PdRouterConfig;
+}
+
+/** Pod-level knobs that map 1:1 to the docker-run flags people start from. */
+export interface RuntimeOptions {
+  shm_size_gi?: number | null;
+  host_ipc?: boolean;
+  privileged?: boolean;
+  extra_resources?: Record<string, string>;
+}
+
+export interface PdRoleStatus {
+  ready: number;
+  desired: number;
+  status?: string;
+  message?: string | null;
+}
+
+export interface PdStatus {
+  prefill?: PdRoleStatus;
+  decode?: PdRoleStatus;
+  router?: { ready: boolean; reason?: string | null; api_base?: string | null };
+}
+
+/** The llm-d router a P/D deployment registers through (detail endpoint). */
+export interface RouterStackSummary {
+  id: string;
+  name: string;
+  namespace: string;
+  ingress_host: string;
+  created_by_deployment: boolean;
+  sync_status?: string;
+  health_status?: string;
+  status_message?: string | null;
+}
+
 export interface ServingRecipe {
   id: string;
   name: string;
@@ -793,6 +867,9 @@ export interface ServingRecipe {
   probes: ProbesSpec | null;
   /** GPU type profile name; resolved per cluster at deploy time. */
   gpu_type: string | null;
+  serving_mode: ServingMode;
+  pd_config: PdConfig | null;
+  runtime: RuntimeOptions | null;
   created_by: string | null;
   updated_by: string | null;
   created_at: string | null;
@@ -812,6 +889,8 @@ export interface ProbeSpec {
 export interface ProbesSpec {
   readiness?: ProbeSpec | null;
   liveness?: ProbeSpec | null;
+  /** `null`/unset = none for aggregated servings; P/D pools get a portal default. */
+  startup?: ProbeSpec | null;
 }
 
 // Editable fields for create/update (server sets id/audit/timestamps).
@@ -872,9 +951,15 @@ export interface CreateDeploymentBody {
   probes: ProbesSpec | null;
   /** GPU type profile name; resolved per cluster at deploy time. */
   gpu_type: string | null;
+  /** P/D: the router's host (the pools get no Ingress of their own). */
   ingress_host: string;
   ingress_path: string;
   ingress_class: string;
+  serving_mode?: ServingMode;
+  pd_config?: PdConfig | null;
+  runtime?: RuntimeOptions | null;
+  /** P/D: link this llm-d stack instead of auto-creating `<model>-router`. */
+  router_stack_id?: string | null;
 }
 
 // ─── Serving home (GET /api/admin/serving/overview) ───────────
@@ -885,6 +970,8 @@ export interface LinkedServer {
   name: string;
   namespace: string;
   status: string | null;
+  /** Portal servers only: `pd` when the server is a prefill/decode pair. */
+  serving_mode?: ServingMode;
 }
 
 /** An llm-d stack as seen from a model server it routes to. */
@@ -912,6 +999,9 @@ export interface ServingOverviewRow {
     id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
     recipe_id?: string | null;
     gpu_type?: string | null;
+    serving_mode?: ServingMode;
+    pd_summary?: string | null;
+    router_stack_id?: string | null;
   }[];
   llmd_stacks: LinkedLlmdStack[];
   performance: {

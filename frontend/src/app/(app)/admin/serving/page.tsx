@@ -127,6 +127,7 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
   const t = useTranslations("serving");
   const engine = row.deployments[0]?.engine ?? row.recipes[0]?.engine;
   const gpuType = row.deployments.find((d) => d.gpu_type)?.gpu_type ?? null;
+  const isPd = row.deployments.some((d) => d.serving_mode === "pd");
   const perf = row.performance;
   const perfLine = perf
     ? [fmt(perf.output_throughput, 0, " tok/s"), fmt(perf.mean_ttft_ms, 0, " ms TTFT")].filter(Boolean).join(" · ")
@@ -145,6 +146,7 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
             <span className="font-medium">{row.model_name}</span>
           )}
           {engine && <Badge variant="secondary" className="font-mono text-[10px] uppercase">{engine}</Badge>}
+          {isPd && <Badge variant="outline" className="text-[10px]">P/D</Badge>}
           {gpuType && <Badge variant="outline" className="font-mono text-[10px]">{gpuType}</Badge>}
         </div>
         {row.catalog && row.catalog.display_name !== row.model_name && (
@@ -174,7 +176,9 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
             {row.deployments.map((d) => (
               <Link key={d.id} href={`/admin/deployments/${d.id}`} className="inline-flex items-center gap-2 text-sm hover:underline">
                 <Badge variant={deployVariant(d.status)}>{d.status}</Badge>
-                <span className="tabular-nums text-muted-foreground">{d.ready_replicas}/{d.replicas}</span>
+                <span className="tabular-nums text-muted-foreground">
+                  {d.serving_mode === "pd" && d.pd_summary ? d.pd_summary : `${d.ready_replicas}/${d.replicas}`}
+                </span>
                 {d.litellm_model_id && <CheckCircle2 className="size-3.5 text-green-600" aria-label={t("registered")} />}
               </Link>
             ))}

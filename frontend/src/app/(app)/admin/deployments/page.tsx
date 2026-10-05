@@ -117,6 +117,7 @@ export default function DeploymentsPage() {
                           {d.model_name}
                         </Link>
                         <Badge variant="secondary" className="ml-2 font-mono text-[10px] uppercase">{d.engine}</Badge>
+                        {d.serving_mode === "pd" && <Badge variant="outline" className="ml-1 text-[10px]" data-testid="pd-badge">{t("pdBadge")}</Badge>}
                         {d.gpu_type && <Badge variant="outline" className="ml-1 font-mono text-[10px]">{d.gpu_type}</Badge>}
                         {(d.llmd_stack_count ?? 0) > 0 && (
                           <Badge variant="outline" className="ml-1 text-[10px]" title={t("llmdLinkedHint", { count: d.llmd_stack_count ?? 0 })}>llm-d ×{d.llmd_stack_count}</Badge>
@@ -130,7 +131,9 @@ export default function DeploymentsPage() {
                         )}
                       </TableCell>
                       <TableCell><StatusBadge status={d.status} /></TableCell>
-                      <TableCell className="text-right tabular-nums">{d.ready_replicas}/{d.replicas}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {d.serving_mode === "pd" && d.pd_summary ? d.pd_summary : `${d.ready_replicas}/${d.replicas}`}
+                      </TableCell>
                       <TableCell className="text-muted-foreground text-xs">—</TableCell>
                       <TableCell className="font-mono text-xs">{d.namespace}</TableCell>
                       <TableCell className="font-mono text-xs max-w-[200px] truncate" title={d.image}>{d.image}</TableCell>

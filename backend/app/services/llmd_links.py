@@ -30,6 +30,7 @@ def portal_server(dep: Any) -> dict:
         "name": dep.model_name,
         "namespace": dep.namespace,
         "status": dep.status,
+        "serving_mode": getattr(dep, "serving_mode", None) or "aggregated",
         "labels": pod_labels(dep),
     }
 

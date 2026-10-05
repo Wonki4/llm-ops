@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useCreateDeployment, useGpuNodes, useGpuProfiles, useK8sClusters } from "@/hooks/use-api";
-import type { CreateDeploymentBody, ServingRecipe } from "@/types";
+import type { CreateDeploymentBody, PdConfig, ServingRecipe } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,6 +26,7 @@ export function DeployFromRecipeDialog({
   const createDep = useCreateDeployment();
   const { data: clusters } = useK8sClusters();
 
+  const isPd = recipe?.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
   const [namespace, setNamespace] = useState("default");
   const [clusterId, setClusterId] = useState<string>("");
@@ -33,6 +34,9 @@ export function DeployFromRecipeDialog({
   const [ingressPath, setIngressPath] = useState("/");
   const [ingressClass, setIngressClass] = useState("nginx");
   const [replicas, setReplicas] = useState(1);
+  // P/D: one replica count per pool, seeded from the recipe's role overrides.
+  const [prefillReplicas, setPrefillReplicas] = useState(recipe?.pd_config?.prefill?.replicas ?? 1);
+  const [decodeReplicas, setDecodeReplicas] = useState(recipe?.pd_config?.decode?.replicas ?? 1);
   const [gpuTypeChoice, setGpuTypeChoice] = useState<string | null>(null); // null = follow the recipe
   const gpuType = gpuTypeChoice ?? recipe?.gpu_type ?? "";
   const setGpuType = (v: string) => setGpuTypeChoice(v);
@@ -45,7 +49,9 @@ export function DeployFromRecipeDialog({
   const { data: profilesData } = useGpuProfiles(clusterKey, open);
   const nodes = useGpuNodes(clusterKey, open);
   const profiles = useMemo(() => (profilesData?.profiles ?? []).filter((p) => p.enabled), [profilesData]);
-  const needsGpu = (recipe?.gpu_count ?? 0) > 0;
+  const needsGpu = isPd
+    ? Math.max(recipe?.gpu_count ?? 0, recipe?.pd_config?.prefill?.gpu_count ?? 0, recipe?.pd_config?.decode?.gpu_count ?? 0) > 0
+    : (recipe?.gpu_count ?? 0) > 0;
   const hasProfiles = profiles.length > 0;
   const selected = profiles.find((p) => p.name === gpuType) ?? null;
   const gpuTypeMissing = needsGpu && hasProfiles && !selected;
@@ -80,13 +86,20 @@ export function DeployFromRecipeDialog({
       toast.error(t("deployGpuTypeRequired"));
       return;
     }
+    const pdConfig: PdConfig | null = isPd
+      ? {
+          ...(recipe.pd_config ?? {}),
+          prefill: { ...(recipe.pd_config?.prefill ?? {}), replicas: prefillReplicas },
+          decode: { ...(recipe.pd_config?.decode ?? {}), replicas: decodeReplicas },
+        }
+      : null;
     const body: CreateDeploymentBody = {
       model_name: modelName.trim(),
       cluster_id: clusterId || null,
       recipe_id: recipe.id,
       namespace: namespace.trim() || "default",
       image: recipe.image,
-      replicas,
+      replicas: isPd ? decodeReplicas : replicas,
       gpu_count: recipe.gpu_count,
       gpu_resource_key: recipe.gpu_resource_key,
       cpu_request: recipe.cpu_request,
@@ -105,8 +118,11 @@ export function DeployFromRecipeDialog({
       probes: recipe.probes ?? null,
       gpu_type: hasProfiles ? (gpuType || null) : (recipe.gpu_type ?? null),
       ingress_host: ingressHost.trim(),
-      ingress_path: ingressPath.trim() || "/",
+      ingress_path: isPd ? "/" : ingressPath.trim() || "/",
       ingress_class: ingressClass.trim() || "nginx",
+      serving_mode: recipe.serving_mode ?? "aggregated",
+      pd_config: pdConfig,
+      runtime: recipe.runtime ?? null,
     };
     createDep.mutate(body, {
       onSuccess: () => { toast.success(t("deploySuccess")); onClose(); },
@@ -121,6 +137,7 @@ export function DeployFromRecipeDialog({
           <DialogTitle>{recipe ? t("deployTitle", { name: recipe.name }) : ""}</DialogTitle>
           <DialogDescription>{recipe?.model_path}</DialogDescription>
         </DialogHeader>
+        {isPd && <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground" data-testid="deploy-pd-note">{t("deployPdNote")}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("deployModelName")} span2><Input value={modelName} onChange={(e) => setModelName(e.target.value)} /></Field>
           <Field label={t("deployNamespace")}><Input value={namespace} onChange={(e) => setNamespace(e.target.value)} /></Field>
@@ -157,10 +174,28 @@ export function DeployFromRecipeDialog({
               <p className="text-xs text-muted-foreground">{t("deployGpuTypeNoProfiles")}</p>
             )}
           </Field>
-          <Field label={t("deployIngressHost")} span2><Input value={ingressHost} onChange={(e) => setIngressHost(e.target.value)} /></Field>
-          <Field label={t("deployIngressPath")}><Input value={ingressPath} onChange={(e) => setIngressPath(e.target.value)} /></Field>
-          <Field label={t("deployIngressClass")}><Input value={ingressClass} onChange={(e) => setIngressClass(e.target.value)} /></Field>
-          <Field label={t("deployReplicas")}><Input type="number" min={0} value={replicas} onChange={(e) => setReplicas(Number(e.target.value))} /></Field>
+          {isPd ? (
+            <>
+              <Field label={t("deployRouterHost")} span2>
+                <Input id="deploy-router-host" value={ingressHost} onChange={(e) => setIngressHost(e.target.value)} />
+                <p className="text-xs text-muted-foreground">{t("deployRouterHostHint", { name: modelName.trim() || "<model>" })}</p>
+              </Field>
+              <Field label={t("deployIngressClass")} span2><Input value={ingressClass} onChange={(e) => setIngressClass(e.target.value)} /></Field>
+              <Field label={t("deployPrefillReplicas")}>
+                <Input id="deploy-prefill-replicas" type="number" min={0} value={prefillReplicas} onChange={(e) => setPrefillReplicas(Number(e.target.value))} />
+              </Field>
+              <Field label={t("deployDecodeReplicas")}>
+                <Input id="deploy-decode-replicas" type="number" min={0} value={decodeReplicas} onChange={(e) => setDecodeReplicas(Number(e.target.value))} />
+              </Field>
+            </>
+          ) : (
+            <>
+              <Field label={t("deployIngressHost")} span2><Input id="deploy-ingress-host" value={ingressHost} onChange={(e) => setIngressHost(e.target.value)} /></Field>
+              <Field label={t("deployIngressPath")}><Input id="deploy-ingress-path" value={ingressPath} onChange={(e) => setIngressPath(e.target.value)} /></Field>
+              <Field label={t("deployIngressClass")}><Input value={ingressClass} onChange={(e) => setIngressClass(e.target.value)} /></Field>
+              <Field label={t("deployReplicas")}><Input id="deploy-replicas" type="number" min={0} value={replicas} onChange={(e) => setReplicas(Number(e.target.value))} /></Field>
+            </>
+          )}
           {preview && (preview.node_selector || preview.tolerations || selected) && (
             <div className="sm:col-span-2 rounded-md border bg-muted/30 p-3 text-xs">
               <div className="mb-1 font-medium">{t("resolvedPlacement")}</div>
