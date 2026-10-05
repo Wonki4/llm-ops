@@ -42,15 +42,34 @@ from app.services.benchmark_serving import (
     serving_target_url,
 )
 from app.services.clusters import k8s_for_cluster
+from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.model_deployment_manifests import (
     VLLM_PORT,
     build_deployment,
     k8s_resource_names,
     serving_api_key,
 )
-from app.services.serving_engines import engine_of, serve_argv as engine_serve_argv
+from app.services.serving_engines import engine_of
+from app.services.serving_engines import serve_argv as engine_serve_argv
 
 logger = logging.getLogger(__name__)
+
+async def _overrides_with_gpu_profile(
+    db: AsyncSession, cluster_id: uuid.UUID | None, overrides: dict | None
+) -> dict | None:
+    """Attach the resolved GPU profile (and the cluster's label key) to serving overrides.
+
+    A ``gpu_type`` that matches no profile on a cluster that *has* profiles is a
+    400; a cluster without profiles keeps the legacy label fold.
+    """
+    if not overrides or not overrides.get("gpu_type"):
+        return overrides
+    try:
+        profile, label_key = await resolve_gpu_type(db, cluster_id, overrides["gpu_type"])
+    except UnknownGpuTypeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {**overrides, "gpu_profile": profile, "gpu_label_key": label_key}
+
 
 router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
 
@@ -555,7 +574,8 @@ async def create_benchmark(
         )
         name = ephemeral_model_name(run.id)
         eph = build_ephemeral_deployment(
-            base, name=name, namespace=namespace, overrides=body.serving_overrides
+            base, name=name, namespace=namespace,
+            overrides=await _overrides_with_gpu_profile(db, cluster_uuid, body.serving_overrides),
         )
         run.serving_snapshot = _serving_snapshot(eph)
         if body.api_key:
@@ -805,7 +825,12 @@ async def preview_benchmark(
         if not base:
             return {"manifests": [], "note": "deployment_not_found"}
         name = ephemeral_model_name(run.id)
-        eph = build_ephemeral_deployment(base, name=name, namespace=namespace, overrides=body.serving_overrides)
+        eph = build_ephemeral_deployment(
+            base, name=name, namespace=namespace,
+            overrides=await _overrides_with_gpu_profile(
+                db, uuid.UUID(body.cluster_id) if body.cluster_id else None, body.serving_overrides
+            ),
+        )
         run.model_name = base.model_name
         if kind == "performance":
             serve_argv = engine_serve_argv(eph, VLLM_PORT)

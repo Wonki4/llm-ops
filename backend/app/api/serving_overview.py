@@ -135,6 +135,7 @@ def build_overview(
                         "engine": engine_of(d),
                         "litellm_model_id": d.litellm_model_id,
                         "recipe_id": str(d.recipe_id) if getattr(d, "recipe_id", None) else None,
+                        "gpu_type": getattr(d, "gpu_type", None),
                     }
                     for d in deps
                 ],

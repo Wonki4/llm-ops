@@ -12,6 +12,7 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services.gpu_profiles import validate_profile_name
 from app.services.serving_engines import ServingEngine, validate_engine_args
 from app.services.serving_probes import validate_probes
 
@@ -38,6 +39,12 @@ class RecipeBody(BaseModel):
     engine: ServingEngine = "vllm"
     engine_args: dict[str, str | int | float | bool] | None = None
     probes: dict | None = None
+    gpu_type: str | None = None  # GPU profile name, resolved per cluster at deploy time
+
+    @field_validator("gpu_type")
+    @classmethod
+    def _check_gpu_type(cls, v: str | None) -> str | None:
+        return validate_profile_name(v) if v and v.strip() else None
 
     @field_validator("engine_args")
     @classmethod
@@ -79,6 +86,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "engine": r.engine or "vllm",
         "engine_args": r.engine_args,
         "probes": getattr(r, "probes", None),
+        "gpu_type": getattr(r, "gpu_type", None),
         "created_by": r.created_by,
         "updated_by": r.updated_by,
         "created_at": r.created_at.isoformat() if r.created_at else None,

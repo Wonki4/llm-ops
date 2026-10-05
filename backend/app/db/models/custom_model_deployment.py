@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -58,6 +58,7 @@ class CustomModelDeployment(CustomBase):
     engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
     engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    gpu_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     ingress_host: Mapped[str] = mapped_column(String(256), nullable=False)
     ingress_path: Mapped[str] = mapped_column(String(256), nullable=False, default="/", server_default="/")

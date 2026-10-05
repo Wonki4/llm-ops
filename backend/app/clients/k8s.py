@@ -21,6 +21,28 @@ class K8sNotConfigured(RuntimeError):
     """Raised when the portal has no kubeconfig wired up."""
 
 
+def _quantity_int(value) -> int:
+    """Kubernetes quantity → int for whole-unit extended resources ("8", "2k")."""
+    if value is None:
+        return 0
+    text = str(value).strip()
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    mult = {"k": 10**3, "M": 10**6, "G": 10**9, "Ki": 1024, "Mi": 1024**2, "Gi": 1024**3}
+    for suffix, m in sorted(mult.items(), key=lambda kv: -len(kv[0])):
+        if text.endswith(suffix):
+            try:
+                return int(float(text[: -len(suffix)]) * m)
+            except ValueError:
+                return 0
+    try:
+        return int(float(text))
+    except ValueError:
+        return 0
+
+
 class K8sClient:
     """Thin wrapper that opens a fresh ApiClient per call.
 
@@ -188,6 +210,48 @@ class K8sClient:
                 "init_containers": [ic.name for ic in (pod.init_containers or [])],
                 "affinity": sanitize(pod.affinity) or None,
             }
+        finally:
+            await api_client.close()
+
+    async def list_gpu_nodes(self, label_key: str, resource_keys: list[str]) -> list[dict]:
+        """Nodes that expose any of ``resource_keys``, with the GPU-type label value,
+        allocatable counts and the sum of requests from non-terminal pods.
+
+        Read-only (one LIST nodes + one LIST pods). Used by the GPU profile
+        discovery endpoint; a node without the label reports ``label_value``
+        None so the admin can see what is still unlabelled.
+        """
+        api_client = await self._api_client()
+        try:
+            core = client.CoreV1Api(api_client)
+            nodes = (await core.list_node()).items
+            pods = (await core.list_pod_for_all_namespaces()).items
+            requested: dict[str, dict[str, int]] = {}
+            for pod in pods:
+                node_name = pod.spec.node_name
+                if not node_name or (pod.status.phase or "") in ("Succeeded", "Failed"):
+                    continue
+                bucket = requested.setdefault(node_name, {k: 0 for k in resource_keys})
+                for c in pod.spec.containers or []:
+                    reqs = (c.resources.requests if c.resources else None) or {}
+                    for key in resource_keys:
+                        bucket[key] += _quantity_int(reqs.get(key))
+            out: list[dict] = []
+            for n in nodes:
+                allocatable = dict(n.status.allocatable or {})
+                if not any(key in allocatable for key in resource_keys):
+                    continue
+                labels = dict(n.metadata.labels or {})
+                out.append(
+                    {
+                        "name": n.metadata.name,
+                        "label_value": labels.get(label_key),
+                        "schedulable": not bool(n.spec.unschedulable),
+                        "allocatable": {key: _quantity_int(allocatable.get(key)) for key in resource_keys},
+                        "requested": requested.get(n.metadata.name, {k: 0 for k in resource_keys}),
+                    }
+                )
+            return out
         finally:
             await api_client.close()
 
