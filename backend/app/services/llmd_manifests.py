@@ -370,6 +370,9 @@ def build_argo_application(
         "kind": "Application",
         "metadata": {
             "name": stack.argo_app_name,
+            # Without this finalizer ArgoCD deletes only the Application object and
+            # leaves the chart's workloads behind (seen with an auto-created P/D router).
+            "finalizers": ["resources-finalizer.argocd.argoproj.io"],
             "namespace": argocd_namespace,
             "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
         },
