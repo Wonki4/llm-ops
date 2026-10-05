@@ -146,8 +146,11 @@ async def _router_target(db: AsyncSession, dep: CustomModelDeployment) -> tuple[
         return None, "the linked llm-d router stack no longer exists"
     live = await llmd_stacks.live_status(db, stack)
     health = live.get("health_status") or "Unknown"
-    if health != "Healthy":
-        return None, f"router '{stack.name}' is {health}"
+    sync = live.get("sync_status") or "Unknown"
+    # A freshly applied Application reports Healthy before it has compared or
+    # created anything, so Healthy alone is not "the router is up".
+    if health != "Healthy" or sync != "Synced":
+        return None, f"router '{stack.name}' is {sync}/{health}"
     return f"https://{llmd_stacks.ingress_host(stack)}", None
 
 

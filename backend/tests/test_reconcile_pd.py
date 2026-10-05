@@ -99,7 +99,8 @@ def _quiet_side_effects(monkeypatch):
     monkeypatch.setattr(rd, "send_deployment_event_notification", AsyncMock(return_value=False))
 
     async def live_status(db, stack):
-        return {"sync_status": "Synced", "health_status": stack._health, "status_message": None}
+        sync = getattr(stack, "_sync", "Synced")
+        return {"sync_status": sync, "health_status": stack._health, "status_message": None}
 
     monkeypatch.setattr(rd.llmd_stacks, "live_status", live_status)
 
@@ -184,7 +185,8 @@ async def test_pd_ready_waits_for_router_then_registers_once(monkeypatch):
     transitions, registered = await rd._reconcile_pd(db, litellm, k8s, dep)
     assert (transitions, registered) == (1, 0)
     assert dep.status == "Ready" and dep.litellm_model_id is None
-    assert dep.status_message.startswith("Serving ready; waiting for the router: router 'glm-router' is Progressing")
+    assert dep.status_message.startswith("Serving ready; waiting for the router: router 'glm-router' is Synced/")
+    assert dep.status_message.endswith("Progressing")
     assert dep.pd_status["router"]["ready"] is False
 
     # pass 2: still Progressing → no registration attempt, no new transition
@@ -271,3 +273,16 @@ async def test_reconcile_once_routes_pd_rows_to_pd_pass(monkeypatch):
     # the aggregated row still goes through the classic path (ingress api_base)
     assert agg.status == "Ready"
     assert litellm.create_model.await_args.kwargs["api_base"] == "https://agg.example.com"
+
+
+async def test_pd_router_healthy_but_unsynced_still_waits():
+    dep = _dep()
+    stack = _stack(health="Healthy")
+    stack._sync = "Unknown"
+    db = _db(stack=stack)
+    litellm = MagicMock()
+    litellm.create_model = AsyncMock()
+    await rd._reconcile_pd(db, litellm, _k8s(_obs(1, 1), _obs(2, 2)), dep)
+    assert dep.status == "Ready" and dep.litellm_model_id is None
+    assert "Unknown/Healthy" in dep.status_message
+    litellm.create_model.assert_not_awaited()
