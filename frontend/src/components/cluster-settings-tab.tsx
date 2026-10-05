@@ -47,6 +47,7 @@ type FormState = {
   default_nfs_server: string;
   default_nfs_path: string;
   default_nfs_mount_path: string;
+  gpu_label_key: string;
 };
 
 const EMPTY: FormState = {
@@ -62,6 +63,7 @@ const EMPTY: FormState = {
   default_nfs_server: "",
   default_nfs_path: "",
   default_nfs_mount_path: "",
+  gpu_label_key: "gpu-type",
 };
 
 export function ClusterSettingsTab() {
@@ -102,6 +104,7 @@ export function ClusterSettingsTab() {
       default_nfs_server: c.default_nfs_server ?? "",
       default_nfs_path: c.default_nfs_path ?? "",
       default_nfs_mount_path: c.default_nfs_mount_path ?? "",
+      gpu_label_key: c.gpu_label_key ?? "gpu-type",
     });
     setTestResult(null);
     setDialogOpen(true);
@@ -150,6 +153,7 @@ export function ClusterSettingsTab() {
         default_nfs_server: nfsServer,
         default_nfs_path: nfsPath,
         default_nfs_mount_path: nfsMount,
+        gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
       updateMut.mutate(
@@ -176,6 +180,7 @@ export function ClusterSettingsTab() {
         default_nfs_server: nfsServer || null,
         default_nfs_path: nfsPath || null,
         default_nfs_mount_path: nfsMount || null,
+        gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
       };
       createMut.mutate(body, {
         onSuccess: () => {
@@ -428,6 +433,17 @@ export function ClusterSettingsTab() {
                 />
               </div>
               <p className="text-xs text-muted-foreground">{t("defaultNfsHint")}</p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="cluster-gpu-label-key">{t("gpuLabelKey")}</Label>
+              <Input
+                id="cluster-gpu-label-key"
+                className="font-mono"
+                value={form.gpu_label_key}
+                onChange={(e) => setForm({ ...form, gpu_label_key: e.target.value })}
+                placeholder="gpu-type"
+              />
+              <p className="text-xs text-muted-foreground">{t("gpuLabelKeyHint")}</p>
             </div>
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input

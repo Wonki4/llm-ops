@@ -126,6 +126,7 @@ export default function ServingHomePage() {
 function OverviewRow({ row }: { row: ServingOverviewRow }) {
   const t = useTranslations("serving");
   const engine = row.deployments[0]?.engine ?? row.recipes[0]?.engine;
+  const gpuType = row.deployments.find((d) => d.gpu_type)?.gpu_type ?? null;
   const perf = row.performance;
   const perfLine = perf
     ? [fmt(perf.output_throughput, 0, " tok/s"), fmt(perf.mean_ttft_ms, 0, " ms TTFT")].filter(Boolean).join(" · ")
@@ -144,6 +145,7 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
             <span className="font-medium">{row.model_name}</span>
           )}
           {engine && <Badge variant="secondary" className="font-mono text-[10px] uppercase">{engine}</Badge>}
+          {gpuType && <Badge variant="outline" className="font-mono text-[10px]">{gpuType}</Badge>}
         </div>
         {row.catalog && row.catalog.display_name !== row.model_name && (
           <div className="font-mono text-xs text-muted-foreground">{row.model_name}</div>

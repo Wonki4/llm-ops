@@ -11,6 +11,7 @@ import {
   useCreateBenchmark,
   useModels,
   useModelDeployments,
+  useGpuProfiles,
   useK8sClusters,
   useBenchmarkPreview,
   useBenchmarks,
@@ -117,6 +118,17 @@ export default function NewBenchmarkPage() {
   const [clusterId, setClusterId] = useState("");
   const [mode, setMode] = useState<BenchMode>("clone");
   const [servingOverridesText, setServingOverridesText] = useState("");
+  const { data: gpuProfiles } = useGpuProfiles(clusterId || null);
+  // GPU type picker writes gpu_type into the overrides JSON (and reads it back).
+  const overridesGpuType = (() => {
+    try { const v = JSON.parse(servingOverridesText || "{}"); return typeof v.gpu_type === "string" ? v.gpu_type : ""; } catch { return ""; }
+  })();
+  const setOverridesGpuType = (name: string) => {
+    let obj: Record<string, unknown> = {};
+    try { obj = servingOverridesText.trim() ? JSON.parse(servingOverridesText) : {}; } catch { obj = {}; }
+    if (name) obj.gpu_type = name; else delete obj.gpu_type;
+    setServingOverridesText(Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "");
+  };
   const [modelName, setModelName] = useState("");
   const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
   const [perf, setPerf] = useState<PerfParams>(DEFAULT_PERF_PARAMS);
@@ -660,12 +672,27 @@ export default function NewBenchmarkPage() {
                   )}
                 </div>
                 <div className="space-y-1.5">
+                  <Label htmlFor="bench_gpu_type">{t("gpuTypeLabel")}</Label>
+                  <select
+                    id="bench_gpu_type"
+                    className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                    value={overridesGpuType}
+                    onChange={(e) => setOverridesGpuType(e.target.value)}
+                  >
+                    <option value="">{t("gpuTypeNone")}</option>
+                    {(gpuProfiles?.profiles ?? []).filter((p) => p.enabled).map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}{p.vram_gb ? ` · ${p.vram_gb} GB` : ""}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-muted-foreground">{t("gpuTypeHint")}</p>
+                </div>
+                <div className="space-y-1.5">
                   <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
                   <JsonEditor
                     id="serving_overrides"
                     value={servingOverridesText}
                     onChange={setServingOverridesText}
-                    placeholder='{"gpu_count": 2, "gpu_type": "NVIDIA-H100"}'
+                    placeholder='{"gpu_count": 2, "gpu_type": "a100-80g"}'
                     minHeight="min-h-20"
                   />
                   <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>

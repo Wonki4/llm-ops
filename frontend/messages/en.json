@@ -813,7 +813,9 @@
     "recipeLinkedHint": "Recipe this deployment was launched from or captured into",
     "probeReadiness": "Readiness probe",
     "probeLiveness": "Liveness probe",
-    "probeOff": "off"
+    "probeOff": "off",
+    "gpuType": "GPU type",
+    "gpuTypeNoProfile": "profile no longer exists"
   },
   "adminUsers": {
     "pageTitle": "User Management",
@@ -1018,7 +1020,9 @@
       "deleteFailed": "Delete failed",
       "saveFailed": "Save failed",
       "save": "Save",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "gpuLabelKey": "GPU type label key",
+      "gpuLabelKeyHint": "Node label key that marks GPU kinds on this cluster. GPU profiles use it unless they override it."
     }
   },
   "announcements": {
@@ -1565,7 +1569,10 @@
     "endpointModelLabel": "Served model name",
     "endpointModelHint": "The model id to send in requests (the endpoint's served model name). Also used as the tokenizer unless you set one below.",
     "endpointPerfOnly": "Endpoint URL benchmarking supports performance tools only. Switch the tool to vLLM or SGLang.",
-    "errorBaseUrlRequired": "Enter the endpoint base URL and served model name."
+    "errorBaseUrlRequired": "Enter the endpoint base URL and served model name.",
+    "gpuTypeLabel": "GPU type (profile)",
+    "gpuTypeNone": "— keep overrides as typed —",
+    "gpuTypeHint": "Picks a profile from the selected cluster and writes gpu_type into the overrides."
   },
   "benchmarkSweeps": {
     "listTitle": "Sweeps",
@@ -1782,7 +1789,19 @@
     "probeInitialDelay": "Initial delay (s)",
     "probePeriod": "Period (s)",
     "probeTimeout": "Timeout (s)",
-    "probeFailureThreshold": "Failure threshold"
+    "probeFailureThreshold": "Failure threshold",
+    "gpuType": "GPU type",
+    "gpuTypeHint": "Profile name defined per cluster (settings › clusters). Free text is allowed for a cluster that does not exist yet; it is checked at deploy time.",
+    "advancedPlacement": "Advanced: set placement by hand",
+    "advancedPlacementHint": "A GPU profile overrides the same keys at deploy time; only clusters without profiles use these values as-is.",
+    "deployCluster": "Cluster",
+    "deployClusterDefault": "Portal default",
+    "deployGpuType": "GPU type",
+    "deployGpuTypeNone": "— none (use the recipe's own placement) —",
+    "deployGpuTypeRequired": "Pick a GPU type: this cluster has profiles and the recipe needs GPUs.",
+    "deployGpuTypeNoProfiles": "This cluster has no GPU profiles; the recipe's own placement is used.",
+    "deployAvailable": "{available}/{total} free",
+    "resolvedPlacement": "Resolved placement"
   },
   "serving": {
     "title": "Serving home",
@@ -1816,5 +1835,46 @@
     "unlinkedHint": "Their label selector picks no portal deployment or scanned external serving.",
     "unlinkedTarget": "target: {model}",
     "unlinkedNoSelector": "no selector"
+  },
+  "gpuProfiles": {
+    "title": "GPU type profiles",
+    "description": "Name the GPU kinds each cluster offers. A profile maps a short name to the node label, tolerations and resource key; recipes only pick the name.",
+    "clusterSelect": "Cluster",
+    "portalDefaultCluster": "Portal default cluster",
+    "labelKeyInfo": "This cluster marks GPU kinds with the node label key `{key}` (change it in the cluster settings).",
+    "addButton": "Add profile",
+    "empty": "No profiles yet. Scan the nodes below or add one by hand.",
+    "colName": "Name",
+    "colLabel": "Node label",
+    "colResourceKey": "Resource key",
+    "colTolerations": "Tolerations",
+    "colVram": "VRAM",
+    "disabled": "disabled",
+    "edit": "Edit",
+    "delete": "Delete",
+    "nodesTitle": "Discover from nodes",
+    "nodesHint": "Read-only scan: GPU nodes grouped by the `{key}` label with free / allocatable GPUs.",
+    "scanButton": "Scan nodes",
+    "nodesNone": "No nodes expose a GPU resource.",
+    "nodesUnlabelled": "(unlabelled GPU nodes)",
+    "nodesCount": "{count} node(s)",
+    "nodesAvailable": "free / total",
+    "makeProfile": "Make profile",
+    "nodesLabelMissing": "label the nodes first",
+    "addTitle": "New GPU profile",
+    "editTitle": "Edit GPU profile",
+    "labelValue": "Label value",
+    "labelKeyOverride": "Label key (override)",
+    "descriptionLabel": "Description",
+    "enabled": "Enabled",
+    "requiredError": "Name and label value are required",
+    "createSuccess": "Profile created",
+    "updateSuccess": "Profile saved",
+    "deleteConfirm": "Delete GPU profile \"{name}\"? Deployments keep their resolved placement.",
+    "deleteSuccess": "Profile deleted",
+    "deleteFailed": "Delete failed",
+    "saveFailed": "Save failed",
+    "save": "Save",
+    "cancel": "Cancel"
   }
 }

@@ -45,6 +45,11 @@ import type {
   LlmdStackSummary,
   LlmdAppliedResponse,
   MemberBudgetBoost,
+  GpuNodesResponse,
+  GpuProfile,
+  GpuProfileInput,
+  GpuProfilesResponse,
+  GpuTypeOption,
   RecipeDraftResponse,
   ServingRecipe,
   ServingRecipeCreateBody,
@@ -1447,6 +1452,7 @@ export interface CreateK8sClusterBody {
   default_nfs_server?: string | null;
   default_nfs_path?: string | null;
   default_nfs_mount_path?: string | null;
+  gpu_label_key?: string;
 }
 
 export type UpdateK8sClusterBody = Partial<CreateK8sClusterBody>;
@@ -1728,5 +1734,75 @@ export function useCreateDeployment() {
         body: JSON.stringify(body),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+// ─── GPU type profiles ───────────────────────────────────────────────────────
+
+/** `null` cluster = the portal default cluster ("default" in the URL). */
+const gpuClusterPath = (clusterId: string | null) => `/api/admin/k8s-clusters/${clusterId ?? "default"}`;
+
+export function useGpuProfiles(clusterId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["gpu-profiles", clusterId ?? "default"],
+    queryFn: () => apiFetch<GpuProfilesResponse>(`${gpuClusterPath(clusterId)}/gpu-profiles`),
+    enabled,
+  });
+}
+
+export function useCreateGpuProfile(clusterId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: GpuProfileInput) =>
+      apiFetch<GpuProfile>(`${gpuClusterPath(clusterId)}/gpu-profiles`, { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gpu-profiles"] });
+      qc.invalidateQueries({ queryKey: ["gpu-types"] });
+      qc.invalidateQueries({ queryKey: ["gpu-nodes"] });
+    },
+  });
+}
+
+export function useUpdateGpuProfile(clusterId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: GpuProfileInput }) =>
+      apiFetch<GpuProfile>(`${gpuClusterPath(clusterId)}/gpu-profiles/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gpu-profiles"] });
+      qc.invalidateQueries({ queryKey: ["gpu-types"] });
+      qc.invalidateQueries({ queryKey: ["gpu-nodes"] });
+    },
+  });
+}
+
+export function useDeleteGpuProfile(clusterId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ deleted: boolean }>(`${gpuClusterPath(clusterId)}/gpu-profiles/${id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["gpu-profiles"] });
+      qc.invalidateQueries({ queryKey: ["gpu-types"] });
+      qc.invalidateQueries({ queryKey: ["gpu-nodes"] });
+    },
+  });
+}
+
+/** Live node scan (read-only, best effort); off until `enabled` so dialogs don't hit the cluster on mount. */
+export function useGpuNodes(clusterId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["gpu-nodes", clusterId ?? "default"],
+    queryFn: () => apiFetch<GpuNodesResponse>(`${gpuClusterPath(clusterId)}/gpu-nodes`),
+    enabled,
+    staleTime: 30_000,
+    retry: false,
+  });
+}
+
+export function useGpuTypes() {
+  return useQuery({
+    queryKey: ["gpu-types"],
+    queryFn: () => apiFetch<{ types: GpuTypeOption[] }>("/api/admin/gpu-types").then((r) => r.types),
   });
 }

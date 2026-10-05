@@ -117,6 +117,7 @@ export default function DeploymentsPage() {
                           {d.model_name}
                         </Link>
                         <Badge variant="secondary" className="ml-2 font-mono text-[10px] uppercase">{d.engine}</Badge>
+                        {d.gpu_type && <Badge variant="outline" className="ml-1 font-mono text-[10px]">{d.gpu_type}</Badge>}
                         {(d.llmd_stack_count ?? 0) > 0 && (
                           <Badge variant="outline" className="ml-1 text-[10px]" title={t("llmdLinkedHint", { count: d.llmd_stack_count ?? 0 })}>llm-d ×{d.llmd_stack_count}</Badge>
                         )}
