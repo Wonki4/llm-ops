@@ -156,6 +156,7 @@ async def update_gpu_profile(
     row.gpu_resource_key = body.gpu_resource_key or DEFAULT_GPU_RESOURCE_KEY
     row.updated_by = user.user_id
     await db.flush()
+    await db.refresh(row)
     return _serialize(row, await cluster_label_key(db, cid))
 
 
