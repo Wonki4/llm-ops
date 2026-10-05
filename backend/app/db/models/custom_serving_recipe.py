@@ -41,6 +41,8 @@ class CustomServingRecipe(CustomBase):
     engine_args: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # {"readiness": {...}, "liveness": {...}}; None = portal defaults (see serving_probes).
     probes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # GPU type profile *name*; resolved per cluster at deploy time (see gpu_profiles).
+    gpu_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     env: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

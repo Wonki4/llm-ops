@@ -45,6 +45,10 @@ class CustomK8sCluster(CustomBase):
     default_nfs_server: Mapped[str | None] = mapped_column(String(253), nullable=True)
     default_nfs_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     default_nfs_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Node label key that marks GPU kinds on this cluster (hand-managed; no GFD).
+    gpu_label_key: Mapped[str] = mapped_column(
+        String(128), nullable=False, default="gpu-type", server_default="gpu-type"
+    )
     is_default: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

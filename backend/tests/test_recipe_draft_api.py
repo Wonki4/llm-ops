@@ -27,7 +27,15 @@ def _k8s(read_result):
     return k8s
 
 
+def _no_rows():
+    r = MagicMock()
+    r.scalars.return_value.all.return_value = []
+    r.scalar_one_or_none.return_value = None
+    return r
+
+
 async def test_recipe_draft_parses_live_deployment(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_no_rows())  # GPU profile lookup after parsing
     k8s = _k8s(_live_spec())
     with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)):
         async with client_for_user(super_user) as client:

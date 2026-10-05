@@ -25,6 +25,8 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
+from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
+from app.services.gpu_profiles import apply_profile, match_profile, validate_profile_name
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
@@ -62,6 +64,7 @@ class CreateDeploymentRequest(BaseModel):
     engine: ServingEngine = "vllm"
     engine_args: dict[str, str | int | float | bool] | None = None
     probes: dict | None = None
+    gpu_type: str | None = None
     ingress_host: str
     ingress_path: str = "/"
     ingress_class: str = "nginx"
@@ -76,6 +79,11 @@ class CreateDeploymentRequest(BaseModel):
     @classmethod
     def _check_probes(cls, v: dict | None) -> dict | None:
         return validate_probes(v)
+
+    @field_validator("gpu_type")
+    @classmethod
+    def _check_gpu_type(cls, v: str | None) -> str | None:
+        return validate_profile_name(v) if v and v.strip() else None
 
 
 class UpdateDeploymentRequest(BaseModel):
@@ -96,6 +104,7 @@ class UpdateDeploymentRequest(BaseModel):
     engine: ServingEngine | None = None
     engine_args: dict[str, str | int | float | bool] | None = None
     probes: dict | None = None
+    gpu_type: str | None = None
     ingress_host: str | None = None
     ingress_path: str | None = None
     ingress_class: str | None = None
@@ -109,6 +118,11 @@ class UpdateDeploymentRequest(BaseModel):
     @classmethod
     def _check_probes(cls, v: dict | None) -> dict | None:
         return validate_probes(v)
+
+    @field_validator("gpu_type")
+    @classmethod
+    def _check_gpu_type(cls, v: str | None) -> str | None:
+        return validate_profile_name(v) if v and v.strip() else None
 
 
 class RegisterExternalServingRequest(BaseModel):
@@ -148,6 +162,7 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
         "engine": d.engine or "vllm",
         "engine_args": d.engine_args,
         "probes": getattr(d, "probes", None),
+        "gpu_type": getattr(d, "gpu_type", None),
         "ingress_host": d.ingress_host,
         "ingress_path": d.ingress_path,
         "ingress_class": d.ingress_class,
@@ -252,7 +267,20 @@ async def external_recipe_draft(
         raise HTTPException(status_code=502, detail="Failed to read the Deployment from the cluster; check logs")
     if spec is None:
         raise HTTPException(status_code=404, detail="Deployment not found in the cluster")
-    return build_recipe_draft(spec)
+    out = build_recipe_draft(spec)
+    cid = uuid.UUID(cluster_id) if cluster_id else None
+    label_key = await cluster_label_key(db, cid)
+    profiles = await list_profiles(db, cid, enabled_only=True)
+    profile = match_profile(profiles, label_key, out["draft"].get("node_selector"))
+    if profile is not None:
+        selector = dict(out["draft"].get("node_selector") or {})
+        selector.pop(profile.label_key or label_key, None)
+        out["draft"]["node_selector"] = selector or None
+        out["draft"]["gpu_type"] = profile.name
+        out["draft"]["gpu_resource_key"] = profile.gpu_resource_key
+    else:
+        out["draft"]["gpu_type"] = None
+    return out
 
 
 @router.post("/external/register", status_code=status.HTTP_201_CREATED)
@@ -374,6 +402,11 @@ async def create_deployment(
         raise HTTPException(status_code=409, detail=f"Deployment for '{body.model_name}' already exists")
 
     k8s = await k8s_for_cluster(db, body.cluster_id)
+    cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    try:
+        gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
+    except UnknownGpuTypeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
@@ -398,6 +431,7 @@ async def create_deployment(
         engine=body.engine,
         engine_args=body.engine_args,
         probes=body.probes,
+        gpu_type=body.gpu_type,
         ingress_host=body.ingress_host,
         ingress_path=body.ingress_path,
         ingress_class=body.ingress_class,
@@ -406,6 +440,7 @@ async def create_deployment(
         created_by=user.user_id,
         updated_by=user.user_id,
     )
+    apply_profile(dep, gpu_profile, gpu_label_key)
     db.add(dep)
     await db.flush()
     await db.refresh(dep)
@@ -442,6 +477,12 @@ async def update_deployment(
     updates = body.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(dep, field, value)
+    if updates.get("gpu_type"):
+        try:
+            gpu_profile, gpu_label_key = await resolve_gpu_type(db, dep.cluster_id, updates["gpu_type"])
+        except UnknownGpuTypeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        apply_profile(dep, gpu_profile, gpu_label_key)
     dep.updated_by = user.user_id
     dep.status = "Updating"
     dep.last_synced_at = datetime.utcnow()

@@ -18,6 +18,7 @@ from app.api import (
     budgets,
     catalog,
     external,
+    gpu_profiles,
     k8s_clusters,
     keys,
     llmd,
@@ -77,6 +78,7 @@ app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
 app.include_router(llmd.router)
 app.include_router(serving_recipes.router)
+app.include_router(gpu_profiles.router)
 app.include_router(serving_overview.router)
 
 

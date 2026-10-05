@@ -15,6 +15,7 @@ import shlex
 import uuid
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.services.gpu_profiles import DEFAULT_GPU_LABEL_KEY, apply_profile
 from app.services.model_deployment_manifests import (
     build_deployment,
     build_service,
@@ -92,14 +93,21 @@ def build_ephemeral_deployment(
         dep.engine_args = dict(ov["engine_args"])
     if ov.get("env") is not None:
         dep.env = dict(ov["env"])
-    # GPU type → node selector label.
-    gpu_type = ov.get("gpu_type")
-    if gpu_type:
-        ns_sel = dict(dep.node_selector or {})
-        ns_sel["gpu-type"] = gpu_type
-        dep.node_selector = ns_sel
     if ov.get("node_selector") is not None:
         dep.node_selector = dict(ov["node_selector"])
+    # GPU type: a resolved profile (``gpu_profile``) wins; a bare ``gpu_type``
+    # string without a profile is the pre-profile behaviour (label under the
+    # cluster's key, default ``gpu-type``) kept for existing callers.
+    gpu_type = ov.get("gpu_type")
+    profile = ov.get("gpu_profile")
+    if profile is not None:
+        dep.gpu_type = getattr(profile, "name", gpu_type)
+        apply_profile(dep, profile, ov.get("gpu_label_key"))
+    elif gpu_type:
+        dep.gpu_type = gpu_type
+        ns_sel = dict(dep.node_selector or {})
+        ns_sel[ov.get("gpu_label_key") or DEFAULT_GPU_LABEL_KEY] = gpu_type
+        dep.node_selector = ns_sel
 
     return dep
 

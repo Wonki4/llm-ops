@@ -43,6 +43,7 @@ class CreateClusterRequest(BaseModel):
     default_nfs_mount_path: str | None = None
     argocd_host_cluster_id: str | None = None
     argocd_dest_server: str | None = None
+    gpu_label_key: str | None = None  # None → 'gpu-type'
 
 
 class UpdateClusterRequest(BaseModel):
@@ -58,6 +59,7 @@ class UpdateClusterRequest(BaseModel):
     default_nfs_mount_path: str | None = None
     argocd_host_cluster_id: str | None = None
     argocd_dest_server: str | None = None
+    gpu_label_key: str | None = None
 
 
 class TestClusterRequest(BaseModel):
@@ -136,6 +138,7 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "default_nfs_server": c.default_nfs_server,
         "default_nfs_path": c.default_nfs_path,
         "default_nfs_mount_path": c.default_nfs_mount_path,
+        "gpu_label_key": getattr(c, "gpu_label_key", None) or "gpu-type",
         "has_kubeconfig": bool(c.kubeconfig_encrypted),
         "created_by": c.created_by,
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -202,6 +205,7 @@ async def create_cluster(
         default_nfs_mount_path=body.default_nfs_mount_path or None,
         argocd_host_cluster_id=argocd_host,
         argocd_dest_server=(body.argocd_dest_server or "").strip() or None,
+        gpu_label_key=(body.gpu_label_key or "").strip() or "gpu-type",
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -244,6 +248,8 @@ async def update_cluster(
         cluster.default_nfs_path = body.default_nfs_path or None
     if body.default_nfs_mount_path is not None:
         cluster.default_nfs_mount_path = body.default_nfs_mount_path or None
+    if body.gpu_label_key is not None:
+        cluster.gpu_label_key = body.gpu_label_key.strip() or "gpu-type"
     if nfs_fields_incomplete(
         cluster.default_nfs_server, cluster.default_nfs_path, cluster.default_nfs_mount_path
     ):
