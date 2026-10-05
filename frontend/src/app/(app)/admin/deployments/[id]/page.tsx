@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { engineArgsToFlags } from "@/lib/serving-engines";
+import { PD_ROLES, PD_VLLM_PORT, roleLaunchArgs, roleOverride } from "@/lib/pd-serving";
 
 import {
   useModelDeployment,
@@ -100,8 +101,11 @@ export default function DeploymentDetailPage() {
             <h1 className="text-2xl font-bold">{dep.model_name}</h1>
             <StatusBadge status={dep.status} />
             <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
+            {dep.serving_mode === "pd" && <Badge variant="outline" className="text-[10px]" data-testid="pd-badge">{t("pdBadge")}</Badge>}
             {dep.gpu_type && <Badge variant="outline" className="font-mono text-[10px]">{dep.gpu_type}</Badge>}
-            <span className="text-sm text-muted-foreground tabular-nums">{dep.ready_replicas}/{dep.replicas} ready</span>
+            <span className="text-sm text-muted-foreground tabular-nums">
+              {dep.serving_mode === "pd" && dep.pd_summary ? dep.pd_summary : `${dep.ready_replicas}/${dep.replicas} ready`}
+            </span>
             {dep.recipe_id && (
               <Badge asChild variant="outline" className="gap-1">
                 <Link href={`/admin/recipes/${dep.recipe_id}`} title={t("recipeLinkedHint")}>
@@ -135,7 +139,9 @@ export default function DeploymentDetailPage() {
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             <Field label={t("colStatus")}><StatusBadge status={dep.status} /></Field>
-            <Field label={t("colReplicas")} mono>{dep.ready_replicas}/{dep.replicas}</Field>
+            <Field label={t("colReplicas")} mono>
+              {dep.serving_mode === "pd" && dep.pd_summary ? dep.pd_summary : `${dep.ready_replicas}/${dep.replicas}`}
+            </Field>
             <Field label={t("litellmRegistered")}>{dep.litellm_model_id ? `✅ ${dep.litellm_model_id}` : t("notRegistered")}</Field>
             <Field label={t("serviceIp")} mono>{dep.service_cluster_ip || "-"}</Field>
             <Field label={t("lastSynced")}>{fmt(dep.last_synced_at)}</Field>
@@ -170,6 +176,11 @@ export default function DeploymentDetailPage() {
             <Field label={t("probeLiveness")} mono>
               {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, "/health", [120, 30, 5, 3])}
             </Field>
+            <Field label={t("probeStartup")} mono>
+              {dep.probes?.startup == null && dep.serving_mode !== "pd"
+                ? t("probeOff")
+                : probeSummary(dep.probes?.startup ?? null, "/health", [15, 30, 5, 120])}
+            </Field>
           </div>
           {(() => {
             const flags = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];
@@ -182,6 +193,66 @@ export default function DeploymentDetailPage() {
           })()}
         </CardContent>
       </Card>
+
+      {/* Prefill / decode pools + the router they register through */}
+      {dep.serving_mode === "pd" && (
+        <Card data-testid="pd-section">
+          <CardHeader><CardTitle className="text-base">{t("pdSection")}</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {PD_ROLES.map((role) => {
+                const st = dep.pd_status?.[role];
+                const ov = roleOverride(dep, role);
+                const args = roleLaunchArgs(dep, role);
+                return (
+                  <div key={role} className="space-y-3 rounded-md border p-3" data-testid={`pd-role-${role}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{t(role === "prefill" ? "pdPrefill" : "pdDecode")}</span>
+                      {st?.status && <StatusBadge status={st.status} />}
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {st ? `${st.ready}/${st.desired}` : `–/${ov.replicas ?? 1}`}
+                      </span>
+                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">
+                        {t("pdPort")} {PD_VLLM_PORT[role]} · {ov.gpu_count ?? dep.gpu_count} × {dep.gpu_resource_key}
+                        {(ov.gpu_type ?? dep.gpu_type) ? ` · ${ov.gpu_type ?? dep.gpu_type}` : ""}
+                      </span>
+                    </div>
+                    {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
+                    <div className="space-y-1">
+                      <div className="text-xs text-muted-foreground">{t("pdLaunchArgs")}</div>
+                      <code className="block whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-2 text-xs font-mono">{args.join(" ")}</code>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="rounded-md border p-3" data-testid="pd-router">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge variant="outline">llm-d</Badge>
+                <span className="font-medium">{t("pdRouter")}</span>
+                {dep.router_stack ? (
+                  <>
+                    <Link href={`/admin/llmd/${dep.router_stack.id}`} className="hover:underline">{dep.router_stack.name}</Link>
+                    {dep.router_stack.health_status && (
+                      <Badge variant={dep.router_stack.health_status === "Healthy" ? "default" : "secondary"}>{dep.router_stack.health_status}</Badge>
+                    )}
+                    {dep.router_stack.sync_status && <Badge variant="secondary">{dep.router_stack.sync_status}</Badge>}
+                    <span className="font-mono text-xs text-muted-foreground">{t("pdRouterHost")} {dep.router_stack.ingress_host}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {dep.router_stack.created_by_deployment ? t("pdRouterCreated") : t("pdRouterLinked")}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t("pdRouterNone")}</span>
+                )}
+              </div>
+              {dep.pd_status?.router && dep.pd_status.router.ready === false && dep.pd_status.router.reason && (
+                <p className="mt-2 text-xs text-muted-foreground">{t("pdRouterWaiting", { reason: dep.pd_status.router.reason })}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* llm-d routers that select this deployment's pods */}
       <Card>

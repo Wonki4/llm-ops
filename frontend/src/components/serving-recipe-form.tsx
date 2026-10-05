@@ -9,14 +9,17 @@ import { useTranslations } from "next-intl";
 
 import { useCreateServingRecipe, useGpuTypes, useUpdateServingRecipe } from "@/hooks/use-api";
 import { linesToList, linesToMap, linesToTolerations, listToLines, mapToLines, tolerationsToLines } from "@/lib/placement";
-import type { EngineArgs, ProbeSpec, ProbesSpec, ServingEngine, ServingRecipe, ServingRecipeInput } from "@/types";
+import type {
+  PdConfig, PdRoleOverride, ProbeSpec, ProbesSpec, RuntimeOptions, ServingEngine, ServingMode, ServingRecipe, ServingRecipeInput,
+} from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  ENGINES, ENGINE_ARG_FIELDS, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, argLabelKey, type EngineArgField,
-} from "@/lib/serving-engines";
+import { ENGINES, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY } from "@/lib/serving-engines";
+import { Area, EngineArgsFields, Field, withEngineArg } from "@/components/engine-args-fields";
+import { PdRoleCard } from "@/components/pd-role-card";
+import { DEFAULT_NIXL_PORT } from "@/lib/pd-serving";
 
 export const RECIPES_HREF = "/admin/recipes";
 
@@ -26,7 +29,12 @@ const BLANK: ServingRecipeInput = {
   memory_request: null, memory_limit: null, node_selector: null, tolerations: null,
   pvc_name: null, pvc_mount_path: null, vllm_extra_args: null, env: null,
   engine: "vllm", engine_args: null, probes: null, gpu_type: null,
+  serving_mode: "aggregated", pd_config: null, runtime: null,
 };
+
+const PD_BLANK: PdConfig = { prefill: { replicas: 1 }, decode: { replicas: 1 } };
+const MODES: ServingMode[] = ["aggregated", "pd"];
+const MODE_LABEL_KEY: Record<ServingMode, "modeAggregated" | "modePd"> = { aggregated: "modeAggregated", pd: "modePd" };
 
 function toInput(r: ServingRecipe): ServingRecipeInput {
   const { id, created_by, updated_by, created_at, updated_at, ...rest } = r;
@@ -38,6 +46,7 @@ type RequiredText = "name" | "image" | "model_path" | "gpu_resource_key";
 type OptionalText =
   | "description" | "cpu_request" | "cpu_limit" | "memory_request" | "memory_limit"
   | "pvc_name" | "pvc_mount_path";
+type OptionalProbe = "liveness" | "startup";
 
 /** Page chrome shared by the create and edit routes. */
 export function RecipePageHeader({ title, description }: { title: string; description?: string }) {
@@ -77,14 +86,24 @@ export function ServingRecipeForm({
   const updateMut = useUpdateServingRecipe();
   const { data: gpuTypes } = useGpuTypes();
 
-  const seed: ServingRecipeInput = recipe ? toInput(recipe) : initial ?? BLANK;
+  // Drafts from the reverse parser predate some fields; BLANK fills the gaps.
+  const seed: ServingRecipeInput = { ...BLANK, ...(recipe ? toInput(recipe) : initial ?? {}) };
   const [form, setForm] = useState<ServingRecipeInput>(seed);
   const [argsText, setArgsText] = useState(() => listToLines(seed.vllm_extra_args));
   const [envText, setEnvText] = useState(() => mapToLines(seed.env));
   const [nsText, setNsText] = useState(() => mapToLines(seed.node_selector));
   const [tolText, setTolText] = useState(() => tolerationsToLines(seed.tolerations));
+  const [kvExtraText, setKvExtraText] = useState(() => {
+    const extra = seed.pd_config?.kv_transfer_extra;
+    return extra && Object.keys(extra).length ? JSON.stringify(extra, null, 2) : "";
+  });
+  const [extraResText, setExtraResText] = useState(() => mapToLines(seed.runtime?.extra_resources ?? null));
 
   const saving = createMut.isPending || updateMut.isPending;
+  const isPd = form.serving_mode === "pd";
+  const pd: PdConfig = form.pd_config ?? PD_BLANK;
+  const runtime: RuntimeOptions = form.runtime ?? {};
+  const gpuTypeNames = (gpuTypes ?? []).map((g) => g.name);
 
   const text = (k: RequiredText) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -101,17 +120,28 @@ export function ServingRecipeForm({
     });
   }
 
-  function setArg(key: string, value: string | number | boolean | undefined) {
-    setForm((f) => {
-      const next: EngineArgs = { ...(f.engine_args ?? {}) };
-      if (value === undefined || value === "" || value === false) delete next[key];
-      else next[key] = value;
-      return { ...f, engine_args: Object.keys(next).length ? next : null };
-    });
+  /** P/D needs vLLM: switching to it also switches the engine (and seeds the two pools). */
+  function switchMode(next: ServingMode) {
+    if (next === "pd") switchEngine("vllm");
+    setForm((f) => ({
+      ...f,
+      serving_mode: next,
+      pd_config: next === "pd" ? (f.pd_config ?? PD_BLANK) : f.pd_config,
+    }));
   }
 
-  /** Probe fields: unset (undefined) means "portal default"; liveness null means off. */
-  function setProbe(kind: "readiness" | "liveness", key: keyof ProbeSpec, value: string) {
+  function setPd(patch: Partial<PdConfig>) {
+    setForm((f) => ({ ...f, pd_config: { ...(f.pd_config ?? PD_BLANK), ...patch } }));
+  }
+  function setRole(role: "prefill" | "decode", value: PdRoleOverride) {
+    setPd({ [role]: value });
+  }
+  function setRuntime(patch: Partial<RuntimeOptions>) {
+    setForm((f) => ({ ...f, runtime: { ...(f.runtime ?? {}), ...patch } }));
+  }
+
+  /** Probe fields: unset (undefined) means "portal default"; liveness/startup null means off. */
+  function setProbe(kind: "readiness" | OptionalProbe, key: keyof ProbeSpec, value: string) {
     setForm((f) => {
       const probes: ProbesSpec = { ...(f.probes ?? {}) };
       const spec: ProbeSpec = { ...(probes[kind] ?? {}) };
@@ -122,8 +152,8 @@ export function ServingRecipeForm({
       return { ...f, probes };
     });
   }
-  function setLiveness(enabled: boolean) {
-    setForm((f) => ({ ...f, probes: { ...(f.probes ?? {}), liveness: enabled ? (f.probes?.liveness ?? {}) : null } }));
+  function setOptionalProbe(kind: OptionalProbe, enabled: boolean) {
+    setForm((f) => ({ ...f, probes: { ...(f.probes ?? {}), [kind]: enabled ? (f.probes?.[kind] ?? {}) : null } }));
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -132,12 +162,32 @@ export function ServingRecipeForm({
       toast.error(t("requiredError"));
       return;
     }
+    let pdConfig: PdConfig | null = null;
+    if (isPd) {
+      let kvExtra: Record<string, unknown> | undefined;
+      if (kvExtraText.trim()) {
+        try {
+          const parsed: unknown = JSON.parse(kvExtraText);
+          if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+          kvExtra = parsed as Record<string, unknown>;
+        } catch {
+          toast.error(t("pdKvExtraInvalid"));
+          return;
+        }
+      }
+      pdConfig = { ...pd, kv_transfer_extra: kvExtra ?? {}, sidecar_image: pd.sidecar_image?.trim() || null };
+    }
+    const extraResources = linesToMap(extraResText);
+    const runtimeOut: RuntimeOptions = { ...runtime, extra_resources: extraResources ?? {} };
+    const runtimeEmpty = !runtimeOut.shm_size_gi && !runtimeOut.host_ipc && !runtimeOut.privileged && !extraResources;
     const body: ServingRecipeInput = {
       ...form,
       vllm_extra_args: linesToList(argsText),
       env: linesToMap(envText),
       node_selector: linesToMap(nsText),
       tolerations: linesToTolerations(tolText),
+      pd_config: pdConfig,
+      runtime: runtimeEmpty ? null : runtimeOut,
     };
     const opts = {
       onSuccess: () => {
@@ -156,23 +206,48 @@ export function ServingRecipeForm({
       <Card>
         <CardHeader><CardTitle className="text-base">{t("sectionBasic")}</CardTitle></CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field id="recipe-engine" label={t("engine")} span2>
-            <div id="recipe-engine" role="radiogroup" className="inline-flex rounded-md border p-0.5">
-              {ENGINES.map((e) => (
+          <Field id="recipe-mode" label={t("servingMode")} span2 hint={isPd ? t("modePdHint") : undefined}>
+            <div id="recipe-mode" role="radiogroup" className="inline-flex rounded-md border p-0.5">
+              {MODES.map((m) => (
                 <button
-                  key={e}
+                  key={m}
                   type="button"
                   role="radio"
-                  aria-checked={form.engine === e}
-                  onClick={() => switchEngine(e)}
+                  aria-checked={form.serving_mode === m}
+                  data-testid={`recipe-mode-${m}`}
+                  onClick={() => switchMode(m)}
                   className={
                     "rounded px-3 py-1 text-sm transition-colors " +
-                    (form.engine === e ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
+                    (form.serving_mode === m ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
                   }
                 >
-                  {t(ENGINE_LABEL_KEY[e])}
+                  {t(MODE_LABEL_KEY[m])}
                 </button>
               ))}
+            </div>
+          </Field>
+          <Field id="recipe-engine" label={t("engine")} span2 hint={isPd ? t("modeEngineLocked") : undefined}>
+            <div id="recipe-engine" role="radiogroup" className="inline-flex rounded-md border p-0.5">
+              {ENGINES.map((e) => {
+                const locked = isPd && e !== "vllm";
+                return (
+                  <button
+                    key={e}
+                    type="button"
+                    role="radio"
+                    aria-checked={form.engine === e}
+                    aria-disabled={locked}
+                    disabled={locked}
+                    onClick={() => switchEngine(e)}
+                    className={
+                      "rounded px-3 py-1 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-40 " +
+                      (form.engine === e ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
+                    }
+                  >
+                    {t(ENGINE_LABEL_KEY[e])}
+                  </button>
+                );
+              })}
             </div>
           </Field>
           <Field id="recipe-name" label={t("name")} required>
@@ -248,8 +323,11 @@ export function ServingRecipeForm({
           <p className="text-xs text-muted-foreground">{t("engineArgsHint")}</p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <EngineArgsFields engine={form.engine} values={form.engine_args} onChange={setArg} />
-          <Field id="recipe-args" label={t("extraArgs")}>
+          <EngineArgsFields
+            engine={form.engine} values={form.engine_args}
+            onChange={(key, v) => setForm((f) => ({ ...f, engine_args: withEngineArg(f.engine_args, key, v) }))}
+          />
+          <Field id="recipe-args" label={t("extraArgs")} hint={isPd ? t("pdHint") : undefined}>
             <Area
               id="recipe-args" value={argsText} onChange={setArgsText}
               placeholder={form.engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
@@ -257,6 +335,62 @@ export function ServingRecipeForm({
           </Field>
         </CardContent>
       </Card>
+
+      {isPd && (
+        <Card data-testid="recipe-pd-section">
+          <CardHeader>
+            <CardTitle className="text-base">{t("sectionPd")}</CardTitle>
+            <p className="text-xs text-muted-foreground">{t("pdHint")}</p>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              <PdRoleCard role="prefill" value={pd.prefill ?? {}} onChange={(v) => setRole("prefill", v)} gpuTypes={gpuTypeNames} />
+              <PdRoleCard role="decode" value={pd.decode ?? {}} onChange={(v) => setRole("decode", v)} gpuTypes={gpuTypeNames} />
+            </div>
+            <div className="space-y-3">
+              <div className="text-sm font-medium">{t("pdKvSection")}</div>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field id="pd-nixl-port" label={t("pdNixlPort")}>
+                  <Input
+                    id="pd-nixl-port" type="number" min={1024} max={65535} step={1}
+                    value={pd.nixl_port ?? DEFAULT_NIXL_PORT}
+                    onChange={(e) => setPd({ nixl_port: e.target.value === "" ? DEFAULT_NIXL_PORT : Number(e.target.value) })}
+                  />
+                </Field>
+                <Field id="pd-sidecar-image" label={t("pdSidecarImage")} hint={t("pdSidecarImageHint")}>
+                  <Input
+                    id="pd-sidecar-image" className="font-mono" placeholder="ghcr.io/llm-d/llm-d-router-disagg-sidecar:main"
+                    value={pd.sidecar_image ?? ""} onChange={(e) => setPd({ sidecar_image: e.target.value || null })}
+                  />
+                </Field>
+                <Field id="pd-kv-extra" label={t("pdKvExtra")} span2 hint={t("pdKvExtraHint")}>
+                  <Area id="pd-kv-extra" rows={3} value={kvExtraText} onChange={setKvExtraText} placeholder={'{"kv_buffer_device": "cuda"}'} />
+                </Field>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="text-sm font-medium">{t("pdRouterSection")}</div>
+              <p className="text-xs text-muted-foreground">{t("pdRouterHint")}</p>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <Field id="pd-peak-prefill" label={t("pdPeakPrefillThroughput")}>
+                  <Input
+                    id="pd-peak-prefill" type="number" min={1} step={1} placeholder="33821"
+                    value={pd.router?.peak_prefill_throughput ?? ""}
+                    onChange={(e) => setPd({ router: { ...(pd.router ?? {}), peak_prefill_throughput: e.target.value === "" ? undefined : Number(e.target.value) } })}
+                  />
+                </Field>
+                <Field id="pd-prefix-tokens" label={t("pdPrefixTokensToMatch")}>
+                  <Input
+                    id="pd-prefix-tokens" type="number" min={1} step={1} placeholder="131072"
+                    value={pd.router?.prefix_tokens_to_match ?? ""}
+                    onChange={(e) => setPd({ router: { ...(pd.router ?? {}), prefix_tokens_to_match: e.target.value === "" ? undefined : Number(e.target.value) } })}
+                  />
+                </Field>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -273,7 +407,7 @@ export function ServingRecipeForm({
           />
           <div className="space-y-3">
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={form.probes?.liveness != null} onChange={(e) => setLiveness(e.target.checked)} />
+              <input type="checkbox" checked={form.probes?.liveness != null} onChange={(e) => setOptionalProbe("liveness", e.target.checked)} />
               {t("livenessEnable")}
             </label>
             {form.probes?.liveness != null && (
@@ -286,6 +420,22 @@ export function ServingRecipeForm({
               />
             )}
           </div>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={form.probes?.startup != null} onChange={(e) => setOptionalProbe("startup", e.target.checked)} />
+              {t("startupEnable")}
+            </label>
+            {isPd && <p className="text-xs text-muted-foreground">{t("startupPdHint")}</p>}
+            {form.probes?.startup != null && (
+              <ProbeFields
+                kind="startup"
+                title={t("startup")}
+                spec={form.probes.startup}
+                defaults={STARTUP_DEFAULTS}
+                onChange={(k, v) => setProbe("startup", k, v)}
+              />
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -295,6 +445,32 @@ export function ServingRecipeForm({
           <Field id="recipe-env" label={t("env")}>
             <Area id="recipe-env" value={envText} onChange={setEnvText} placeholder={"HF_HOME=/models/.cache\nVLLM_LOGGING_LEVEL=INFO"} />
           </Field>
+          <details className="rounded-md border p-3" open={!!(runtime.shm_size_gi || runtime.host_ipc || runtime.privileged || extraResText)}>
+            <summary className="cursor-pointer text-sm font-medium">{t("sectionRuntime")}</summary>
+            <p className="mt-1 text-xs text-muted-foreground">{t("runtimeHint")}</p>
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field id="recipe-shm" label={t("runtimeShm")}>
+                <Input
+                  id="recipe-shm" type="number" min={1} max={4096} step={1} placeholder="16"
+                  value={runtime.shm_size_gi ?? ""}
+                  onChange={(e) => setRuntime({ shm_size_gi: e.target.value === "" ? null : Number(e.target.value) })}
+                />
+              </Field>
+              <div className="flex flex-wrap items-end gap-x-6 gap-y-2 pb-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={!!runtime.host_ipc} onChange={(e) => setRuntime({ host_ipc: e.target.checked })} />
+                  {t("runtimeHostIpc")}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={!!runtime.privileged} onChange={(e) => setRuntime({ privileged: e.target.checked })} />
+                  {t("runtimePrivileged")}
+                </label>
+              </div>
+              <Field id="recipe-extra-resources" label={t("runtimeExtraResources")} span2 hint={t("runtimeExtraResourcesHint")}>
+                <Area id="recipe-extra-resources" rows={2} value={extraResText} onChange={setExtraResText} placeholder="rdma/ib=1" />
+              </Field>
+            </div>
+          </details>
           <details className="rounded-md border p-3" open={!!(form.node_selector || form.tolerations || form.gpu_resource_key !== "nvidia.com/gpu")}>
             <summary className="cursor-pointer text-sm font-medium">{t("advancedPlacement")}</summary>
             <p className="mt-1 text-xs text-muted-foreground">{t("advancedPlacementHint")}</p>
@@ -326,119 +502,16 @@ export function ServingRecipeForm({
   );
 }
 
-function Field({
-  id, label, required, span2, children,
-}: { id: string; label: string; required?: boolean; span2?: boolean; children: React.ReactNode }) {
-  return (
-    <div className={span2 ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-      <Label htmlFor={id}>
-        {label}
-        {required && <span className="text-destructive"> *</span>}
-      </Label>
-      {children}
-    </div>
-  );
-}
-
-function Area({
-  id, value, onChange, placeholder,
-}: { id: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
-  return (
-    <textarea
-      id={id}
-      rows={6}
-      value={value}
-      placeholder={placeholder}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-    />
-  );
-}
-
-function EngineArgsFields({
-  engine, values, onChange,
-}: { engine: ServingEngine; values: EngineArgs | null; onChange: (key: string, value: string | number | boolean | undefined) => void }) {
-  const t = useTranslations("servingRecipes");
-  const fields = ENGINE_ARG_FIELDS[engine];
-  const scalar = fields.filter((f) => f.type !== "bool");
-  const bools = fields.filter((f) => f.type === "bool");
-  const get = (key: string) => values?.[key];
-  const num = (key: string): number | "" => {
-    const v = get(key);
-    return typeof v === "number" ? v : "";
-  };
-
-  const inputFor = (f: EngineArgField) => {
-    const id = `recipe-arg-${f.key}`;
-    switch (f.type) {
-      case "int":
-        return (
-          <Input
-            id={id} type="number" step={1} min={f.min} placeholder={f.placeholder}
-            value={num(f.key)}
-            onChange={(e) => onChange(f.key, e.target.value === "" ? undefined : Number(e.target.value))}
-          />
-        );
-      case "float":
-        return (
-          <Input
-            id={id} type="number" step={f.step} min={f.min} max={f.max} placeholder={f.placeholder}
-            value={num(f.key)}
-            onChange={(e) => onChange(f.key, e.target.value === "" ? undefined : Number(e.target.value))}
-          />
-        );
-      case "text":
-        return (
-          <Input id={id} placeholder={f.placeholder} value={String(get(f.key) ?? "")} onChange={(e) => onChange(f.key, e.target.value)} />
-        );
-      case "select":
-        return (
-          <select
-            id={id}
-            value={String(get(f.key) ?? "")}
-            onChange={(e) => onChange(f.key, e.target.value)}
-            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-          >
-            {f.options.map((o) => <option key={o} value={o}>{o === "" ? "—" : o}</option>)}
-          </select>
-        );
-      default:
-        return null;
-    }
-  };
-
-  return (
-    <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {scalar.map((f) => (
-          <div key={f.key} className="space-y-2">
-            <Label htmlFor={`recipe-arg-${f.key}`}>
-              {t(argLabelKey(f.key))}
-              <span className="ml-2 font-mono text-[11px] text-muted-foreground">--{f.key}</span>
-            </Label>
-            {inputFor(f)}
-          </div>
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        {bools.map((f) => (
-          <label key={f.key} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={get(f.key) === true} onChange={(e) => onChange(f.key, e.target.checked)} />
-            {t(argLabelKey(f.key))}
-            <span className="font-mono text-[11px] text-muted-foreground">--{f.key}</span>
-          </label>
-        ))}
-      </div>
-    </>
-  );
-}
-
 /** Mirrors backend serving_probes defaults; shown as placeholders so an empty field reads as "default". */
 const READINESS_DEFAULTS: Required<ProbeSpec> = {
   path: "/health", initial_delay_seconds: 60, period_seconds: 10, timeout_seconds: 5, failure_threshold: 30,
 };
 const LIVENESS_DEFAULTS: Required<ProbeSpec> = {
   path: "/health", initial_delay_seconds: 120, period_seconds: 30, timeout_seconds: 5, failure_threshold: 3,
+};
+/** The P/D default (STARTUP_DEFAULTS_PD); aggregated servings only get a startup probe when enabled here. */
+const STARTUP_DEFAULTS: Required<ProbeSpec> = {
+  path: "/health", initial_delay_seconds: 15, period_seconds: 30, timeout_seconds: 5, failure_threshold: 120,
 };
 const PROBE_NUMERIC: (keyof ProbeSpec)[] = ["initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold"];
 const PROBE_LABEL: Record<keyof ProbeSpec, string> = {
@@ -449,7 +522,7 @@ const PROBE_LABEL: Record<keyof ProbeSpec, string> = {
 function ProbeFields({
   kind, title, spec, defaults, onChange,
 }: {
-  kind: "readiness" | "liveness";
+  kind: "readiness" | "liveness" | "startup";
   title: string;
   spec: ProbeSpec | null;
   defaults: Required<ProbeSpec>;

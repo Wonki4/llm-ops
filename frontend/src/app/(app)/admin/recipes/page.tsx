@@ -57,6 +57,7 @@ export default function AdminRecipesPage() {
                   <TableCell className="font-medium">
                     <span className="inline-flex items-center gap-2">
                       <Badge variant="secondary" className="font-mono text-[10px] uppercase">{r.engine}</Badge>
+                      {r.serving_mode === "pd" && <Badge variant="outline" className="text-[10px]">P/D</Badge>}
                       {r.name}
                     </span>
                   </TableCell>

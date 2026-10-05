@@ -641,8 +641,9 @@ export default function NewBenchmarkPage() {
                       {allDeployments.map((d) => {
                         const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
                         return (
-                          <option key={d.id} value={d.id}>
+                          <option key={d.id} value={d.id} disabled={d.serving_mode === "pd"}>
                             {d.model_name} — {d.gpu_count}×{gpu}
+                            {d.serving_mode === "pd" ? " · P/D" : ""}
                             {d.memory_limit ? ` · ${d.memory_limit}` : ""}
                             {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
                           </option>
@@ -660,6 +661,9 @@ export default function NewBenchmarkPage() {
                     )}
                   </select>
                   <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
+                  {allDeployments.some((d) => d.serving_mode === "pd") && (
+                    <p className="text-xs text-muted-foreground">{t("pdTargetNote")}</p>
+                  )}
                   {!externalTarget && selectedDeployment && (
                     <p className="font-mono text-xs text-muted-foreground">
                       {selectedDeployment.model_path}
@@ -718,6 +722,7 @@ export default function NewBenchmarkPage() {
                       return (
                         <option key={d.id} value={d.id}>
                           {d.model_name} — {d.gpu_count}×{gpu}
+                          {d.serving_mode === "pd" ? " · P/D → router" : ""}
                           {d.memory_limit ? ` · ${d.memory_limit}` : ""}
                         </option>
                       );

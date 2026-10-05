@@ -360,6 +360,7 @@ export default function LlmdDetailPage() {
                   {applied.linked_servers.map((srv) => (
                     <div key={`${srv.kind}-${srv.namespace}-${srv.name}`} className="flex flex-wrap items-center gap-2 rounded-md border p-3 text-sm">
                       <Badge variant="outline">{srv.kind === "portal" ? t("linkedPortal") : t("linkedExternal")}</Badge>
+                      {srv.serving_mode === "pd" && <Badge variant="outline" className="text-[10px]">{t("linkedPd")}</Badge>}
                       {srv.kind === "portal" && srv.id ? (
                         <Link href={`/admin/deployments/${srv.id}`} className="font-medium hover:underline">{srv.name}</Link>
                       ) : (

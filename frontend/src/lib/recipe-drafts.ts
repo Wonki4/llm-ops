@@ -33,6 +33,9 @@ export function recipeFromDeployment(dep: ModelDeployment, name: string, descrip
     engine_args: dep.engine_args,
     probes: dep.probes ?? null,
     gpu_type: dep.gpu_type ?? null,
+    serving_mode: dep.serving_mode ?? "aggregated",
+    pd_config: dep.pd_config ?? null,
+    runtime: dep.runtime ?? null,
   };
 }
 
