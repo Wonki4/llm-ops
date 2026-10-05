@@ -33,7 +33,9 @@ export function DeployFromRecipeDialog({
   const [ingressPath, setIngressPath] = useState("/");
   const [ingressClass, setIngressClass] = useState("nginx");
   const [replicas, setReplicas] = useState(1);
-  const [gpuType, setGpuType] = useState<string>(recipe?.gpu_type ?? "");
+  const [gpuTypeChoice, setGpuTypeChoice] = useState<string | null>(null); // null = follow the recipe
+  const gpuType = gpuTypeChoice ?? recipe?.gpu_type ?? "";
+  const setGpuType = (v: string) => setGpuTypeChoice(v);
 
   // Instance fields reset each time a new recipe opens the dialog: the
   // caller remounts this component with `key={recipe.id}`.
@@ -127,7 +129,7 @@ export function DeployFromRecipeDialog({
               id="deploy-cluster"
               className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
               value={clusterId}
-              onChange={(e) => { setClusterId(e.target.value); setGpuType(recipe?.gpu_type ?? ""); }}
+              onChange={(e) => { setClusterId(e.target.value); setGpuTypeChoice(null); }}
             >
               <option value="">{t("deployClusterDefault")}</option>
               {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

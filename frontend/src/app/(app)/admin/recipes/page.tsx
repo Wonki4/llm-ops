@@ -79,7 +79,7 @@ export default function AdminRecipesPage() {
 
       <DeployFromRecipeDialog
         key={deployTarget?.id ?? "closed"}
-        recipe={deployTarget}
+        recipe={deployTarget ? (recipes?.find((r) => r.id === deployTarget.id) ?? deployTarget) : null}
         onClose={() => setDeployTarget(null)}
       />
     </div>

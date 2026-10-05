@@ -1,7 +1,7 @@
 # GPU type profiles — Design
 
 Date: 2026-10-03
-Status: draft, awaiting review
+Status: implemented 2026-10-05 (commits ccd5816, af8ac77 + follow-ups on feat/recipe-engine-split); verified on minikube portal-test with a fake nvidia.com/gpu capacity
 Related: `backend/app/services/model_deployment_manifests.py`, `backend/app/services/benchmark_serving.py` (existing `gpu_type` → `gpu-type` label fold), `custom_k8s_cluster`, recipe/deployment forms
 
 ## Goal
@@ -217,10 +217,10 @@ timeout like the external scan.
 
 ## Open questions for review
 
-1. Should a profile also carry a default `gpu_count` hint or VRAM-based
-   sanity check (e.g. warn when a 70B bf16 recipe picks `l40s` ×1)? Draft:
-   display `vram_gb` only, no checks.
-2. Benchmarks: keep accepting a raw `gpu_type` string that is not a profile
-   (compat fold) for one release, or require profiles from day one?
-3. The deploy dialog's cluster select changes a long-standing free-text
-   field; confirm there is no automation posting `cluster_id` by hand.
+1. VRAM sanity checks — not implemented; `vram_gb` is display only
+   (shown in the profile table and the benchmark picker).
+2. Benchmarks — the raw `gpu_type` string is still accepted when the
+   cluster has no profiles (legacy label fold under the cluster's label
+   key); with profiles present an unknown name is a 400.
+3. Deploy dialog — cluster is now a select; the API still accepts
+   `cluster_id` as before, so scripted callers are unaffected.

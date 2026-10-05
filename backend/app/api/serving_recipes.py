@@ -171,6 +171,7 @@ async def update_recipe(
         setattr(recipe, k, v)
     recipe.updated_by = user.user_id
     await db.flush()
+    await db.refresh(recipe)  # updated_at is server-generated on update; load it before serialising
     return _serialize(recipe)
 
 
