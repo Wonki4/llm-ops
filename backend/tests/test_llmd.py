@@ -6,7 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from kubernetes_asyncio.client.exceptions import ApiException
 
-from app.api.llmd import _application_for, _argo_status, _k8s_error_message, _serialize, _values_for
+from app.api.llmd import _serialize
+from app.services import llmd_stacks
 
 
 def test_dump_values_yaml_preserves_literal_blocks():
@@ -15,26 +16,24 @@ def test_dump_values_yaml_preserves_literal_blocks():
     # editor readback was mangled by plain safe_dump.
     import yaml
 
-    from app.api.llmd import _dump_values_yaml
-
     data = {"router": {"proxy": {"cfg": "admin:\n  port: 19000\nlisteners: []\n"}}}
-    out = _dump_values_yaml(data)
-    assert "cfg: |" in out           # literal block style
-    assert "\\n" not in out          # no escaped newlines
+    out = llmd_stacks.dump_values_yaml(data)
+    assert "cfg: |" in out  # literal block style
+    assert "\\n" not in out  # no escaped newlines
     assert yaml.safe_load(out) == data  # lossless round-trip
 
 
 def test_argo_status_from_cr_object():
     obj = {"status": {"sync": {"status": "Synced"}, "health": {"status": "Healthy", "message": "ok"}}}
-    assert _argo_status(obj) == {"sync_status": "Synced", "health_status": "Healthy", "status_message": "ok"}
+    assert llmd_stacks.argo_status(obj) == {"sync_status": "Synced", "health_status": "Healthy", "status_message": "ok"}
 
 
 def test_argo_status_unknown_when_absent():
-    assert _argo_status(None)["sync_status"] == "Unknown"
+    assert llmd_stacks.argo_status(None)["sync_status"] == "Unknown"
 
 
 def test_k8s_error_message_403_hint():
-    msg = _k8s_error_message(ApiException(status=403, reason="Forbidden"))
+    msg = llmd_stacks.k8s_error_message(ApiException(status=403, reason="Forbidden"))
     assert "RBAC" in msg or "permission" in msg.lower()
 
 
@@ -45,15 +44,24 @@ async def test_create_stack_applies_application(client_for_user, super_user, moc
     fake_k8s.get_application = AsyncMock(return_value=None)
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
-            resp = await client.post("/api/admin/llmd-stacks", json={
-                "name": "demo", "target_model_name": "qwen", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "",
-            })
+            resp = await client.post(
+                "/api/admin/llmd-stacks",
+                json={
+                    "name": "demo",
+                    "target_model_name": "qwen",
+                    "cluster_id": None,
+                    "namespace": "team-a",
+                    "values_yaml": "",
+                },
+            )
     assert resp.status_code == 201
     fake_k8s.apply_application.assert_awaited_once()
     ns, manifest = fake_k8s.apply_application.await_args.args
@@ -75,14 +83,23 @@ async def test_create_stack_argocd_rbac_denied_502(client_for_user, super_user, 
     mock_db.execute = AsyncMock(return_value=_none_result())
     fake_k8s = MagicMock()
     fake_k8s.apply_application = AsyncMock(side_effect=ApiException(status=403, reason="Forbidden"))
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=MagicMock())):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=MagicMock())),
+    ):
         async with client_for_user(super_user) as client:
-            resp = await client.post("/api/admin/llmd-stacks", json={
-                "name": "demo", "target_model_name": "qwen", "namespace": "team-a", "values_yaml": "",
-            })
+            resp = await client.post(
+                "/api/admin/llmd-stacks",
+                json={
+                    "name": "demo",
+                    "target_model_name": "qwen",
+                    "namespace": "team-a",
+                    "values_yaml": "",
+                },
+            )
     assert resp.status_code == 502
 
 
@@ -93,15 +110,24 @@ async def test_create_stack_destination_server_from_placement(client_for_user, s
     fake_k8s.get_application = AsyncMock(return_value=None)
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argo-central", "https://gpu-cluster:6443")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argo-central", "https://gpu-cluster:6443")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
-            resp = await client.post("/api/admin/llmd-stacks", json={
-                "name": "demo", "target_model_name": "qwen", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "",
-            })
+            resp = await client.post(
+                "/api/admin/llmd-stacks",
+                json={
+                    "name": "demo",
+                    "target_model_name": "qwen",
+                    "cluster_id": None,
+                    "namespace": "team-a",
+                    "values_yaml": "",
+                },
+            )
     assert resp.status_code == 201
     ns, manifest = fake_k8s.apply_application.await_args.args
     assert ns == "argo-central"
@@ -118,13 +144,27 @@ def _none_result():
 
 def _stack(**kw):
     base = dict(
-        id=uuid.uuid4(), name="s", target_model_name="qwen", cluster_id=None,
-        namespace="team-a", argo_app_name="llmd-s", helm_values={}, values_snapshot={},
-        chart_repo=None, chart_name=None, chart_version=None,
-        epp_registry=None, epp_repository=None, epp_tag=None,
-        ingress_host=None, ingress_class=None,
-        direct_route_enabled=False, direct_ingress_host=None,
-        created_by=None, created_at=None, updated_at=None,
+        id=uuid.uuid4(),
+        name="s",
+        target_model_name="qwen",
+        cluster_id=None,
+        namespace="team-a",
+        argo_app_name="llmd-s",
+        helm_values={},
+        values_snapshot={},
+        chart_repo=None,
+        chart_name=None,
+        chart_version=None,
+        epp_registry=None,
+        epp_repository=None,
+        epp_tag=None,
+        ingress_host=None,
+        ingress_class=None,
+        direct_route_enabled=False,
+        direct_ingress_host=None,
+        created_by=None,
+        created_at=None,
+        updated_at=None,
     )
     base.update(kw)
     return types.SimpleNamespace(**base)
@@ -132,7 +172,7 @@ def _stack(**kw):
 
 def test_application_uses_stack_chart_override_when_set():
     stack = _stack(chart_repo="oci://mirror.internal/charts", chart_name="llmd", chart_version="1.2.3")
-    app = _application_for(stack, "argocd", "https://kubernetes.default.svc")
+    app = llmd_stacks.application_for(stack, "argocd", "https://kubernetes.default.svc")
     src = app["spec"]["source"]
     assert src["repoURL"] == "mirror.internal/charts"  # oci:// stripped for ArgoCD 3.x
     assert src["chart"] == "llmd"
@@ -142,7 +182,7 @@ def test_application_uses_stack_chart_override_when_set():
 def test_application_falls_back_to_settings_when_override_null():
     from app.config import settings
 
-    app = _application_for(_stack(), "argocd", "https://kubernetes.default.svc")
+    app = llmd_stacks.application_for(_stack(), "argocd", "https://kubernetes.default.svc")
     src = app["spec"]["source"]
     assert src["repoURL"] == settings.llmd_chart_repo.removeprefix("oci://")
     assert src["chart"] == settings.llmd_chart_name
@@ -151,14 +191,14 @@ def test_application_falls_back_to_settings_when_override_null():
 
 def test_values_use_stack_epp_override_when_set():
     stack = _stack(epp_registry="mirror.internal", epp_repository="llm-d/epp", epp_tag="v9")
-    img = _values_for(stack)["router"]["epp"]["image"]
+    img = llmd_stacks.values_for(stack)["router"]["epp"]["image"]
     assert img == {"registry": "mirror.internal", "repository": "llm-d/epp", "tag": "v9"}
 
 
 def test_values_fall_back_to_settings_epp_when_null():
     from app.config import settings
 
-    img = _values_for(_stack())["router"]["epp"]["image"]
+    img = llmd_stacks.values_for(_stack())["router"]["epp"]["image"]
     assert img["registry"] == settings.llmd_epp_image_registry
     assert img["repository"] == settings.llmd_epp_image_repository
     assert img["tag"] == settings.llmd_epp_image_tag
@@ -168,11 +208,11 @@ def test_serialize_reports_effective_and_overrides():
     from app.config import settings
 
     over = _serialize(_stack(chart_repo="oci://mirror/x"), {"sync_status": "Synced"})
-    assert over["chart_repo"] == "oci://mirror/x"                 # effective = override
+    assert over["chart_repo"] == "oci://mirror/x"  # effective = override
     assert over["chart_overrides"]["chart_repo"] == "oci://mirror/x"
     assert over["chart_overrides"]["chart_name"] is None
     base = _serialize(_stack(), {"sync_status": "Synced"})
-    assert base["chart_repo"] == settings.llmd_chart_repo         # effective = default
+    assert base["chart_repo"] == settings.llmd_chart_repo  # effective = default
     assert base["chart_overrides"]["chart_repo"] is None
     assert base["epp_image"] == (
         f"{settings.llmd_epp_image_registry}/{settings.llmd_epp_image_repository}:{settings.llmd_epp_image_tag}"
@@ -204,10 +244,13 @@ async def test_delete_stack_removes_ingress(client_for_user, super_user, mock_db
     fake_k8s.delete_application = AsyncMock()
     fake_target = MagicMock()
     fake_target.delete = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.delete(f"/api/admin/llmd-stacks/{stack.id}")
     assert resp.status_code == 200
@@ -234,16 +277,15 @@ def test_serialize_reports_ingress_overrides_when_set():
 
 
 def test_values_ingress_resolvers_prefer_override():
-    from app.api.llmd import _ingress_class, _ingress_host
     from app.config import settings
 
     over = _stack(argo_app_name="llmd-demo", ingress_host="host.x", ingress_class="cls")
-    assert _ingress_host(over) == "host.x"
-    assert _ingress_class(over) == "cls"
+    assert llmd_stacks.ingress_host(over) == "host.x"
+    assert llmd_stacks.ingress_class(over) == "cls"
     # NULL override -> computed host + global class default
     base = _stack(argo_app_name="llmd-demo")
-    assert _ingress_host(base) == "llmd-demo.llm-d.local"
-    assert _ingress_class(base) == settings.llmd_ingress_class
+    assert llmd_stacks.ingress_host(base) == "llmd-demo.llm-d.local"
+    assert llmd_stacks.ingress_class(base) == settings.llmd_ingress_class
 
 
 async def test_create_stack_with_direct_upserts_service_and_ingress(client_for_user, super_user, mock_db):
@@ -253,15 +295,25 @@ async def test_create_stack_with_direct_upserts_service_and_ingress(client_for_u
     fake_k8s.get_application = AsyncMock(return_value=None)
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
-            resp = await client.post("/api/admin/llmd-stacks", json={
-                "name": "demo", "target_model_name": "qwen", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "", "direct_route_enabled": True,
-            })
+            resp = await client.post(
+                "/api/admin/llmd-stacks",
+                json={
+                    "name": "demo",
+                    "target_model_name": "qwen",
+                    "cluster_id": None,
+                    "namespace": "team-a",
+                    "values_yaml": "",
+                    "direct_route_enabled": True,
+                },
+            )
     assert resp.status_code == 201
     # Two create_or_patch calls: EPP ingress first, then the direct pair.
     assert fake_target.create_or_patch.await_count == 2
@@ -280,15 +332,25 @@ async def test_create_stack_direct_without_labels_400(client_for_user, super_use
     mock_db.execute = AsyncMock(return_value=_none_result())
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(MagicMock(), "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(MagicMock(), "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
-            resp = await client.post("/api/admin/llmd-stacks", json={
-                "name": "demo", "target_model_name": "", "cluster_id": None,
-                "namespace": "team-a", "values_yaml": "", "direct_route_enabled": True,
-            })
+            resp = await client.post(
+                "/api/admin/llmd-stacks",
+                json={
+                    "name": "demo",
+                    "target_model_name": "",
+                    "cluster_id": None,
+                    "namespace": "team-a",
+                    "values_yaml": "",
+                    "direct_route_enabled": True,
+                },
+            )
     assert resp.status_code == 400
     assert "matchLabels" in resp.json()["detail"]
     fake_target.create_or_patch.assert_not_awaited()
@@ -303,10 +365,13 @@ async def test_update_toggle_off_deletes_direct(client_for_user, super_user, moc
     fake_target = MagicMock()
     fake_target.create_or_patch = AsyncMock()
     fake_target.delete = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.api.llmd.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.put(f"/api/admin/llmd-stacks/{stack.id}", json={"direct_route_enabled": False})
     assert resp.status_code == 200
@@ -322,10 +387,13 @@ async def test_delete_stack_enabled_removes_direct(client_for_user, super_user, 
     fake_k8s.delete_application = AsyncMock()
     fake_target = MagicMock()
     fake_target.delete = AsyncMock()
-    with patch(
-        "app.api.llmd.argocd_placement_for",
-        AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
-    ), patch("app.api.llmd.k8s_for_cluster", AsyncMock(return_value=fake_target)):
+    with (
+        patch(
+            "app.services.llmd_stacks.argocd_placement_for",
+            AsyncMock(return_value=(fake_k8s, "argocd", "https://kubernetes.default.svc")),
+        ),
+        patch("app.services.llmd_stacks.k8s_for_cluster", AsyncMock(return_value=fake_target)),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.delete(f"/api/admin/llmd-stacks/{stack.id}")
     assert resp.status_code == 200

@@ -10,35 +10,24 @@ it; sync/health is read live from the Application CR, never persisted.
 import logging
 import uuid
 
-import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
-from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient, K8sNotConfigured
+from app.clients.k8s import K8sClient
 from app.config import settings
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import llmd_stacks
 from app.services.clusters import argocd_placement_for, k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.llmd_links import external_server, link_stacks, portal_server
-from app.services.llmd_manifests import (
-    argo_app_name_for,
-    build_argo_application,
-    build_direct_ingress,
-    build_direct_service,
-    build_llmd_ingress,
-    build_llmd_values,
-    default_llmd_values,
-    direct_service_name,
-    modelservers_target,
-)
+from app.services.llmd_manifests import default_llmd_values, direct_service_name
 
 logger = logging.getLogger(__name__)
 
@@ -83,197 +72,6 @@ class DefaultValuesRequest(BaseModel):
     endpoint_selector: str | None = None
 
 
-def _parse_values_yaml(text: str) -> dict:
-    if not text or not text.strip():
-        return {}
-    try:
-        parsed = yaml.safe_load(text)
-    except yaml.YAMLError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid values YAML: {e}")
-    if parsed is None:
-        return {}
-    if not isinstance(parsed, dict):
-        raise HTTPException(status_code=400, detail="values.yaml must be a mapping (key: value)")
-    return parsed
-
-
-class _BlockDumper(yaml.SafeDumper):
-    """SafeDumper that emits multi-line strings as ``|`` literal blocks."""
-
-
-def _str_block_representer(dumper: yaml.SafeDumper, data: str):
-    # Plain safe_dump renders a multi-line string as a double-quoted scalar with
-    # escaped \n (and line-continuation backslashes) — an embedded config like
-    # the Envoy proxy YAML comes back mangled in the editor. Emit it as a `|`
-    # literal block instead so the readback matches what the user typed.
-    if "\n" in data:
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-
-_BlockDumper.add_representer(str, _str_block_representer)
-
-
-def _dump_values_yaml(data: dict) -> str:
-    """Dump a values dict to YAML, preserving ``|`` literal blocks for
-    multi-line string values (readable, lossless round-trip)."""
-    return yaml.dump(data, Dumper=_BlockDumper, sort_keys=False, default_flow_style=False)
-
-
-def _argo_status(obj: dict | None) -> dict:
-    """Extract sync/health from an Application CR (Unknown when absent)."""
-    if not obj:
-        return {"sync_status": "Unknown", "health_status": "Unknown", "status_message": None}
-    st = obj.get("status", {}) or {}
-    return {
-        "sync_status": (st.get("sync") or {}).get("status", "Unknown"),
-        "health_status": (st.get("health") or {}).get("status", "Unknown"),
-        "status_message": (st.get("health") or {}).get("message"),
-    }
-
-
-def _k8s_error_message(e: Exception) -> str:
-    """Human-readable reason a K8s Application op failed, for the UI."""
-    if isinstance(e, K8sNotConfigured):
-        return "No kubeconfig is configured for this cluster — K8s access is disabled."
-    if isinstance(e, ApiException):
-        if e.status == 403:
-            return "The portal lacks RBAC to manage applications.argoproj.io in the ArgoCD namespace."
-        if e.status == 404:
-            return "ArgoCD Application CRD or namespace not found — is ArgoCD installed on this cluster?"
-        body = (getattr(e, "body", None) or "").strip()
-        return body[:600] or f"Kubernetes API returned HTTP {e.status}."
-    return str(e) or "Kubernetes request failed."
-
-
-def _chart_source(stack: CustomLlmdStack) -> tuple[str, str, str]:
-    return (
-        stack.chart_repo or settings.llmd_chart_repo,
-        stack.chart_name or settings.llmd_chart_name,
-        stack.chart_version or settings.llmd_chart_version,
-    )
-
-
-def _epp_image(stack: CustomLlmdStack) -> tuple[str, str, str]:
-    return (
-        stack.epp_registry or settings.llmd_epp_image_registry,
-        stack.epp_repository or settings.llmd_epp_image_repository,
-        stack.epp_tag or settings.llmd_epp_image_tag,
-    )
-
-
-def _values_for(stack: CustomLlmdStack) -> dict:
-    registry, repository, tag = _epp_image(stack)
-    return build_llmd_values(stack, epp_registry=registry, epp_repository=repository, epp_tag=tag)
-
-
-def _ingress_host(stack: CustomLlmdStack) -> str:
-    """Effective ingress host: per-stack override, else {app}.{global domain}."""
-    return stack.ingress_host or f"{stack.argo_app_name}.{settings.effective_ingress_domain}"
-
-
-def _ingress_class(stack: CustomLlmdStack) -> str:
-    """Effective ingress class: per-stack override, else the global default
-    (which, when empty, omits ingressClassName -> cluster default)."""
-    return stack.ingress_class if stack.ingress_class is not None else settings.llmd_ingress_class
-
-
-def _ingress_for(stack: CustomLlmdStack) -> dict:
-    return build_llmd_ingress(
-        stack,
-        host=_ingress_host(stack),
-        ingress_class=_ingress_class(stack),
-        ingress_path=settings.llmd_ingress_path or "/",
-    )
-
-
-def _direct_host(stack: CustomLlmdStack) -> str:
-    """Effective direct-route ingress host: per-stack override, else
-    {argo_app_name}-direct.{global domain}."""
-    return stack.direct_ingress_host or f"{stack.argo_app_name}-direct.{settings.effective_ingress_domain}"
-
-
-def _direct_selector(stack: CustomLlmdStack) -> tuple[dict, int]:
-    """(matchLabels, targetPort) the direct Service should use, read from the
-    stack's rendered values (same modelServers block the router targets)."""
-    return modelservers_target(stack.values_snapshot)
-
-
-def _direct_cleanup_names(stack: CustomLlmdStack) -> dict:
-    return {
-        "service": direct_service_name(stack),
-        "ingress": f"{stack.argo_app_name}-direct-ingress",
-    }
-
-
-def _direct_manifests(stack: CustomLlmdStack) -> list[dict]:
-    """[Service, Ingress] for the direct route when enabled, else []."""
-    if not stack.direct_route_enabled:
-        return []
-    match_labels, target_port = _direct_selector(stack)
-    return [
-        build_direct_service(stack, match_labels=match_labels, target_port=target_port),
-        build_direct_ingress(
-            stack,
-            host=_direct_host(stack),
-            ingress_class=_ingress_class(stack),
-            ingress_path=settings.llmd_ingress_path or "/",
-        ),
-    ]
-
-
-def _require_direct_selector(stack: CustomLlmdStack) -> None:
-    """400 when the direct route is enabled but modelServers.matchLabels is
-    empty — a selector-less Service would bind no endpoints. Must be called
-    before any K8s write and outside the 502-mapping try block."""
-    if stack.direct_route_enabled and not _direct_selector(stack)[0]:
-        raise HTTPException(
-            status_code=400,
-            detail="modelServers.matchLabels is required to enable the direct route.",
-        )
-
-
-def _application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
-    chart_repo, chart_name, chart_version = _chart_source(stack)
-    return build_argo_application(
-        stack,
-        chart_repo=chart_repo,
-        chart_name=chart_name,
-        chart_version=chart_version,
-        values=stack.values_snapshot,
-        project=settings.argo_project,
-        argocd_namespace=argocd_namespace,
-        destination_server=destination_server,
-    )
-
-
-def _require_valid_name(name: str) -> str:
-    if not name or not name.strip():
-        raise HTTPException(status_code=400, detail="Stack name is required.")
-    app_name = argo_app_name_for(name)
-    if app_name in ("llmd-", "llmd"):
-        raise HTTPException(
-            status_code=400,
-            detail="Stack name must contain letters or digits (a–z, 0–9, hyphen).",
-        )
-    if len(app_name) > 53:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Stack name is too long — the resulting app name '{app_name}' exceeds 53 characters.",
-        )
-    return app_name
-
-
-async def _live_status(db: AsyncSession, stack: CustomLlmdStack) -> dict:
-    try:
-        k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
-        obj = await k8s.get_application(argocd_ns, stack.argo_app_name)
-        return _argo_status(obj)
-    except Exception as e:  # noqa: BLE001 — status is best-effort
-        logger.info("llm-d status read failed for %s: %s", stack.name, e)
-        return _argo_status(None)
-
-
 def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
     return {
         "id": str(stack.id),
@@ -282,12 +80,12 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "cluster_id": str(stack.cluster_id) if stack.cluster_id else None,
         "namespace": stack.namespace,
         "argo_app_name": stack.argo_app_name,
-        "chart_repo": _chart_source(stack)[0],
-        "chart_name": _chart_source(stack)[1],
-        "chart_version": _chart_source(stack)[2],
-        "epp_image": "{}/{}:{}".format(*_epp_image(stack)),
-        "ingress_host": _ingress_host(stack),
-        "ingress_class": _ingress_class(stack),
+        "chart_repo": llmd_stacks.chart_source(stack)[0],
+        "chart_name": llmd_stacks.chart_source(stack)[1],
+        "chart_version": llmd_stacks.chart_source(stack)[2],
+        "epp_image": "{}/{}:{}".format(*llmd_stacks.epp_image(stack)),
+        "ingress_host": llmd_stacks.ingress_host(stack),
+        "ingress_class": llmd_stacks.ingress_class(stack),
         "chart_overrides": {
             "chart_repo": stack.chart_repo,
             "chart_name": stack.chart_name,
@@ -301,11 +99,11 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
             "ingress_class": stack.ingress_class,
         },
         "direct_route_enabled": stack.direct_route_enabled,
-        "direct_ingress_host": _direct_host(stack),
+        "direct_ingress_host": llmd_stacks.direct_host(stack),
         "direct_service": direct_service_name(stack),
         "direct_overrides": {"ingress_host": stack.direct_ingress_host},
         "helm_values": stack.helm_values,
-        "values_yaml": (_dump_values_yaml(stack.helm_values) if stack.helm_values else ""),
+        "values_yaml": (llmd_stacks.dump_values_yaml(stack.helm_values) if stack.helm_values else ""),
         "created_by": stack.created_by,
         "created_at": stack.created_at.isoformat() if stack.created_at else None,
         "updated_at": stack.updated_at.isoformat() if stack.updated_at else None,
@@ -319,7 +117,7 @@ async def list_stacks(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     rows = (await db.execute(select(CustomLlmdStack).order_by(CustomLlmdStack.created_at.desc()))).scalars().all()
-    return {"stacks": [_serialize(s, await _live_status(db, s)) for s in rows]}
+    return {"stacks": [_serialize(s, await llmd_stacks.live_status(db, s)) for s in rows]}
 
 
 @router.get("/{stack_id}/applied")
@@ -365,7 +163,7 @@ async def applied_values(
             live_error = "The ArgoCD Application was not found — it may have been deleted."
     except Exception as e:  # noqa: BLE001 — live state is best-effort
         logger.info("llm-d applied read failed for %s: %s", stack.name, e)
-        live_error = _k8s_error_message(e)
+        live_error = llmd_stacks.k8s_error_message(e)
 
     # Which model servers this stack's selector actually picks (portal + scanned).
     deployments = list((await db.execute(select(CustomModelDeployment))).scalars().all())
@@ -383,9 +181,7 @@ async def applied_values(
     return {
         "effective_values": stack.values_snapshot,
         "selector": link["selector"],
-        "linked_servers": [
-            {k: v for k, v in srv.items() if k != "labels"} for srv in link["servers"]
-        ],
+        "linked_servers": [{k: v for k, v in srv.items() if k != "labels"} for srv in link["servers"]],
         "live_values": live_values,
         "resources": resources,
         "revision": revision,
@@ -414,59 +210,34 @@ async def create_stack(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    app_name = _require_valid_name(body.name)
-    if not body.namespace or not body.namespace.strip():
-        raise HTTPException(status_code=400, detail="Namespace is required.")
-    if (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == body.name))).scalar_one_or_none():
-        raise HTTPException(status_code=409, detail=f"Stack '{body.name}' already exists")
-
-    helm_values = _parse_values_yaml(body.values_yaml) or default_llmd_values(
+    values = llmd_stacks.parse_values_yaml(body.values_yaml) or default_llmd_values(
         body.target_model_name,
         epp_registry=settings.llmd_epp_image_registry,
         epp_repository=settings.llmd_epp_image_repository,
         epp_tag=settings.llmd_epp_image_tag,
     )
-    stack = CustomLlmdStack(
-        id=uuid.uuid4(),
+    stack = await llmd_stacks.create_stack(
+        db,
         name=body.name,
         target_model_name=body.target_model_name,
-        cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
+        cluster_id=body.cluster_id,
         namespace=body.namespace,
-        argo_app_name=app_name,
-        helm_values=helm_values,
-        values_snapshot={},
-        chart_repo=(body.chart_repo or "").strip() or None,
-        chart_name=(body.chart_name or "").strip() or None,
-        chart_version=(body.chart_version or "").strip() or None,
-        epp_registry=(body.epp_registry or "").strip() or None,
-        epp_repository=(body.epp_repository or "").strip() or None,
-        epp_tag=(body.epp_tag or "").strip() or None,
-        ingress_host=(body.ingress_host or "").strip() or None,
-        ingress_class=(body.ingress_class or "").strip() or None,
+        values=values,
+        user_id=user.user_id,
+        chart_repo=body.chart_repo,
+        chart_name=body.chart_name,
+        chart_version=body.chart_version,
+        epp_registry=body.epp_registry,
+        epp_repository=body.epp_repository,
+        epp_tag=body.epp_tag,
+        ingress_host=body.ingress_host,
+        ingress_class=body.ingress_class,
         direct_route_enabled=body.direct_route_enabled,
-        direct_ingress_host=(body.direct_ingress_host or "").strip() or None,
-        created_by=user.user_id,
-        updated_by=user.user_id,
+        direct_ingress_host=body.direct_ingress_host,
     )
-    stack.values_snapshot = _values_for(stack)
-    _require_direct_selector(stack)  # 400 before any K8s write (outside the try)
-    db.add(stack)
-    await db.flush()
-
-    try:
-        k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
-        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
-        target_k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
-        direct = _direct_manifests(stack)
-        if direct:
-            await target_k8s.create_or_patch(stack.namespace, direct)
-    except Exception as e:
-        logger.exception("ArgoCD Application apply failed for stack %s", stack.name)
-        raise HTTPException(status_code=502, detail=f"ArgoCD apply failed: {_k8s_error_message(e)}")
     await db.commit()
     await db.refresh(stack)
-    return _serialize(stack, await _live_status(db, stack))
+    return _serialize(stack, await llmd_stacks.live_status(db, stack))
 
 
 @router.post("/default-values")
@@ -483,7 +254,7 @@ async def default_values(
     )
     return {
         "values": values,
-        "values_yaml": _dump_values_yaml(values),
+        "values_yaml": llmd_stacks.dump_values_yaml(values),
     }
 
 
@@ -503,11 +274,16 @@ async def update_stack(
     if body.namespace is not None:
         stack.namespace = body.namespace
     if body.values_yaml is not None:
-        stack.helm_values = _parse_values_yaml(body.values_yaml)
+        stack.helm_values = llmd_stacks.parse_values_yaml(body.values_yaml)
     for field in (
-        "chart_repo", "chart_name", "chart_version",
-        "epp_registry", "epp_repository", "epp_tag",
-        "ingress_host", "ingress_class",
+        "chart_repo",
+        "chart_name",
+        "chart_version",
+        "epp_registry",
+        "epp_repository",
+        "epp_tag",
+        "ingress_host",
+        "ingress_class",
     ):
         val = getattr(body, field)
         if val is not None:
@@ -516,32 +292,32 @@ async def update_stack(
         stack.direct_route_enabled = body.direct_route_enabled
     if body.direct_ingress_host is not None:
         stack.direct_ingress_host = body.direct_ingress_host.strip() or None
-    stack.values_snapshot = _values_for(stack)
-    _require_direct_selector(stack)  # 400 before any K8s write (outside the try)
+    stack.values_snapshot = llmd_stacks.values_for(stack)
+    llmd_stacks.require_direct_selector(stack)  # 400 before any K8s write (outside the try)
     stack.updated_by = user.user_id
     await db.flush()
 
     try:
         k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
-        await k8s.apply_application(argocd_ns, _application_for(stack, argocd_ns, dest_server))
+        await k8s.apply_application(argocd_ns, llmd_stacks.application_for(stack, argocd_ns, dest_server))
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await target_k8s.create_or_patch(stack.namespace, [_ingress_for(stack)])
-        direct = _direct_manifests(stack)
+        await target_k8s.create_or_patch(stack.namespace, [llmd_stacks.ingress_for(stack)])
+        direct = llmd_stacks.direct_manifests(stack)
         if direct:
             await target_k8s.create_or_patch(stack.namespace, direct)
     except Exception as e:
         logger.exception("ArgoCD Application update failed for stack %s", stack.name)
-        raise HTTPException(status_code=502, detail=f"ArgoCD update failed: {_k8s_error_message(e)}")
+        raise HTTPException(status_code=502, detail=f"ArgoCD update failed: {llmd_stacks.k8s_error_message(e)}")
     if not stack.direct_route_enabled:
         # Toggled off (or never on): best-effort remove the pair so the cluster
         # matches the desired state. Cleanup failure must not fail the update.
         try:
-            await target_k8s.delete(stack.namespace, _direct_cleanup_names(stack))
+            await target_k8s.delete(stack.namespace, llmd_stacks.direct_cleanup_names(stack))
         except Exception as e:  # noqa: BLE001 — cleanup is best-effort
             logger.info("llm-d direct cleanup failed for %s: %s", stack.name, e)
     await db.commit()
     await db.refresh(stack)
-    return _serialize(stack, await _live_status(db, stack))
+    return _serialize(stack, await llmd_stacks.live_status(db, stack))
 
 
 @router.delete("/{stack_id}")
@@ -555,19 +331,6 @@ async def delete_stack(
     ).scalar_one_or_none()
     if not stack:
         raise HTTPException(status_code=404, detail="Stack not found")
-    try:
-        k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
-        await k8s.delete_application(argocd_ns, stack.argo_app_name)
-    except Exception as e:
-        logger.exception("ArgoCD Application delete failed for stack %s", stack.name)
-        raise HTTPException(status_code=502, detail=f"ArgoCD delete failed: {_k8s_error_message(e)}")
-    try:
-        target_k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await target_k8s.delete(stack.namespace, {"ingress": f"{stack.argo_app_name}-ingress"})
-        if stack.direct_route_enabled:
-            await target_k8s.delete(stack.namespace, _direct_cleanup_names(stack))
-    except Exception as e:  # noqa: BLE001 — ingress cleanup is best-effort
-        logger.info("llm-d ingress cleanup failed for %s: %s", stack.name, e)
-    await db.delete(stack)
+    await llmd_stacks.delete_stack(db, stack)
     await db.commit()
     return {"ok": True}

@@ -180,7 +180,10 @@ def test_build_application_is_isolated_to_project_and_namespace():
 
 def test_default_values_uses_explicit_endpoint_selector():
     v = default_llmd_values(
-        "qwen", epp_registry="r", epp_repository="repo", epp_tag="t",
+        "qwen",
+        epp_registry="r",
+        epp_repository="repo",
+        epp_tag="t",
         endpoint_selector="app=my-vllm",
     )
     assert v["router"]["modelServers"]["matchLabels"] == {"app": "my-vllm"}
@@ -214,9 +217,7 @@ def test_llmd_service_name_is_release_epp():
 
 
 def test_build_ingress_shape_and_backend():
-    ing = build_llmd_ingress(
-        _stack(), host="myrouter.corp.internal", ingress_class="nginx", ingress_path="/"
-    )
+    ing = build_llmd_ingress(_stack(), host="myrouter.corp.internal", ingress_class="nginx", ingress_path="/")
     assert ing["apiVersion"] == "networking.k8s.io/v1"
     assert ing["kind"] == "Ingress"
     assert ing["metadata"]["name"] == "llmd-my-stack-ingress"
@@ -234,17 +235,13 @@ def test_build_ingress_shape_and_backend():
 
 
 def test_build_ingress_omits_class_when_empty():
-    ing = build_llmd_ingress(
-        _stack(), host="llmd-my-stack.llm-d.local", ingress_class="", ingress_path="/"
-    )
+    ing = build_llmd_ingress(_stack(), host="llmd-my-stack.llm-d.local", ingress_class="", ingress_path="/")
     assert "ingressClassName" not in ing["spec"]
     assert ing["spec"]["rules"][0]["host"] == "llmd-my-stack.llm-d.local"
 
 
 def test_build_ingress_respects_path():
-    ing = build_llmd_ingress(
-        _stack(), host="llmd-my-stack.llm-d.local", ingress_class="nginx", ingress_path="/router"
-    )
+    ing = build_llmd_ingress(_stack(), host="llmd-my-stack.llm-d.local", ingress_class="nginx", ingress_path="/router")
     assert ing["spec"]["rules"][0]["http"]["paths"][0]["path"] == "/router"
 
 
@@ -272,9 +269,7 @@ def test_build_direct_service_uses_given_target_port():
 
 
 def test_build_direct_ingress_backend_is_direct_service():
-    ing = build_direct_ingress(
-        _stack(), host="direct.corp.internal", ingress_class="nginx", ingress_path="/"
-    )
+    ing = build_direct_ingress(_stack(), host="direct.corp.internal", ingress_class="nginx", ingress_path="/")
     assert ing["kind"] == "Ingress"
     assert ing["metadata"]["name"] == "llmd-my-stack-direct-ingress"
     assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == MANAGED_BY
@@ -300,3 +295,43 @@ def test_modelservers_target_defaults_when_missing():
     assert modelservers_target({}) == ({}, 8000)
     assert modelservers_target({"router": {"modelServers": {}}}) == ({}, 8000)
     assert modelservers_target({"router": {"modelServers": {"targetPorts": []}}}) == ({}, 8000)
+
+
+def test_pd_router_values_embed_the_llm_d_pd_scheduler_config():
+    import yaml
+
+    from app.services.llmd_manifests import PD_EPP_CONFIG_FILE, default_llmd_values
+
+    values = default_llmd_values(
+        "glm",
+        epp_registry="ghcr.io",
+        epp_repository="llm-d/llm-d-router-endpoint-picker",
+        epp_tag="v0.9.0",
+        serving_mode="pd",
+        pd_router={"peak_prefill_throughput": 1234, "prefix_tokens_to_match": 4096},
+    )
+    epp = values["router"]["epp"]
+    assert epp["pluginsConfigFile"] == PD_EPP_CONFIG_FILE
+    cfg = yaml.safe_load(epp["pluginsCustomConfig"][PD_EPP_CONFIG_FILE])
+    assert cfg["kind"] == "EndpointPickerConfig"
+    types_ = [p["type"] for p in cfg["plugins"]]
+    for needed in (
+        "always-disagg-pd-decider",
+        "disagg-profile-handler",
+        "prefill-filter",
+        "decode-filter",
+        "prefix-cache-affinity-filter",
+        "token-load-scorer",
+        "active-request-scorer",
+        "max-score-picker",
+    ):
+        assert needed in types_
+    params = {p["type"]: p.get("parameters") for p in cfg["plugins"]}
+    assert params["prefix-cache-affinity-filter"] == {"peakPrefillThroughput": 1234}
+    assert params["approx-prefix-cache-producer"] == {"maxPrefixTokensToMatch": 4096}
+    assert [p["name"] for p in cfg["schedulingProfiles"]] == ["prefill", "decode"]
+    assert values["router"]["modelServers"]["matchLabels"] == {"llm-d.ai/model": "glm"}
+    assert values["router"]["modelServers"]["targetPorts"] == [{"number": 8000}]
+    # aggregated values are untouched
+    agg = default_llmd_values("glm", epp_registry="r", epp_repository="p", epp_tag="t")
+    assert "pluginsConfigFile" not in agg["router"]["epp"]

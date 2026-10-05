@@ -131,7 +131,7 @@ def stack_selector(values: dict) -> dict:
     so stacks created before the chart move still resolve. ``{}`` when neither.
     """
     values = values or {}
-    ms = ((values.get("router") or {}).get("modelServers") or {})
+    ms = (values.get("router") or {}).get("modelServers") or {}
     if ms.get("matchLabels"):
         return dict(ms["matchLabels"])
     legacy = ((values.get("inferenceExtension") or {}).get("endpointsServer") or {}).get("endpointSelector")
@@ -182,9 +182,7 @@ def build_direct_service(stack: CustomLlmdStack, *, match_labels: dict, target_p
     }
 
 
-def build_direct_ingress(
-    stack: CustomLlmdStack, *, host: str, ingress_class: str, ingress_path: str
-) -> dict:
+def build_direct_ingress(stack: CustomLlmdStack, *, host: str, ingress_class: str, ingress_path: str) -> dict:
     """An Ingress fronting the direct-route Service.
 
     Backend: Service ``<argo_app_name>-direct`` port number 80. ``host`` is the
@@ -227,6 +225,53 @@ def build_direct_ingress(
     }
 
 
+# EndpointPickerConfig from llm-d's guides/pd-disaggregation/router values
+# (fetched 2026-10-05). Two scheduling profiles: prefill (prefix-cache affinity
+# + token load) and decode (active requests); the disagg profile handler asks
+# the always-disagg decider so every request goes through both pools.
+PD_EPP_CONFIG_TEMPLATE = """apiVersion: llm-d.ai/v1alpha1
+kind: EndpointPickerConfig
+plugins:
+- type: always-disagg-pd-decider
+- type: disagg-profile-handler
+  parameters:
+    deciders:
+      prefill: always-disagg-pd-decider
+- type: prefill-filter
+- type: decode-filter
+- type: approx-prefix-cache-producer
+  parameters:
+    maxPrefixTokensToMatch: {prefix_tokens_to_match}
+- type: inflight-load-producer
+- type: prefix-cache-affinity-filter
+  parameters:
+    peakPrefillThroughput: {peak_prefill_throughput}
+- type: token-load-scorer
+- type: active-request-scorer
+- type: max-score-picker
+schedulingProfiles:
+- name: prefill
+  plugins:
+  - pluginRef: prefill-filter
+  - pluginRef: prefix-cache-affinity-filter
+  - pluginRef: token-load-scorer
+  - pluginRef: max-score-picker
+- name: decode
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: active-request-scorer
+  - pluginRef: max-score-picker
+"""
+
+PD_EPP_CONFIG_FILE = "pd-config.yaml"
+
+
+def pd_epp_config(*, peak_prefill_throughput: int, prefix_tokens_to_match: int) -> str:
+    return PD_EPP_CONFIG_TEMPLATE.format(
+        peak_prefill_throughput=int(peak_prefill_throughput), prefix_tokens_to_match=int(prefix_tokens_to_match)
+    )
+
+
 def default_llmd_values(
     target_model_name: str,
     *,
@@ -234,6 +279,8 @@ def default_llmd_values(
     epp_repository: str,
     epp_tag: str,
     endpoint_selector: str | None = None,
+    serving_mode: str = "aggregated",
+    pd_router: dict | None = None,
 ) -> dict:
     """The starter ``values.yaml`` for a new stack: the llm-d **standalone router**
     (``llm-d-router-standalone`` chart, ``router.*`` values schema).
@@ -249,12 +296,25 @@ def default_llmd_values(
     the deprecated top-level ``inferenceExtension`` key.)
     """
     selector = endpoint_selector or (f"{LABEL_LLMD_MODEL}={target_model_name}" if target_model_name else "")
+    epp: dict = {
+        "replicas": 1,
+        "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
+    }
+    if serving_mode == "pd":
+        # Prefill and decode pods share the model label; the EPP filters by
+        # llm-d.ai/role. targetPorts stays 8000: prefill listens there and the
+        # decode pods expose the routing sidecar on it.
+        router = pd_router or {}
+        epp["pluginsConfigFile"] = PD_EPP_CONFIG_FILE
+        epp["pluginsCustomConfig"] = {
+            PD_EPP_CONFIG_FILE: pd_epp_config(
+                peak_prefill_throughput=router.get("peak_prefill_throughput") or 33821,
+                prefix_tokens_to_match=router.get("prefix_tokens_to_match") or 131072,
+            )
+        }
     return {
         "router": {
-            "epp": {
-                "replicas": 1,
-                "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},
-            },
+            "epp": epp,
             "modelServers": {
                 "type": "vllm",
                 "targetPorts": [{"number": 8000}],
@@ -265,9 +325,7 @@ def default_llmd_values(
     }
 
 
-def build_llmd_values(
-    stack: CustomLlmdStack, *, epp_registry: str, epp_repository: str, epp_tag: str
-) -> dict:
+def build_llmd_values(stack: CustomLlmdStack, *, epp_registry: str, epp_repository: str, epp_tag: str) -> dict:
     """The values actually sent to ArgoCD: the user's ``helm_values`` with a thin
     base merged underneath, so the llm-d EPP image defaults apply even if the
     user's values.yaml omits them. The user's values win over the base — but an
