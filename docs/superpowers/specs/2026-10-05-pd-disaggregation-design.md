@@ -1,7 +1,7 @@
 # Prefill/Decode disaggregated serving (P/D) — Design
 
 Date: 2026-10-05
-Status: draft, awaiting review
+Status: implemented 2026-10-06 on feat/recipe-engine-split (commits 916b908, 86431b5, fd49ae5, 13b228c, eb93420, 8ec181b); verified on minikube portal-test with mock-vllm:cpu — two pools + routing sidecar up, router stack auto-created, pd_status reconciled, LiteLLM registration via the router host (see "Verification" below)
 Related: `backend/app/services/model_deployment_manifests.py`, `llmd_manifests.py`, `jobs/reconcile_deployments.py`, llm-d guide `guides/pd-disaggregation` (fetched 2026-10-05), vLLM NixlConnector
 
 ## Goal
@@ -348,7 +348,34 @@ available. `api_base = https://<stack ingress host>`.
 - Importing an external P/D pair into one recipe (warning only).
 - LiteLLM model/catalog cleanup on delete (pre-existing gap, separate task).
 
-## Open questions for review
+## Verification (2026-10-06, minikube `portal-test`, no GPU)
+
+- Recipe `pd-mock` (image `mock-vllm:cpu`, gpu 0, prefill 1×, decode 1× with `max-num-seqs=512`, `runtime.shm_size_gi=1`) deployed as `pd-mock`:
+  `pd-mock-prefill-deployment` / `pd-mock-decode-deployment` + two Services, no Ingress; decode pod `2/2` with
+  `routing-proxy` (`ghcr.io/llm-d/llm-d-router-disagg-sidecar:main`, native sidecar) running; pod labels carry
+  `llm-d.ai/model`, `llm-d.ai/role`, `llm-ops/pd-role`; env `VLLM_NIXL_SIDE_CHANNEL_HOST` from `status.podIP`, port 5600;
+  `/dev/shm` emptyDir 1Gi.
+- ArgoCD Application `llmd-pd-mock-router` created with the P/D EPP config (`pluginsConfigFile: pd-config.yaml`,
+  `peakPrefillThroughput: 5000`), `router_stack_created = true`.
+- Reconciler: `pd_status` prefill/decode Ready, `pd_summary = "D 1/1 · P 1/1"`, event `LitellmRegistered … via router
+  https://pd-mock.local`. The first pass registered while the Application was still `Unknown/Healthy` (ArgoCD had not
+  compared yet) → the gate now requires `Synced` + `Healthy` (commit 8ec181b).
+- `POST /api/benchmarks` with `ephemeral: true` on the P/D template → 400 "P/D recipes cannot be cloned…".
+- Limitation of this laptop: the local `.env` points `APP_LLMD_CHART_REPO` at `registry.k8s.io/gateway-api-inference-extension/charts`
+  (the GAIE `standalone` chart, a different values schema) and the ArgoCD AppProject only allows that registry, so the
+  auto-created router could not pull `llm-d-router-standalone:v0.9.0` until the project was patched to allow
+  `oci://ghcr.io/llm-d/charts`. Production uses the settings defaults (`oci://ghcr.io/llm-d/charts` or the air-gapped mirror).
+- Not exercised: an actual NIXL KV transfer and the sidecar → prefill hop (needs GPUs and real vLLM).
+
+## Open questions for review — answered
+
+1. Sidecar tag: kept the guide's `main` as the default (`APP_LLMD_SIDECAR_IMAGE_TAG`); air-gapped sites pin their mirror's tag.
+2. Registration gate: wait for the router — and it must be `Synced` as well as `Healthy` (a fresh Application is
+   Healthy with nothing created yet).
+3. `runtime.privileged` / `host_ipc`: allowed for any super user, with the hint in the form; no portal-level gate yet.
+4. Per-role `gpu_type` override: kept (`pd_config.<role>.gpu_type`), resolved per cluster like the base `gpu_type`.
+
+## Open questions for review (original)
 
 1. Should the sidecar image tag default to the EPP tag (`v0.9.0`) instead of
    the guide's `main`? The sidecar repo's release tags need checking.

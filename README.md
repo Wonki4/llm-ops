@@ -164,6 +164,16 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
   - 추가 팀 규칙 (사번 prefix 기반): 기본 팀 + 규칙 팀 합산 배정
 - **팀 숨기기**: 일반 유저에게 비노출할 팀 ID 관리
 
+#### 모델 서빙 — Prefill/Decode 분리 (P/D)
+- 서빙 레시피의 **서빙 방식**을 `Prefill / Decode 분리`로 두면 한 레시피로 prefill 풀 + decode 풀 두 개의 Deployment(+Service)를 띄운다 (vLLM 전용)
+- 풀별 레플리카·GPU 수·GPU 타입·엔진 인자/추가 인자/환경변수 오버라이드, NIXL 사이드채널 포트, kv-transfer-config 추가 필드, 라우팅 사이드카 이미지, 라우터(EPP) 튜닝값
+- `--port`, `--kv-transfer-config`(NixlConnector, kv_producer/kv_consumer), `VLLM_NIXL_SIDE_CHANNEL_HOST/PORT`는 포털이 관리하며 레시피에 넣으면 거부
+- decode 풀은 llm-d routing sidecar(native sidecar, 8000)가 vLLM(8200) 앞에 서고, 풀에는 Ingress를 만들지 않음 — 배포 시 llm-d 라우터 스택 `<model>-router`가 자동 생성되고(또는 기존 스택 연결) 라우터 인그레스 호스트가 진입점
+- 리컨실러는 두 풀을 각각 관찰해 `pd_status`(D r/d · P r/d)를 기록하고, 라우터 ArgoCD App이 Synced/Healthy가 된 뒤 라우터 호스트로 LiteLLM에 등록
+- 런타임 옵션(`/dev/shm` 크기, hostIPC, privileged, 추가 리소스)과 Startup 프로브는 aggregated 레시피에도 적용 가능
+- 벤치마크는 라우터를 대상으로만 가능(P/D 배포는 임시 서빙으로 복제 불가), 삭제 시 두 풀과 자동 생성된 라우터를 함께 제거
+- 설계/계획: `docs/superpowers/specs/2026-10-05-pd-disaggregation-design.md`, `docs/superpowers/plans/2026-10-05-pd-disaggregation.md`
+
 ### 공통 기능
 
 - **유저 ID**: 내부적으로 대문자 (`.upper()`) 사용, Keycloak은 소문자
