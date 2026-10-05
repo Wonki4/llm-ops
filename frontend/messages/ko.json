@@ -1853,7 +1853,7 @@
     "runtimeHostIpc": "hostIPC (--ipc=host)",
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "추가 리소스",
-    "runtimeExtraResourcesHint": "한 줄에 하나씩 <vendor>/<name>=<수량>, 예: rdma/ib=1",
+    "runtimeExtraResourcesHint": "한 줄에 하나씩 vendor/name=수량, 예: rdma/ib=1",
     "startup": "Startup",
     "startupEnable": "Startup 프로브 사용",
     "startupPdHint": "P/D 풀은 기본으로 Startup 프로브가 붙습니다(30초마다, 최대 60분). 느린 가중치 로드가 liveness에 걸리지 않게 합니다.",
