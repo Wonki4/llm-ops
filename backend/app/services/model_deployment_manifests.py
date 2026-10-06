@@ -70,29 +70,21 @@ def pod_labels(dep: CustomModelDeployment) -> dict[str, str]:
     return {**_labels(dep), LABEL_LLMD_MODEL: dep.model_name}
 
 
-def _resources(
-    gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment, override: dict | None = None
-) -> dict:
+def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment) -> dict:
     # GPU optional — omit the resource entirely when gpu_count == 0 so the pod is
-    # CPU-only and schedulable on nodes without GPUs. CPU/memory are optional too;
-    # ``override`` (a P/D role's values) replaces the row's when set.
-    ov = override or {}
-
-    def pick(key: str):
-        return ov.get(key) if ov.get(key) is not None else getattr(dep, key, None)
-
+    # CPU-only and schedulable on nodes without GPUs. CPU/memory are optional too.
     requests: dict = {}
     limits: dict = {}
     if gpu_count and gpu_count > 0:
         limits[gpu_resource_key] = str(gpu_count)
-    if pick("cpu_request"):
-        requests["cpu"] = pick("cpu_request")
-    if pick("cpu_limit"):
-        limits["cpu"] = pick("cpu_limit")
-    if pick("memory_request"):
-        requests["memory"] = pick("memory_request")
-    if pick("memory_limit"):
-        limits["memory"] = pick("memory_limit")
+    if dep.cpu_request:
+        requests["cpu"] = dep.cpu_request
+    if dep.cpu_limit:
+        limits["cpu"] = dep.cpu_limit
+    if dep.memory_request:
+        requests["memory"] = dep.memory_request
+    if dep.memory_limit:
+        limits["memory"] = dep.memory_limit
     for key, qty in (_runtime(dep).get("extra_resources") or {}).items():
         limits[key] = str(qty)
         requests[key] = str(qty)
@@ -133,14 +125,13 @@ def build_container(
     ports: list[dict],
     probes: dict,
     volume_mounts: list,
-    resources_override: dict | None = None,
 ) -> dict:
     container: dict = {
         "name": name,
         "image": dep.image,
         "args": args,
         "ports": ports,
-        "resources": _resources(gpu_count, dep.gpu_resource_key, dep, resources_override),
+        "resources": _resources(gpu_count, dep.gpu_resource_key, dep),
         "env": env,
         "volumeMounts": volume_mounts,
         **probes,
@@ -219,31 +210,36 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
 
 
 def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | None = None) -> list[dict]:
-    """Prefill + decode Deployments for ``serving_mode == "pd"``."""
+    """Prefill + decode Deployments for ``serving_mode == "pd"``.
+
+    Each pool is rendered from its own deployment-like row (``pd_serving.pool_row``:
+    image, model path, resources, storage, probes, runtime, placement), so the two
+    Deployments can differ in anything but namespace, name and the KV plumbing.
+    """
     pd_serving.engine_guard(dep)
     names = k8s_resource_names(dep)
     base_labels = _labels(dep)
-    volumes, mounts = _volumes(dep)
     out = []
     for role in pd_serving.ROLES:
         spec = pd_serving.role_view(dep, role)
+        pool = spec.pool
         selector = {**base_labels, pd_serving.LABEL_PD_ROLE: role}
         labels_on_pod = {**pod_labels(dep), pd_serving.LABEL_PD_ROLE: role, pd_serving.LABEL_ROLE: role}
         ports = [
             {"containerPort": spec.port, "name": "http"},
             {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
         ]
+        volumes, mounts = _volumes(pool)
         container = build_container(
-            dep,
+            pool,
             name="vllm",
             args=pd_serving.role_args(dep, spec),
             command=None,
             env=pd_serving.role_env(spec),
             gpu_count=spec.gpu_count,
             ports=ports,
-            probes=render_probes(dep, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
+            probes=render_probes(pool, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
             volume_mounts=mounts,
-            resources_override=spec.resources(),
         )
         init = None
         if role == "decode":
@@ -256,7 +252,7 @@ def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | Non
                 selector,
                 labels_on_pod,
                 spec.replicas,
-                build_pod_spec(dep, [container], volumes, init_containers=init),
+                build_pod_spec(pool, [container], volumes, init_containers=init),
             )
         )
     return out
