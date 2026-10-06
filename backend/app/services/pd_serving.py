@@ -1,9 +1,13 @@
 """Prefill/decode disaggregated serving: config schema, per-role merge, manifests.
 
-A recipe/deployment with ``serving_mode == "pd"`` keeps its shared base
-(image, model, engine args, env, probes, runtime, placement) and carries a
-``pd_config`` with per-role overrides. This module turns that into the two
-K8s Deployments (+ one Service each) the way the llm-d P/D guide does:
+A recipe/deployment with ``serving_mode == "pd"`` keeps a shared base (image,
+model, storage, probes, runtime, placement) and carries a ``pd_config`` with
+one complete config per role (replicas, GPUs, CPU/memory, engine args, extra
+args, env) plus the KV plumbing and the router block. Role values win over the
+base's, extra args are appended and env is merged, so older rows that only
+stored per-role *overrides* keep rendering the same. This module turns that
+into the two K8s Deployments (+ one Service each) the way the llm-d P/D guide
+does:
 
 * prefill: vLLM on 8000, ``kv_role=kv_producer``;
 * decode: vLLM on 8200 behind the ``llm-d-router-disagg-sidecar`` native
@@ -51,12 +55,24 @@ DEFAULT_PREFIX_TOKENS_TO_MATCH = 131072
 
 
 class RoleOverride(BaseModel):
+    """One pool's config. ``None`` fields fall back to the recipe base."""
+
     replicas: int = Field(1, ge=0)
     gpu_count: int | None = Field(None, ge=0)
     gpu_type: str | None = None
+    cpu_request: str | None = None
+    cpu_limit: str | None = None
+    memory_request: str | None = None
+    memory_limit: str | None = None
     engine_args: dict[str, str | int | float | bool] | None = None
     vllm_extra_args: list[str] | None = None
     env: dict[str, str] | None = None
+
+    @field_validator("gpu_type", "cpu_request", "cpu_limit", "memory_request", "memory_limit")
+    @classmethod
+    def _blank_is_none(cls, v):
+        v = (v or "").strip() if isinstance(v, str) else v
+        return v or None
 
     @field_validator("engine_args")
     @classmethod
@@ -71,8 +87,22 @@ class RoleOverride(BaseModel):
 
 
 class PdRouter(BaseModel):
+    """The llm-d router the deployment creates: EPP scheduler tuning plus the
+    stack-level knobs the operator would otherwise set on the llm-d form."""
+
     peak_prefill_throughput: int = Field(DEFAULT_PEAK_PREFILL_THROUGHPUT, ge=1)
     prefix_tokens_to_match: int = Field(DEFAULT_PREFIX_TOKENS_TO_MATCH, ge=1)
+    epp_registry: str | None = None
+    epp_repository: str | None = None
+    epp_tag: str | None = None
+    epp_replicas: int | None = Field(None, ge=1)
+    ingress_class: str | None = None
+
+    @field_validator("epp_registry", "epp_repository", "epp_tag", "ingress_class")
+    @classmethod
+    def _blank_is_none(cls, v):
+        v = (v or "").strip() if isinstance(v, str) else v
+        return v or None
 
 
 class PdConfig(BaseModel):
@@ -163,6 +193,19 @@ class RoleSpec:
     extra_args: list[str]
     env: dict[str, str]
     nixl_port: int
+    cpu_request: str | None = None
+    cpu_limit: str | None = None
+    memory_request: str | None = None
+    memory_limit: str | None = None
+
+    def resources(self) -> dict:
+        """The CPU/memory values to render (role, else base) for ``_resources``."""
+        return {
+            "cpu_request": self.cpu_request,
+            "cpu_limit": self.cpu_limit,
+            "memory_request": self.memory_request,
+            "memory_limit": self.memory_limit,
+        }
 
 
 def pd_config_of(dep) -> dict:
@@ -179,6 +222,10 @@ def role_view(dep, role: Role) -> RoleSpec:
     gpu_count = ov.get("gpu_count")
     if gpu_count is None:
         gpu_count = int(getattr(dep, "gpu_count", 0) or 0)
+
+    def pick(key: str):
+        return ov.get(key) or getattr(dep, key, None)
+
     return RoleSpec(
         role=role,
         port=PREFILL_PORT if role == "prefill" else DECODE_VLLM_PORT,
@@ -189,6 +236,10 @@ def role_view(dep, role: Role) -> RoleSpec:
         extra_args=extra_args,
         env=env,
         nixl_port=int(cfg.get("nixl_port") or DEFAULT_NIXL_PORT),
+        cpu_request=pick("cpu_request"),
+        cpu_limit=pick("cpu_limit"),
+        memory_request=pick("memory_request"),
+        memory_limit=pick("memory_limit"),
     )
 
 
