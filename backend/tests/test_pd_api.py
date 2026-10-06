@@ -396,3 +396,25 @@ async def test_benchmark_ephemeral_clone_of_pd_400(client_for_user, super_user, 
             resp = await client.post("/api/benchmarks", json=body)
     assert resp.status_code == 400 and "P/D" in resp.text
     k8s.create_job.assert_not_awaited()
+
+
+async def test_deploy_pd_router_block_becomes_stack_overrides(client_for_user, super_user, mock_db):
+    k8s, patches = _deploy_env(mock_db)
+    stack = _stack()
+    create_stack = AsyncMock(return_value=stack)
+    body = {
+        **_DEPLOY,
+        "ingress_class": "nginx",
+        "pd_config": {
+            **_DEPLOY["pd_config"],
+            "router": {"epp_tag": "v0.9.1", "epp_replicas": 2, "ingress_class": "internal"},
+        },
+    }
+    with patches[0], patches[1], patch("app.api.model_deployments.llmd_stacks.create_stack", create_stack):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=body)
+    assert resp.status_code == 201, resp.text
+    kw = create_stack.await_args.kwargs
+    assert kw["epp_tag"] == "v0.9.1" and kw["epp_registry"] is None and kw["ingress_class"] == "internal"
+    epp = kw["values"]["router"]["epp"]
+    assert epp["replicas"] == 2 and epp["image"]["tag"] == "v0.9.1"

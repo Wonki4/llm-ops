@@ -343,3 +343,28 @@ def test_pd_status_summary():
     status = {"prefill": {"ready": 7, "desired": 8}, "decode": {"ready": 2, "desired": 2}}
     assert pd_serving.pd_status_summary(status) == "D 2/2 · P 7/8"
     assert pd_serving.pd_status_summary(None) is None
+
+
+def test_role_cpu_memory_override_the_base():
+    dep = _dep(
+        cpu_request="4",
+        memory_limit="32Gi",
+        pd_config={"prefill": {"replicas": 1, "cpu_request": "16", "memory_limit": "128Gi"}, "decode": {"replicas": 1}},
+    )
+    prefill, decode = build_pd_deployments(dep)
+    p = prefill["spec"]["template"]["spec"]["containers"][0]["resources"]
+    d = decode["spec"]["template"]["spec"]["containers"][0]["resources"]
+    assert p["requests"]["cpu"] == "16" and p["limits"]["memory"] == "128Gi"
+    assert d["requests"]["cpu"] == "4" and d["limits"]["memory"] == "32Gi"
+
+
+def test_router_block_strips_blanks_and_validates_epp_replicas():
+    out = validate_pd_config(
+        {"router": {"epp_registry": " ", "epp_tag": "v0.9.1", "epp_replicas": 2, "ingress_class": ""}},
+        engine="vllm",
+        base_extra_args=None,
+    )
+    assert out["router"]["epp_tag"] == "v0.9.1" and out["router"]["epp_replicas"] == 2
+    assert "epp_registry" not in out["router"] and "ingress_class" not in out["router"]
+    with pytest.raises(ValueError):
+        validate_pd_config({"router": {"epp_replicas": 0}}, engine="vllm", base_extra_args=None)

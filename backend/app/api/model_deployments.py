@@ -459,13 +459,17 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
         dep.router_stack_id = existing.id
         dep.router_stack_created = False
         return
+    router = (dep.pd_config or {}).get("router") or {}
+    epp_registry = router.get("epp_registry") or settings.llmd_epp_image_registry
+    epp_repository = router.get("epp_repository") or settings.llmd_epp_image_repository
+    epp_tag = router.get("epp_tag") or settings.llmd_epp_image_tag
     values = default_llmd_values(
         dep.model_name,
-        epp_registry=settings.llmd_epp_image_registry,
-        epp_repository=settings.llmd_epp_image_repository,
-        epp_tag=settings.llmd_epp_image_tag,
+        epp_registry=epp_registry,
+        epp_repository=epp_repository,
+        epp_tag=epp_tag,
         serving_mode="pd",
-        pd_router=(dep.pd_config or {}).get("router"),
+        pd_router=router,
     )
     try:
         stack = await llmd_stacks.create_stack(
@@ -476,8 +480,11 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
             namespace=dep.namespace,
             values=values,
             user_id=user_id,
+            epp_registry=router.get("epp_registry"),
+            epp_repository=router.get("epp_repository"),
+            epp_tag=router.get("epp_tag"),
             ingress_host=dep.ingress_host,
-            ingress_class=dep.ingress_class,
+            ingress_class=router.get("ingress_class") or dep.ingress_class,
         )
     except HTTPException as e:
         logger.warning("Router stack %s was not created for %s: %s", name, dep.model_name, e.detail)

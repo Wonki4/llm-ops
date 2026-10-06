@@ -70,21 +70,29 @@ def pod_labels(dep: CustomModelDeployment) -> dict[str, str]:
     return {**_labels(dep), LABEL_LLMD_MODEL: dep.model_name}
 
 
-def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment) -> dict:
+def _resources(
+    gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment, override: dict | None = None
+) -> dict:
     # GPU optional — omit the resource entirely when gpu_count == 0 so the pod is
-    # CPU-only and schedulable on nodes without GPUs. CPU/memory are optional too.
+    # CPU-only and schedulable on nodes without GPUs. CPU/memory are optional too;
+    # ``override`` (a P/D role's values) replaces the row's when set.
+    ov = override or {}
+
+    def pick(key: str):
+        return ov.get(key) if ov.get(key) is not None else getattr(dep, key, None)
+
     requests: dict = {}
     limits: dict = {}
     if gpu_count and gpu_count > 0:
         limits[gpu_resource_key] = str(gpu_count)
-    if dep.cpu_request:
-        requests["cpu"] = dep.cpu_request
-    if dep.cpu_limit:
-        limits["cpu"] = dep.cpu_limit
-    if dep.memory_request:
-        requests["memory"] = dep.memory_request
-    if dep.memory_limit:
-        limits["memory"] = dep.memory_limit
+    if pick("cpu_request"):
+        requests["cpu"] = pick("cpu_request")
+    if pick("cpu_limit"):
+        limits["cpu"] = pick("cpu_limit")
+    if pick("memory_request"):
+        requests["memory"] = pick("memory_request")
+    if pick("memory_limit"):
+        limits["memory"] = pick("memory_limit")
     for key, qty in (_runtime(dep).get("extra_resources") or {}).items():
         limits[key] = str(qty)
         requests[key] = str(qty)
@@ -125,13 +133,14 @@ def build_container(
     ports: list[dict],
     probes: dict,
     volume_mounts: list,
+    resources_override: dict | None = None,
 ) -> dict:
     container: dict = {
         "name": name,
         "image": dep.image,
         "args": args,
         "ports": ports,
-        "resources": _resources(gpu_count, dep.gpu_resource_key, dep),
+        "resources": _resources(gpu_count, dep.gpu_resource_key, dep, resources_override),
         "env": env,
         "volumeMounts": volume_mounts,
         **probes,
@@ -199,7 +208,12 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         volume_mounts=mounts,
     )
     return _deployment(
-        names["deployment"], dep.namespace, labels, labels, pod_labels(dep), dep.replicas,
+        names["deployment"],
+        dep.namespace,
+        labels,
+        labels,
+        pod_labels(dep),
+        dep.replicas,
         build_pod_spec(dep, [container], volumes),
     )
 
@@ -229,13 +243,19 @@ def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | Non
             ports=ports,
             probes=render_probes(dep, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
             volume_mounts=mounts,
+            resources_override=spec.resources(),
         )
         init = None
         if role == "decode":
             init = [pd_serving.sidecar_container(pd_serving.sidecar_image_for(dep, sidecar_image))]
         out.append(
             _deployment(
-                names[f"{role}_deployment"], dep.namespace, selector, selector, labels_on_pod, spec.replicas,
+                names[f"{role}_deployment"],
+                dep.namespace,
+                selector,
+                selector,
+                labels_on_pod,
+                spec.replicas,
                 build_pod_spec(dep, [container], volumes, init_containers=init),
             )
         )

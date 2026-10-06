@@ -313,6 +313,8 @@ def default_llmd_values(
         # llm-d.ai/role. targetPorts stays 8000: prefill listens there and the
         # decode pods expose the routing sidecar on it.
         router = pd_router or {}
+        if router.get("epp_replicas"):
+            epp["replicas"] = int(router["epp_replicas"])
         epp["pluginsConfigFile"] = PD_EPP_CONFIG_FILE
         epp["pluginsCustomConfig"] = {
             PD_EPP_CONFIG_FILE: pd_epp_config(
