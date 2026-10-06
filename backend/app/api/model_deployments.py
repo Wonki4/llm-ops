@@ -28,7 +28,7 @@ from app.services import llmd_stacks, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
-from app.services.gpu_profiles import apply_profile, match_profile, validate_profile_name
+from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import default_llmd_values, stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
@@ -424,6 +424,33 @@ async def get_deployment(
     }
 
 
+async def _apply_pool_profiles(db: AsyncSession, dep: CustomModelDeployment, *, default_gpu_type: str | None) -> None:
+    """Fold each pool's GPU profile (its own gpu_type, else the deploy-time one)
+    into the pool's placement, the way ``apply_profile`` does for the row.
+    Call it before ``apply_profile`` so a pool without its own placement starts
+    from the recipe's, not from the row's already-profiled one."""
+    cfg = dict(dep.pd_config or {})
+    for role in pd_serving.ROLES:
+        pool = dict(cfg.get(role) or {})
+        gpu_type = pool.get("gpu_type") or default_gpu_type
+        try:
+            profile, label_key = await resolve_gpu_type(db, dep.cluster_id, gpu_type)
+        except UnknownGpuTypeError as e:
+            raise HTTPException(status_code=400, detail=f"{role}: {e}")
+        placement = resolve_placement(
+            profile,
+            label_key,
+            node_selector=pool.get("node_selector") if pool.get("node_selector") is not None else dep.node_selector,
+            tolerations=pool.get("tolerations") if pool.get("tolerations") is not None else dep.tolerations,
+            gpu_resource_key=pool.get("gpu_resource_key") or dep.gpu_resource_key,
+        )
+        pool["node_selector"] = placement.node_selector
+        pool["tolerations"] = placement.tolerations
+        pool["gpu_resource_key"] = placement.gpu_resource_key
+        cfg[role] = pool
+    dep.pd_config = cfg
+
+
 async def _router_stack_summary(db: AsyncSession, dep: CustomModelDeployment) -> dict | None:
     """The P/D serving's router stack (id/name/host + live ArgoCD state), None when unlinked."""
     stack_id = getattr(dep, "router_stack_id", None)
@@ -549,6 +576,8 @@ async def create_deployment(
         created_by=user.user_id,
         updated_by=user.user_id,
     )
+    if pd_serving.is_pd(dep):
+        await _apply_pool_profiles(db, dep, default_gpu_type=body.gpu_type)
     apply_profile(dep, gpu_profile, gpu_label_key)
     db.add(dep)
     await db.flush()
@@ -598,6 +627,8 @@ async def update_deployment(
             raise HTTPException(status_code=400, detail=str(e))
     else:
         dep.pd_config = None
+    if pd_serving.is_pd(dep) and ("gpu_type" in updates or "pd_config" in updates):
+        await _apply_pool_profiles(db, dep, default_gpu_type=dep.gpu_type)
     if updates.get("gpu_type"):
         try:
             gpu_profile, gpu_label_key = await resolve_gpu_type(db, dep.cluster_id, updates["gpu_type"])

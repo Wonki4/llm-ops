@@ -368,3 +368,55 @@ def test_router_block_strips_blanks_and_validates_epp_replicas():
     assert "epp_registry" not in out["router"] and "ingress_class" not in out["router"]
     with pytest.raises(ValueError):
         validate_pd_config({"router": {"epp_replicas": 0}}, engine="vllm", base_extra_args=None)
+
+
+def test_each_pool_renders_its_own_image_model_storage_probes_runtime_placement():
+    dep = _dep(
+        image="base:img",
+        model_path="/models/base",
+        pvc_name="base-pvc",
+        pvc_mount_path="/models",
+        node_selector={"gpu-type": "h200"},
+        tolerations=None,
+        probes=None,
+        runtime=None,
+        pd_config={
+            "prefill": {
+                "replicas": 1,
+                "image": "pre:img",
+                "model_path": "/models/pre",
+                "gpu_resource_key": "amd.com/gpu",
+                "pvc_name": "pre-pvc",
+                "pvc_mount_path": "/pre",
+                "probes": {"readiness": {"path": "/ready"}},
+                "runtime": {"shm_size_gi": 4, "host_ipc": True},
+                "node_selector": {"gpu-type": "mi300"},
+                "tolerations": [{"key": "amd", "operator": "Exists"}],
+            },
+            "decode": {"replicas": 1},
+        },
+    )
+    prefill, decode = build_pd_deployments(dep)
+    pre = prefill["spec"]["template"]["spec"]
+    dec = decode["spec"]["template"]["spec"]
+    pc, dc = pre["containers"][0], dec["containers"][0]
+    assert pc["image"] == "pre:img" and dc["image"] == "base:img"
+    assert pc["args"][1] == "/models/pre" and dc["args"][1] == "/models/base"
+    assert "amd.com/gpu" in pc["resources"]["limits"] and "nvidia.com/gpu" in dc["resources"]["limits"]
+    assert pre["volumes"][0]["persistentVolumeClaim"]["claimName"] == "pre-pvc"
+    assert pre["volumes"][1]["emptyDir"]["sizeLimit"] == "4Gi" and pre["hostIPC"] is True
+    assert dec["volumes"][0]["persistentVolumeClaim"]["claimName"] == "base-pvc" and "hostIPC" not in dec
+    assert pc["readinessProbe"]["httpGet"]["path"] == "/ready" and dc["readinessProbe"]["httpGet"]["path"] == "/health"
+    assert pre["nodeSelector"] == {"gpu-type": "mi300"} and pre["tolerations"] == [{"key": "amd", "operator": "Exists"}]
+    assert dec["nodeSelector"] == {"gpu-type": "h200"} and "tolerations" not in dec
+
+
+def test_pool_probes_and_runtime_are_validated():
+    with pytest.raises(ValueError):
+        validate_pd_config(
+            {"prefill": {"probes": {"readiness": {"path": "no-slash"}}}}, engine="vllm", base_extra_args=None
+        )
+    with pytest.raises(ValueError):
+        validate_pd_config({"decode": {"runtime": {"shm_size_gi": 0}}}, engine="vllm", base_extra_args=None)
+    out = validate_pd_config({"prefill": {"image": " ", "model_path": "/m"}}, engine="vllm", base_extra_args=None)
+    assert "image" not in out["prefill"] and out["prefill"]["model_path"] == "/m"

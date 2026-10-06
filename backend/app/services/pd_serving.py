@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.serving_engines import SERVING_PORT, engine_of, render_engine_args, validate_engine_args
+from app.services.serving_probes import validate_probes
 
 Role = Literal["prefill", "decode"]
 ServingMode = Literal["aggregated", "pd"]
@@ -54,25 +56,70 @@ DEFAULT_PREFIX_TOKENS_TO_MATCH = 131072
 # ─── schema ───────────────────────────────────────────────────────────────────
 
 
+class Runtime(BaseModel):
+    shm_size_gi: int | None = Field(None, ge=1, le=4096)
+    host_ipc: bool = False
+    privileged: bool = False
+    extra_resources: dict[str, str] = {}
+
+    @field_validator("extra_resources")
+    @classmethod
+    def _resource_keys(cls, v):
+        for key, val in (v or {}).items():
+            if not key or "/" not in key or not str(val).strip():
+                raise ValueError(f"extra_resources entries must be '<vendor>/<name>': '<quantity>' (got {key!r})")
+        return v
+
+
 class RoleOverride(BaseModel):
     """One pool's config. ``None`` fields fall back to the recipe base."""
 
     replicas: int = Field(1, ge=0)
+    image: str | None = None
+    model_path: str | None = None
     gpu_count: int | None = Field(None, ge=0)
     gpu_type: str | None = None
+    gpu_resource_key: str | None = None
     cpu_request: str | None = None
     cpu_limit: str | None = None
     memory_request: str | None = None
     memory_limit: str | None = None
+    pvc_name: str | None = None
+    pvc_mount_path: str | None = None
     engine_args: dict[str, str | int | float | bool] | None = None
     vllm_extra_args: list[str] | None = None
     env: dict[str, str] | None = None
+    probes: dict | None = None
+    runtime: dict | None = None
+    node_selector: dict[str, str] | None = None
+    tolerations: list | None = None
 
-    @field_validator("gpu_type", "cpu_request", "cpu_limit", "memory_request", "memory_limit")
+    @field_validator(
+        "image",
+        "model_path",
+        "gpu_type",
+        "gpu_resource_key",
+        "cpu_request",
+        "cpu_limit",
+        "memory_request",
+        "memory_limit",
+        "pvc_name",
+        "pvc_mount_path",
+    )
     @classmethod
     def _blank_is_none(cls, v):
         v = (v or "").strip() if isinstance(v, str) else v
         return v or None
+
+    @field_validator("probes")
+    @classmethod
+    def _probes(cls, v):
+        return validate_probes(v)
+
+    @field_validator("runtime")
+    @classmethod
+    def _runtime(cls, v):
+        return Runtime.model_validate(v).model_dump(exclude_none=True) if v is not None else None
 
     @field_validator("engine_args")
     @classmethod
@@ -118,21 +165,6 @@ class PdConfig(BaseModel):
     def _strip(cls, v):
         v = (v or "").strip()
         return v or None
-
-
-class Runtime(BaseModel):
-    shm_size_gi: int | None = Field(None, ge=1, le=4096)
-    host_ipc: bool = False
-    privileged: bool = False
-    extra_resources: dict[str, str] = {}
-
-    @field_validator("extra_resources")
-    @classmethod
-    def _resource_keys(cls, v):
-        for key, val in (v or {}).items():
-            if not key or "/" not in key or not str(val).strip():
-                raise ValueError(f"extra_resources entries must be '<vendor>/<name>': '<quantity>' (got {key!r})")
-        return v
 
 
 def _reject_forbidden(args: list[str] | None) -> None:
@@ -197,6 +229,7 @@ class RoleSpec:
     cpu_limit: str | None = None
     memory_request: str | None = None
     memory_limit: str | None = None
+    pool: Any = None  # the pool as a deployment-like row (see ``pool_row``)
 
     def resources(self) -> dict:
         """The CPU/memory values to render (role, else base) for ``_resources``."""
@@ -206,6 +239,66 @@ class RoleSpec:
             "memory_request": self.memory_request,
             "memory_limit": self.memory_limit,
         }
+
+
+# Deployment attributes a pool can override; everything else (namespace, name,
+# cluster, ingress, status…) is read from the row itself.
+POOL_FIELDS = (
+    "image",
+    "model_path",
+    "gpu_count",
+    "gpu_type",
+    "gpu_resource_key",
+    "cpu_request",
+    "cpu_limit",
+    "memory_request",
+    "memory_limit",
+    "pvc_name",
+    "pvc_mount_path",
+    "probes",
+    "runtime",
+    "node_selector",
+    "tolerations",
+)
+
+
+def pool_row(dep, role: Role, spec: RoleSpec | None = None) -> SimpleNamespace:
+    """The pool as a deployment-like object the aggregated manifest helpers accept.
+
+    Scalars: the role's value when set, else the row's. ``engine_args`` /
+    ``vllm_extra_args`` / ``env`` are the merged values from ``role_view``.
+    """
+    cfg = pd_config_of(dep)
+    ov = dict(cfg.get(role) or {})
+    attrs = {
+        key: getattr(dep, key, None)
+        for key in (
+            "id",
+            "model_name",
+            "namespace",
+            "cluster_id",
+            "engine",
+            "serving_mode",
+            "pd_config",
+            "ingress_host",
+            "ingress_path",
+            "ingress_class",
+            "replicas",
+        )
+    }
+    for key in POOL_FIELDS:
+        attrs[key] = ov[key] if ov.get(key) is not None else getattr(dep, key, None)
+    if spec is None:
+        spec = role_view(dep, role)
+    attrs.update(
+        engine_args=spec.engine_args,
+        vllm_extra_args=spec.extra_args,
+        env=spec.env,
+        gpu_count=spec.gpu_count,
+        gpu_type=spec.gpu_type,
+        replicas=spec.replicas,
+    )
+    return SimpleNamespace(**attrs)
 
 
 def pd_config_of(dep) -> dict:
@@ -226,7 +319,7 @@ def role_view(dep, role: Role) -> RoleSpec:
     def pick(key: str):
         return ov.get(key) or getattr(dep, key, None)
 
-    return RoleSpec(
+    spec = RoleSpec(
         role=role,
         port=PREFILL_PORT if role == "prefill" else DECODE_VLLM_PORT,
         replicas=int(ov.get("replicas", 1) if ov.get("replicas") is not None else 1),
@@ -241,6 +334,7 @@ def role_view(dep, role: Role) -> RoleSpec:
         memory_request=pick("memory_request"),
         memory_limit=pick("memory_limit"),
     )
+    return RoleSpec(**{**spec.__dict__, "pool": pool_row(dep, role, spec)})
 
 
 def role_args(dep, spec: RoleSpec) -> list[str]:
@@ -248,7 +342,7 @@ def role_args(dep, spec: RoleSpec) -> list[str]:
     cfg = pd_config_of(dep)
     return [
         "--model",
-        dep.model_path,
+        spec.pool.model_path if spec.pool is not None else dep.model_path,
         "--port",
         str(spec.port),
         "--kv-transfer-config",
