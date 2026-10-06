@@ -784,12 +784,15 @@ export type EngineArgs = Record<string, string | number | boolean>;
 // ─── Prefill/decode disaggregation ───────────────────────────
 export type ServingMode = "aggregated" | "pd";
 
-/** Per-role overrides on top of the recipe base (see backend pd_serving). */
+/** One pool's complete config (see backend pd_serving). Null fields fall back to the recipe base. */
 export interface PdRoleOverride {
   replicas?: number;
-  /** null/undefined = the recipe's gpu_count. */
   gpu_count?: number | null;
   gpu_type?: string | null;
+  cpu_request?: string | null;
+  cpu_limit?: string | null;
+  memory_request?: string | null;
+  memory_limit?: string | null;
   /** Merged over the base engine args (role wins). */
   engine_args?: EngineArgs | null;
   /** Appended after the base extra args. */
@@ -797,9 +800,15 @@ export interface PdRoleOverride {
   env?: Record<string, string> | null;
 }
 
+/** The llm-d router a P/D deployment creates: EPP tuning + stack-level overrides. */
 export interface PdRouterConfig {
   peak_prefill_throughput?: number;
   prefix_tokens_to_match?: number;
+  epp_registry?: string | null;
+  epp_repository?: string | null;
+  epp_tag?: string | null;
+  epp_replicas?: number | null;
+  ingress_class?: string | null;
 }
 
 export interface PdConfig {

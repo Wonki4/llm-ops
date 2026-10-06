@@ -166,7 +166,7 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 
 #### 모델 서빙 — Prefill/Decode 분리 (P/D)
 - 서빙 레시피의 **서빙 방식**을 `Prefill / Decode 분리`로 두면 한 레시피로 prefill 풀 + decode 풀 두 개의 Deployment(+Service)를 띄운다 (vLLM 전용)
-- 풀별 레플리카·GPU 수·GPU 타입·엔진 인자/추가 인자/환경변수 오버라이드, NIXL 사이드채널 포트, kv-transfer-config 추가 필드, 라우팅 사이드카 이미지, 라우터(EPP) 튜닝값
+- 레시피 폼은 **공통 / Prefill / Decode / Router** 탭으로 나뉜다. 공통(이미지·모델 경로·스토리지·헬스 체크·런타임·배치), 풀별 완전한 설정(레플리카·GPU 수/타입·CPU/메모리·엔진 인자·추가 인자·환경변수, 다른 풀에서 복사 가능), Router(EPP 이미지/레플리카, 인그레스 클래스, 스케줄러 튜닝, 라우팅 사이드카 이미지, NIXL 포트, kv-transfer-config 추가 필드)
 - `--port`, `--kv-transfer-config`(NixlConnector, kv_producer/kv_consumer), `VLLM_NIXL_SIDE_CHANNEL_HOST/PORT`는 포털이 관리하며 레시피에 넣으면 거부
 - decode 풀은 llm-d routing sidecar(native sidecar, 8000)가 vLLM(8200) 앞에 서고, 풀에는 Ingress를 만들지 않음 — 배포 시 llm-d 라우터 스택 `<model>-router`가 자동 생성되고(또는 기존 스택 연결) 라우터 인그레스 호스트가 진입점
 - 리컨실러는 두 풀을 각각 관찰해 `pd_status`(D r/d · P r/d)를 기록하고, 라우터 ArgoCD App이 Synced/Healthy가 된 뒤 라우터 호스트로 LiteLLM에 등록

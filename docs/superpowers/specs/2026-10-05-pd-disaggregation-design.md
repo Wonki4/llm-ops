@@ -348,6 +348,29 @@ available. `api_base = https://<stack ingress host>`.
 - Importing an external P/D pair into one recipe (warning only).
 - LiteLLM model/catalog cleanup on delete (pre-existing gap, separate task).
 
+## Revision 2026-10-06 — full per-role configs, four tabs
+
+Review feedback after the first implementation: "prefill, decode and the
+router each need their own settings; base + overrides reads oddly". Changed:
+
+- `pd_config.prefill` / `.decode` are now a **complete pool config** (replicas,
+  gpu_count, gpu_type, cpu/memory requests/limits, engine_args, extra args,
+  env). The backend keeps the merge rule (role wins, extra args appended, env
+  merged), so rows saved as overrides still render the same; the form stores
+  the shared engine args / extra args / env / cpu / memory as null in P/D mode
+  and `gpu_count` as the larger pool's.
+- `pd_config.router` gained `epp_registry` / `epp_repository` / `epp_tag`,
+  `epp_replicas` and `ingress_class`; they become the auto-created stack's
+  overrides and the EPP replica count. The host stays a deploy-time input.
+- Recipe form: a serving-mode card on top; P/D recipes split into **Shared /
+  Prefill / Decode / Router** tabs (all mounted, so switching never loses
+  input). Shared = basics, storage, probes, runtime, placement. Each pool tab
+  shows the full config with a "copy from the other pool" button. Router tab
+  = EPP image/replicas, ingress class, scheduler tuning, sidecar image, NIXL
+  port, kv-transfer extras. Deployment detail mirrors the split (shared card
+  without pool resources, pool cards with their resources, router card with
+  EPP/ingress/tuning).
+
 ## Verification (2026-10-06, minikube `portal-test`, no GPU)
 
 - Recipe `pd-mock` (image `mock-vllm:cpu`, gpu 0, prefill 1×, decode 1× with `max-num-seqs=512`, `runtime.shm_size_gi=1`) deployed as `pd-mock`:
