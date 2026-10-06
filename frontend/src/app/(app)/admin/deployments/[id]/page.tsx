@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { engineArgsToFlags } from "@/lib/serving-engines";
-import { PD_ROLES, PD_VLLM_PORT, roleLaunchArgs, roleOverride } from "@/lib/pd-serving";
+import { PD_ROLES, PD_VLLM_PORT, effectiveRole, roleLaunchArgs } from "@/lib/pd-serving";
 
 import {
   useModelDeployment,
@@ -158,15 +158,19 @@ export default function DeploymentDetailPage() {
             <Field label={t("colImage")} mono>{dep.image}</Field>
             <Field label={t("colNamespace")} mono>{dep.namespace}</Field>
             <Field label={t("cluster")} mono>{dep.cluster_id || t("portalDefault")}</Field>
-            <Field label={t("colGpu")} mono>{dep.gpu_count} × {dep.gpu_resource_key}</Field>
-            <Field label={t("gpuType")} mono>
-              {dep.gpu_type ?? "-"}
-              {dep.node_selector && Object.keys(dep.node_selector).length > 0 && (
-                <span className="ml-2 text-xs text-muted-foreground">{Object.entries(dep.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")}</span>
-              )}
-            </Field>
-            <Field label="CPU" mono>{dep.cpu_request || dep.cpu_limit ? `${dep.cpu_request ?? "-"} / ${dep.cpu_limit ?? "-"}` : "-"}</Field>
-            <Field label={t("memory")} mono>{dep.memory_request || dep.memory_limit ? `${dep.memory_request ?? "-"} / ${dep.memory_limit ?? "-"}` : "-"}</Field>
+            {dep.serving_mode !== "pd" && (
+              <>
+                <Field label={t("colGpu")} mono>{dep.gpu_count} × {dep.gpu_resource_key}</Field>
+                <Field label={t("gpuType")} mono>
+                  {dep.gpu_type ?? "-"}
+                  {dep.node_selector && Object.keys(dep.node_selector).length > 0 && (
+                    <span className="ml-2 text-xs text-muted-foreground">{Object.entries(dep.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")}</span>
+                  )}
+                </Field>
+                <Field label="CPU" mono>{dep.cpu_request || dep.cpu_limit ? `${dep.cpu_request ?? "-"} / ${dep.cpu_limit ?? "-"}` : "-"}</Field>
+                <Field label={t("memory")} mono>{dep.memory_request || dep.memory_limit ? `${dep.memory_request ?? "-"} / ${dep.memory_limit ?? "-"}` : "-"}</Field>
+              </>
+            )}
             <Field label={t("ingressHost")} mono>{dep.ingress_host}</Field>
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
@@ -202,20 +206,23 @@ export default function DeploymentDetailPage() {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               {PD_ROLES.map((role) => {
                 const st = dep.pd_status?.[role];
-                const ov = roleOverride(dep, role);
+                const eff = effectiveRole(dep, dep.pd_config?.[role]);
                 const args = roleLaunchArgs(dep, role);
+                const cpu = eff.cpu_request || eff.cpu_limit ? `CPU ${eff.cpu_request ?? "-"} / ${eff.cpu_limit ?? "-"}` : null;
+                const mem = eff.memory_request || eff.memory_limit ? `Mem ${eff.memory_request ?? "-"} / ${eff.memory_limit ?? "-"}` : null;
                 return (
                   <div key={role} className="space-y-3 rounded-md border p-3" data-testid={`pd-role-${role}`}>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{t(role === "prefill" ? "pdPrefill" : "pdDecode")}</span>
                       {st?.status && <StatusBadge status={st.status} />}
                       <span className="text-sm text-muted-foreground tabular-nums">
-                        {st ? `${st.ready}/${st.desired}` : `–/${ov.replicas ?? 1}`}
+                        {st ? `${st.ready}/${st.desired}` : `–/${eff.replicas ?? 1}`}
                       </span>
-                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">
-                        {t("pdPort")} {PD_VLLM_PORT[role]} · {ov.gpu_count ?? dep.gpu_count} × {dep.gpu_resource_key}
-                        {(ov.gpu_type ?? dep.gpu_type) ? ` · ${ov.gpu_type ?? dep.gpu_type}` : ""}
-                      </span>
+                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
+                    </div>
+                    <div className="font-mono text-[11px] text-muted-foreground">
+                      {t("pdResources")}: {eff.gpu_count ?? 0} × {dep.gpu_resource_key}
+                      {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
                     </div>
                     {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
                     <div className="space-y-1">
@@ -246,6 +253,20 @@ export default function DeploymentDetailPage() {
                   <span className="text-xs text-amber-600 dark:text-amber-400">{t("pdRouterNone")}</span>
                 )}
               </div>
+              {(() => {
+                const r = dep.pd_config?.router ?? {};
+                const image = r.epp_registry || r.epp_repository || r.epp_tag
+                  ? `${r.epp_registry ?? "…"}/${r.epp_repository ?? "…"}:${r.epp_tag ?? "…"}`
+                  : null;
+                const parts = [
+                  image ? `${t("pdEpp")} ${image}` : null,
+                  r.epp_replicas ? `${t("pdEpp")} ×${r.epp_replicas}` : null,
+                  r.ingress_class ? `${t("pdIngressClass")} ${r.ingress_class}` : null,
+                  `peakPrefillThroughput ${r.peak_prefill_throughput ?? 33821}`,
+                  `maxPrefixTokensToMatch ${r.prefix_tokens_to_match ?? 131072}`,
+                ].filter(Boolean);
+                return <div className="mt-2 font-mono text-[11px] text-muted-foreground">{parts.join(" · ")}</div>;
+              })()}
               {dep.pd_status?.router && dep.pd_status.router.ready === false && dep.pd_status.router.reason && (
                 <p className="mt-2 text-xs text-muted-foreground">{t("pdRouterWaiting", { reason: dep.pd_status.router.reason })}</p>
               )}

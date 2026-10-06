@@ -119,7 +119,7 @@ export function DeployFromRecipeDialog({
       gpu_type: hasProfiles ? (gpuType || null) : (recipe.gpu_type ?? null),
       ingress_host: ingressHost.trim(),
       ingress_path: isPd ? "/" : ingressPath.trim() || "/",
-      ingress_class: ingressClass.trim() || "nginx",
+      ingress_class: isPd ? (recipe.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
       serving_mode: recipe.serving_mode ?? "aggregated",
       pd_config: pdConfig,
       runtime: recipe.runtime ?? null,
@@ -180,7 +180,6 @@ export function DeployFromRecipeDialog({
                 <Input id="deploy-router-host" value={ingressHost} onChange={(e) => setIngressHost(e.target.value)} />
                 <p className="text-xs text-muted-foreground">{t("deployRouterHostHint", { name: modelName.trim() || "<model>" })}</p>
               </Field>
-              <Field label={t("deployIngressClass")} span2><Input value={ingressClass} onChange={(e) => setIngressClass(e.target.value)} /></Field>
               <Field label={t("deployPrefillReplicas")}>
                 <Input id="deploy-prefill-replicas" type="number" min={0} value={prefillReplicas} onChange={(e) => setPrefillReplicas(Number(e.target.value))} />
               </Field>
