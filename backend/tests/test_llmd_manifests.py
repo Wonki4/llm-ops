@@ -363,3 +363,14 @@ def test_application_carries_the_resources_finalizer_so_delete_cascades():
         destination_server="https://kubernetes.default.svc",
     )
     assert app["metadata"]["finalizers"] == ["resources-finalizer.argocd.argoproj.io"]
+
+
+def test_pd_router_values_take_epp_replicas_from_the_router_block():
+    from app.services.llmd_manifests import default_llmd_values
+
+    values = default_llmd_values(
+        "glm", epp_registry="r", epp_repository="p", epp_tag="t", serving_mode="pd", pd_router={"epp_replicas": 3}
+    )
+    assert values["router"]["epp"]["replicas"] == 3
+    default = default_llmd_values("glm", epp_registry="r", epp_repository="p", epp_tag="t", serving_mode="pd")
+    assert default["router"]["epp"]["replicas"] == 1
