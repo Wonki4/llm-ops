@@ -418,3 +418,50 @@ async def test_deploy_pd_router_block_becomes_stack_overrides(client_for_user, s
     assert kw["epp_tag"] == "v0.9.1" and kw["epp_registry"] is None and kw["ingress_class"] == "internal"
     epp = kw["values"]["router"]["epp"]
     assert epp["replicas"] == 2 and epp["image"]["tag"] == "v0.9.1"
+
+
+async def test_deploy_pd_resolves_a_gpu_profile_per_pool(client_for_user, super_user, mock_db):
+    k8s, patches = _deploy_env(mock_db)
+    profiles = {
+        "h100": types.SimpleNamespace(
+            name="h100", label_key=None, label_value="h100-80g", gpu_resource_key="nvidia.com/gpu", tolerations=None
+        ),
+        "mi300": types.SimpleNamespace(
+            name="mi300",
+            label_key="accel",
+            label_value="mi300x",
+            gpu_resource_key="amd.com/gpu",
+            tolerations=[{"key": "amd", "operator": "Exists"}],
+        ),
+    }
+
+    async def resolve(db, cluster_id, gpu_type):
+        return (profiles.get(gpu_type), "gpu-type")
+
+    body = {
+        **_DEPLOY,
+        "gpu_type": "h100",
+        "pd_config": {
+            "prefill": {"replicas": 1, "gpu_count": 8},
+            "decode": {"replicas": 1, "gpu_count": 4, "gpu_type": "mi300"},
+        },
+    }
+    with (
+        patches[0],
+        patch("app.api.model_deployments.resolve_gpu_type", AsyncMock(side_effect=resolve)),
+        patch("app.api.model_deployments.llmd_stacks.create_stack", AsyncMock(return_value=_stack())),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=body)
+    assert resp.status_code == 201, resp.text
+    pd = resp.json()["pd_config"]
+    assert (
+        pd["prefill"]["node_selector"] == {"gpu-type": "h100-80g"}
+        and pd["prefill"]["gpu_resource_key"] == "nvidia.com/gpu"
+    )
+    assert pd["decode"]["node_selector"] == {"accel": "mi300x"} and pd["decode"]["gpu_resource_key"] == "amd.com/gpu"
+    assert pd["decode"]["tolerations"] == [{"key": "amd", "operator": "Exists"}]
+    _ns, manifests = k8s.create_or_patch.await_args.args
+    assert manifests[0]["spec"]["template"]["spec"]["nodeSelector"] == {"gpu-type": "h100-80g"}
+    assert manifests[1]["spec"]["template"]["spec"]["nodeSelector"] == {"accel": "mi300x"}
+    assert "amd.com/gpu" in manifests[1]["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]

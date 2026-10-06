@@ -86,7 +86,9 @@ async def _register_with_litellm(
         if dep.ingress_path and dep.ingress_path != "/":
             api_base = f"{api_base}{dep.ingress_path.rstrip('/')}"
     # vLLM exposes the OpenAI-compatible API; route through openai/ in LiteLLM.
-    served_name = dep.model_path.split("/")[-1] or dep.model_name
+    # P/D: the decode pool answers through the router, so its auth settings apply.
+    auth_source = pd_serving.role_view(dep, "decode").pool if pd_serving.is_pd(dep) else dep
+    served_name = auth_source.model_path.split("/")[-1] or dep.model_name
     try:
         result = await litellm.create_model(
             model_name=dep.model_name,
@@ -94,7 +96,7 @@ async def _register_with_litellm(
             api_base=api_base,
             # Register with the serving's own key so LiteLLM can reach it when
             # the vLLM server has auth enabled (--api-key); "EMPTY" when it's open.
-            api_key=serving_api_key(dep.vllm_extra_args, dep.env),
+            api_key=serving_api_key(auth_source.vllm_extra_args, auth_source.env),
         )
         info = result.get("model_info") or {}
         return info.get("id") or result.get("id")
