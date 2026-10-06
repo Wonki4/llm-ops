@@ -154,8 +154,12 @@ export default function DeploymentDetailPage() {
         <CardHeader><CardTitle className="text-base">{t("configSection")}</CardTitle></CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            <Field label={t("modelPath")} mono>{dep.model_path}</Field>
-            <Field label={t("colImage")} mono>{dep.image}</Field>
+            {dep.serving_mode !== "pd" && (
+              <>
+                <Field label={t("modelPath")} mono>{dep.model_path}</Field>
+                <Field label={t("colImage")} mono>{dep.image}</Field>
+              </>
+            )}
             <Field label={t("colNamespace")} mono>{dep.namespace}</Field>
             <Field label={t("cluster")} mono>{dep.cluster_id || t("portalDefault")}</Field>
             {dep.serving_mode !== "pd" && (
@@ -175,18 +179,19 @@ export default function DeploymentDetailPage() {
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
           </div>
+          {dep.serving_mode !== "pd" && (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
             <Field label={t("probeLiveness")} mono>
               {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, "/health", [120, 30, 5, 3])}
             </Field>
             <Field label={t("probeStartup")} mono>
-              {dep.probes?.startup == null && dep.serving_mode !== "pd"
-                ? t("probeOff")
-                : probeSummary(dep.probes?.startup ?? null, "/health", [15, 30, 5, 120])}
+              {dep.probes?.startup == null ? t("probeOff") : probeSummary(dep.probes.startup, "/health", [15, 30, 5, 120])}
             </Field>
           </div>
+          )}
           {(() => {
+            if (dep.serving_mode === "pd") return null;
             const flags = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];
             return flags.length > 0 ? (
               <div className="mt-4 space-y-1">
@@ -220,9 +225,23 @@ export default function DeploymentDetailPage() {
                       </span>
                       <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
                     </div>
-                    <div className="font-mono text-[11px] text-muted-foreground">
-                      {t("pdResources")}: {eff.gpu_count ?? 0} × {dep.gpu_resource_key}
-                      {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <Field label={t("colImage")} mono>{eff.image}</Field>
+                      <Field label={t("modelPath")} mono>{eff.model_path}</Field>
+                      <Field label={t("pdResources")} mono>
+                        {eff.gpu_count ?? 0} × {eff.gpu_resource_key}
+                        {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
+                      </Field>
+                      <Field label={t("pdStorage")} mono>{eff.pvc_name ? `${eff.pvc_name} → ${eff.pvc_mount_path ?? "/models"}` : "-"}</Field>
+                      <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
+                      <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, "/health", [15, 30, 5, 120])}</Field>
+                      <Field label={t("pdPlacement")} mono>
+                        {eff.node_selector && Object.keys(eff.node_selector).length > 0
+                          ? Object.entries(eff.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")
+                          : "-"}
+                        {eff.runtime?.shm_size_gi ? ` · shm ${eff.runtime.shm_size_gi}Gi` : ""}
+                        {eff.runtime?.host_ipc ? " · hostIPC" : ""}{eff.runtime?.privileged ? " · privileged" : ""}
+                      </Field>
                     </div>
                     {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
                     <div className="space-y-1">

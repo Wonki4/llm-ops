@@ -832,7 +832,9 @@
     "pdShared": "공통",
     "pdEpp": "EPP",
     "pdIngressClass": "인그레스 클래스",
-    "pdResources": "리소스"
+    "pdResources": "리소스",
+    "pdStorage": "스토리지",
+    "pdPlacement": "배치"
   },
   "adminUsers": {
     "pageTitle": "사용자 관리",
@@ -1865,12 +1867,9 @@
     "deployPrefillReplicas": "Prefill 레플리카",
     "deployDecodeReplicas": "Decode 레플리카",
     "deployPdNote": "Prefill/Decode: 두 풀은 자체 인그레스 없이 생성되고 라우터가 진입점이 됩니다.",
-    "pdTabShared": "공통",
     "pdTabPrefill": "Prefill",
     "pdTabDecode": "Decode",
     "pdTabRouter": "Router",
-    "pdSharedHint": "두 풀이 정말 공유하는 것만: 이미지, 모델 경로, 스토리지, 헬스 체크, 런타임, 배치. 풀별 리소스와 실행 설정은 각 탭에서 지정합니다.",
-    "pdRoleHint": "이 풀의 완전한 실행 설정입니다. --port와 --kv-transfer-config는 포털이 추가합니다.",
     "pdCopyFrom": "{role} 설정 복사",
     "pdCopied": "{role} 설정을 복사했습니다",
     "pdRouterTabHint": "이 레시피를 배포하면 llm-d 스택 \"{model}-router\"가 이 설정으로 생성됩니다. 라우터 호스트는 배포 시점에 입력합니다.",
@@ -1882,7 +1881,10 @@
     "pdEppImageHint": "비우면 포털 기본값",
     "pdIngressClass": "라우터 인그레스 클래스",
     "pdIngressClassHint": "비우면 배포의 인그레스 클래스",
-    "pdSchedulerSection": "스케줄러 튜닝"
+    "pdSchedulerSection": "스케줄러 튜닝",
+    "sectionRecipe": "레시피",
+    "sectionImage": "이미지 · 모델",
+    "pdPoolHint": "이 풀의 완전한 설정입니다 — 이미지, 모델, 리소스, 스토리지, 실행 인자, 헬스 체크, 런타임, 배치. 다른 풀에서 상속되는 값은 없습니다."
   },
   "serving": {
     "title": "서빙 홈",

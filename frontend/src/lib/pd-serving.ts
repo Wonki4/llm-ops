@@ -1,4 +1,4 @@
-import type { EngineArgs, ModelDeployment, PdRoleOverride } from "@/types";
+import type { ModelDeployment, PdRoleOverride, PoolConfig } from "@/types";
 import { engineArgsToFlags } from "@/lib/serving-engines";
 
 export type PdRole = "prefill" | "decode";
@@ -13,36 +13,53 @@ export function roleOverride(dep: Pick<ModelDeployment, "pd_config">, role: PdRo
   return dep.pd_config?.[role] ?? {};
 }
 
-export type RoleBase = {
-  gpu_count: number;
-  gpu_type: string | null;
-  cpu_request: string | null;
-  cpu_limit: string | null;
-  memory_request: string | null;
-  memory_limit: string | null;
-  engine_args: EngineArgs | null;
-  vllm_extra_args: string[] | null;
-  env: Record<string, string> | null;
+export const POOL_KEYS: (keyof PoolConfig)[] = [
+  "image", "model_path", "gpu_count", "gpu_type", "gpu_resource_key",
+  "cpu_request", "cpu_limit", "memory_request", "memory_limit", "pvc_name", "pvc_mount_path",
+  "engine_args", "vllm_extra_args", "env", "probes", "runtime", "node_selector", "tolerations",
+];
+
+export const EMPTY_POOL: PoolConfig = {
+  image: "", model_path: "", gpu_count: 1, gpu_type: null, gpu_resource_key: "nvidia.com/gpu",
+  cpu_request: null, cpu_limit: null, memory_request: null, memory_limit: null, pvc_name: null, pvc_mount_path: null,
+  engine_args: null, vllm_extra_args: null, env: null, probes: null, runtime: null, node_selector: null, tolerations: null,
 };
 
+/** Just the pool fields of a recipe/deployment row. */
+export function poolOf(row: PoolConfig): PoolConfig {
+  const out = { ...EMPTY_POOL };
+  for (const k of POOL_KEYS) (out as Record<string, unknown>)[k] = row[k] ?? EMPTY_POOL[k];
+  return out;
+}
+
 /**
- * The pool's complete, effective config: the recipe base with the role's
+ * The pool's complete, effective config: the recipe row with the role's
  * values on top (role wins, extra args appended, env merged) — the same rule
  * the backend renders with. Fills the form tabs and the detail cards.
  */
-export function effectiveRole(base: RoleBase, role: PdRoleOverride | null | undefined): PdRoleOverride {
+export function effectiveRole(base: PoolConfig, role: PdRoleOverride | null | undefined): PdRoleOverride & PoolConfig {
   const r = role ?? {};
   const extra = [...(base.vllm_extra_args ?? []), ...(r.vllm_extra_args ?? [])];
   const env = { ...(base.env ?? {}), ...(r.env ?? {}) };
   const args = { ...(base.engine_args ?? {}), ...(r.engine_args ?? {}) };
+  const pick = <K extends keyof PoolConfig>(k: K): PoolConfig[K] => (r[k] ?? base[k] ?? EMPTY_POOL[k]) as PoolConfig[K];
   return {
     replicas: r.replicas ?? 1,
-    gpu_count: r.gpu_count ?? base.gpu_count,
-    gpu_type: r.gpu_type ?? base.gpu_type,
-    cpu_request: r.cpu_request ?? base.cpu_request,
-    cpu_limit: r.cpu_limit ?? base.cpu_limit,
-    memory_request: r.memory_request ?? base.memory_request,
-    memory_limit: r.memory_limit ?? base.memory_limit,
+    image: pick("image"),
+    model_path: pick("model_path"),
+    gpu_count: pick("gpu_count"),
+    gpu_type: pick("gpu_type"),
+    gpu_resource_key: pick("gpu_resource_key"),
+    cpu_request: pick("cpu_request"),
+    cpu_limit: pick("cpu_limit"),
+    memory_request: pick("memory_request"),
+    memory_limit: pick("memory_limit"),
+    pvc_name: pick("pvc_name"),
+    pvc_mount_path: pick("pvc_mount_path"),
+    probes: pick("probes"),
+    runtime: pick("runtime"),
+    node_selector: pick("node_selector"),
+    tolerations: pick("tolerations"),
     engine_args: Object.keys(args).length ? args : null,
     vllm_extra_args: extra.length ? extra : null,
     env: Object.keys(env).length ? env : null,
