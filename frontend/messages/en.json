@@ -832,7 +832,9 @@
     "pdShared": "Shared",
     "pdEpp": "EPP",
     "pdIngressClass": "ingress class",
-    "pdResources": "Resources"
+    "pdResources": "Resources",
+    "pdStorage": "Storage",
+    "pdPlacement": "Placement"
   },
   "adminUsers": {
     "pageTitle": "User Management",
@@ -1865,12 +1867,9 @@
     "deployPrefillReplicas": "Prefill replicas",
     "deployDecodeReplicas": "Decode replicas",
     "deployPdNote": "Prefill/decode: two pools are created without an Ingress of their own; the router is the entry point.",
-    "pdTabShared": "Shared",
     "pdTabPrefill": "Prefill",
     "pdTabDecode": "Decode",
     "pdTabRouter": "Router",
-    "pdSharedHint": "Only what both pools really share: image, model path, storage, health checks, runtime, placement. Each pool's resources and launch config live on its own tab.",
-    "pdRoleHint": "The complete launch config for this pool. --port and --kv-transfer-config are added by the portal.",
     "pdCopyFrom": "Copy from {role}",
     "pdCopied": "Copied the {role} settings",
     "pdRouterTabHint": "Deploying this recipe creates the llm-d stack \"{model}-router\" with these settings; the router's host is entered at deploy time.",
@@ -1882,7 +1881,10 @@
     "pdEppImageHint": "blank = portal default",
     "pdIngressClass": "Router ingress class",
     "pdIngressClassHint": "blank = the deployment's ingress class",
-    "pdSchedulerSection": "Scheduler tuning"
+    "pdSchedulerSection": "Scheduler tuning",
+    "sectionRecipe": "Recipe",
+    "sectionImage": "Image & model",
+    "pdPoolHint": "This pool's complete config — image, model, resources, storage, launch args, health checks, runtime, placement. Nothing is inherited from the other pool."
   },
   "serving": {
     "title": "Serving home",
