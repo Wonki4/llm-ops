@@ -371,6 +371,27 @@ router each need their own settings; base + overrides reads oddly". Changed:
   without pool resources, pool cards with their resources, router card with
   EPP/ingress/tuning).
 
+## Revision 2026-10-06 (2) — no shared pool fields at all
+
+Second review round: "put the shared area into each pool as well". Now
+`pd_config.prefill` / `.decode` carry **every** pool field (image, model
+path, GPUs, GPU type, GPU resource key, CPU/memory, PVC, engine args, extra
+args, env, probes, runtime, node selector, tolerations) plus replicas. The
+recipe row keeps the prefill pool's values as a representative copy (required
+columns, list views); each pool is rendered from its own deployment-like row
+(`pd_serving.pool_row`) through the aggregated manifest helpers, so the two
+Deployments can differ in anything but namespace, name and the KV plumbing.
+A GPU profile is resolved per pool at deploy/update time (its own `gpu_type`,
+else the deploy-time one) from the recipe's raw placement, and LiteLLM
+registration takes the API key from the decode pool.
+
+Form: a recipe card (mode, engine, name, description) on top; aggregated
+recipes show one set of pool cards, P/D recipes **Prefill / Decode / Router**
+tabs — no shared tab. Switching to P/D seeds both pools from the aggregated
+cards; each pool tab has a "copy from the other pool" button. Deployment
+detail shows image, model, resources, storage, probes, placement and launch
+args per pool.
+
 ## Verification (2026-10-06, minikube `portal-test`, no GPU)
 
 - Recipe `pd-mock` (image `mock-vllm:cpu`, gpu 0, prefill 1×, decode 1× with `max-num-seqs=512`, `runtime.shm_size_gi=1`) deployed as `pd-mock`:

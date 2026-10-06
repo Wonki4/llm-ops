@@ -784,20 +784,34 @@ export type EngineArgs = Record<string, string | number | boolean>;
 // ─── Prefill/decode disaggregation ───────────────────────────
 export type ServingMode = "aggregated" | "pd";
 
-/** One pool's complete config (see backend pd_serving). Null fields fall back to the recipe base. */
-export interface PdRoleOverride {
+/**
+ * Everything one serving pool carries: the recipe's own fields for an aggregated
+ * recipe, and each prefill/decode pool's fields for a P/D recipe.
+ */
+export interface PoolConfig {
+  image: string;
+  model_path: string;
+  gpu_count: number;
+  gpu_type: string | null;
+  gpu_resource_key: string;
+  cpu_request: string | null;
+  cpu_limit: string | null;
+  memory_request: string | null;
+  memory_limit: string | null;
+  pvc_name: string | null;
+  pvc_mount_path: string | null;
+  engine_args: EngineArgs | null;
+  vllm_extra_args: string[] | null;
+  env: Record<string, string> | null;
+  probes: ProbesSpec | null;
+  runtime: RuntimeOptions | null;
+  node_selector: Record<string, string> | null;
+  tolerations: unknown[] | null;
+}
+
+/** One P/D pool: a complete PoolConfig plus its replica count. Missing fields fall back to the recipe row. */
+export interface PdRoleOverride extends Partial<PoolConfig> {
   replicas?: number;
-  gpu_count?: number | null;
-  gpu_type?: string | null;
-  cpu_request?: string | null;
-  cpu_limit?: string | null;
-  memory_request?: string | null;
-  memory_limit?: string | null;
-  /** Merged over the base engine args (role wins). */
-  engine_args?: EngineArgs | null;
-  /** Appended after the base extra args. */
-  vllm_extra_args?: string[] | null;
-  env?: Record<string, string> | null;
 }
 
 /** The llm-d router a P/D deployment creates: EPP tuning + stack-level overrides. */
