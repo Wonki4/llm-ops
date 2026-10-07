@@ -16,7 +16,10 @@ Two things that only work together:
    and LiteLLM enforces that scope on the user's personal keys.
 
 Teams keep working exactly as they do; a user may hold team keys and
-personal keys side by side.
+personal keys side by side. Personal keys ship as a **Beta** feature: the
+toggle, badges and docs say so, a portal setting turns the feature on/off,
+and every personal key is tagged so its traffic and spend can be told apart
+and the beta can be rolled back without touching team keys.
 
 ## Background — verified facts (LiteLLM v1.102.0, local stack, 2026-10-07)
 
@@ -32,9 +35,20 @@ personal keys side by side.
     `key_model_access_denied` before any other check); `all-proxy-models`
     is the explicit "everything" sentinel.
   - 4.1 personal budget: `user_object.max_budget` against the
-    `spend:user:<id>` counter; user `tpm_limit` / `rpm_limit` apply as well.
-    Key-level `models`, `max_budget`, `tpm/rpm` still apply on top, as for
-    any key.
+    `spend:user:<id>` counter. Key-level `models`, `max_budget`, `tpm/rpm`
+    still apply on top, as for any key.
+- **User-level TPM/RPM is a real, separate limiter.** `user_api_key_auth`
+  copies `LiteLLM_UserTable.tpm_limit/rpm_limit` into
+  `valid_token.user_tpm_limit/user_rpm_limit` for every key that carries a
+  `user_id` (`user_api_key_auth.py:1548`, `:3075`), and the parallel request
+  limiter adds a per-user descriptor from them
+  (`parallel_request_limiter_v3.py:2713-2721`; v1 at `:403-421`). It is
+  counted per user across **all** of that user's keys — team keys included —
+  independently of key and team limits. `/user/update {tpm_limit, rpm_limit}`
+  sets it; the admin user page already reads the two columns.
+- Keys accept `tags: list[str]` on generate (`KeyRequestBase.tags`), which
+  LiteLLM writes to the key and stamps on spend logs, so personal keys can be
+  tagged for tracking without a portal column.
 - `/key/generate` with `user_id` and **no `team_id`** creates a personal key
   and upserts the `LiteLLM_UserTable` row when missing (that is how portal
   users get a row today — `clients/litellm.py::create_user` exists but is not
@@ -75,6 +89,13 @@ In:
   scope (expanded) so people see what a personal key may call; the personal
   key's model picker is limited to that scope.
 - Admin users list: a "개인 키" column (granted / not) to find who has access.
+- Per-user TPM/RPM: editable on the same admin card; shown to the user on
+  their keys page as "내 전체 한도". The portal makes clear these cap all of
+  the user's keys, team keys included (LiteLLM semantics).
+- Beta gating: portal setting "개인 키 (Beta)" on/off; "Beta" badge on the
+  key-type toggle, on personal keys in every list, and in the admin card; the
+  LiteLLM key carries `tags: ["personal-beta"]` and
+  `metadata.key_type: "personal"`.
 
 Out (see Non-goals): team-member scope (`allowed_models` on memberships),
 LiteLLM unified access groups (`access_group_ids`), organisation allowlists,
@@ -105,10 +126,13 @@ self-service "request personal access" workflow.
    group found in `model_info.access_groups`.
 5. **Personal key limits come from the user row + portal defaults.** TPM/RPM
    on the key = portal `default_tpm_limit` / `default_rpm_limit` (no team
-   override exists); the user row's `tpm_limit` / `rpm_limit` (if set by the
-   admin) cap all of the user's personal keys together, the way team-member
-   limits cap team keys. Key `max_budget` must be ≤ the user's `max_budget`
-   when one is set; otherwise the user budget alone applies.
+   override exists). The user row's `tpm_limit` / `rpm_limit`, when set by
+   the admin, are LiteLLM's per-user limiter and therefore cap **all** of the
+   user's keys together, team keys included; the admin card labels them
+   "유저 전체 한도 (팀 키 포함)" and the keys page shows them to the user.
+   Leaving them empty keeps today's behaviour (key and team limits only).
+   Key `max_budget` must be ≤ the user's `max_budget` when one is set;
+   otherwise the user budget alone applies.
 6. **JWT claims for personal keys:** `prjId: null`, `keyType: "USR"`,
    everything else unchanged, so `reveal_key` stays a pure re-mint from the
    row. Consumers that decode `prjId` (the budget MCP) must treat `null` as
@@ -118,6 +142,15 @@ self-service "request personal access" workflow.
    follow-up (the budget-request pattern already exists).
 8. **Hidden-team rules do not apply** to personal keys (nothing to hide
    behind); they are listed for their owner and for super users.
+9. **Beta gate and tagging.** A portal setting `personal_keys_beta_enabled`
+   (default off) gates the key-type toggle and the `POST /api/keys`
+   personal path (403 "개인 키(Beta)가 꺼져 있습니다" when off; existing
+   personal keys keep working — turning the gate off stops minting, not
+   calling; revoking is the admin's per-user *없음*). Every personal key is
+   created with `tags: ["personal-beta"]` and `metadata.key_type:
+   "personal"`, so LiteLLM spend logs and `/key/list` can isolate beta
+   traffic and a rollback is a filter, not a schema change. "Beta" is shown
+   on the toggle, the personal badge and the admin card.
 
 ## Architecture
 
@@ -130,12 +163,14 @@ self-service "request personal access" workflow.
     tpm_limit=..., rpm_limit=...)` → `POST /user/update` (only the given
     fields). `get_user_info` already exists.
 - `api/keys.py`
-  - `CreateKeyRequest.team_id: str | None = None`. Personal path: load the
-    LiteLLM user row (`SELECT models, max_budget, tpm_limit, rpm_limit`);
-    enforce Decision 3; validate `body.models` ⊆ the user's scope (names or
-    groups; `all-proxy-models` in the grant allows anything); TPM/RPM from
-    the portal defaults; `_generate_sk_jwt(key_id, None, user_id)` → `prjId:
-    null, keyType: "USR"`; `generate_key(team_id=None, ...)`.
+  - `CreateKeyRequest.team_id: str | None = None`. Personal path: check the
+    beta setting (Decision 9); load the LiteLLM user row (`SELECT models,
+    max_budget, tpm_limit, rpm_limit`); enforce Decision 3; validate
+    `body.models` ⊆ the user's scope (names or groups; `all-proxy-models` in
+    the grant allows anything); TPM/RPM from the portal defaults;
+    `_generate_sk_jwt(key_id, None, user_id)` → `prjId: null, keyType:
+    "USR"`; `generate_key(team_id=None, tags=["personal-beta"],
+    metadata={..., "key_type": "personal"}, ...)`.
   - `list_my_keys` / admin key listings: `team_id: null` rows keep flowing;
     add `personal: bool` to the serialised key for the UI.
 - `api/me.py` — add `models` (the raw grant), `tpm_limit`, `rpm_limit`,
@@ -155,6 +190,9 @@ self-service "request personal access" workflow.
     `LiteLLM_UserTable.models`).
 - `api/models_catalog.py::list_models` already exposes `model_info`; make
   sure `access_groups` survives for non-admins (it does for the team page).
+- `api/settings.py` — new portal setting `personal_keys_beta_enabled`
+  (bool, default false) next to the API-key default limits; `/api/me`
+  carries it so the new-key page can hide the toggle when off.
 
 ### Frontend
 
@@ -165,21 +203,26 @@ self-service "request personal access" workflow.
 - `hooks/use-api.ts`: `useCreateKey` body `team_id: string | null`;
   `useUpdatePersonalAccess(userId)`.
 - `keys/new/page.tsx`: a segmented "키 종류" control above the team select
-  (팀 키 / 개인 키). Personal: team select hidden; a "개인 키 권한" box shows
+  (팀 키 / 개인 키 **Beta**), rendered only when the beta setting is on.
+  Personal: team select hidden; a "개인 키 권한" box shows
   the user's scope expanded (`expandModelGrants`) or, when
   `personal_keys_enabled` is false, an explanation + disabled submit; model
   picker limited to the scope; TPM/RPM shown from portal defaults with
   source "글로벌"; budget field capped by the user's `max_budget`.
 - `keys/page.tsx`: "개인" badge in the team column, team filter gains
   "개인 키"; admin key views the same.
-- `admin/users/[userId]/page.tsx`: new card "개인 키 권한" — status chip
-  (없음 / 전체 / N개 모델·그룹), expanded badges, personal budget / reset /
-  TPM / RPM, "편집" → `personal-access-dialog.tsx`: three-state radio
-  (없음 / 전체 / 선택) + checklist of models and access groups (groups with
-  member count), budget/duration/TPM/RPM inputs.
+- `admin/users/[userId]/page.tsx`: new card "개인 키 권한 (Beta)" — status
+  chip (없음 / 전체 / N개 모델·그룹), expanded badges, personal budget / reset,
+  "유저 전체 한도 (팀 키 포함)" TPM / RPM, "편집" → `personal-access-dialog.tsx`:
+  three-state radio (없음 / 전체 / 선택) + checklist of models and access
+  groups (groups with member count), budget/duration inputs, TPM/RPM inputs
+  with the "applies to every key of this user" hint.
+- `keys/page.tsx` header: "내 전체 한도" line (user TPM/RPM from `/api/me`)
+  when set. Settings page: the "개인 키 (Beta)" switch.
 - `admin/users/page.tsx`: "개인 키" column (chip).
-- i18n (`keys.*`, `adminUsers.*`, `me.*`): `keyTypeLabel`, `keyTypeTeam`,
-  `keyTypePersonal`, `personalScopeTitle`, `personalScopeNone`,
+- i18n (`keys.*`, `adminUsers.*`, `settings.*`): `keyTypeLabel`, `keyTypeTeam`,
+  `keyTypePersonal`, `betaBadge`, `personalKeysSetting`, `userLimitsTitle`,
+  `userLimitsHint`, `personalScopeTitle`, `personalScopeNone`,
   `personalScopeAll`, `personalKeysDisabled`, `personalBadge`,
   `filterPersonal`, `personalAccessCard`, `personalAccessEdit`,
   `personalAccessState*`, `personalBudget`, `personalLimits`,
@@ -203,10 +246,11 @@ self-service "request personal access" workflow.
 ## Testing
 
 - Backend: `test_keys.py` — personal create builds `prjId: null` /
-  `keyType: "USR"`, omits `team_id` in `/key/generate`, uses portal default
-  TPM/RPM, refuses without a grant (403), rejects `models` outside the scope
-  (400), accepts a group name inside the scope; reveal re-mints a personal
-  key identically. `test_admin_users.py` — PATCH maps all/none/list, creates
+  `keyType: "USR"`, omits `team_id` in `/key/generate`, sends
+  `tags=["personal-beta"]` + `metadata.key_type`, uses portal default
+  TPM/RPM, refuses when the beta setting is off (403), refuses without a
+  grant (403), rejects `models` outside the scope (400), accepts a group
+  name inside the scope; reveal re-mints a personal key identically. `test_admin_users.py` — PATCH maps all/none/list, creates
   the row when missing, validates names; detail/list carry the new fields.
   `test_me.py` — new fields.
 - Frontend: `tsc`/eslint; Playwright on the dev server with mocked proxy —
@@ -217,7 +261,9 @@ self-service "request personal access" workflow.
   exists in `model_info`) to a user, mint a personal key from the portal,
   call a group member → 200, a model outside the group → 403; set *없음* →
   403 on the same key; set a `max_budget` of 0.01 and exceed it →
-  `ExceededBudget: User=…`.
+  `ExceededBudget: User=…`; set user `rpm_limit: 1` and fire two calls
+  within a minute from a personal key and a team key of the same user → the
+  second one is rate-limited whichever key it uses.
 
 ## Non-goals
 
@@ -235,6 +281,9 @@ self-service "request personal access" workflow.
 1. Should personal-key TPM/RPM have their own portal defaults
    (`default_personal_tpm_limit`) instead of reusing the global key
    defaults? Draft: reuse.
+5. User-level TPM/RPM also throttles the user's team keys (LiteLLM counts
+   per user). Acceptable as "유저 전체 한도", or should the portal refuse to
+   set them while the user holds team keys? Draft: allow, with the hint.
 2. Should "전체" (`all-proxy-models`) be offered at all, or only explicit
    lists? Draft: offer it, it is the natural "trusted user" setting.
 3. On revoke, delete the user's personal keys by default or only on request?
