@@ -85,9 +85,13 @@ In:
   written to the LiteLLM user row through `/user/update`.
 - Default deny: a user with no explicit grant cannot mint a personal key, and
   the portal never writes the LiteLLM "empty list = everything" state.
-- The user's own view: `/api/me` and the new-key page show the personal
-  scope (expanded) so people see what a personal key may call; the personal
-  key's model picker is limited to that scope.
+- The user's own view — "내 개인 사용 가능 모델" lives where team models
+  already live: the **모델 대시보드 › 팀별** view gets a "개인 (Beta)" entry at
+  the top of the "내 팀" list that renders the personal grant with the same
+  expanded-grant table (group → member models, "via group", 미배포 state);
+  the new-key page repeats it as the personal key's scope box and limits
+  its model picker to it; the keys page shows "내 전체 한도" (user TPM/RPM)
+  and the model detail page shows a "내 개인 키로 사용 가능" chip.
 - Admin users list: a "개인 키" column (granted / not) to find who has access.
 - Per-user TPM/RPM: editable on the same admin card; shown to the user on
   their keys page as "내 전체 한도". The portal makes clear these cap all of
@@ -219,6 +223,16 @@ self-service "request personal access" workflow.
   with the "applies to every key of this user" hint.
 - `keys/page.tsx` header: "내 전체 한도" line (user TPM/RPM from `/api/me`)
   when set. Settings page: the "개인 키 (Beta)" switch.
+- `models/dashboard/page.tsx` (팀별 view): prepend a synthetic "개인 (Beta)"
+  entry to the "내 팀" list, selectable like a team; when selected the
+  existing `expandModelGrants` table renders `me.models` (none → "관리자에게
+  개인 키 권한을 요청하세요", all → the full model list with an "전체" note),
+  the header shows the user's budget/limits, and the "팀 상세" link becomes
+  "개인 키 만들기" (→ `/keys/new?type=personal`). Hidden when the beta
+  setting is off and the user has no grant.
+- `models/[...modelName]/page.tsx`: "내 개인 키로 사용 가능" chip next to the
+  access-group badges when the model (directly or via a group) is in
+  `me.models`.
 - `admin/users/page.tsx`: "개인 키" column (chip).
 - i18n (`keys.*`, `adminUsers.*`, `settings.*`): `keyTypeLabel`, `keyTypeTeam`,
   `keyTypePersonal`, `betaBadge`, `personalKeysSetting`, `userLimitsTitle`,
