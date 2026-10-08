@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { useMyKeys, useMyTeams, useDeleteKey, useRevealKey } from "@/hooks/use-api";
+import { useMyKeys, useMyTeams, useDeleteKey, useRevealKey, useMe } from "@/hooks/use-api";
 import { ModelLimitOverrides } from "@/components/model-limit-overrides";
 import {
   Card,
@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -137,6 +138,8 @@ export default function AllKeysPage() {
   }, [teams]);
 
   // Unique team IDs from keys for filter dropdown
+  const { data: me } = useMe();
+  const hasPersonal = useMemo(() => (keys ?? []).some((k) => k.personal), [keys]);
   const keyTeamIds = useMemo(() => {
     if (!keys) return [];
     const ids = new Set<string>();
@@ -150,8 +153,8 @@ export default function AllKeysPage() {
   const filteredKeys = useMemo(() => {
     if (!keys) return [];
     return keys.filter((k) => {
-      // Team filter
-      if (teamFilter !== "all" && k.team_id !== teamFilter) return false;
+      // Team filter ("personal" = team-less keys)
+      if (teamFilter === "personal" ? !!k.team_id : teamFilter !== "all" && k.team_id !== teamFilter) return false;
       // Search filter (alias, key name, key token prefix)
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -214,6 +217,11 @@ export default function AllKeysPage() {
           <p className="text-sm text-muted-foreground mt-1">
             {t("subtitle")}
           </p>
+          {(me?.tpm_limit != null || me?.rpm_limit != null) && (
+            <p className="mt-1 text-xs text-muted-foreground" data-testid="user-limits" title={t("userLimitsHint")}>
+              {t("userLimitsTitle")}: TPM {me?.tpm_limit?.toLocaleString() ?? "-"} · RPM {me?.rpm_limit?.toLocaleString() ?? "-"}
+            </p>
+          )}
         </div>
         <Button asChild size="sm">
           <Link href="/keys/new">
@@ -260,6 +268,7 @@ export default function AllKeysPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("allTeams")}</SelectItem>
+            {hasPersonal && <SelectItem value="personal">{t("filterPersonal")}</SelectItem>}
             {keyTeamIds.map((tid) => (
               <SelectItem key={tid} value={tid}>
                 {teamNameMap.get(tid) || tid.slice(0, 12) + "..."}
@@ -350,6 +359,11 @@ export default function AllKeysPage() {
                       >
                         {teamNameMap.get(key.team_id) || key.team_id.slice(0, 12) + "..."}
                       </Link>
+                    ) : key.personal ? (
+                      <Badge variant="outline" className="gap-1 text-[11px]" data-testid="personal-key-badge">
+                        {t("personalBadge")}
+                        <span className="text-[9px] uppercase text-muted-foreground">{t("betaBadge")}</span>
+                      </Badge>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}

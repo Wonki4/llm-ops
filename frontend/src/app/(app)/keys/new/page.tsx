@@ -3,9 +3,10 @@
 import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail, useModels } from "@/hooks/use-api";
+import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail, useModels, useMe } from "@/hooks/use-api";
 import { buildAccessGroupIndex } from "@/lib/access-groups";
-import { Users } from "lucide-react";
+import { expandPersonalScope, grantState } from "@/lib/personal-access";
+import { Users, AlertTriangle } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -103,15 +104,25 @@ function SuccessKeyDialog({
 export default function CreateKeyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ team_id?: string }>;
+  searchParams: Promise<{ team_id?: string; type?: string }>;
 }) {
   const params = use(searchParams);
   const router = useRouter();
   const { data: teams, isLoading: teamsLoading } = useMyTeams();
+  const { data: me } = useMe();
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
   const t = useTranslations("keys");
   const tc = useTranslations("common");
+
+  // Personal keys (Beta): offered only while the portal switch is on; a grant
+  // on the user's account decides whether one can actually be minted.
+  const betaOn = !!me?.personal_keys_beta_enabled;
+  const [keyType, setKeyType] = useState<"team" | "personal">(params.type === "personal" ? "personal" : "team");
+  const personal = betaOn && keyType === "personal";
+  const personalState = grantState(me?.models);
+  const personalEnabled = !!me?.personal_keys_enabled;
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(
     params.team_id ?? ""
@@ -123,13 +134,18 @@ export default function CreateKeyPage({
     (t) => t.team_id === selectedTeamId
   );
 
-  const { data: teamDetail } = useTeamDetail(selectedTeamId);
+  const { data: teamDetail } = useTeamDetail(personal ? "" : selectedTeamId);
   const { data: allModels } = useModels();
   const accessGroupIndex = useMemo(() => buildAccessGroupIndex(allModels), [allModels]);
+  const modelsByName = useMemo(() => new Map((allModels ?? []).map((m) => [m.model_name, m])), [allModels]);
+  const personalScope = useMemo(
+    () => expandPersonalScope(me?.models, accessGroupIndex, modelsByName, allModels),
+    [me?.models, accessGroupIndex, modelsByName, allModels],
+  );
 
   // Effective TPM/RPM for the to-be-created key: team override first, then global portal default.
-  const teamTpm = teamDetail?.default_tpm_limit ?? null;
-  const teamRpm = teamDetail?.default_rpm_limit ?? null;
+  const teamTpm = personal ? null : teamDetail?.default_tpm_limit ?? null;
+  const teamRpm = personal ? null : teamDetail?.default_rpm_limit ?? null;
   const effectiveTpm = teamTpm ?? portalSettings?.default_tpm_limit ?? null;
   const effectiveRpm = teamRpm ?? portalSettings?.default_rpm_limit ?? null;
   const tpmSource = teamTpm != null ? t("sourceTeam") : t("sourceGlobal");
@@ -138,8 +154,12 @@ export default function CreateKeyPage({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedTeamId) {
+    if (!personal && !selectedTeamId) {
       toast.error(t("errorSelectTeam"));
+      return;
+    }
+    if (personal && !personalEnabled) {
+      toast.error(t("personalKeysDisabled"));
       return;
     }
 
@@ -149,8 +169,9 @@ export default function CreateKeyPage({
     }
 
     const body: CreateKeyRequest = {
-      team_id: selectedTeamId,
+      team_id: personal ? null : selectedTeamId,
       key_alias: keyAlias.trim(),
+      ...(personal && selectedModels.length > 0 ? { models: selectedModels } : {}),
     };
 
     createKeyMutation.mutate(body, {
@@ -182,7 +203,7 @@ export default function CreateKeyPage({
     <div className="space-y-6 max-w-2xl">
       {/* Back button */}
       <Button variant="ghost" size="sm" asChild>
-        <Link href={selectedTeamId ? `/teams/${selectedTeamId}` : "/teams"}>
+        <Link href={personal ? "/keys" : selectedTeamId ? `/teams/${selectedTeamId}` : "/teams"}>
           <ArrowLeft className="size-4" />
           {t("back")}
         </Link>
@@ -206,7 +227,64 @@ export default function CreateKeyPage({
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Key type (personal keys are a Beta feature behind a portal switch) */}
+            {betaOn && (
+              <div className="space-y-2">
+                <Label>{t("keyTypeLabel")}</Label>
+                <div role="radiogroup" className="inline-flex rounded-md border p-0.5" data-testid="key-type">
+                  {(["team", "personal"] as const).map((kt) => (
+                    <button
+                      key={kt}
+                      type="button"
+                      role="radio"
+                      aria-checked={keyType === kt}
+                      data-testid={`key-type-${kt}`}
+                      onClick={() => setKeyType(kt)}
+                      className={
+                        "inline-flex items-center gap-1.5 rounded px-3 py-1 text-sm transition-colors " +
+                        (keyType === kt ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
+                      }
+                    >
+                      {kt === "team" ? t("keyTypeTeam") : t("keyTypePersonal")}
+                      {kt === "personal" && (
+                        <Badge variant={keyType === kt ? "secondary" : "outline"} className="px-1 py-0 text-[10px]">{t("betaBadge")}</Badge>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Personal scope: what the account grants (admin-set) */}
+            {personal && (
+              <div className="space-y-2" data-testid="personal-scope">
+                <Label>{t("personalScopeTitle")}</Label>
+                {!personalEnabled ? (
+                  <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+                    <span className="text-muted-foreground">{t("personalKeysDisabled")}</span>
+                  </div>
+                ) : personalState === "all" ? (
+                  <Badge variant="secondary">{t("personalScopeAll")}</Badge>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {personalScope.map((g) => (
+                      <Badge key={g.name} variant={g.viaGroup ? "outline" : "secondary"} title={g.viaGroup ? `via ${g.viaGroup}` : undefined}>
+                        {g.viaGroup && <Users className="mr-1 size-3" />}
+                        {g.name}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">{t("personalScopeHint")}</p>
+                {me?.max_budget != null && (
+                  <p className="text-xs text-muted-foreground">{t("personalBudgetHint", { budget: `$${me.max_budget}` })}</p>
+                )}
+              </div>
+            )}
+
             {/* Team Select */}
+            {!personal && (
             <div className="space-y-2">
               <Label htmlFor="team">
                 {t("labelTeam")} <span className="text-destructive">*</span>
@@ -234,6 +312,7 @@ export default function CreateKeyPage({
                 </Select>
               )}
             </div>
+            )}
 
             {/* Key Alias */}
             <div className="space-y-2">
@@ -246,8 +325,30 @@ export default function CreateKeyPage({
               />
             </div>
 
+            {/* Personal key: optional narrowing inside the scope */}
+            {personal && personalEnabled && personalState === "custom" && personalScope.length > 0 && (
+              <div className="space-y-2" data-testid="personal-models">
+                <Label>{t("labelModelsPersonal")}</Label>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
+                  {personalScope.map((g) => (
+                    <label key={g.name} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={selectedModels.includes(g.name)}
+                        onChange={(e) =>
+                          setSelectedModels((prev) => (e.target.checked ? [...prev, g.name] : prev.filter((m) => m !== g.name)))
+                        }
+                      />
+                      {g.name}
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">{t("modelsPickerHint")}</p>
+              </div>
+            )}
+
             {/* Models (read-only) */}
-            {selectedTeam && (
+            {!personal && selectedTeam && (
               <div className="space-y-2">
                 <Label>{t("labelModels")}</Label>
                 <div className="flex flex-wrap gap-2">
@@ -281,7 +382,7 @@ export default function CreateKeyPage({
                 <div className="space-y-2">
                   <Label>
                     TPM (Tokens Per Minute){" "}
-                    {selectedTeamId && (
+                    {(personal || selectedTeamId) && (
                       <span className="text-xs text-muted-foreground font-normal">({tpmSource})</span>
                     )}
                   </Label>
@@ -293,7 +394,7 @@ export default function CreateKeyPage({
                 <div className="space-y-2">
                   <Label>
                     RPM (Requests Per Minute){" "}
-                    {selectedTeamId && (
+                    {(personal || selectedTeamId) && (
                       <span className="text-xs text-muted-foreground font-normal">({rpmSource})</span>
                     )}
                   </Label>
@@ -309,7 +410,7 @@ export default function CreateKeyPage({
             <Button
               type="submit"
               className="w-full"
-              disabled={!selectedTeamId || !keyAlias.trim() || createKeyMutation.isPending}
+              disabled={(personal ? !personalEnabled : !selectedTeamId) || !keyAlias.trim() || createKeyMutation.isPending}
             >
               {createKeyMutation.isPending && (
                 <Loader2 className="size-4 animate-spin" />

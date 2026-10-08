@@ -128,7 +128,23 @@
     "createSuccess": "API key created successfully.",
     "createError": "An error occurred while creating the key.",
     "aliasPlaceholder": "e.g. my-project-key",
-    "accessGroupBadge": "{group} (group · {count} models)"
+    "accessGroupBadge": "{group} (group · {count} models)",
+    "keyTypeLabel": "Key type",
+    "keyTypeTeam": "Team key",
+    "keyTypePersonal": "Personal key",
+    "betaBadge": "Beta",
+    "personalBadge": "Personal",
+    "filterPersonal": "Personal keys",
+    "personalScopeTitle": "Models a personal key can call",
+    "personalScopeAll": "All models",
+    "personalScopeHint": "Granted by an admin on your account; access groups expand to their member models.",
+    "personalKeysDisabled": "You have no personal-key access. Ask an admin to grant models to your account.",
+    "personalBetaOff": "Personal keys (Beta) are switched off.",
+    "labelModelsPersonal": "Restrict this key to (optional)",
+    "modelsPickerHint": "Leave everything unchecked to let the key use your whole personal scope.",
+    "userLimitsTitle": "My account limits",
+    "userLimitsHint": "Counted across every key you own, team keys included.",
+    "personalBudgetHint": "Personal budget: {budget}"
   },
   "requests": {
     "title": "My Requests",
@@ -312,7 +328,11 @@
       "discoverTeams": "Discover teams",
       "teamDetail": "Team detail",
       "noModels": "This team has no models.",
-      "notDeployed": "Not deployed"
+      "notDeployed": "Not deployed",
+      "personal": "Personal",
+      "personalDescription": "Models your personal keys (Beta) can call",
+      "createPersonalKey": "Create personal key",
+      "personalAllModels": "All models"
     },
     "filters": {
       "modelName": "Model Name",
@@ -590,7 +610,8 @@
     "history": {
       "created": "Created",
       "empty": "No change history."
-    }
+    },
+    "personalUsable": "Usable with my personal key"
   },
   "modelCache": {
     "registered": "Registered",
@@ -906,7 +927,32 @@
     "forceRemoveTitle": "Force Remove from Team",
     "forceRemoveDescriptionPre": "will be removed from",
     "forceRemoveDescriptionPost": "team. This action cannot be undone.",
-    "forceRemoveButton": "Remove"
+    "forceRemoveButton": "Remove",
+    "colPersonal": "Personal keys",
+    "personalAccessCard": "Personal-key access (Beta)",
+    "personalAccessDescription": "Models this user may call with a personal (team-less) key, plus their personal budget and account-wide limits.",
+    "personalStateNone": "None",
+    "personalStateAll": "All models",
+    "personalStateCustom": "{count} models / groups",
+    "personalAccessEdit": "Edit",
+    "personalAccessDialogTitle": "Personal-key access",
+    "personalAccessDialogDescription": "Stored on the LiteLLM user row; applies to personal keys at request time.",
+    "personalAccessNoneHint": "No personal keys can be minted; existing ones are refused.",
+    "personalAccessAllHint": "Every proxy model, including ones added later.",
+    "personalAccessCustomHint": "Pick models and/or access groups. A group follows its members as they change.",
+    "personalAccessGroups": "Access groups",
+    "personalAccessModels": "Models",
+    "personalAccessSearch": "Search…",
+    "personalBudget": "Personal budget",
+    "personalBudgetDuration": "Reset period",
+    "personalBudgetDurationPlaceholder": "e.g. 30d",
+    "userLimits": "Account-wide TPM / RPM",
+    "userLimitsHint": "LiteLLM counts these across every key of the user — team keys included. Leave empty for no account-wide limit.",
+    "deletePersonalKeys": "Also delete this user's personal keys ({count})",
+    "personalAccessSaved": "Personal-key access saved",
+    "personalAccessSaveFailed": "Failed to save personal-key access",
+    "personalAccessInvalid": "Pick at least one model or access group",
+    "personalKeyBadge": "Personal"
   },
   "catalog": {
     "pageTitle": "Model Cache Management",
@@ -1042,7 +1088,11 @@
       "cancel": "Cancel",
       "gpuLabelKey": "GPU type label key",
       "gpuLabelKeyHint": "Node label key that marks GPU kinds on this cluster. GPU profiles use it unless they override it."
-    }
+    },
+    "personalKeysSetting": "Personal keys (Beta)",
+    "personalKeysSettingHint": "Lets users mint keys without a team. What a personal key may call is granted per user on the user page; turning this off stops new personal keys but existing ones keep working.",
+    "personalKeysOn": "On",
+    "personalKeysOff": "Off"
   },
   "announcements": {
     "title": "Announcements",

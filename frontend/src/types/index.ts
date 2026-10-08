@@ -4,6 +4,9 @@ export type JoinRequestStatus = "pending" | "approved" | "rejected";
 
 export type Locale = "ko" | "en";
 
+/** Personal-key grant state on the LiteLLM user row (see backend personal_access). */
+export type PersonalAccess = "none" | "all" | "custom";
+
 export interface User {
   user_id: string; // 사번 (employee ID)
   email?: string;
@@ -13,6 +16,16 @@ export interface User {
   teams: Team[];
   spend?: number;
   max_budget?: number | null;
+  budget_duration?: string | null;
+  /** User-level TPM/RPM: LiteLLM counts these across every key of the user. */
+  tpm_limit?: number | null;
+  rpm_limit?: number | null;
+  /** The raw grant (model / access-group names, or a sentinel). */
+  models?: string[];
+  personal_access?: PersonalAccess;
+  personal_keys_beta_enabled?: boolean;
+  /** beta on ∧ grant present → a personal key can be minted now. */
+  personal_keys_enabled?: boolean;
 }
 
 export interface Team {
@@ -65,6 +78,8 @@ export interface ApiKey {
   key_name: string | null;
   key_alias: string | null;
   team_id: string | null;
+  /** Team-less key governed by the user row (Beta). */
+  personal?: boolean;
   user_id: string | null;
   spend: number;
   max_budget: number | null;
@@ -187,7 +202,8 @@ export interface TeamJoinRequest {
 
 // Request body types
 export interface CreateKeyRequest {
-  team_id: string;
+  /** null → a personal key (Beta). */
+  team_id: string | null;
   key_alias: string;
   models?: string[];
   max_budget?: number;
@@ -418,6 +434,7 @@ export interface AdminUserSummary {
   team_count: number;
   spend: number;
   max_budget: number | null;
+  personal_access?: PersonalAccess;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -441,6 +458,19 @@ export interface AdminUserDetailProfile {
   max_budget: number | null;
   tpm_limit: number | null;
   rpm_limit: number | null;
+  budget_duration?: string | null;
+  models?: string[];
+  personal_access?: PersonalAccess;
+}
+
+export interface PersonalAccessBody {
+  access: PersonalAccess;
+  models?: string[];
+  max_budget?: number | null;
+  budget_duration?: string | null;
+  tpm_limit?: number | null;
+  rpm_limit?: number | null;
+  delete_personal_keys?: boolean;
 }
 
 export interface AdminUserKey {
@@ -448,6 +478,7 @@ export interface AdminUserKey {
   key_alias: string | null;
   key_name: string | null;
   team_id: string | null;
+  personal?: boolean;
   spend: number;
   max_budget: number | null;
   budget_duration: string | null;
