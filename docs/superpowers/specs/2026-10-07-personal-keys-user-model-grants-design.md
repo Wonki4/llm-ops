@@ -1,7 +1,7 @@
 # Personal keys + per-user model / access-group grants — Design
 
 Date: 2026-10-07
-Status: draft, awaiting review (supersedes the team-member-scope draft of the same day: "teams will stay few; add personal keys to the portal instead")
+Status: implemented 2026-10-08 on feat/personal-keys (backend b0772aa, bdbe6c4, de39e70; frontend 9f00f79, 4c136da); supersedes the team-member-scope draft of the same day ("teams will stay few; add personal keys to the portal instead"). Verification notes at the end.
 Related: LiteLLM v1.102 `proxy/auth/auth_checks.py` (`common_checks` 2.1 `can_user_call_model`, 4.1 `_user_max_budget_check`, `_check_model_access_helper`), `management_endpoints/internal_user_endpoints.py` (`/user/update`), `backend/app/api/keys.py`, `backend/app/clients/litellm.py`, `backend/app/api/admin_users.py`, `backend/app/api/me.py`, `frontend/src/app/(app)/keys/new/page.tsx`, `frontend/src/lib/access-groups.ts`, MCP plan `docs/superpowers/plans/2026-08-03-budget-usage-mcp-plan.md` (decodes `prjId`)
 
 ## Goal
@@ -46,9 +46,10 @@ and the beta can be rolled back without touching team keys.
   counted per user across **all** of that user's keys — team keys included —
   independently of key and team limits. `/user/update {tpm_limit, rpm_limit}`
   sets it; the admin user page already reads the two columns.
-- Keys accept `tags: list[str]` on generate (`KeyRequestBase.tags`), which
-  LiteLLM writes to the key and stamps on spend logs, so personal keys can be
-  tagged for tracking without a portal column.
+- Keys accept `tags: list[str]` on generate, but tags are a **LiteLLM Enterprise
+  feature** (`/key/generate` → 403 "only available for LiteLLM Enterprise users:
+  tags" on the OSS proxy), so personal keys are marked with
+  `metadata.key_type: "personal"` instead.
 - `/key/generate` with `user_id` and **no `team_id`** creates a personal key
   and upserts the `LiteLLM_UserTable` row when missing (that is how portal
   users get a row today — `clients/litellm.py::create_user` exists but is not
@@ -153,9 +154,9 @@ self-service "request personal access" workflow.
    personal path (403 "개인 키(Beta)가 꺼져 있습니다" when off; existing
    personal keys keep working — turning the gate off stops minting, not
    calling; revoking is the admin's per-user *없음*). Every personal key is
-   created with `tags: ["personal-beta"]` and `metadata.key_type:
-   "personal"`, so LiteLLM spend logs and `/key/list` can isolate beta
-   traffic and a rollback is a filter, not a schema change. "Beta" is shown
+   created with `metadata.key_type: "personal"` (LiteLLM key `tags` are an
+   Enterprise feature and 403 on the OSS proxy), so `/key/list` and the
+   verification-token metadata can isolate beta traffic and a rollback is a filter, not a schema change. "Beta" is shown
    on the toggle, the personal badge and the admin card.
 
 ## Architecture
@@ -267,7 +268,7 @@ self-service "request personal access" workflow.
 
 - Backend: `test_keys.py` — personal create builds `prjId: null` /
   `keyType: "USR"`, omits `team_id` in `/key/generate`, sends
-  `tags=["personal-beta"]` + `metadata.key_type`, uses portal default
+  `metadata.key_type` (no `tags`: Enterprise-only), uses portal default
   TPM/RPM, refuses when the beta setting is off (403), refuses without a
   grant (403), rejects `models` outside the scope (400), accepts a group
   name inside the scope; reveal re-mints a personal key identically. `test_admin_users.py` — PATCH maps all/none/list, creates

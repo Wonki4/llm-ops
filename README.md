@@ -174,6 +174,13 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 - 벤치마크는 라우터를 대상으로만 가능(P/D 배포는 임시 서빙으로 복제 불가), 삭제 시 두 풀과 자동 생성된 라우터를 함께 제거
 - 설계/계획: `docs/superpowers/specs/2026-10-05-pd-disaggregation-design.md`, `docs/superpowers/plans/2026-10-05-pd-disaggregation.md`
 
+#### 개인 키 (Beta) · 유저별 모델 권한
+- 포털 설정 "개인 키 (Beta)"를 켜면 새 키 페이지에 **팀 키 / 개인 키** 토글이 생기고, 팀 없이 키를 만들 수 있다 (`team_id: null`, JWT `prjId: null`/`keyType: USR`, LiteLLM 키 `metadata.key_type: personal` — 키 `tags`는 LiteLLM Enterprise 전용이라 쓰지 않음)
+- 개인 키가 호출할 수 있는 모델은 관리자가 **유저 상세 › 개인 키 권한** 카드에서 유저별로 부여한다: 없음 / 전체 / 선택(모델명·액세스 그룹명). LiteLLM 유저 row의 `models`에 저장되어 요청 시점에 그룹이 멤버 모델로 펼쳐진다. 같은 카드에서 개인 예산과 **계정 전체 TPM/RPM**(팀 키 포함 모든 키에 합산)을 설정
+- 권한이 없으면 개인 키를 만들 수 없고(403), 포털은 LiteLLM의 "빈 목록 = 전체" 상태를 쓰지 않는다. 베타를 끄면 발급만 막히고 기존 개인 키는 계속 동작
+- 유저 본인은 모델 대시보드 › 팀별 뷰의 **"개인 (Beta)"** 항목, 새 키 페이지의 범위 박스, 모델 상세의 "내 개인 키로 사용 가능" 칩, 키 목록의 "내 전체 한도"에서 자기 범위를 본다 (권한이 있을 때만 표시)
+- 설계/계획: `docs/superpowers/specs/2026-10-07-personal-keys-user-model-grants-design.md`, `docs/superpowers/plans/2026-10-08-personal-keys-user-model-grants.md`
+
 ### 공통 기능
 
 - **유저 ID**: 내부적으로 대문자 (`.upper()`) 사용, Keycloak은 소문자

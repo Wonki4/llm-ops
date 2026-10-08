@@ -21,7 +21,6 @@ from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
 from app.services.personal_access import (
-    PERSONAL_KEY_TAG,
     PERSONAL_KEY_TYPE,
     access_groups_from_model_info,
     has_grant,
@@ -142,6 +141,8 @@ async def create_key(
         sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id, iat=iat)
         metadata: dict = {"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias}
         if personal:
+            # Tracking marker for spend logs / key lists. (LiteLLM key `tags` are an
+            # Enterprise feature — /key/generate 403s on them — so metadata it is.)
             metadata["key_type"] = PERSONAL_KEY_TYPE
 
         try:
@@ -156,7 +157,6 @@ async def create_key(
                 tpm_limit=tpm_limit,
                 rpm_limit=rpm_limit,
                 metadata=metadata,
-                tags=[PERSONAL_KEY_TAG] if personal else None,
             )
             # Return key without sk- prefix (sensitive prefix must not be exposed)
             result["key"] = sk_key.removeprefix("sk-")
