@@ -93,7 +93,7 @@ class LiteLLMClient:
     async def generate_key(
         self,
         user_id: str,
-        team_id: str,
+        team_id: str | None,
         key_alias: str | None = None,
         models: list[str] | None = None,
         max_budget: float | None = None,
@@ -102,8 +102,14 @@ class LiteLLMClient:
         tpm_limit: int | None = None,
         rpm_limit: int | None = None,
         metadata: dict | None = None,
+        tags: list[str] | None = None,
     ) -> dict:
-        payload: dict[str, Any] = {"user_id": user_id, "team_id": team_id}
+        """``team_id=None`` mints a personal key (no team; the user row governs it)."""
+        payload: dict[str, Any] = {"user_id": user_id}
+        if team_id:
+            payload["team_id"] = team_id
+        if tags:
+            payload["tags"] = tags
         if key_alias:
             payload["key_alias"] = key_alias
         if models:
@@ -168,11 +174,16 @@ class LiteLLMClient:
     async def get_user_info(self, user_id: str) -> dict:
         return await self._request("GET", "/user/info", params={"user_id": user_id})
 
-    async def create_user(self, user_id: str, user_email: str | None = None) -> dict:
-        payload: dict[str, Any] = {"user_id": user_id}
+    async def create_user(self, user_id: str, user_email: str | None = None, **fields: Any) -> dict:
+        payload: dict[str, Any] = {"user_id": user_id, "auto_create_key": False, **fields}
         if user_email:
             payload["user_email"] = user_email
         return await self._request("POST", "/user/new", json=payload)
+
+    async def update_user(self, user_id: str, **fields: Any) -> dict:
+        """``POST /user/update`` with only the given fields (models, max_budget, budget_duration, tpm/rpm)."""
+        payload: dict[str, Any] = {"user_id": user_id, **{k: v for k, v in fields.items() if v is not ...}}
+        return await self._request("POST", "/user/update", json=payload)
 
     # ──── Model endpoints ────
     async def list_models(self) -> list[dict]:
