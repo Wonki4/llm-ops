@@ -157,3 +157,24 @@ async def test_me_exposes_the_grant_and_whether_personal_keys_can_be_minted(
     assert body["models"] == ["beta-models"] and body["personal_access"] == "custom"
     assert body["personal_keys_beta_enabled"] is True and body["personal_keys_enabled"] is True
     assert body["tpm_limit"] == 20000 and body["budget_duration"] == "30d" and body["role"] == "user"
+
+
+async def test_null_limits_are_cleared_directly_since_litellm_drops_nulls(
+    client_for_user, super_user, mock_db, mock_litellm, litellm_db
+):
+    _portal_db(mock_db)
+    db = _litellm_db_with()
+    db.commit = AsyncMock()
+    litellm_db["db"] = db
+    mock_litellm.update_user = AsyncMock(return_value={})
+    async with client_for_user(super_user) as client:
+        resp = await client.patch(
+            "/api/admin/users/user001/personal-access",
+            json={"access": "all", "tpm_limit": None, "max_budget": None, "rpm_limit": 5},
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tpm_limit"] is None and resp.json()["max_budget"] is None and resp.json()["rpm_limit"] == 5
+    updates = [c for c in db.execute.await_args_list if "UPDATE" in str(c.args[0])]
+    assert len(updates) == 1
+    assert "max_budget = NULL, tpm_limit = NULL" in str(updates[0].args[0]) and updates[0].args[1] == {"uid": "user001"}
+    mock_litellm.update_user.assert_awaited_once_with("user001", models=["all-proxy-models"], rpm_limit=5)

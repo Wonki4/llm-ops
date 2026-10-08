@@ -96,10 +96,7 @@ async def list_users(
         team_counts = {r["user_id"]: int(r["cnt"]) for r in team_result.mappings()}
 
         spend_result = await litellm_db.execute(
-            text(
-                'SELECT user_id, spend, max_budget, models FROM "LiteLLM_UserTable" '
-                "WHERE user_id = ANY(:ids)"
-            ),
+            text('SELECT user_id, spend, max_budget, models FROM "LiteLLM_UserTable" WHERE user_id = ANY(:ids)'),
             {"ids": user_ids},
         )
         spend_map = {
@@ -155,7 +152,7 @@ async def get_user_detail(
 
     litellm_user_result = await litellm_db.execute(
         text(
-            'SELECT spend, max_budget, teams, tpm_limit, rpm_limit, budget_duration, budget_reset_at, models '
+            "SELECT spend, max_budget, teams, tpm_limit, rpm_limit, budget_duration, budget_reset_at, models "
             'FROM "LiteLLM_UserTable" WHERE user_id = :uid'
         ),
         {"uid": user_id},
@@ -223,10 +220,7 @@ async def get_user_detail(
     ]
 
     expiry_result = await db.execute(
-        text(
-            "SELECT team_id, expires_at, status FROM custom_team_membership "
-            "WHERE user_id = :uid"
-        ),
+        text("SELECT team_id, expires_at, status FROM custom_team_membership WHERE user_id = :uid"),
         {"uid": user_id},
     )
     expiry_map = {
@@ -241,11 +235,7 @@ async def get_user_detail(
         team["expires_at"] = expiry["expires_at"] if expiry else None
         team["expiry_status"] = expiry["status"] if expiry else None
 
-    role_value = (
-        user_row["global_role"].value
-        if hasattr(user_row["global_role"], "value")
-        else user_row["global_role"]
-    )
+    role_value = user_row["global_role"].value if hasattr(user_row["global_role"], "value") else user_row["global_role"]
 
     return {
         "user": {
@@ -258,9 +248,7 @@ async def get_user_detail(
             "updated_at": user_row["updated_at"].isoformat() if user_row["updated_at"] else None,
             "spend": float(litellm_user["spend"] or 0) if litellm_user else 0.0,
             "max_budget": (
-                float(litellm_user["max_budget"])
-                if litellm_user and litellm_user["max_budget"] is not None
-                else None
+                float(litellm_user["max_budget"]) if litellm_user and litellm_user["max_budget"] is not None else None
             ),
             "tpm_limit": litellm_user["tpm_limit"] if litellm_user else None,
             "rpm_limit": litellm_user["rpm_limit"] if litellm_user else None,
@@ -300,8 +288,10 @@ async def update_personal_access(
 ) -> dict:
     """Write the personal-key grant (user row ``models``) and personal budget/limits via LiteLLM."""
     portal_user = (
-        await db.execute(text("SELECT email FROM custom_users WHERE user_id = :uid"), {"uid": user_id})
-    ).mappings().first()
+        (await db.execute(text("SELECT email FROM custom_users WHERE user_id = :uid"), {"uid": user_id}))
+        .mappings()
+        .first()
+    )
     if not portal_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -315,10 +305,17 @@ async def update_personal_access(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
+    limit_fields = ("max_budget", "budget_duration", "tpm_limit", "rpm_limit")
     fields: dict = {"models": models}
-    for name in ("max_budget", "budget_duration", "tpm_limit", "rpm_limit"):
-        if name in body.model_fields_set:
-            fields[name] = getattr(body, name)
+    cleared: list[str] = []
+    for name in limit_fields:
+        if name not in body.model_fields_set:
+            continue
+        value = getattr(body, name)
+        if value is None:
+            cleared.append(name)  # LiteLLM drops null fields on /user/update, so clear them directly
+        else:
+            fields[name] = value
 
     exists = (
         await litellm_db.execute(text('SELECT 1 FROM "LiteLLM_UserTable" WHERE user_id = :uid'), {"uid": user_id})
@@ -327,6 +324,14 @@ async def update_personal_access(
         # A user who never minted a key has no LiteLLM row yet; /user/new takes the same fields.
         await litellm.create_user(user_id, portal_user["email"], **fields)
     else:
+        if cleared:
+            # Column names come from the fixed whitelist above. /user/update runs after
+            # this and refreshes LiteLLM's cached user object.
+            assignments = ", ".join(f"{col} = NULL" for col in cleared)
+            await litellm_db.execute(
+                text(f'UPDATE "LiteLLM_UserTable" SET {assignments} WHERE user_id = :uid'), {"uid": user_id}
+            )
+            await litellm_db.commit()
         await litellm.update_user(user_id, **fields)
 
     deleted = 0
@@ -343,7 +348,8 @@ async def update_personal_access(
         "user_id": user_id,
         "models": models,
         "personal_access": body.access,
-        **{k: fields.get(k) for k in ("max_budget", "budget_duration", "tpm_limit", "rpm_limit") if k in fields},
+        **{k: fields.get(k) for k in limit_fields if k in fields},
+        **{k: None for k in cleared},
         "deleted_personal_keys": deleted,
     }
 
@@ -492,9 +498,7 @@ async def assign_user_to_team(
             ")"
         ),
         {
-            "new_member": _json.dumps(
-                [{"role": body.role, "user_id": user_id, "user_email": None}]
-            ),
+            "new_member": _json.dumps([{"role": body.role, "user_id": user_id, "user_email": None}]),
             "team_id": body.team_id,
             "user_id": user_id,
         },
@@ -534,9 +538,11 @@ async def assign_user_to_team(
     duration_val = duration_result.scalar()
     if duration_val:
         from app.api.teams import _parse_duration
+
         delta = _parse_duration(duration_val)
         if delta:
             from datetime import datetime as _dt
+
             expires_at = _dt.now() + delta
             await db.execute(
                 text(
