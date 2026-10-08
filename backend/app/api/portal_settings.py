@@ -18,6 +18,22 @@ class UpdateSettingsRequest(BaseModel):
     default_tpm_limit: int | None = None
     default_rpm_limit: int | None = None
     default_team_id: str | None = None
+    personal_keys_beta_enabled: bool | None = None
+
+
+PERSONAL_KEYS_BETA_KEY = "personal_keys_beta_enabled"
+
+
+def _as_bool(value: str | None) -> bool:
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+async def personal_keys_beta_enabled(db: AsyncSession) -> bool:
+    """Whether personal (team-less) keys may be minted right now."""
+    result = await db.execute(
+        text("SELECT value FROM custom_portal_settings WHERE key = :key"), {"key": PERSONAL_KEYS_BETA_KEY}
+    )
+    return _as_bool(result.scalar_one_or_none())
 
 
 @router.get("")
@@ -26,7 +42,7 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get portal settings. All authenticated users can read."""
-    result = await db.execute(text('SELECT key, value FROM custom_portal_settings'))
+    result = await db.execute(text("SELECT key, value FROM custom_portal_settings"))
     settings = {r["key"]: r["value"] for r in result.mappings()}
     return {
         "default_tpm_limit": int(settings.get("default_tpm_limit", "100000")),
@@ -34,6 +50,7 @@ async def get_settings(
         "default_team_id": settings.get("default_team_id", ""),
         "hidden_teams": json.loads(settings.get("hidden_teams", "[]")),
         "hidden_teams_strict": json.loads(settings.get("hidden_teams_strict", "[]")),
+        PERSONAL_KEYS_BETA_KEY: _as_bool(settings.get(PERSONAL_KEYS_BETA_KEY)),
     }
 
 
@@ -46,6 +63,8 @@ async def update_settings(
     """Update portal settings (Super User only)."""
     updates = body.model_dump(exclude_unset=True)
     for key, value in updates.items():
+        if isinstance(value, bool):
+            value = "true" if value else "false"
         if value is not None:
             await db.execute(
                 text(
@@ -65,9 +84,7 @@ async def get_default_team_rules(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get prefix-based default team rules (Super User only)."""
-    result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'")
-    )
+    result = await db.execute(text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'"))
     raw = result.scalar()
     return {"rules": json.loads(raw) if raw else []}
 
@@ -108,17 +125,12 @@ async def get_hidden_teams(
 ) -> dict:
     """Get hidden team IDs per mode (Super User only)."""
     result = await db.execute(
-        text(
-            "SELECT key, value FROM custom_portal_settings "
-            "WHERE key IN ('hidden_teams', 'hidden_teams_strict')"
-        )
+        text("SELECT key, value FROM custom_portal_settings WHERE key IN ('hidden_teams', 'hidden_teams_strict')")
     )
     rows = {r["key"]: r["value"] for r in result.mappings()}
     return {
         "hidden_teams": json.loads(rows["hidden_teams"]) if rows.get("hidden_teams") else [],
-        "hidden_teams_strict": (
-            json.loads(rows["hidden_teams_strict"]) if rows.get("hidden_teams_strict") else []
-        ),
+        "hidden_teams_strict": (json.loads(rows["hidden_teams_strict"]) if rows.get("hidden_teams_strict") else []),
     }
 
 
