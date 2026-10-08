@@ -81,7 +81,7 @@ async def test_personal_key_is_minted_with_user_claims_and_tags(
         resp = await client.post("/api/keys", json={"key_alias": "mine", "models": ["glm"]})
     assert resp.status_code == 200, resp.text
     kw = mock_litellm.generate_key.await_args.kwargs
-    assert kw["team_id"] is None and kw["tags"] == ["personal-beta"]
+    assert kw["team_id"] is None and kw.get("tags") is None  # key tags are Enterprise-only in LiteLLM
     assert kw["metadata"]["key_type"] == "personal" and kw["metadata"]["sk_key_id"] == 10042
     assert kw["tpm_limit"] == 5000 and kw["rpm_limit"] == 50
     claims = _claims(kw["key"])
@@ -133,7 +133,7 @@ async def test_team_key_path_is_unchanged(client_for_user, regular_user, mock_db
         resp = await client.post("/api/keys", json={"team_id": "team-1", "key_alias": "team"})
     assert resp.status_code == 200, resp.text
     kw = mock_litellm.generate_key.await_args.kwargs
-    assert kw["team_id"] == "team-1" and kw["tags"] is None and "key_type" not in kw["metadata"]
+    assert kw["team_id"] == "team-1" and kw.get("tags") is None and "key_type" not in kw["metadata"]
     assert _claims(kw["key"])["keyType"] == "PRJ"
 
 

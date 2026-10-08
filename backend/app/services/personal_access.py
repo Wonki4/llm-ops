@@ -18,8 +18,7 @@ from typing import Literal
 
 NO_DEFAULT_MODELS = "no-default-models"
 ALL_PROXY_MODELS = "all-proxy-models"
-PERSONAL_KEY_TAG = "personal-beta"
-PERSONAL_KEY_TYPE = "personal"
+PERSONAL_KEY_TYPE = "personal"  # metadata.key_type on personal keys (LiteLLM `tags` are Enterprise-only)
 
 GrantState = Literal["none", "all", "custom"]
 
