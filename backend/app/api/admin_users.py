@@ -1,5 +1,7 @@
 """Admin user management endpoints (Super User only)."""
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import text
@@ -10,6 +12,12 @@ from app.auth.deps import require_super_user
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db, get_litellm_db
+from app.services.personal_access import (
+    access_groups_from_model_info,
+    grant_state,
+    models_for,
+    validate_selection,
+)
 from app.services.team_membership import remove_member_from_team
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
@@ -89,7 +97,7 @@ async def list_users(
 
         spend_result = await litellm_db.execute(
             text(
-                'SELECT user_id, spend, max_budget FROM "LiteLLM_UserTable" '
+                'SELECT user_id, spend, max_budget, models FROM "LiteLLM_UserTable" '
                 "WHERE user_id = ANY(:ids)"
             ),
             {"ids": user_ids},
@@ -98,6 +106,7 @@ async def list_users(
             r["user_id"]: {
                 "spend": float(r["spend"] or 0),
                 "max_budget": float(r["max_budget"]) if r["max_budget"] is not None else None,
+                "personal_access": grant_state(list(r["models"] or [])),
             }
             for r in spend_result.mappings()
         }
@@ -105,7 +114,7 @@ async def list_users(
     users = []
     for r in rows:
         uid = r["user_id"]
-        budget = spend_map.get(uid, {"spend": 0.0, "max_budget": None})
+        budget = spend_map.get(uid, {"spend": 0.0, "max_budget": None, "personal_access": "none"})
         users.append(
             {
                 "user_id": uid,
@@ -116,6 +125,7 @@ async def list_users(
                 "team_count": team_counts.get(uid, 0),
                 "spend": budget["spend"],
                 "max_budget": budget["max_budget"],
+                "personal_access": budget["personal_access"],
                 "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
             }
@@ -145,7 +155,7 @@ async def get_user_detail(
 
     litellm_user_result = await litellm_db.execute(
         text(
-            'SELECT spend, max_budget, teams, tpm_limit, rpm_limit, budget_duration, budget_reset_at '
+            'SELECT spend, max_budget, teams, tpm_limit, rpm_limit, budget_duration, budget_reset_at, models '
             'FROM "LiteLLM_UserTable" WHERE user_id = :uid'
         ),
         {"uid": user_id},
@@ -170,6 +180,7 @@ async def get_user_detail(
             "key_alias": k["key_alias"],
             "key_name": k["key_name"],
             "team_id": k["team_id"],
+            "personal": k["team_id"] is None,
             "spend": float(k["spend"] or 0),
             "max_budget": float(k["max_budget"]) if k["max_budget"] is not None else None,
             "budget_duration": k["budget_duration"],
@@ -253,9 +264,87 @@ async def get_user_detail(
             ),
             "tpm_limit": litellm_user["tpm_limit"] if litellm_user else None,
             "rpm_limit": litellm_user["rpm_limit"] if litellm_user else None,
+            "budget_duration": litellm_user["budget_duration"] if litellm_user else None,
+            "models": list(litellm_user["models"] or []) if litellm_user else [],
+            "personal_access": grant_state(list(litellm_user["models"] or []) if litellm_user else []),
         },
         "keys": keys,
         "teams": teams,
+    }
+
+
+class PersonalAccessRequest(BaseModel):
+    """Grant / revoke a user's personal-key access and set their personal limits.
+
+    ``models`` is the custom selection (model and access-group names). Budget
+    and limit fields are only sent to LiteLLM when present in the request.
+    """
+
+    access: Literal["none", "all", "custom"]
+    models: list[str] | None = None
+    max_budget: float | None = Field(None, ge=0)
+    budget_duration: str | None = None
+    tpm_limit: int | None = Field(None, ge=0)
+    rpm_limit: int | None = Field(None, ge=0)
+    delete_personal_keys: bool = False
+
+
+@router.patch("/{user_id}/personal-access")
+async def update_personal_access(
+    user_id: str,
+    body: PersonalAccessRequest,
+    _admin: CustomUser = Depends(require_super_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> dict:
+    """Write the personal-key grant (user row ``models``) and personal budget/limits via LiteLLM."""
+    portal_user = (
+        await db.execute(text("SELECT email FROM custom_users WHERE user_id = :uid"), {"uid": user_id})
+    ).mappings().first()
+    if not portal_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    try:
+        if body.access == "custom":
+            rows = await litellm.get_model_info()
+            groups = access_groups_from_model_info(rows)
+            names = {r.get("model_name") for r in rows if r.get("model_name")}
+            validate_selection(body.models or [], model_names=names, access_groups=set(groups))
+        models = models_for(body.access, body.models)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    fields: dict = {"models": models}
+    for name in ("max_budget", "budget_duration", "tpm_limit", "rpm_limit"):
+        if name in body.model_fields_set:
+            fields[name] = getattr(body, name)
+
+    exists = (
+        await litellm_db.execute(text('SELECT 1 FROM "LiteLLM_UserTable" WHERE user_id = :uid'), {"uid": user_id})
+    ).scalar_one_or_none()
+    if exists is None:
+        # A user who never minted a key has no LiteLLM row yet; /user/new takes the same fields.
+        await litellm.create_user(user_id, portal_user["email"], **fields)
+    else:
+        await litellm.update_user(user_id, **fields)
+
+    deleted = 0
+    if body.access == "none" and body.delete_personal_keys:
+        tokens = await litellm_db.execute(
+            text('SELECT token FROM "LiteLLM_VerificationToken" WHERE user_id = :uid AND team_id IS NULL'),
+            {"uid": user_id},
+        )
+        for row in tokens.mappings():
+            await litellm.delete_key(row["token"])
+            deleted += 1
+
+    return {
+        "user_id": user_id,
+        "models": models,
+        "personal_access": body.access,
+        **{k: fields.get(k) for k in ("max_budget", "budget_duration", "tpm_limit", "rpm_limit") if k in fields},
+        "deleted_personal_keys": deleted,
     }
 
 
