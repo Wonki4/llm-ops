@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { useModels, useMyTeams } from "@/hooks/use-api";
+import { useModels, useMyTeams, useMe } from "@/hooks/use-api";
 import { ModelTable } from "@/components/model-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +27,13 @@ import {
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import type { ModelStatus, ModelWithCatalog, Team } from "@/types";
 import { buildAccessGroupIndex, expandModelGrants } from "@/lib/access-groups";
+import { expandPersonalScope, grantState } from "@/lib/personal-access";
 
 // ─── Constants ────────────────────────────────────────────────
 
 const ALL_PROXY_MODELS = "all-proxy-models";
+/** Synthetic "team" id for the user's personal-key scope (Beta). */
+const PERSONAL_ID = "__personal__";
 
 const STATUS_OPTIONS: { value: ModelStatus }[] = [
   { value: "testing" },
@@ -65,7 +68,13 @@ export default function ModelDashboardPage() {
   // Data fetching
   const { data: teams, isLoading: teamsLoading, isError: teamsError } = useMyTeams();
   const { data: models, isLoading: modelsLoading } = useModels();
+  const { data: me } = useMe();
   const [detailModel, setDetailModel] = useState<ModelWithCatalog | null>(null);
+
+  // Personal-key scope (Beta): shown only to users who hold a grant; the
+  // beta switch only decides whether a new personal key can be minted.
+  const personalState = grantState(me?.models);
+  const showPersonal = personalState !== "none";
 
   const modelsByName = useMemo(
     () => new Map((models ?? []).map((m) => [m.model_name, m])),
@@ -73,12 +82,18 @@ export default function ModelDashboardPage() {
   );
   const accessGroupIndex = useMemo(() => buildAccessGroupIndex(models), [models]);
 
-  // Selected team (defaults to the first team once loaded)
+  // Selected team (defaults to the first team once loaded; the personal
+  // entry when the user has no team but holds a personal grant)
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const isPersonal = selectedTeamId === PERSONAL_ID || (selectedTeamId === null && (!teams || teams.length === 0) && showPersonal);
   const selectedTeam = useMemo<Team | null>(() => {
-    if (!teams || teams.length === 0) return null;
+    if (isPersonal || !teams || teams.length === 0) return null;
     return teams.find((t) => t.team_id === selectedTeamId) ?? teams[0];
-  }, [teams, selectedTeamId]);
+  }, [teams, selectedTeamId, isPersonal]);
+  const personalRows = useMemo(
+    () => expandPersonalScope(me?.models, accessGroupIndex, modelsByName, models),
+    [me?.models, accessGroupIndex, modelsByName, models],
+  );
 
   // Filter state for the model table (applied live)
   const [query, setQuery] = useState("");
@@ -86,10 +101,12 @@ export default function ModelDashboardPage() {
 
   // ── Rows for the selected team ──
   const teamRows = useMemo<ModelRow[]>(() => {
-    if (!selectedTeam) return [];
+    if (!selectedTeam && !isPersonal) return [];
 
     let rows: ModelRow[];
-    if (hasAllModels(selectedTeam)) {
+    if (isPersonal || !selectedTeam) {
+      rows = personalRows;
+    } else if (hasAllModels(selectedTeam)) {
       rows = (models ?? [])
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }));
@@ -116,7 +133,7 @@ export default function ModelDashboardPage() {
       const bn = b.model?.catalog?.display_name ?? b.name;
       return an.localeCompare(bn);
     });
-  }, [selectedTeam, models, modelsByName, accessGroupIndex, query, statusFilter]);
+  }, [selectedTeam, isPersonal, personalRows, models, modelsByName, accessGroupIndex, query, statusFilter]);
 
   // ── Filter handlers ──
   function resetFilters() {
@@ -136,6 +153,10 @@ export default function ModelDashboardPage() {
       ? t("byTeam.allModels")
       : t("byTeam.modelCount", { count: expandModelGrants(explicitModels(team), accessGroupIndex, modelsByName).length });
   }
+  const personalLabel =
+    personalState === "all" ? t("byTeam.personalAllModels") : t("byTeam.modelCount", { count: personalRows.length });
+  const headerTitle = isPersonal ? t("byTeam.personal") : selectedTeam?.team_alias ?? "";
+  const headerLabel = isPersonal ? personalLabel : selectedTeam ? teamModelLabel(selectedTeam) : "";
 
   return (
     <div className="space-y-6">
@@ -153,7 +174,7 @@ export default function ModelDashboardPage() {
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive">
           {t("error.loadFailed")}
         </div>
-      ) : !teams || teams.length === 0 ? (
+      ) : (!teams || teams.length === 0) && !showPersonal ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16 text-center">
           <Users className="size-10 text-muted-foreground mb-3" />
           <p className="text-muted-foreground mb-4">{t("byTeam.noTeams")}</p>
@@ -172,8 +193,24 @@ export default function ModelDashboardPage() {
                   {t("byTeam.myTeams")}
                 </span>
               </div>
-              {teams.map((team) => {
-                const active = selectedTeam?.team_id === team.team_id;
+              {showPersonal && (
+                <button
+                  type="button"
+                  onClick={() => selectTeam(PERSONAL_ID)}
+                  data-testid="dashboard-personal"
+                  className={`flex w-full items-center justify-between gap-2 border-b px-3 py-2.5 text-left transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+                    isPersonal ? "bg-primary/10 font-medium text-primary" : "hover:bg-muted/50"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-1.5 text-sm">
+                    <span className="truncate">{t("byTeam.personal")}</span>
+                    <Badge variant="outline" className="px-1 py-0 text-[9px] uppercase">Beta</Badge>
+                  </span>
+                  <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0">{personalLabel}</Badge>
+                </button>
+              )}
+              {(teams ?? []).map((team) => {
+                const active = !isPersonal && selectedTeam?.team_id === team.team_id;
                 return (
                   <button
                     key={team.team_id}
@@ -198,25 +235,41 @@ export default function ModelDashboardPage() {
             </div>
           </div>
 
-          {/* ── Right: selected team's models ── */}
+          {/* ── Right: selected team's (or the personal scope's) models ── */}
           <div className="min-w-0 flex-1">
-            {selectedTeam && (
+            {(selectedTeam || isPersonal) && (
               <>
                 <div className="rounded-lg border">
                   {/* Header */}
                   <div className="flex h-14 items-center justify-between gap-2 border-b px-4">
                     <div className="flex min-w-0 items-center gap-2">
-                      <h2 className="truncate text-base font-semibold">{selectedTeam.team_alias}</h2>
-                      <span className="text-sm text-muted-foreground">
-                        · {teamModelLabel(selectedTeam)}
-                      </span>
+                      <h2 className="truncate text-base font-semibold">{headerTitle}</h2>
+                      <span className="text-sm text-muted-foreground">· {headerLabel}</span>
+                      {isPersonal && (me?.max_budget != null || me?.tpm_limit != null || me?.rpm_limit != null) && (
+                        <span className="hidden truncate text-xs text-muted-foreground sm:inline" data-testid="personal-limits">
+                          {me?.max_budget != null ? `· $${me.max_budget}` : ""}
+                          {me?.tpm_limit != null ? ` · TPM ${me.tpm_limit.toLocaleString()}` : ""}
+                          {me?.rpm_limit != null ? ` · RPM ${me.rpm_limit.toLocaleString()}` : ""}
+                        </span>
+                      )}
                     </div>
-                    <Button asChild variant="ghost" size="sm" className="h-8 text-muted-foreground">
-                      <Link href={`/teams/${selectedTeam.team_id}`}>
-                        {t("byTeam.teamDetail")}
-                        <ChevronRight className="size-4" />
-                      </Link>
-                    </Button>
+                    {isPersonal ? (
+                      me?.personal_keys_beta_enabled && (
+                        <Button asChild variant="ghost" size="sm" className="h-8 text-muted-foreground">
+                          <Link href="/keys/new?type=personal">
+                            {t("byTeam.createPersonalKey")}
+                            <ChevronRight className="size-4" />
+                          </Link>
+                        </Button>
+                      )
+                    ) : (
+                      <Button asChild variant="ghost" size="sm" className="h-8 text-muted-foreground">
+                        <Link href={`/teams/${selectedTeam!.team_id}`}>
+                          {t("byTeam.teamDetail")}
+                          <ChevronRight className="size-4" />
+                        </Link>
+                      </Button>
+                    )}
                   </div>
 
                   {/* Toolbar — filters applied live */}

@@ -134,6 +134,7 @@ export default function AdminUsersPage() {
                   <TableHead>{t("colRole")}</TableHead>
                   <TableHead className="text-right">{t("colKeys")}</TableHead>
                   <TableHead className="text-right">{t("colTeams")}</TableHead>
+                  <TableHead>{t("colPersonal")}</TableHead>
                   <TableHead className="text-right">{t("colUsage")}</TableHead>
                   <TableHead className="text-right">{t("colLimit")}</TableHead>
                   <TableHead>{t("colJoinedAt")}</TableHead>
@@ -176,6 +177,15 @@ export default function AdminUsersPage() {
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {u.team_count}
+                    </TableCell>
+                    <TableCell>
+                      {u.personal_access && u.personal_access !== "none" ? (
+                        <Badge variant="outline" className="text-[11px]">
+                          {u.personal_access === "all" ? t("personalStateAll") : t("personalKeyBadge")}
+                        </Badge>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       ${u.spend.toFixed(2)}

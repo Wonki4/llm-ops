@@ -71,6 +71,7 @@ export default function PortalSettingsPage() {
 
   const [tpmLimit, setTpmLimit] = useState("");
   const [rpmLimit, setRpmLimit] = useState("");
+  const [personalKeysBeta, setPersonalKeysBeta] = useState(false);
   const [defaultTeamIds, setDefaultTeamIds] = useState<string[]>([]);
   const { data: teamRules } = useDefaultTeamRules();
   const updateTeamRules = useUpdateDefaultTeamRules();
@@ -81,6 +82,7 @@ export default function PortalSettingsPage() {
     if (settings) {
       setTpmLimit(String(settings.default_tpm_limit));
       setRpmLimit(String(settings.default_rpm_limit));
+      setPersonalKeysBeta(!!settings.personal_keys_beta_enabled);
       setDefaultTeamIds(
         (settings.default_team_id || "")
           .split(",")
@@ -96,6 +98,7 @@ export default function PortalSettingsPage() {
         default_tpm_limit: Number(tpmLimit),
         default_rpm_limit: Number(rpmLimit),
         default_team_id: defaultTeamIds.join(",") || undefined,
+        personal_keys_beta_enabled: personalKeysBeta,
       },
       {
         onSuccess: () => toast.success(t("saveSuccess")),
@@ -173,6 +176,25 @@ export default function PortalSettingsPage() {
                     value={rpmLimit}
                     onChange={(e) => setRpmLimit(e.target.value)}
                   />
+                </div>
+              </div>
+              <div className="flex items-start gap-3 rounded-md border p-3">
+                <input
+                  id="personal-keys-beta"
+                  type="checkbox"
+                  className="mt-1"
+                  checked={personalKeysBeta}
+                  onChange={(e) => setPersonalKeysBeta(e.target.checked)}
+                  data-testid="personal-keys-beta"
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="personal-keys-beta" className="flex items-center gap-2">
+                    {t("personalKeysSetting")}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {personalKeysBeta ? t("personalKeysOn") : t("personalKeysOff")}
+                    </span>
+                  </Label>
+                  <p className="text-xs text-muted-foreground">{t("personalKeysSettingHint")}</p>
                 </div>
               </div>
             </CardContent>
