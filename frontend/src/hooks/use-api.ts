@@ -56,6 +56,8 @@ import type {
   ServingRecipeInput,
   ServingOverview,
   CreateDeploymentBody,
+  PersonalAccess,
+  PersonalAccessBody,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -393,7 +395,7 @@ export function useCreateKey() {
         body: JSON.stringify(body),
       }),
     onSuccess: (_data, variables) => {
-      qc.invalidateQueries({ queryKey: queryKeys.myKeys(variables.team_id) });
+      qc.invalidateQueries({ queryKey: queryKeys.myKeys(variables.team_id ?? undefined) });
       qc.invalidateQueries({ queryKey: queryKeys.myKeys() });
     },
   });
@@ -739,6 +741,7 @@ export function useDeleteBudgetsBatch() {
 // ─── Portal Settings ────────────────────────────────────────────
 
 export interface PortalSettings {
+  personal_keys_beta_enabled?: boolean;
   default_tpm_limit: number;
   default_rpm_limit: number;
   default_team_id: string;
@@ -1084,6 +1087,20 @@ export function useAdminUserDetail(userId: string) {
     queryKey: ["admin-users", userId, "detail"],
     queryFn: () => apiFetch<AdminUserDetail>(`/api/admin/users/${encodeURIComponent(userId)}`),
     enabled: !!userId,
+  });
+}
+
+export function useUpdatePersonalAccess(userId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: PersonalAccessBody) =>
+      apiFetch<{ user_id: string; models: string[]; personal_access: PersonalAccess; deleted_personal_keys: number }>(
+        `/api/admin/users/${encodeURIComponent(userId)}/personal-access`,
+        { method: "PATCH", body: JSON.stringify(body) },
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+    },
   });
 }
 
