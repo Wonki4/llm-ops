@@ -91,7 +91,9 @@ In:
   expanded-grant table (group → member models, "via group", 미배포 state);
   the new-key page repeats it as the personal key's scope box and limits
   its model picker to it; the keys page shows "내 전체 한도" (user TPM/RPM)
-  and the model detail page shows a "내 개인 키로 사용 가능" chip.
+  and the model detail page shows a "내 개인 키로 사용 가능" chip. All of
+  these appear only for users who hold a grant; the beta switch only
+  controls whether new personal keys can be minted.
 - Admin users list: a "개인 키" column (granted / not) to find who has access.
 - Per-user TPM/RPM: editable on the same admin card; shown to the user on
   their keys page as "내 전체 한도". The portal makes clear these cap all of
@@ -225,14 +227,18 @@ self-service "request personal access" workflow.
   when set. Settings page: the "개인 키 (Beta)" switch.
 - `models/dashboard/page.tsx` (팀별 view): prepend a synthetic "개인 (Beta)"
   entry to the "내 팀" list, selectable like a team; when selected the
-  existing `expandModelGrants` table renders `me.models` (none → "관리자에게
-  개인 키 권한을 요청하세요", all → the full model list with an "전체" note),
-  the header shows the user's budget/limits, and the "팀 상세" link becomes
-  "개인 키 만들기" (→ `/keys/new?type=personal`). Hidden when the beta
-  setting is off and the user has no grant.
+  existing `expandModelGrants` table renders `me.models` (all → the full
+  model list with an "전체" note), the header shows the user's
+  budget/limits, and the "팀 상세" link becomes "개인 키 만들기"
+  (→ `/keys/new?type=personal`, shown only while the beta setting is on).
+  **Visible only when the user has a grant** (전체 or 선택); a user with
+  no grant sees no "개인" entry at all, beta on or off. The beta setting
+  governs minting (the key-type toggle and `POST /api/keys`), not
+  visibility: an already-granted user keeps seeing their scope after the
+  beta is switched off because their existing keys keep working.
 - `models/[...modelName]/page.tsx`: "내 개인 키로 사용 가능" chip next to the
   access-group badges when the model (directly or via a group) is in
-  `me.models`.
+  `me.models`; nothing for users without a grant.
 - `admin/users/page.tsx`: "개인 키" column (chip).
 - i18n (`keys.*`, `adminUsers.*`, `settings.*`): `keyTypeLabel`, `keyTypeTeam`,
   `keyTypePersonal`, `betaBadge`, `personalKeysSetting`, `userLimitsTitle`,
