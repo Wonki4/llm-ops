@@ -101,8 +101,8 @@ In:
   the user's keys, team keys included (LiteLLM semantics).
 - Beta gating: portal setting "개인 키 (Beta)" on/off; "Beta" badge on the
   key-type toggle, on personal keys in every list, and in the admin card; the
-  LiteLLM key carries `tags: ["personal-beta"]` and
-  `metadata.key_type: "personal"`.
+  LiteLLM key carries `metadata.key_type: "personal"` (key tags are
+  Enterprise-only).
 
 Out (see Non-goals): team-member scope (`allowed_models` on memberships),
 LiteLLM unified access groups (`access_group_ids`), organisation allowlists,
@@ -176,8 +176,7 @@ self-service "request personal access" workflow.
     `body.models` ⊆ the user's scope (names or groups; `all-proxy-models` in
     the grant allows anything); TPM/RPM from the portal defaults;
     `_generate_sk_jwt(key_id, None, user_id)` → `prjId: null, keyType:
-    "USR"`; `generate_key(team_id=None, tags=["personal-beta"],
-    metadata={..., "key_type": "personal"}, ...)`.
+    "USR"`; `generate_key(team_id=None, metadata={..., "key_type": "personal"}, ...)`.
   - `list_my_keys` / admin key listings: `team_id: null` rows keep flowing;
     add `personal: bool` to the serialised key for the UI.
 - `api/me.py` — add `models` (the raw grant), `tpm_limit`, `rpm_limit`,
@@ -285,6 +284,34 @@ self-service "request personal access" workflow.
   `ExceededBudget: User=…`; set user `rpm_limit: 1` and fire two calls
   within a minute from a personal key and a team key of the same user → the
   second one is rate-limited whichever key it uses.
+
+## Verification (2026-10-08, local docker stack, LiteLLM v1.102.0)
+
+Driven through the portal API with Keycloak tokens (admin001 / user001) and a
+throwaway DB model `beta-mock` carrying `access_groups: ["beta-models"]`:
+
+- beta switch on → user without a grant: `POST /api/keys` (no team) → 403
+  "관리자가 개인 키 권한을 부여해야 합니다."
+- `PATCH /api/admin/users/USER001/personal-access {custom, ["beta-models"],
+  rpm_limit: 1}` → `/api/me` shows `models: ["beta-models"]`,
+  `personal_access: custom`, `personal_keys_enabled: true`, `rpm_limit: 1`.
+- key with `models: ["gpt-4"]` → 400 "개인 키 권한 밖의 모델입니다: gpt-4";
+  plain mint → LiteLLM key with `team_id: null`, listed with `personal: true`.
+- Proxy calls with the personal key: `gpt-4` → **403
+  `user_model_access_denied`** ("This user can only access
+  models=['beta-models']"); `beta-mock` → provider connection error (auth and
+  group expansion passed); second `beta-mock` within the minute → **429**
+  "Rate limit exceeded for user: USER001 … Current limit: 1" (user-level RPM).
+- revoke with `delete_personal_keys` → `deleted_personal_keys: 1`, the key
+  is gone (401 on the proxy); beta switched off; model deleted.
+- Two things fixed on the way: LiteLLM key `tags` are Enterprise-only
+  (`/key/generate` 403), so the marker is `metadata.key_type`; and
+  `/user/update` drops null fields, so clearing a budget/limit writes NULL
+  directly before the update call.
+- Operational notes: the portal's canonical user id is the upper-cased
+  Keycloak name (`USER001`); admin calls must use it, and the local DB still
+  carries an old lowercase `user001` row from earlier tests. LiteLLM caches
+  the user object, so a changed grant can take up to the cache TTL to apply.
 
 ## Non-goals
 
