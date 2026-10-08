@@ -5,8 +5,11 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 
-import { useModelSummary, type ModelSummary } from "@/hooks/use-api";
+import { useMe, useModelSummary, useModels, type ModelSummary } from "@/hooks/use-api";
 import { AccessGroupBadges } from "@/components/access-group-badges";
+import { Badge } from "@/components/ui/badge";
+import { buildAccessGroupIndex } from "@/lib/access-groups";
+import { expandPersonalScope, grantState } from "@/lib/personal-access";
 import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
@@ -265,6 +268,7 @@ export default function ModelDetailPage() {
             <AccessGroupBadges groups={(get(info, "access_groups") as unknown[]).map(String)} />
           </div>
         )}
+        <PersonalUsableChip modelName={summary.model_name} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -314,6 +318,25 @@ export default function ModelDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+
+/** "Usable with my personal key" — shown only to users who hold a personal grant covering this model. */
+function PersonalUsableChip({ modelName }: { modelName: string }) {
+  const t = useTranslations("modelDetail");
+  const { data: me } = useMe();
+  const { data: models } = useModels();
+  const state = grantState(me?.models);
+  const index = buildAccessGroupIndex(models);
+  const byName = new Map((models ?? []).map((m) => [m.model_name, m]));
+  const usable =
+    state === "all" || (state === "custom" && expandPersonalScope(me?.models, index, byName, models).some((g) => g.name === modelName));
+  if (!usable) return null;
+  return (
+    <div>
+      <Badge variant="outline" data-testid="personal-usable">{t("personalUsable")}</Badge>
     </div>
   );
 }

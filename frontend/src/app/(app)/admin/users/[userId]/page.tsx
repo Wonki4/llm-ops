@@ -30,6 +30,7 @@ import {
 import type { AdminUserKey, AdminUserTeam } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { ModelLimitOverrides } from "@/components/model-limit-overrides";
+import { PersonalAccessCard } from "@/components/personal-access-card";
 import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Button } from "@/components/ui/button";
 import {
@@ -320,6 +321,8 @@ export default function AdminUserDetailPage({
           </CardContent>
         </Card>
       </div>
+
+      <PersonalAccessCard userId={user.user_id} profile={user} personalKeyCount={keys.filter((k) => k.personal).length} />
 
       <Tabs defaultValue="teams" className="space-y-4">
         <div className="flex items-center justify-between">
