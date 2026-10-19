@@ -46,6 +46,7 @@ namespace), but the portal has no notion of it:
 | Deployment snapshot | The resolved volumes are stored on the deployment; binding edits never touch running deployments, only the next (re)deploy. |
 | Who manages | Storage + bindings: super user. Picking storages in a recipe: whoever can edit recipes. |
 | Cluster default NFS | Replaced by a per-cluster "benchmark default storage" (+ mount path); existing values migrated. |
+| P/D pools | A pool may override the whole list (`pd_config.<role>.storages`, replace semantics, like today's per-role `pvc_name`); unset → the base list. |
 
 ## Data model
 
@@ -69,7 +70,7 @@ custom_storage_binding
   nfs_path      varchar(1024) null            -- nfs
   sub_path      varchar(1024) null            -- optional volumeMount.subPath
   created_by / updated_by / created_at / updated_at
-  UNIQUE (storage_id, COALESCE(cluster_id, '00000000-0000-0000-0000-000000000000'), COALESCE(namespace, ''))
+  UNIQUE NULLS NOT DISTINCT (storage_id, cluster_id, namespace)   -- same as uq_gpu_profile_cluster_name
   CHECK  (type = 'pvc' AND claim_name IS NOT NULL AND namespace IS NOT NULL
           AND nfs_server IS NULL AND nfs_path IS NULL)
       OR (type = 'nfs' AND nfs_server IS NOT NULL AND nfs_path IS NOT NULL
@@ -128,7 +129,9 @@ to_volumes(entries) -> (volumes, volume_mounts)   # from resolved snapshots
   - Migrated entries (`read_only: false`, legacy name `model-weights`) emit
     exactly today's dicts (no `readOnly` key) — covered by a golden test.
 - `model_deployment_manifests._volumes` uses `to_volumes(dep.storages)` then
-  appends the existing shm volume. Prefill/decode pools share the same list.
+  appends the existing shm volume. Each P/D pool renders its own list
+  (`pool_row` falls back to the base list when the role sets none); role
+  lists are resolved and snapshotted inside `pd_config.<role>.storages`.
 
 ## API
 
@@ -154,7 +157,7 @@ Helpers:
 | POST | `/api/admin/storages/resolve` | `{storage_ids, cluster_id, namespace}` → per storage `{binding, pvc_phase}`; used by the deploy dialog |
 
 Recipe / deployment APIs accept and return `storages`; `pvc_name` /
-`pvc_mount_path` are no longer accepted (400 with a hint) or returned.
+`pvc_mount_path` are no longer accepted (422 with a hint) or returned.
 
 Deploy (`POST` from recipe) resolves every storage: any unresolved → **400**
 listing them; PVC `Pending`/`missing` → allowed, returned as `warnings`.
@@ -212,13 +215,15 @@ its snapshot (binding edited, deleted, or a more specific binding added).
    `(storage, deployment.cluster_id, deployment.namespace, pvc, claim)`.
    Deployments without `cluster_id` produce a binding with `cluster_id = NULL`
    (portal default cluster).
-4. Fill recipe/deployment `storages` with
+4. Per-role `pd_config.<role>.pvc_name/pvc_mount_path` become
+   `pd_config.<role>.storages` the same way (keys removed).
+5. Fill recipe/deployment `storages` with
    `{storage_id, mount_path: pvc_mount_path, read_only: false}`; deployments
    also get `volume_name: "model-weights"` and the resolved snapshot.
-5. For each cluster with `default_nfs_*`: create storage
+6. For each cluster with `default_nfs_*`: create storage
    `<cluster>-bench-weights` + cluster-wide NFS binding; set
    `bench_storage_id` / `bench_mount_path`; then drop `default_nfs_*`.
-6. `pvc_name` / `pvc_mount_path` stay in the tables, unread, and are dropped
+7. `pvc_name` / `pvc_mount_path` stay in the tables, unread, and are dropped
    in a follow-up release. Downgrade restores `default_nfs_*` from the
    bench storage and drops the new tables/columns.
 
