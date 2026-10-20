@@ -32,7 +32,7 @@ def _dep(**kw):
         model_name="m", namespace="ns", image="img", replicas=1, gpu_count=1,
         gpu_resource_key="nvidia.com/gpu", cpu_request=None, cpu_limit=None,
         memory_request=None, memory_limit=None, node_selector=None, tolerations=None,
-        pvc_name=None, pvc_mount_path=None, model_path="/models/m", vllm_extra_args=None,
+        storages=[], model_path="/models/m", vllm_extra_args=None,
         env=None, ingress_host="h", ingress_path="/", ingress_class="nginx",
         engine="vllm", engine_args=None,
     )

@@ -17,8 +17,8 @@ from app.services import crypto
 from app.services.benchmark_manifests import (
     build_vllm_bench_job,
     nfs_fields_incomplete,
-    resolve_bench_nfs,
 )
+from app.services.storage_mounts import legacy_pvc_volumes, nfs_override_volumes
 from tests._storage import SID
 
 SAMPLE_KUBECONFIG = """
@@ -101,26 +101,6 @@ def test_nfs_fields_incomplete():
     assert nfs_fields_incomplete(None, "/export", "/models") is True
 
 
-def test_resolve_nfs_run_override_beats_cluster_default():
-    out = resolve_bench_nfs(
-        {"nfs_server": "run.nfs", "nfs_path": "/run", "nfs_mount_path": "/m"},
-        default_server="cl.nfs", default_path="/cl", default_mount_path="/cm",
-    )
-    assert out == ("run.nfs", "/run", "/m")
-
-
-def test_resolve_nfs_falls_back_to_cluster_default():
-    out = resolve_bench_nfs(
-        {}, default_server="cl.nfs", default_path="/cl", default_mount_path="/cm"
-    )
-    assert out == ("cl.nfs", "/cl", "/cm")
-
-
-def test_resolve_nfs_none_when_nothing_set():
-    assert resolve_bench_nfs({}) == (None, None, None)
-    assert resolve_bench_nfs(None) == (None, None, None)
-
-
 def _perf_run():
     return types.SimpleNamespace(
         id=uuid.uuid4(), params={}, k8s_namespace="bench",
@@ -129,10 +109,12 @@ def _perf_run():
 
 
 def test_vllm_bench_job_mounts_nfs_when_set():
+    vols, mounts = nfs_override_volumes(
+        {"nfs_server": "nfs.local", "nfs_path": "/export/models", "nfs_mount_path": "/models"}
+    )
     job = build_vllm_bench_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
-        served_model="m", tokenizer="/models/m",
-        nfs_server="nfs.local", nfs_path="/export/models", nfs_mount_path="/models",
+        served_model="m", tokenizer="/models/m", volumes=vols, volume_mounts=mounts,
     )
     spec = job["spec"]["template"]["spec"]
     vol = next(v for v in spec["volumes"] if v["name"] == "model-weights")
@@ -142,10 +124,10 @@ def test_vllm_bench_job_mounts_nfs_when_set():
 
 
 def test_vllm_bench_job_mounts_pvc_for_deployment_target():
-    # Deployment targets still mount their own PVC (unchanged by the NFS switch).
+    vols, mounts = legacy_pvc_volumes("weights", "/models")
     job = build_vllm_bench_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
-        served_model="m", pvc_name="weights", pvc_mount_path="/models",
+        served_model="m", volumes=vols, volume_mounts=mounts,
     )
     vol = job["spec"]["template"]["spec"]["volumes"][0]
     assert vol["persistentVolumeClaim"]["claimName"] == "weights"
