@@ -254,3 +254,71 @@ async def test_get_deployment_reports_stale(client_for_user, super_user, mock_db
             resp = await client.get(f"/api/model-deployments/{row.id}")
     assert resp.status_code == 200, resp.text
     assert resp.json()["storage_stale"] == [SID]
+
+
+def _pd_row():
+    pool_storage = {"storage_id": SID, "mount_path": "/models", "read_only": True, "volume_name": "model-weights",
+                    "resolved": {"binding_id": "old"}}
+    return _dep_row(
+        serving_mode="pd", storages=[],
+        pd_config={"prefill": {"replicas": 1, "storages": [pool_storage]}, "decode": {"replicas": 1}},
+    )
+
+
+async def test_update_pd_pool_keeps_migrated_volume_name(client_for_user, super_user, mock_db):
+    row = _pd_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    calls = []
+
+    async def fake(db, entries, cluster, ns, *, previous=None):
+        calls.append((entries, previous))
+        return _resolved(db, entries)
+
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s())),
+        patch("app.services.storage_store.resolve_entries", AsyncMock(side_effect=fake)),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=fake)),
+        _phases({"models-pvc": "Bound"}),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.put(f"/api/model-deployments/{row.id}", json={"replicas": 2})
+    assert resp.status_code == 200, resp.text
+    pool_calls = [c for c in calls if c[1] and c[1][0].get("volume_name") == "model-weights"]
+    assert pool_calls, calls
+    assert pool_calls[-1][0][0]["storage_id"] == SID
+    assert "resolved" not in pool_calls[-1][0][0]
+
+
+async def test_update_pd_unresolved_pool_storage_400(client_for_user, super_user, mock_db):
+    from app.services.storage_store import UnresolvedStorageError
+
+    row = _pd_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    k8s = _k8s()
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(return_value=[])),
+        patch("app.services.storage_store.resolve_entries",
+              AsyncMock(side_effect=UnresolvedStorageError(["llama-weights"]))),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.put(f"/api/model-deployments/{row.id}", json={"replicas": 2})
+    assert resp.status_code == 400 and "llama-weights" in resp.text
+    k8s.create_or_patch.assert_not_awaited()
+
+
+async def test_update_null_storages_means_unchanged(client_for_user, super_user, mock_db):
+    row = _dep_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s())),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)) as res,
+        _phases({"models-pvc": "Bound"}),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.put(f"/api/model-deployments/{row.id}", json={"storages": None})
+    assert resp.status_code == 200, resp.text
+    assert res.await_args.args[1][0]["storage_id"] == SID
+    assert len(resp.json()["storages"]) == 1

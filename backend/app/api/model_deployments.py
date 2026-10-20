@@ -681,7 +681,7 @@ async def update_deployment(
             raise HTTPException(status_code=400, detail=str(e))
     else:
         dep.pd_config = None
-    entries = updates["storages"] if "storages" in updates else previous
+    entries = updates["storages"] if updates.get("storages") is not None else previous
     await _resolve_storages(db, dep, entries, previous=previous, previous_pd=previous_pd)
     if pd_serving.is_pd(dep) and ("gpu_type" in updates or "pd_config" in updates):
         await _apply_pool_profiles(db, dep, default_gpu_type=dep.gpu_type)
