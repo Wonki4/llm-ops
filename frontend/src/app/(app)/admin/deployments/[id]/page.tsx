@@ -14,7 +14,7 @@ import {
   useModelDeploymentEvents,
   useDeleteModelDeployment,
 } from "@/hooks/use-api";
-import type { ModelDeploymentEvent, ProbeSpec } from "@/types";
+import type { ModelDeployment, ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,6 +50,32 @@ function sevColor(sev: string): string {
   if (sev === "error") return "bg-destructive";
   if (sev === "warning") return "bg-amber-500";
   return "bg-muted-foreground/50";
+}
+
+function MountedStorages({ dep }: { dep: ModelDeployment }) {
+  const ts = useTranslations("storages");
+  if (!dep.storages?.length) return null;
+  return (
+    <Card data-testid="deployment-storages">
+      <CardHeader className="flex flex-row items-center gap-2 space-y-0">
+        <CardTitle className="text-base">{ts("volumes")}</CardTitle>
+        {(dep.storage_stale?.length ?? 0) > 0 && <Badge variant="destructive">{ts("stale")}</Badge>}
+      </CardHeader>
+      <CardContent className="space-y-1 font-mono text-xs">
+        {dep.storages.map((s) => (
+          <div key={s.storage_id} className="flex flex-wrap gap-2">
+            <Link className="underline" href={`/admin/storages/${s.storage_id}`}>{s.volume_name}</Link>
+            <span>{s.mount_path}</span>
+            <span className="text-muted-foreground">{s.read_only ? "ro" : "rw"}</span>
+            <span className="text-muted-foreground">
+              → {s.resolved.type === "pvc" ? `PVC ${s.resolved.claim_name} (${s.resolved.namespace})` : `NFS ${s.resolved.nfs_server}:${s.resolved.nfs_path}`}
+            </span>
+            {dep.storage_stale?.includes(s.storage_id) && <span className="text-destructive">●</span>}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function DeploymentDetailPage() {
@@ -203,6 +229,8 @@ export default function DeploymentDetailPage() {
         </CardContent>
       </Card>
 
+      <MountedStorages dep={dep} />
+
       {/* Prefill / decode pools + the router they register through */}
       {dep.serving_mode === "pd" && (
         <Card data-testid="pd-section">
@@ -232,7 +260,7 @@ export default function DeploymentDetailPage() {
                         {eff.gpu_count ?? 0} × {eff.gpu_resource_key}
                         {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
                       </Field>
-                      <Field label={t("pdStorage")} mono>{eff.pvc_name ? `${eff.pvc_name} → ${eff.pvc_mount_path ?? "/models"}` : "-"}</Field>
+                      <Field label={t("pdStorage")} mono>{(eff.storages ?? []).length ? (eff.storages ?? []).map((s) => s.mount_path).join(", ") : "-"}</Field>
                       <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
                       <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, "/health", [15, 30, 5, 120])}</Field>
                       <Field label={t("pdPlacement")} mono>
