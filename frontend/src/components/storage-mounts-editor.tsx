@@ -19,32 +19,21 @@ export function storageForPath(path: string, entries: StorageEntry[]): StorageEn
 /**
  * Storage rows of a recipe or one P/D pool: [storage] [mount path] [read-only] [x],
  * each picked storage followed by chips of where it is bound.
- * With `inheritable`, `null` means "use the recipe's list" (pool tabs).
  */
 export function StorageMountsEditor({
-  value, onChange, modelPath, idPrefix, inheritable,
+  value, onChange, modelPath, idPrefix,
 }: {
-  value: StorageEntry[] | null;
-  onChange: (next: StorageEntry[] | null) => void;
+  value: StorageEntry[];
+  onChange: (next: StorageEntry[]) => void;
   modelPath: string;
   idPrefix: string;
-  inheritable?: boolean;
 }) {
   const t = useTranslations("storages");
   const { data: storages } = useStorages();
   const byId = new Map((storages ?? []).map((s) => [s.id, s]));
-  const rows = value ?? [];
+  const rows = value;
   const set = (i: number, patch: Partial<StorageEntry>) => onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const hint = modelPath ? storageForPath(modelPath, rows) : undefined;
-
-  if (inheritable && value === null) {
-    return (
-      <div className="flex items-center justify-between rounded-md border border-dashed p-3 text-sm">
-        <span className="text-muted-foreground">{t("inheritBase")}</span>
-        <Button type="button" size="xs" variant="outline" onClick={() => onChange([])}>{t("overrideForPool")}</Button>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-2" data-testid={`${idPrefix}-storages`}>
@@ -73,6 +62,8 @@ export function StorageMountsEditor({
             id={`${idPrefix}-storage-mount-${i}`}
             aria-label={t("mountPath")}
             className="font-mono"
+            aria-invalid={!r.mount_path.startsWith("/") || undefined}
+            title={!r.mount_path.startsWith("/") ? t("mountPathInvalid") : undefined}
             placeholder="/models"
             value={r.mount_path}
             onChange={(e) => set(i, { mount_path: e.target.value })}
@@ -101,9 +92,6 @@ export function StorageMountsEditor({
         >
           <Plus className="size-3" /> {t("addMount")}
         </Button>
-        {inheritable && (
-          <Button type="button" size="xs" variant="ghost" onClick={() => onChange(null)}>{t("inheritBase")}</Button>
-        )}
       </div>
       {hint !== undefined && (
         <p className={hint ? "text-xs text-muted-foreground" : "text-xs text-amber-600"} data-testid={`${idPrefix}-model-path-hint`}>
