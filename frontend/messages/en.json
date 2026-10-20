@@ -2153,6 +2153,9 @@
     "warn_model_path_outside_storages": "The model path is not inside any mounted storage.",
     "warn_pvc_pending": "PVC is not Bound yet: {claim}",
     "warn_pvc_missing": "PVC not found in the namespace: {claim}",
-    "warn_storage_unresolved": "No binding for this cluster/namespace (deploy would fail): {claim}"
+    "warn_storage_unresolved": "No binding for this cluster/namespace (deploy would fail): {claim}",
+    "warn_pvc_single_node": "ReadWriteOnce PVC mounted by several pods (P/D or replicas > 1): pods on another node hit Multi-Attach: {claim}",
+    "warn_pvc_single_pod": "PVC is ReadWriteOncePod but several pods mount it: only one pod can start: {claim}",
+    "warn_pvc_read_only": "PVC is ReadOnlyMany but mounted read-write: turn on read-only for this mount: {claim}"
   }
 }

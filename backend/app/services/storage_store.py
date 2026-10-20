@@ -251,11 +251,17 @@ async def list_pvcs_timed(db: AsyncSession, cluster_id: uuid.UUID | None, namesp
     return await asyncio.wait_for(k8s.list_pvcs(namespace), timeout=PVC_LOOKUP_TIMEOUT)
 
 
-async def pvc_phases(db: AsyncSession, cluster_id: uuid.UUID | None, namespace: str) -> dict[str, str] | None:
-    """claim → phase for one namespace, or None when the cluster can't be read (best-effort)."""
+async def pvc_index(db: AsyncSession, cluster_id: uuid.UUID | None, namespace: str) -> dict[str, dict] | None:
+    """claim → ``list_pvcs`` row for one namespace, or None when the cluster can't be read (best-effort)."""
     try:
         pvcs = await list_pvcs_timed(db, cluster_id, namespace)
     except Exception as e:  # noqa: BLE001 - status/warnings only
         logger.warning("PVC lookup failed for cluster %s/%s: %s", cluster_id, namespace, e)
         return None
-    return {p["name"]: p.get("phase") or "Pending" for p in pvcs}
+    return {p["name"]: p for p in pvcs}
+
+
+async def pvc_phases(db: AsyncSession, cluster_id: uuid.UUID | None, namespace: str) -> dict[str, str] | None:
+    """claim → phase for one namespace, or None when the cluster can't be read (best-effort)."""
+    pvcs = await pvc_index(db, cluster_id, namespace)
+    return None if pvcs is None else {name: p.get("phase") or "Pending" for name, p in pvcs.items()}

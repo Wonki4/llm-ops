@@ -2153,6 +2153,9 @@
     "warn_model_path_outside_storages": "모델 경로가 붙인 스토리지 안에 있지 않습니다.",
     "warn_pvc_pending": "PVC가 아직 Bound 상태가 아닙니다: {claim}",
     "warn_pvc_missing": "네임스페이스에 PVC가 없습니다: {claim}",
-    "warn_storage_unresolved": "이 클러스터·네임스페이스에 바인딩이 없는 스토리지입니다 (배포 시 400): {claim}"
+    "warn_storage_unresolved": "이 클러스터·네임스페이스에 바인딩이 없는 스토리지입니다 (배포 시 400): {claim}",
+    "warn_pvc_single_node": "ReadWriteOnce PVC를 여러 Pod가 마운트합니다(P/D·replicas 2+). 다른 노드의 Pod는 Multi-Attach로 멈춥니다: {claim}",
+    "warn_pvc_single_pod": "ReadWriteOncePod PVC를 여러 Pod가 마운트합니다. Pod 하나만 뜰 수 있습니다: {claim}",
+    "warn_pvc_read_only": "ReadOnlyMany PVC를 읽기/쓰기로 마운트합니다. 이 마운트를 읽기 전용으로 바꾸세요: {claim}"
   }
 }
