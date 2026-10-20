@@ -2092,6 +2092,8 @@
     "resolutionNone": "Not bound",
     "resolutionAll": "Cluster-wide",
     "addBindingLink": "Add a binding",
+    "resolutionError": "Could not check storage bindings.",
+    "resolutionRetry": "Retry",
     "deployBlocked": "Cannot deploy: a storage has no binding.",
     "volumes": "Mounted storages",
     "stale": "Binding changed · redeploy needed",
