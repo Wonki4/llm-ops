@@ -39,12 +39,6 @@ class CustomK8sCluster(CustomBase):
     argocd_dest_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
     kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # Optional default model-weights NFS mount for benchmarks against a raw
-    # model_name: server + export path + container mount path. A per-run override
-    # (params) takes precedence. All nullable, non-secret.
-    default_nfs_server: Mapped[str | None] = mapped_column(String(253), nullable=True)
-    default_nfs_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    default_nfs_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Storage mounted read-only into benchmarks against a raw model_name (tokenizer
     # / weights), resolved for the job's namespace. Replaces default_nfs_* (052).
     bench_storage_id: Mapped[uuid.UUID | None] = mapped_column(
