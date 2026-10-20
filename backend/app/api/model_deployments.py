@@ -32,12 +32,18 @@ from app.services.gpu_profiles import apply_profile, match_profile, resolve_plac
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import default_llmd_values, stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names
-from app.services.recipe_import import build_recipe_draft
+from app.services.recipe_import import attach_storages, build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
 from app.services.storage_mounts import all_entries, validate_entries
-from app.services.storage_store import pvc_phases, resolve_entries, resolve_pool_storages, stale_storage_ids
+from app.services.storage_store import (
+    match_claims,
+    pvc_phases,
+    resolve_entries,
+    resolve_pool_storages,
+    stale_storage_ids,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +328,8 @@ async def external_recipe_draft(
         raise HTTPException(status_code=404, detail="Deployment not found in the cluster")
     out = build_recipe_draft(spec)
     cid = uuid.UUID(cluster_id) if cluster_id else None
+    claims = [m["claim_name"] for m in out["draft"].get("pvc_mounts") or []]
+    attach_storages(out["draft"], out["warnings"], await match_claims(db, cid, namespace, claims))
     label_key = await cluster_label_key(db, cid)
     profiles = await list_profiles(db, cid, enabled_only=True)
     profile = match_profile(profiles, label_key, out["draft"].get("node_selector"))
