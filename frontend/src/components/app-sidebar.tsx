@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   BarChart3,
   BookOpen,
+  HardDrive,
   Boxes,
   Calendar,
   DollarSign,
@@ -53,6 +54,7 @@ const navigation: NavItem[] = [
   // Model serving: ordered as the pipeline runs (recipe → deploy → benchmark → catalog).
   { key: "servingHome", href: "/admin/serving", icon: Workflow, roles: ["super_user"], section: "serving" },
   { key: "adminRecipes", href: "/admin/recipes", icon: ScrollText, roles: ["super_user"], section: "serving" },
+  { key: "adminStorages", href: "/admin/storages", icon: HardDrive, roles: ["super_user"], section: "serving" },
   { key: "adminDeployments", href: "/admin/deployments", icon: Server, roles: ["super_user"], section: "serving", alsoMatches: ["/admin/llmd"] },
   { key: "adminBenchmarks", href: "/admin/benchmarks", icon: FlaskConical, roles: ["super_user"], section: "serving" },
   { key: "adminModels", href: "/admin/models", icon: Boxes, roles: ["super_user"], section: "serving" },
