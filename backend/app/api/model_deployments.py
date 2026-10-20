@@ -24,13 +24,13 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services import llmd_stacks, pd_serving
+from app.services import llmd_stacks, pd_router, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
 from app.services.llmd_links import portal_server, stacks_for_server
-from app.services.llmd_manifests import default_llmd_values, stack_selector
+from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
 from app.services.recipe_import import attach_storages, build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
@@ -548,17 +548,6 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
         dep.router_stack_created = False
         return
     router = (dep.pd_config or {}).get("router") or {}
-    epp_registry = router.get("epp_registry") or settings.llmd_epp_image_registry
-    epp_repository = router.get("epp_repository") or settings.llmd_epp_image_repository
-    epp_tag = router.get("epp_tag") or settings.llmd_epp_image_tag
-    values = default_llmd_values(
-        dep.model_name,
-        epp_registry=epp_registry,
-        epp_repository=epp_repository,
-        epp_tag=epp_tag,
-        serving_mode="pd",
-        pd_router=router,
-    )
     try:
         stack = await llmd_stacks.create_stack(
             db,
@@ -566,8 +555,12 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
             target_model_name=dep.model_name,
             cluster_id=dep.cluster_id,
             namespace=dep.namespace,
-            values=values,
+            values=pd_router.router_values(dep),
             user_id=user_id,
+            # Only the recipe's own pins: a blank one keeps following the portal default.
+            chart_repo=router.get("chart_repo"),
+            chart_name=router.get("chart_name"),
+            chart_version=router.get("chart_version"),
             epp_registry=router.get("epp_registry"),
             epp_repository=router.get("epp_repository"),
             epp_tag=router.get("epp_tag"),

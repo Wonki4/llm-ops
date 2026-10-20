@@ -34,12 +34,18 @@ export function Field({
 
 /** Monospace multi-line input for line-oriented lists (args, env, labels). */
 export function Area({
-  id, value, onChange, placeholder, rows = 3,
-}: { id: string; value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+  id, value, onChange, placeholder, rows = 3, nowrap,
+}: {
+  id: string; value: string; onChange: (v: string) => void; placeholder?: string; rows?: number;
+  /** Keep lines unwrapped (scroll sideways) — for indentation-sensitive text like YAML. */
+  nowrap?: boolean;
+}) {
   return (
     <textarea
       id={id}
       rows={rows}
+      wrap={nowrap ? "off" : undefined}
+      spellCheck={nowrap ? false : undefined}
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}

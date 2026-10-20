@@ -255,7 +255,13 @@ class RoleOverride(BaseModel):
 
 class PdRouter(BaseModel):
     """The llm-d router the deployment creates: EPP scheduler tuning plus the
-    stack-level knobs the operator would otherwise set on the llm-d form."""
+    stack-level knobs the operator would otherwise set on the llm-d form.
+
+    ``values_yaml`` (when set) is the router chart's values.yaml as written —
+    used verbatim, so a chart upgrade needs no portal change — and supersedes
+    the structured EPP/scheduler fields. ``chart_*`` pin the chart per recipe
+    (blank = the portal default). See ``pd_router``.
+    """
 
     peak_prefill_throughput: int = Field(DEFAULT_PEAK_PREFILL_THROUGHPUT, ge=1)
     prefix_tokens_to_match: int = Field(DEFAULT_PREFIX_TOKENS_TO_MATCH, ge=1)
@@ -264,12 +270,26 @@ class PdRouter(BaseModel):
     epp_tag: str | None = None
     epp_replicas: int | None = Field(None, ge=1)
     ingress_class: str | None = None
+    values_yaml: str | None = None
+    chart_repo: str | None = None
+    chart_name: str | None = None
+    chart_version: str | None = None
 
-    @field_validator("epp_registry", "epp_repository", "epp_tag", "ingress_class")
+    @field_validator(
+        "epp_registry", "epp_repository", "epp_tag", "ingress_class", "chart_repo", "chart_name", "chart_version"
+    )
     @classmethod
     def _blank_is_none(cls, v):
         v = (v or "").strip() if isinstance(v, str) else v
         return v or None
+
+    @field_validator("values_yaml")
+    @classmethod
+    def _values_yaml(cls, v):
+        if v is None or not v.strip():
+            return None
+        parse_router_values(v, "model")  # syntax + mapping check; placeholders filled with a dummy
+        return v
 
 
 class PdConfig(BaseModel):
@@ -564,6 +584,26 @@ def sidecar_image_for(dep, default: str | None) -> str:
 
 def is_pd(dep) -> bool:
     return getattr(dep, "serving_mode", None) == "pd"
+
+
+def fill_model_name(text: str, name: str) -> str:
+    """Replace ``{{model_name}}`` placeholders in ``text`` with ``name``."""
+    return MODEL_NAME_PLACEHOLDER.sub(name, text)
+
+
+def parse_router_values(text: str, name: str) -> dict:
+    """The router values.yaml with ``{{model_name}}`` filled in, as a dict (ValueError otherwise)."""
+    import yaml
+
+    try:
+        data = yaml.safe_load(fill_model_name(text, name))
+    except yaml.YAMLError as e:
+        raise ValueError(f"router values.yaml is not valid YAML: {e}") from None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError("router values.yaml must be a mapping")
+    return data
 
 
 def serving_name(dep) -> str:

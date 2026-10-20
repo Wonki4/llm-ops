@@ -73,6 +73,7 @@ async def test_preview_pd_renders_both_pools_and_services(client_for_user, super
     assert names == [
         ("Deployment", "llama-pd-prefill-deployment"), ("Deployment", "llama-pd-decode-deployment"),
         ("Service", "llama-pd-prefill-service"), ("Service", "llama-pd-decode-service"),
+        ("values.yaml", "llama-pd-router"),
     ]
     prefill, decode = _docs(resp)[:2]
     assert prefill["spec"]["replicas"] == 2 and decode["spec"]["replicas"] == 1
@@ -125,9 +126,50 @@ async def test_preview_matches_what_deploy_applies_for_pd(client_for_user, super
             })
     assert preview.status_code == 200, preview.text
     assert created.status_code == 201, created.text
-    assert _docs(preview) == k8s.create_or_patch.await_args.args[1]
+    k8s_docs = [d for d, m in zip(_docs(preview), preview.json()["manifests"]) if m["kind"] != "values.yaml"]
+    assert k8s_docs == k8s.create_or_patch.await_args.args[1]
 
 
 async def test_preview_is_super_user_only(client_for_user, regular_user, mock_db):
     async with client_for_user(regular_user) as client:
         assert (await client.post(URL, json=RECIPE)).status_code == 403
+
+
+async def test_preview_pd_includes_router_values_with_chart(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    router = {"values_yaml": "router:\n  epp:\n    replicas: 3\n", "chart_version": "v9.9.9"}
+    body = {**PD, "model_name": "llama-pd", "pd_config": {**PD["pd_config"], "router": router}}
+    with (
+        patch("app.api.serving_recipes.resolve_entries", AsyncMock(side_effect=_bound)),
+        _resolve(_bound),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post(URL, json=body)
+    assert resp.status_code == 200, resp.text
+    last = resp.json()["manifests"][-1]
+    assert (last["kind"], last["name"]) == ("values.yaml", "llama-pd-router")
+    assert last["yaml"].startswith("# chart: ") and "v9.9.9" in last["yaml"].splitlines()[0]
+    values = yaml.safe_load(last["yaml"])
+    assert values["router"]["epp"]["replicas"] == 3
+    assert values["router"]["epp"]["image"]["repository"]  # portal EPP image fills in underneath
+    assert values["router"]["modelServers"]["matchLabels"] == {"llm-d.ai/model": "llama-pd"}
+
+
+async def test_router_defaults_are_parseable_values(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes/router-defaults", json={})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    values = yaml.safe_load(data["values_yaml"])
+    assert values["router"]["inferencePool"] == {"create": False}
+    assert "matchLabels" not in values["router"]["modelServers"]  # the portal fills it per deployment
+    assert data["chart_name"] and data["chart_version"]
+
+
+async def test_router_defaults_convert_an_older_recipes_structured_fields(client_for_user, super_user, mock_db):
+    router = {"peak_prefill_throughput": 5000, "epp_replicas": 3, "epp_tag": "v0.8.0"}
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/serving-recipes/router-defaults", json={"router": router})
+    epp = yaml.safe_load(resp.json()["values_yaml"])["router"]["epp"]
+    assert epp["replicas"] == 3 and epp["image"]["tag"] == "v0.8.0"  # an explicit EPP override is kept
+    assert "peakPrefillThroughput: 5000" in next(iter(epp["pluginsCustomConfig"].values()))
