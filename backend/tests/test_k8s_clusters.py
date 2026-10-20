@@ -6,7 +6,7 @@ kubeconfig parsing/validation. Full CRUD is exercised against the running app.
 
 import types
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -19,6 +19,7 @@ from app.services.benchmark_manifests import (
     nfs_fields_incomplete,
     resolve_bench_nfs,
 )
+from tests._storage import SID
 
 SAMPLE_KUBECONFIG = """
 apiVersion: v1
@@ -201,8 +202,7 @@ def test_cluster_serialize_includes_argocd_namespace():
     c = types.SimpleNamespace(
         id=uuid.uuid4(), name="c", context="ctx", namespace="default",
         argocd_namespace="argo-system", api_server="https://s", is_default=False,
-        description=None, default_nfs_server=None, default_nfs_path=None,
-        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        description=None, bench_storage_id=None, bench_mount_path=None, kubeconfig_encrypted="x",
         argocd_host_cluster_id=None, argocd_dest_server=None,
         created_by=None, created_at=None, updated_at=None,
     )
@@ -214,8 +214,7 @@ def test_serialize_includes_argocd_placement_fields():
     row = types.SimpleNamespace(
         id=uuid.uuid4(), name="edge", context="ctx", namespace="default",
         argocd_namespace="argocd", api_server=None, is_default=False,
-        description=None, default_nfs_server=None, default_nfs_path=None,
-        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        description=None, bench_storage_id=None, bench_mount_path=None, kubeconfig_encrypted="x",
         argocd_host_cluster_id=host_id, argocd_dest_server="https://e:6443",
         created_by=None, created_at=None, updated_at=None,
     )
@@ -228,8 +227,7 @@ def test_serialize_argocd_placement_nulls():
     row = types.SimpleNamespace(
         id=uuid.uuid4(), name="edge", context="ctx", namespace="default",
         argocd_namespace="argocd", api_server=None, is_default=False,
-        description=None, default_nfs_server=None, default_nfs_path=None,
-        default_nfs_mount_path=None, kubeconfig_encrypted="x",
+        description=None, bench_storage_id=None, bench_mount_path=None, kubeconfig_encrypted="x",
         argocd_host_cluster_id=None, argocd_dest_server=None,
         created_by=None, created_at=None, updated_at=None,
     )
@@ -283,3 +281,66 @@ async def test_validate_argocd_host_accepts_existing():
     db = MagicMock()
     db.execute = AsyncMock(return_value=r)
     assert await _validate_argocd_host(db, str(host_id), uuid.uuid4()) == host_id
+
+
+# ─── bench storage (replaces default_nfs_*) ───────────────────────────────────
+
+BASE = {"name": "c1", "context": "prod", "kubeconfig": SAMPLE_KUBECONFIG}
+
+
+def _result(scalar=None):
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = scalar
+    return r
+
+
+async def test_cluster_bench_storage_both_or_neither(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))  # no name clash
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/k8s-clusters", json={**BASE, "bench_storage_id": SID})
+    assert resp.status_code == 400 and "together" in resp.text
+
+
+async def test_cluster_bench_storage_must_exist(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    body = {**BASE, "bench_storage_id": SID, "bench_mount_path": "/models"}
+    with patch("app.api.k8s_clusters.load_storages", AsyncMock(return_value={})):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/admin/k8s-clusters", json=body)
+    assert resp.status_code == 400 and "unknown storage" in resp.text
+
+
+async def test_cluster_bench_storage_malformed_id_400(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/k8s-clusters", json={**BASE, "bench_storage_id": "nope", "bench_mount_path": "/models"}
+        )
+    assert resp.status_code == 400 and "unknown storage" in resp.text
+
+
+async def test_cluster_create_with_bench_storage(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    body = {**BASE, "bench_storage_id": SID, "bench_mount_path": "/models"}
+    with patch("app.api.k8s_clusters.load_storages", AsyncMock(return_value={SID: object()})):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/admin/k8s-clusters", json=body)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["bench_storage_id"] == SID and data["bench_mount_path"] == "/models"
+    assert "default_nfs_server" not in data
+
+
+async def test_cluster_update_malformed_bench_storage_id_400(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(MagicMock(bench_storage_id=None, bench_mount_path=None)))
+    async with client_for_user(super_user) as client:
+        resp = await client.put(
+            f"/api/admin/k8s-clusters/{uuid.uuid4()}", json={"bench_storage_id": "nope", "bench_mount_path": "/m"}
+        )
+    assert resp.status_code == 400 and "unknown storage" in resp.text
+
+
+async def test_cluster_rejects_legacy_nfs_fields(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/admin/k8s-clusters", json={**BASE, "default_nfs_server": "s"})
+    assert resp.status_code == 422

@@ -12,7 +12,7 @@ import uuid
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +23,14 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import crypto
-from app.services.benchmark_manifests import nfs_fields_incomplete
+from app.services.storage_store import load_storages
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/k8s-clusters", tags=["k8s-clusters"])
+
+
+_LEGACY_NFS = ("default_nfs_server", "default_nfs_path", "default_nfs_mount_path")
 
 
 class CreateClusterRequest(BaseModel):
@@ -38,12 +41,18 @@ class CreateClusterRequest(BaseModel):
     kubeconfig: str
     description: str | None = None
     is_default: bool = False
-    default_nfs_server: str | None = None
-    default_nfs_path: str | None = None
-    default_nfs_mount_path: str | None = None
+    bench_storage_id: str | None = None
+    bench_mount_path: str | None = None
     argocd_host_cluster_id: str | None = None
     argocd_dest_server: str | None = None
     gpu_label_key: str | None = None  # None → 'gpu-type'
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_nfs(cls, data):
+        if isinstance(data, dict) and any(data.get(k) is not None for k in _LEGACY_NFS):
+            raise ValueError("default_nfs_* were replaced by bench_storage_id + bench_mount_path")
+        return data
 
 
 class UpdateClusterRequest(BaseModel):
@@ -54,12 +63,18 @@ class UpdateClusterRequest(BaseModel):
     kubeconfig: str | None = None  # omitted/empty = keep existing
     description: str | None = None
     is_default: bool | None = None
-    default_nfs_server: str | None = None
-    default_nfs_path: str | None = None
-    default_nfs_mount_path: str | None = None
+    bench_storage_id: str | None = None
+    bench_mount_path: str | None = None
     argocd_host_cluster_id: str | None = None
     argocd_dest_server: str | None = None
     gpu_label_key: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_nfs(cls, data):
+        if isinstance(data, dict) and any(data.get(k) is not None for k in _LEGACY_NFS):
+            raise ValueError("default_nfs_* were replaced by bench_storage_id + bench_mount_path")
+        return data
 
 
 class TestClusterRequest(BaseModel):
@@ -120,6 +135,27 @@ async def _validate_argocd_host(
     return host_id
 
 
+def _bench_storage_uuid(raw: str | None) -> uuid.UUID | None:
+    """Form value → storage id; '' / None = none. Malformed ids are a 400, not a 500."""
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"unknown storage: {raw}")
+
+
+async def _check_bench_storage(db: AsyncSession, storage_id: uuid.UUID | None, mount_path: str | None) -> None:
+    if bool(storage_id) != bool(mount_path):
+        raise HTTPException(status_code=400, detail="bench_storage_id and bench_mount_path must be set together")
+    if storage_id is None:
+        return
+    if not mount_path.startswith("/"):
+        raise HTTPException(status_code=400, detail="bench_mount_path must be an absolute path")
+    if not await load_storages(db, [str(storage_id)]):
+        raise HTTPException(status_code=400, detail=f"unknown storage: {storage_id}")
+
+
 def _serialize(c: CustomK8sCluster) -> dict:
     """Masked representation — never includes the kubeconfig."""
     return {
@@ -135,9 +171,8 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "api_server": c.api_server,
         "is_default": c.is_default,
         "description": c.description,
-        "default_nfs_server": c.default_nfs_server,
-        "default_nfs_path": c.default_nfs_path,
-        "default_nfs_mount_path": c.default_nfs_mount_path,
+        "bench_storage_id": str(c.bench_storage_id) if c.bench_storage_id else None,
+        "bench_mount_path": c.bench_mount_path,
         "gpu_label_key": getattr(c, "gpu_label_key", None) or "gpu-type",
         "has_kubeconfig": bool(c.kubeconfig_encrypted),
         "created_by": c.created_by,
@@ -178,13 +213,9 @@ async def create_cluster(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Cluster '{body.name}' already exists")
 
-    if nfs_fields_incomplete(
-        body.default_nfs_server, body.default_nfs_path, body.default_nfs_mount_path
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="default_nfs_server, default_nfs_path and default_nfs_mount_path must be set together",
-        )
+    bench_storage_id = _bench_storage_uuid(body.bench_storage_id)
+    bench_mount_path = body.bench_mount_path or None
+    await _check_bench_storage(db, bench_storage_id, bench_mount_path)
 
     _parsed, api_server = _parse_kubeconfig(body.kubeconfig, body.context)
 
@@ -200,9 +231,8 @@ async def create_cluster(
         api_server=api_server,
         is_default=body.is_default,
         description=body.description,
-        default_nfs_server=body.default_nfs_server or None,
-        default_nfs_path=body.default_nfs_path or None,
-        default_nfs_mount_path=body.default_nfs_mount_path or None,
+        bench_storage_id=bench_storage_id,
+        bench_mount_path=bench_mount_path,
         argocd_host_cluster_id=argocd_host,
         argocd_dest_server=(body.argocd_dest_server or "").strip() or None,
         gpu_label_key=(body.gpu_label_key or "").strip() or "gpu-type",
@@ -242,21 +272,15 @@ async def update_cluster(
         cluster.description = body.description
     if body.context is not None:
         cluster.context = body.context
-    if body.default_nfs_server is not None:
-        cluster.default_nfs_server = body.default_nfs_server or None
-    if body.default_nfs_path is not None:
-        cluster.default_nfs_path = body.default_nfs_path or None
-    if body.default_nfs_mount_path is not None:
-        cluster.default_nfs_mount_path = body.default_nfs_mount_path or None
     if body.gpu_label_key is not None:
         cluster.gpu_label_key = body.gpu_label_key.strip() or "gpu-type"
-    if nfs_fields_incomplete(
-        cluster.default_nfs_server, cluster.default_nfs_path, cluster.default_nfs_mount_path
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="default_nfs_server, default_nfs_path and default_nfs_mount_path must be set together",
-        )
+    bench_storage_id = (
+        cluster.bench_storage_id if body.bench_storage_id is None else _bench_storage_uuid(body.bench_storage_id)
+    )
+    bench_mount_path = cluster.bench_mount_path if body.bench_mount_path is None else (body.bench_mount_path or None)
+    await _check_bench_storage(db, bench_storage_id, bench_mount_path)
+    cluster.bench_storage_id = bench_storage_id
+    cluster.bench_mount_path = bench_mount_path
 
     # Re-validate + re-parse api_server when kubeconfig or context changes.
     new_kubeconfig = body.kubeconfig if (body.kubeconfig or "").strip() else None
