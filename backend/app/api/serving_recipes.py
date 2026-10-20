@@ -16,6 +16,9 @@ from app.services.gpu_profiles import validate_profile_name
 from app.services.pd_serving import ServingMode, validate_pd_config, validate_runtime
 from app.services.serving_engines import ServingEngine, validate_engine_args
 from app.services.serving_probes import validate_probes
+from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
+from app.services.storage_mounts import all_entries, validate_entries
+from app.services.storage_store import UnknownStorageError, check_known
 
 router = APIRouter(prefix="/api/admin/serving-recipes", tags=["serving-recipes"])
 
@@ -33,8 +36,7 @@ class RecipeBody(BaseModel):
     memory_limit: str | None = None
     node_selector: dict | None = None
     tolerations: list | None = None
-    pvc_name: str | None = None
-    pvc_mount_path: str | None = None
+    storages: list[dict] = Field(default_factory=list)
     vllm_extra_args: list[str] | None = None
     env: dict[str, str] | None = None
     engine: ServingEngine = "vllm"
@@ -44,6 +46,16 @@ class RecipeBody(BaseModel):
     serving_mode: ServingMode = "aggregated"
     pd_config: dict | None = None  # per-role overrides etc. (pd only; see pd_serving)
     runtime: dict | None = None  # shm / hostIPC / privileged / extra resources
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_pvc(cls, data):
+        return reject_legacy_pvc(data)
+
+    @field_validator("storages")
+    @classmethod
+    def _check_storages(cls, v: list[dict]) -> list[dict]:
+        return validate_entries(v)
 
     @field_validator("gpu_type")
     @classmethod
@@ -98,8 +110,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "memory_limit": r.memory_limit,
         "node_selector": r.node_selector,
         "tolerations": r.tolerations,
-        "pvc_name": r.pvc_name,
-        "pvc_mount_path": r.pvc_mount_path,
+        "storages": list(r.storages or []),
         "vllm_extra_args": r.vllm_extra_args,
         "env": r.env,
         "engine": r.engine or "vllm",
@@ -114,6 +125,14 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "created_at": r.created_at.isoformat() if r.created_at else None,
         "updated_at": r.updated_at.isoformat() if r.updated_at else None,
     }
+
+
+async def _check_known_storages(db: AsyncSession, body: RecipeBody) -> None:
+    """Every storage the recipe lists (base + P/D pools) must exist."""
+    try:
+        await check_known(db, all_entries(body))
+    except UnknownStorageError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 async def _by_name(db: AsyncSession, name: str) -> CustomServingRecipe | None:
@@ -145,6 +164,7 @@ async def create_recipe(
 ) -> dict:
     if await _by_name(db, body.name):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
+    await _check_known_storages(db, body)
     fields = body.model_dump(exclude={"source_deployment_id"})
     recipe = CustomServingRecipe(id=uuid.uuid4(), created_by=user.user_id, updated_by=user.user_id, **fields)
     db.add(recipe)
@@ -159,7 +179,8 @@ async def create_recipe(
         if dep is not None and dep.recipe_id is None:
             dep.recipe_id = recipe.id
             linked = True
-    return {**_serialize(recipe), "linked_deployment": linked}
+    warnings = recipe_warnings(recipe.model_path, recipe.storages, recipe.pd_config)
+    return {**_serialize(recipe), "linked_deployment": linked, "warnings": warnings}
 
 
 @router.get("/{recipe_id}")
@@ -187,12 +208,13 @@ async def update_recipe(
     clash = await _by_name(db, body.name)
     if clash and clash.id != recipe.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
+    await _check_known_storages(db, body)
     for k, v in body.model_dump().items():
         setattr(recipe, k, v)
     recipe.updated_by = user.user_id
     await db.flush()
     await db.refresh(recipe)  # updated_at is server-generated on update; load it before serialising
-    return _serialize(recipe)
+    return {**_serialize(recipe), "warnings": recipe_warnings(recipe.model_path, recipe.storages, recipe.pd_config)}
 
 
 @router.delete("/{recipe_id}")

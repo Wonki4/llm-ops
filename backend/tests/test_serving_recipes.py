@@ -19,7 +19,7 @@ def _recipe(**kw):
         id=uuid.uuid4(), name="r1", description=None, model_path="/w/llama", image="vllm:latest",
         gpu_count=1, gpu_resource_key="nvidia.com/gpu", cpu_request=None, cpu_limit=None,
         memory_request=None, memory_limit=None, node_selector=None, tolerations=None,
-        pvc_name=None, pvc_mount_path=None, vllm_extra_args=["--tensor-parallel-size", "2"],
+        storages=[], vllm_extra_args=["--tensor-parallel-size", "2"],
         env=None, engine="vllm", engine_args=None,
         created_by=None, updated_by=None, created_at=None, updated_at=None,
     )
