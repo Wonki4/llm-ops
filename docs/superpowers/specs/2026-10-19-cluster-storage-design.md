@@ -112,10 +112,16 @@ Cluster (`custom_k8s_cluster`): drop `default_nfs_server/path/mount_path`, add
 
 ## Resolution service
 
-`app/services/storages.py`:
+Split in two modules (the API lives in `app/api/storages.py`):
+
+- `app/services/storage_mounts.py` — pure: name/list validation, binding pick,
+  snapshot, stale check, volume rendering.
+- `app/services/storage_store.py` — DB/K8s: load, resolve + snapshot, stale
+  detection, usage index, bench volumes, importer claim matching, the bounded
+  (5 s) live PVC lookup.
 
 ```python
-resolve(db, storage_ids, cluster_id, namespace) -> dict[storage_id, Binding | None]
+resolve_entries(db, entries, cluster_id, namespace, *, previous) -> entries + volume_name + resolved
 to_volumes(entries) -> (volumes, volume_mounts)   # from resolved snapshots
 ```
 
@@ -139,7 +145,7 @@ to_volumes(entries) -> (volumes, volume_mounts)   # from resolved snapshots
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/` | list with `binding_count`, `recipe_count`, `deployment_count`; `?kind=&q=` |
+| GET | `/` | list with `binding_count`, `bound_on` (cluster + namespace per binding), `recipe_count`, `deployment_count`; `?kind=&q=` |
 | POST | `/` | create |
 | GET | `/{id}` | detail: bindings + usage (recipes, deployments, `stale` flag) |
 | PUT | `/{id}` | name/description/kind |
@@ -182,9 +188,10 @@ its snapshot (binding edited, deleted, or a more specific binding added).
    falls under, warning if none.
 4. **Deploy dialog**: after cluster + namespace, a per-storage resolution
    preview (binding target, PVC phase, ✗ for unresolved). Any ✗ disables
-   Deploy and links to the storage detail. Clusters with no binding for some
-   required storage are greyed in the picker but still selectable (namespace
-   may change the answer).
+   Deploy and links to the storage detail. The cluster picker itself is not
+   greyed: the per-storage ✓/✗ preview for the chosen cluster + namespace is the
+   signal (namespace may change the answer; greying would need one resolve per
+   cluster).
 5. **Deployment detail**: mounted volumes from the snapshot + stale badge
    ("binding changed — redeploy to apply").
 6. **Cluster settings**: the three NFS inputs become "Benchmark default
@@ -193,7 +200,11 @@ its snapshot (binding edited, deleted, or a more specific binding added).
 ## Other consumers
 
 - **Ephemeral benchmark servings** (`benchmark_serving.build_ephemeral_deployment`)
-  copy `storages` (with snapshots) instead of `pvc_*`.
+  copy `storages` (with snapshots) instead of `pvc_*` when the run targets the
+  template's cluster and namespace. For any other target they are re-resolved
+  there (PVC bindings are namespace-scoped, so a copied claim would not exist
+  and the pod would hang `Pending`); a storage with no binding there → 400
+  (preview: `storage_unresolved`).
 - **Raw `model_name` benchmarks** (`resolve_bench_nfs` → `resolve_bench_storage`):
   per-run `params` NFS override (API only) still wins; otherwise the cluster's
   `bench_storage_id` is resolved for the job's namespace and mounted read-only
@@ -216,16 +227,22 @@ its snapshot (binding edited, deleted, or a more specific binding added).
    Deployments without `cluster_id` produce a binding with `cluster_id = NULL`
    (portal default cluster).
 4. Per-role `pd_config.<role>.pvc_name/pvc_mount_path` become
-   `pd_config.<role>.storages` the same way (keys removed).
+   `pd_config.<role>.storages` the same way (keys removed). Each key falls back
+   to the row's base `pvc_*` exactly like the old `pool_row`, so a pool that set
+   only one key keeps mounting the same claim at the same path; a pool whose
+   pair is still incomplete gets `storages: []` (it mounted nothing).
 5. Fill recipe/deployment `storages` with
    `{storage_id, mount_path: pvc_mount_path, read_only: false}`; deployments
    also get `volume_name: "model-weights"` and the resolved snapshot.
 6. For each cluster with `default_nfs_*`: create storage
-   `<cluster>-bench-weights` + cluster-wide NFS binding; set
+   `<cluster slug[:36]>-bench-weights` (≤ 50 chars) + cluster-wide NFS binding; set
    `bench_storage_id` / `bench_mount_path`; then drop `default_nfs_*`.
 7. `pvc_name` / `pvc_mount_path` stay in the tables, unread, and are dropped
    in a follow-up release. Downgrade restores `default_nfs_*` from the
-   bench storage and drops the new tables/columns.
+   bench storage and the pool `pvc_*` keys, resets `storages` / `bench_*`,
+   deletes the storages the migration created (`created_by = 'migration'`,
+   bindings cascade) so a re-upgrade does not collide, and (051) drops the new
+   tables/columns.
 
 ## Testing
 

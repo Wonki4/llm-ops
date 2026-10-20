@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- Work in worktree `.claude/worktrees/cluster-storage`, branch `feat/cluster-storage`. Backend Python: `../../../backend/.venv/bin/python` from `backend/` (call it `$PY`); always run with `PYTHONPATH=.` so the worktree's `app` is imported, not the main checkout's.
+- Work in worktree `.claude/worktrees/cluster-storage`, branch `feat/cluster-storage`. Backend Python: `../../../../backend/.venv/bin/python` from the worktree's `backend/` (call it `$PY`; `export PY=../../../../backend/.venv/bin/python`); always run with `PYTHONPATH=.` so the worktree's `app` is imported, not the main checkout's. All backend `Run:` lines below are run from the worktree's `backend/`.
+- Lint: every backend task ends its run step with `$PY -m ruff check <changed files>` (config `backend/pyproject.toml`: `E,F,I,N,W,UP`, line length 120). It must report `All checks passed!`.
 - Storage name: `^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$` (≤ 50 chars). Volume name for new entries: `st-<name>`. Migrated entries keep `model-weights`.
 - PVC binding: `namespace` required. NFS binding: `namespace` optional (NULL = all namespaces of the cluster). `cluster_id` NULL = portal default cluster (mounted kubeconfig), exactly like `custom_model_deployment.cluster_id` and `custom_gpu_profile.cluster_id`.
 - Resolution: exact `(cluster, namespace)` → `(cluster, NULL)` → unresolved. Unresolved blocks deploy (400). PVC `Pending`/missing only warns.
@@ -22,7 +23,8 @@
 - Storage + binding management: super user only (`require_super_user`).
 - Air-gapped: no new runtime downloads, no new npm/pip dependencies.
 - Baseline: backend suite has ~21 failures that need Postgres; compare failure lists before/after (`pytest -q | grep ^FAILED | sort`), don't chase them. Frontend has no unit runner: `npx tsc --noEmit`, `npx eslint <changed files>`, `npm run build`, Playwright on `next dev -p 3100` with mocked `/api/proxy/**` and a dummy `litellm_session` cookie; remove the `nextjs-portal` overlay before clicking.
-- Commit after every task; message style `feat(storage): …` / `test(storage): …`, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- Commit after every task; message style `feat(storage): …` / `test(storage): …`, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Exception, accepted: the commits of Tasks 12–15 leave `npx tsc --noEmit` red (files not yet migrated off `pvc_*`/`default_nfs_*`); Task 16 makes it clean. Say so in the PR description — the frontend is not bisectable between those commits.
+- Shared helpers live in one place: `storage_mounts.all_entries` (base + P/D pool lists), `storage_mounts.stale_entries`, `storage_store.null_safe_eq` (`col = v` / `col IS NULL`), `storage_store.pvc_phases` / `list_pvcs_timed` (the 5 s-bounded PVC lookup), and `pd_serving.ROLES` for the pool roles. Do not re-implement them in later tasks.
 
 ## Review Focus
 
@@ -41,9 +43,10 @@ Backend (new)
 - `backend/migrations/versions/051_storages.py` — schema.
 - `backend/migrations/versions/052_storages_backfill.py` — data move + drop `default_nfs_*`.
 - `backend/app/services/storage_mounts.py` — pure: name/list validation, binding pick, snapshot, volume rendering, legacy helpers.
-- `backend/app/services/storage_store.py` — DB: load, resolve, stale detection, usage index, bench volumes, claim matching.
+- `backend/app/services/storage_store.py` — DB: load, resolve, stale detection, usage index, bench volumes, claim matching, timed PVC lookup.
+- `backend/app/services/storage_fields.py` — request-model helpers shared by the recipe and deployment APIs.
 - `backend/app/api/storages.py` — storage/binding CRUD, status, resolve, cluster PVC listing.
-- Tests: `backend/tests/_storage.py` (helpers), `test_storage_schema.py`, `test_storage_mounts.py`, `test_storage_store.py`, `test_k8s_pvcs.py`, `test_storages_api.py`, `test_storage_manifests.py`, `test_storage_recipes_deployments.py`, `test_storage_benchmarks.py`, `test_storage_import.py`.
+- Tests: `backend/tests/_storage.py` (helpers), `test_storage_schema.py`, `test_storage_mounts.py`, `test_storage_store.py`, `test_k8s_pvcs.py`, `test_storages_api.py`, `test_storage_manifests.py`, `test_storage_recipes_deployments.py`, `test_storage_benchmarks.py`, `test_storage_import.py`, `test_storage_backfill.py`.
 
 Backend (modified)
 - `backend/app/db/models/custom_serving_recipe.py`, `custom_model_deployment.py`, `custom_k8s_cluster.py`, `__init__.py`
@@ -58,6 +61,7 @@ Frontend (new)
 - `frontend/src/components/storage-mounts-editor.tsx` — rows of storage/mount/read-only.
 - `frontend/src/components/storage-binding-dialog.tsx` — add/edit binding with PVC dropdown.
 - `frontend/src/components/storage-resolution-preview.tsx` — deploy-dialog preview.
+- `frontend/src/components/storage-bound-on.tsx` — "bound on" chips (storage list, recipe storage rows).
 - `frontend/src/app/(app)/admin/storages/page.tsx`, `frontend/src/app/(app)/admin/storages/[id]/page.tsx`
 
 Frontend (modified)
@@ -124,7 +128,7 @@ def test_cluster_bench_storage():
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd backend && PYTHONPATH=. $PY -m pytest tests/test_storage_schema.py -q`
+Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_schema.py -q`
 Expected: FAIL — `ModuleNotFoundError: app.db.models.custom_storage`
 
 - [ ] **Step 3: Write the models**
@@ -332,8 +336,12 @@ Before writing, check `ls backend/migrations/versions | tail -2`: if the base br
 
 - [ ] **Step 5: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_schema.py tests/test_gpu_profiles.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_schema.py tests/test_gpu_profiles.py -q
+$PY -m ruff check app/db/models migrations/versions/051_storages.py tests/test_storage_schema.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 6: Commit**
 
@@ -361,10 +369,13 @@ git commit -m "feat(storage): storage + binding tables, storages columns (051)"
   - `pick_binding(bindings: list, storage_id: str, cluster_id: uuid.UUID | None, namespace: str) -> binding | None`
   - `snapshot(binding) -> dict` → `{"binding_id", "type", "claim_name", "namespace", "nfs_server", "nfs_path", "sub_path"}`
   - `to_volumes(entries: list[dict] | None, *, force_read_only: bool = False) -> tuple[list[dict], list[dict]]`
-  - `entry_storage_ids(row) -> set[str]` (base list + `pd_config.prefill/decode.storages`)
+  - `all_entries(row) -> list[dict]` — the base `storages` list followed by every `pd_config.<role>.storages` list (roles from `pd_serving.ROLES`); works on ORM rows, pydantic bodies and `SimpleNamespace`
+  - `entry_storage_ids(row) -> set[str]` (ids of `all_entries(row)`)
+  - `stale_entries(entries: list[dict], bindings: list, cluster_id, namespace: str) -> list[str]` — storage ids whose current `pick_binding` differs from the entry's `resolved` snapshot (binding deleted, edited, or shadowed by a more specific one), in first-seen order, unique
+  - `check_volume_names(entries: list[dict]) -> None` — raises `ValueError` when a rendered volume name repeats or is reserved (`shm`)
   - `legacy_pvc_volumes(claim: str | None, mount_path: str | None) -> tuple[list, list]` (read-only, `model-weights`)
   - `nfs_override_volumes(params: dict | None) -> tuple[list, list] | None`
-- Test helper `tests/_storage.py`: `binding(**kw) -> SimpleNamespace`, `legacy_entry(claim, mount, *, storage_id=None, namespace="default") -> dict`.
+- Test helper `tests/_storage.py`: `binding(**kw) -> SimpleNamespace`, `legacy_entry(claim, mount, *, storage_id=SID, namespace="default") -> dict`; constants `SID`, `SID2`, `CLUSTER`.
 
 - [ ] **Step 1: Write the test helper**
 
@@ -414,6 +425,8 @@ import types
 import pytest
 
 from app.services.storage_mounts import (
+    all_entries,
+    check_volume_names,
     default_volume_name,
     entry_storage_ids,
     legacy_pvc_volumes,
@@ -421,12 +434,12 @@ from app.services.storage_mounts import (
     nfs_override_volumes,
     pick_binding,
     snapshot,
+    stale_entries,
     to_volumes,
     validate_entries,
     validate_storage_name,
 )
 from tests._storage import CLUSTER, SID, SID2, binding, legacy_entry
-
 
 # ─── names ────────────────────────────────────────────────────────────────────
 
@@ -479,10 +492,12 @@ def test_validate_rejects(raw):
 
 
 def test_validate_rejects_nested_mounts():
+    nested = [{"storage_id": SID, "mount_path": "/models"}, {"storage_id": SID2, "mount_path": "/models/cache"}]
     with pytest.raises(ValueError, match="overlap"):
-        validate_entries([{"storage_id": SID, "mount_path": "/models"}, {"storage_id": SID2, "mount_path": "/models/cache"}])
+        validate_entries(nested)
     # siblings sharing a prefix string are fine
-    assert len(validate_entries([{"storage_id": SID, "mount_path": "/models"}, {"storage_id": SID2, "mount_path": "/models2"}])) == 2
+    siblings = [{"storage_id": SID, "mount_path": "/models"}, {"storage_id": SID2, "mount_path": "/models2"}]
+    assert len(validate_entries(siblings)) == 2
 
 
 def test_validate_empty():
@@ -567,13 +582,32 @@ def test_legacy_and_nfs_override_helpers():
     assert nfs_override_volumes(None) is None
 
 
-def test_entry_storage_ids_includes_pool_overrides():
-    row = types.SimpleNamespace(
-        storages=[{"storage_id": SID, "mount_path": "/m"}],
-        pd_config={"prefill": {"storages": [{"storage_id": SID2, "mount_path": "/m"}]}, "decode": {}},
-    )
+def test_all_entries_and_ids_include_pool_overrides():
+    base = {"storage_id": SID, "mount_path": "/m"}
+    pool = {"storage_id": SID2, "mount_path": "/m"}
+    row = types.SimpleNamespace(storages=[base], pd_config={"prefill": {"storages": [pool]}, "decode": {}})
+    assert all_entries(row) == [base, pool]
     assert entry_storage_ids(row) == {SID, SID2}
-    assert entry_storage_ids(types.SimpleNamespace(storages=None, pd_config=None)) == set()
+    empty = types.SimpleNamespace(storages=None, pd_config=None)
+    assert all_entries(empty) == [] and entry_storage_ids(empty) == set()
+
+
+def test_stale_entries():
+    wide = binding(cluster_id=CLUSTER, namespace=None, type="nfs", claim_name=None, nfs_server="s", nfs_path="/p")
+    entry = {"storage_id": SID, "mount_path": "/m", "read_only": True, "volume_name": "st-x",
+             "resolved": snapshot(wide)}
+    assert stale_entries([entry], [wide], CLUSTER, "prod") == []
+    exact = binding(cluster_id=CLUSTER, namespace="prod")
+    assert stale_entries([entry, entry], [wide, exact], CLUSTER, "prod") == [SID]  # shadowed, reported once
+    assert stale_entries([entry], [], CLUSTER, "prod") == [SID]  # binding deleted
+
+
+def test_check_volume_names():
+    check_volume_names([legacy_entry("a", "/a"), {**legacy_entry("b", "/b", storage_id=SID2), "volume_name": "st-b"}])
+    with pytest.raises(ValueError, match="reserved"):
+        check_volume_names([{**legacy_entry("a", "/a"), "volume_name": "shm"}])
+    with pytest.raises(ValueError, match="twice"):
+        check_volume_names([legacy_entry("a", "/a"), legacy_entry("b", "/b", storage_id=SID2)])
 ```
 
 - [ ] **Step 3: Run tests to verify they fail**
@@ -599,11 +633,15 @@ import posixpath
 import re
 import uuid
 
+# pd_serving must not import this module at load time (its pool validator imports
+# validate_entries lazily) — otherwise the two modules would import each other.
+from app.services.pd_serving import ROLES
+
 LEGACY_VOLUME_NAME = "model-weights"
 STORAGE_KINDS = ("weights", "cache", "data", "other")
+# Volume names the manifest builders add themselves (model_deployment_manifests: /dev/shm).
 _RESERVED_VOLUME_NAMES = frozenset({"shm"})
 _RESERVED_MOUNTS = ("/dev/shm",)
-_ROLES = ("prefill", "decode")
 _NAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$")
 
 
@@ -690,6 +728,29 @@ def snapshot(binding) -> dict:
     }
 
 
+def stale_entries(entries: list[dict], bindings: list, cluster_id: uuid.UUID | None, namespace: str) -> list[str]:
+    """Storage ids whose current binding differs from the entry's snapshot (deleted, edited or shadowed)."""
+    stale: list[str] = []
+    for e in entries:
+        sid = str(e["storage_id"])
+        b = pick_binding(bindings, sid, cluster_id, namespace)
+        if (b is None or snapshot(b) != e.get("resolved")) and sid not in stale:
+            stale.append(sid)
+    return stale
+
+
+def check_volume_names(entries: list[dict]) -> None:
+    """Rendered volume names must be unique and must not shadow a reserved one (``shm``)."""
+    seen: set[str] = set()
+    for e in entries:
+        name = e.get("volume_name") or LEGACY_VOLUME_NAME
+        if name in _RESERVED_VOLUME_NAMES:
+            raise ValueError(f"volume name {name!r} is reserved")
+        if name in seen:
+            raise ValueError(f"volume name {name!r} is used twice")
+        seen.add(name)
+
+
 def to_volumes(entries: list[dict] | None, *, force_read_only: bool = False) -> tuple[list[dict], list[dict]]:
     """(volumes, volumeMounts) for resolved entries. ``readOnly`` keys appear only when read-only,
     so a migrated read-write entry renders exactly like the old pvc_* columns."""
@@ -719,14 +780,18 @@ def to_volumes(entries: list[dict] | None, *, force_read_only: bool = False) -> 
     return volumes, mounts
 
 
+def all_entries(row) -> list[dict]:
+    """The base storages list, then each P/D pool's own list (row, request body or namespace)."""
+    entries = list(getattr(row, "storages", None) or [])
+    cfg = getattr(row, "pd_config", None) or {}
+    for role in ROLES:
+        entries += list((cfg.get(role) or {}).get("storages") or [])
+    return entries
+
+
 def entry_storage_ids(row) -> set[str]:
     """Every storage a recipe/deployment references, P/D pool overrides included."""
-    ids = {str(e.get("storage_id")) for e in (getattr(row, "storages", None) or [])}
-    cfg = getattr(row, "pd_config", None) or {}
-    for role in _ROLES:
-        for e in (cfg.get(role) or {}).get("storages") or []:
-            ids.add(str(e.get("storage_id")))
-    return ids
+    return {str(e.get("storage_id")) for e in all_entries(row)}
 
 
 def _weights(volume: dict, mount_path: str) -> tuple[list, list]:
@@ -753,8 +818,12 @@ def nfs_override_volumes(params: dict | None) -> tuple[list, list] | None:
 
 - [ ] **Step 5: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_mounts.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_mounts.py -q
+$PY -m ruff check app/services/storage_mounts.py tests/_storage.py tests/test_storage_mounts.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 6: Commit**
 
@@ -772,16 +841,18 @@ git commit -m "feat(storage): pure storage-list validation, binding pick and vol
 - Test: `backend/tests/test_storage_store.py`
 
 **Interfaces:**
-- Consumes: Task 1 models; Task 2 `validate_entries`, `pick_binding`, `snapshot`, `default_volume_name`, `to_volumes`, `entry_storage_ids`, `nfs_override_volumes`, `LEGACY_VOLUME_NAME`.
+- Consumes: Task 1 models; Task 2 `validate_entries`, `pick_binding`, `snapshot`, `default_volume_name`, `to_volumes`, `all_entries`, `entry_storage_ids`, `stale_entries`, `check_volume_names`, `nfs_override_volumes`, `LEGACY_VOLUME_NAME`; `pd_serving.ROLES`; `k8s_for_cluster` from `app.services.clusters`; `K8sClient.list_pvcs` (added in Task 4 — only the mocks in this task's tests call it).
 - Produces:
   - `class UnknownStorageError(ValueError)` (`.ids: list[str]`), `class UnresolvedStorageError(ValueError)` (`.names: list[str]`)
+  - `null_safe_eq(column, value)` — SQL `column = value`, or `column IS NULL` when `value` is None
+  - `PVC_LOOKUP_TIMEOUT = 5.0`; `async list_pvcs_timed(db, cluster_id, namespace) -> list[dict]` (raises, incl. `TimeoutError`); `async pvc_phases(db, cluster_id, namespace) -> dict[str, str] | None` (claim → phase, phase `None` → `"Pending"`; `None` when the lookup fails)
   - `async load_storages(db, ids: list[str]) -> dict[str, CustomStorage]`
   - `async bindings_for(db, storage_ids: list[str], cluster_id: uuid.UUID | None) -> list[CustomStorageBinding]`
-  - `async resolve_entries(db, entries: list | None, cluster_id, namespace: str, *, previous: list | None = None) -> list[dict]`
+  - `async resolve_entries(db, entries: list | None, cluster_id, namespace: str, *, previous: list | None = None) -> list[dict]` — every error it raises is a `ValueError` (`UnknownStorageError`, `UnresolvedStorageError`, invalid list, reserved/duplicate volume name); API callers map `ValueError` → 400
   - `async resolve_pool_storages(db, pd_config: dict | None, cluster_id, namespace, *, previous: dict | None = None) -> dict | None`
   - `async check_known(db, entries: list[dict]) -> None` (raises `UnknownStorageError`)
   - `async stale_storage_ids(db, dep) -> list[str]`
-  - `async usage_index(db) -> dict[str, dict]` → `{sid: {"recipes": [{"id","name"}], "deployments": [{"id","model_name","binding_ids": set[str]}], "clusters": [{"id","name"}]}}`
+  - `async usage_index(db) -> dict[str, dict]` → `{sid: {"recipes": [{"id","name"}], "deployments": [{"id","model_name","binding_ids": set[str], "cluster_id": uuid|None, "namespace": str, "entries": [entry…]}], "clusters": [{"id","name"}]}}` (`entries` = that deployment's entries for `sid`, base + pools)
   - `async bench_volumes(db, cluster_id, namespace: str, params: dict | None) -> tuple[list, list]`
   - `async match_claims(db, cluster_id, namespace: str, claims: list[str]) -> dict[str, str]` (claim → storage_id)
 
@@ -848,6 +919,15 @@ async def test_resolve_unknown_storage():
     p1, p2 = _patch([], [])
     with p1, p2, pytest.raises(UnknownStorageError):
         await resolve_entries(None, [{"storage_id": SID, "mount_path": "/a"}], CLUSTER, "prod")
+
+
+async def test_resolve_rejects_reserved_previous_volume_name():
+    p1, p2 = _patch([_storage()], [binding(cluster_id=None, namespace="default")])
+    with p1, p2, pytest.raises(ValueError, match="reserved"):
+        await resolve_entries(
+            None, [{"storage_id": SID, "mount_path": "/models"}], None, "default",
+            previous=[{**legacy_entry("models-pvc", "/models"), "volume_name": "shm"}],
+        )
 
 
 async def test_resolve_empty_list_skips_db():
@@ -935,6 +1015,23 @@ async def test_bench_volumes_none_for_default_cluster_or_unresolved():
     p1, p2 = _patch([_storage()], [])
     with p1, p2:
         assert await storage_store.bench_volumes(db, CLUSTER, "bench", {}) == ([], [])
+
+
+def test_null_safe_eq():
+    from app.db.models.custom_storage import CustomStorageBinding
+
+    assert "IS NULL" in str(storage_store.null_safe_eq(CustomStorageBinding.cluster_id, None))
+    assert "= :cluster_id" in str(storage_store.null_safe_eq(CustomStorageBinding.cluster_id, CLUSTER))
+
+
+async def test_pvc_phases_maps_and_tolerates_failures():
+    k8s = MagicMock(list_pvcs=AsyncMock(return_value=[{"name": "a", "phase": "Bound"}, {"name": "b", "phase": None}]))
+    with patch.object(storage_store, "k8s_for_cluster", AsyncMock(return_value=k8s)):
+        assert await storage_store.pvc_phases(None, CLUSTER, "prod") == {"a": "Bound", "b": "Pending"}
+    k8s.list_pvcs.assert_awaited_once_with("prod")
+    broken = MagicMock(list_pvcs=AsyncMock(side_effect=RuntimeError("forbidden")))
+    with patch.object(storage_store, "k8s_for_cluster", AsyncMock(return_value=broken)):
+        assert await storage_store.pvc_phases(None, CLUSTER, "prod") is None
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -947,10 +1044,12 @@ Expected: FAIL — `ModuleNotFoundError: app.services.storage_store`
 ```python
 # backend/app/services/storage_store.py
 """DB side of storages: resolve a list for a deploy target, detect stale
-deployments, find usages, the benchmark default mount and importer matching."""
+deployments, find usages, the benchmark default mount, importer matching and
+the bounded live PVC lookup."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 
@@ -961,20 +1060,25 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_storage import CustomStorage, CustomStorageBinding
+from app.services.clusters import k8s_for_cluster
+from app.services.pd_serving import ROLES
 from app.services.storage_mounts import (
     LEGACY_VOLUME_NAME,
+    all_entries,
+    check_volume_names,
     default_volume_name,
     entry_storage_ids,
     nfs_override_volumes,
     pick_binding,
     snapshot,
+    stale_entries,
     to_volumes,
     validate_entries,
 )
 
 logger = logging.getLogger(__name__)
 
-_ROLES = ("prefill", "decode")
+PVC_LOOKUP_TIMEOUT = 5.0
 
 
 class UnknownStorageError(ValueError):
@@ -991,21 +1095,24 @@ class UnresolvedStorageError(ValueError):
         )
 
 
+def null_safe_eq(column, value):
+    """``column = value``, or ``column IS NULL`` when ``value`` is None (NULL cluster = portal default)."""
+    return column.is_(None) if value is None else column == value
+
+
 async def load_storages(db: AsyncSession, ids: list[str]) -> dict[str, CustomStorage]:
     if not ids:
         return {}
-    rows = (await db.execute(select(CustomStorage).where(CustomStorage.id.in_([uuid.UUID(i) for i in ids])))).scalars()
-    return {str(r.id): r for r in rows.all()}
+    stmt = select(CustomStorage).where(CustomStorage.id.in_([uuid.UUID(i) for i in ids]))
+    return {str(r.id): r for r in (await db.execute(stmt)).scalars().all()}
 
 
 async def bindings_for(db: AsyncSession, storage_ids: list[str], cluster_id: uuid.UUID | None) -> list:
     if not storage_ids:
         return []
-    cluster_cond = (
-        CustomStorageBinding.cluster_id.is_(None) if cluster_id is None else CustomStorageBinding.cluster_id == cluster_id
-    )
     stmt = select(CustomStorageBinding).where(
-        CustomStorageBinding.storage_id.in_([uuid.UUID(i) for i in storage_ids]), cluster_cond
+        CustomStorageBinding.storage_id.in_([uuid.UUID(i) for i in storage_ids]),
+        null_safe_eq(CustomStorageBinding.cluster_id, cluster_id),
     )
     return list((await db.execute(stmt)).scalars().all())
 
@@ -1030,6 +1137,8 @@ async def resolve_entries(
 
     ``previous`` (the deployment's current list) keeps an existing volume name per
     storage — migrated entries stay ``model-weights`` so manifests don't change.
+    Raises ``UnknownStorageError`` / ``UnresolvedStorageError``, or a plain
+    ``ValueError`` for an invalid list or a reserved/duplicate volume name.
     """
     clean = validate_entries(entries)
     if not clean:
@@ -1052,6 +1161,7 @@ async def resolve_entries(
         out.append({**e, "volume_name": name, "resolved": snapshot(b)})
     if unresolved:
         raise UnresolvedStorageError(unresolved)
+    check_volume_names(out)
     return out
 
 
@@ -1067,7 +1177,7 @@ async def resolve_pool_storages(
     if pd_config is None:
         return None
     cfg = {k: (dict(v) if isinstance(v, dict) else v) for k, v in pd_config.items()}
-    for role in _ROLES:
+    for role in ROLES:
         pool = cfg.get(role)
         if not isinstance(pool, dict) or pool.get("storages") is None:
             continue
@@ -1076,31 +1186,22 @@ async def resolve_pool_storages(
     return cfg
 
 
-def _all_entries(dep) -> list[dict]:
-    entries = list(getattr(dep, "storages", None) or [])
-    cfg = getattr(dep, "pd_config", None) or {}
-    for role in _ROLES:
-        entries += list((cfg.get(role) or {}).get("storages") or [])
-    return entries
-
-
 async def stale_storage_ids(db: AsyncSession, dep) -> list[str]:
     """Storages whose current resolution differs from the deployment's snapshot."""
-    entries = _all_entries(dep)
+    entries = all_entries(dep)
     if not entries:
         return []
     ids = sorted({str(e["storage_id"]) for e in entries})
     bindings = await bindings_for(db, ids, dep.cluster_id)
-    stale: list[str] = []
-    for e in entries:
-        b = pick_binding(bindings, e["storage_id"], dep.cluster_id, dep.namespace)
-        if (b is None or snapshot(b) != e.get("resolved")) and e["storage_id"] not in stale:
-            stale.append(str(e["storage_id"]))
-    return stale
+    return stale_entries(entries, bindings, dep.cluster_id, dep.namespace)
 
 
 async def usage_index(db: AsyncSession) -> dict[str, dict]:
-    """Who references each storage (recipes, deployments incl. pools, cluster bench defaults)."""
+    """Who references each storage (recipes, deployments incl. pools, cluster bench defaults).
+
+    Deployment items carry ``binding_ids`` (bindings their snapshots point at) and
+    ``cluster_id`` / ``namespace`` / ``entries`` so callers can compute staleness.
+    """
     index: dict[str, dict] = {}
 
     def slot(sid: str) -> dict:
@@ -1110,11 +1211,20 @@ async def usage_index(db: AsyncSession) -> dict[str, dict]:
         for sid in entry_storage_ids(r):
             slot(sid)["recipes"].append({"id": str(r.id), "name": r.name})
     for d in (await db.execute(select(CustomModelDeployment))).scalars().all():
-        binding_ids: dict[str, set[str]] = {}
-        for e in _all_entries(d):
-            binding_ids.setdefault(str(e["storage_id"]), set()).add(str((e.get("resolved") or {}).get("binding_id")))
-        for sid, bids in binding_ids.items():
-            slot(sid)["deployments"].append({"id": str(d.id), "model_name": d.model_name, "binding_ids": bids})
+        per_storage: dict[str, list[dict]] = {}
+        for e in all_entries(d):
+            per_storage.setdefault(str(e["storage_id"]), []).append(e)
+        for sid, entries in per_storage.items():
+            slot(sid)["deployments"].append(
+                {
+                    "id": str(d.id),
+                    "model_name": d.model_name,
+                    "binding_ids": {str((e.get("resolved") or {}).get("binding_id")) for e in entries},
+                    "cluster_id": d.cluster_id,
+                    "namespace": d.namespace,
+                    "entries": entries,
+                }
+            )
     for c in (await db.execute(select(CustomK8sCluster))).scalars().all():
         if c.bench_storage_id:
             slot(str(c.bench_storage_id))["clusters"].append({"id": str(c.id), "name": c.name})
@@ -1144,7 +1254,7 @@ async def bench_volumes(
         resolved = await resolve_entries(
             db, [entry], cluster_id, namespace, previous=[{**entry, "volume_name": LEGACY_VOLUME_NAME}]
         )
-    except (UnresolvedStorageError, UnknownStorageError) as e:
+    except ValueError as e:  # unresolved / unknown storage: run without the mount
         logger.warning("bench storage for cluster %s not mounted: %s", cluster_id, e)
         return [], []
     return to_volumes(resolved, force_read_only=True)
@@ -1156,22 +1266,39 @@ async def match_claims(
     """claim name → storage id, for PVC bindings of this cluster/namespace (recipe import)."""
     if not claims:
         return {}
-    cluster_cond = (
-        CustomStorageBinding.cluster_id.is_(None) if cluster_id is None else CustomStorageBinding.cluster_id == cluster_id
-    )
     stmt = select(CustomStorageBinding).where(
         CustomStorageBinding.type == "pvc",
         CustomStorageBinding.namespace == namespace,
         CustomStorageBinding.claim_name.in_(claims),
-        cluster_cond,
+        null_safe_eq(CustomStorageBinding.cluster_id, cluster_id),
     )
     return {b.claim_name: str(b.storage_id) for b in (await db.execute(stmt)).scalars().all()}
+
+
+async def list_pvcs_timed(db: AsyncSession, cluster_id: uuid.UUID | None, namespace: str) -> list[dict]:
+    """``K8sClient.list_pvcs`` for the cluster, bounded by ``PVC_LOOKUP_TIMEOUT`` (raises on failure)."""
+    k8s = await k8s_for_cluster(db, cluster_id)
+    return await asyncio.wait_for(k8s.list_pvcs(namespace), timeout=PVC_LOOKUP_TIMEOUT)
+
+
+async def pvc_phases(db: AsyncSession, cluster_id: uuid.UUID | None, namespace: str) -> dict[str, str] | None:
+    """claim → phase for one namespace, or None when the cluster can't be read (best-effort)."""
+    try:
+        pvcs = await list_pvcs_timed(db, cluster_id, namespace)
+    except Exception as e:  # noqa: BLE001 - status/warnings only
+        logger.warning("PVC lookup failed for cluster %s/%s: %s", cluster_id, namespace, e)
+        return None
+    return {p["name"]: p.get("phase") or "Pending" for p in pvcs}
 ```
 
 - [ ] **Step 4: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_store.py tests/test_storage_mounts.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_store.py tests/test_storage_mounts.py -q
+$PY -m ruff check app/services/storage_store.py tests/test_storage_store.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 5: Commit**
 
@@ -1191,17 +1318,17 @@ git commit -m "feat(storage): resolve storages per cluster/namespace with snapsh
 - Test: `backend/tests/test_k8s_pvcs.py`, `backend/tests/test_storages_api.py`
 
 **Interfaces:**
-- Consumes: Task 3 `usage_index`, `load_storages`; Task 2 `validate_storage_name`, `snapshot`, `pick_binding`; `parse_cluster_id` from `app.services.gpu_profile_store`; `k8s_for_cluster` from `app.services.clusters`.
+- Consumes: Task 3 `usage_index`, `load_storages`, `bindings_for`, `null_safe_eq`, `pvc_phases`, `list_pvcs_timed`, `PVC_LOOKUP_TIMEOUT`; Task 2 `validate_storage_name`, `snapshot`, `pick_binding`, `stale_entries`; `parse_cluster_id` from `app.services.gpu_profile_store`. (The K8s client is reached only through `storage_store`, so tests patch `app.services.storage_store.k8s_for_cluster`.)
 - Produces:
   - `K8sClient.list_pvcs(namespace: str) -> list[{"name", "phase", "capacity", "storage_class", "access_modes"}]` (sorted by name)
   - HTTP (all `require_super_user`, prefix `/api/admin`):
-    - `GET /storages?kind=&q=` → `{"storages": [{id, name, description, kind, binding_count, recipe_count, deployment_count, updated_at}]}`
+    - `GET /storages?kind=&q=` → `{"storages": [{id, name, description, kind, created_by, updated_at, binding_count, bound_on: [{cluster_id, cluster_name, namespace}], recipe_count, deployment_count}]}` (`bound_on` sorted by cluster name, then namespace; `namespace` null = all namespaces)
     - `POST /storages` (201) / `GET /storages/{id}` / `PUT /storages/{id}` / `DELETE /storages/{id}` (409 when used)
     - `POST /storages/{id}/bindings` (201, 409 dup) / `PUT /storages/{id}/bindings/{bid}` / `DELETE /storages/{id}/bindings/{bid}?dry_run=true|false` → `{"deleted": bool, "affected_deployments": [{id, model_name}]}`
     - `GET /storages/{id}/bindings/status` → `{"status": {binding_id: "Bound"|"Pending"|"Lost"|"missing"|"error"|null}}`
     - `POST /storages/resolve` `{storage_ids, cluster_id, namespace}` → `{"results": [{storage_id, name, binding: snapshot|null, pvc_phase}]}`
     - `GET /k8s-clusters/{cluster_id}/pvcs?namespace=` → `{"pvcs": [...], "error": str|null}` (`cluster_id` may be `default`)
-  - Storage detail shape: `{id, name, description, kind, created_by, updated_at, bindings: [binding…], usage: {recipes, deployments: [{id, model_name}], clusters}}`; binding shape: `{id, storage_id, cluster_id, cluster_name, namespace, type, claim_name, nfs_server, nfs_path, sub_path, updated_at}`.
+  - Storage detail shape: `{id, name, description, kind, created_by, updated_at, bindings: [binding…], usage: {recipes, deployments: [{id, model_name, stale: bool}], clusters}}` (`stale` = the deployment's snapshot for this storage no longer matches the binding it would resolve to now); binding shape: `{id, storage_id, cluster_id, cluster_name, namespace, type, claim_name, nfs_server, nfs_path, sub_path, updated_at}`.
 
 - [ ] **Step 1: Write the failing K8s test**
 
@@ -1286,14 +1413,15 @@ Run again → PASS.
 
 import types
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy.exc import IntegrityError
 
+from app.services.storage_mounts import snapshot
 from tests._storage import CLUSTER, SID, binding
 
-NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 19, tzinfo=UTC)
 
 
 def _result(scalar=None, all_rows=None):
@@ -1314,9 +1442,20 @@ def _usage(**kw):
     return patch("app.api.storages.usage_index", AsyncMock(return_value=kw))
 
 
-async def test_list_storages_with_counts(client_for_user, super_user, mock_db):
+def _k8s_patch(k8s):
+    return patch("app.services.storage_store.k8s_for_cluster", AsyncMock(return_value=k8s))
+
+
+def _cluster_names():
+    names = MagicMock()
+    names.scalars.return_value.all.return_value = [types.SimpleNamespace(id=CLUSTER, name="gpu-a")]
+    return names
+
+
+async def test_list_storages_with_counts_and_bound_on(client_for_user, super_user, mock_db):
     rows = [_storage(), _storage(id=uuid.uuid4(), name="hf-cache", kind="cache")]
-    mock_db.execute = AsyncMock(side_effect=[_result(all_rows=rows), _result(all_rows=[binding(), binding()])])
+    bindings = [binding(cluster_id=CLUSTER, namespace="prod"), binding()]
+    mock_db.execute = AsyncMock(side_effect=[_result(all_rows=rows), _result(all_rows=bindings), _cluster_names()])
     usage = {SID: {"recipes": [{"id": "r", "name": "r"}], "deployments": [], "clusters": []}}
     with _usage(**usage):
         async with client_for_user(super_user) as client:
@@ -1325,6 +1464,33 @@ async def test_list_storages_with_counts(client_for_user, super_user, mock_db):
     items = resp.json()["storages"]
     assert [s["name"] for s in items] == ["llama-weights"]
     assert items[0]["binding_count"] == 2 and items[0]["recipe_count"] == 1 and items[0]["deployment_count"] == 0
+    assert items[0]["bound_on"] == [
+        {"cluster_id": None, "cluster_name": "default", "namespace": "default"},
+        {"cluster_id": str(CLUSTER), "cluster_name": "gpu-a", "namespace": "prod"},
+    ]
+
+
+async def test_get_storage_usage_flags_stale_deployments(client_for_user, super_user, mock_db):
+    b = binding(cluster_id=CLUSTER, namespace="prod")
+    current = {"storage_id": SID, "mount_path": "/m", "read_only": True, "volume_name": "st-x", "resolved": snapshot(b)}
+    edited = {**current, "resolved": {**snapshot(b), "claim_name": "old-pvc"}}
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=_storage()), _result(all_rows=[b]), _cluster_names()])
+
+    def dep(dep_id, name, entry):
+        return {"id": dep_id, "model_name": name, "binding_ids": {str(b.id)}, "cluster_id": CLUSTER,
+                "namespace": "prod", "entries": [entry]}
+
+    deployments = [dep("d1", "fresh", current), dep("d2", "old", edited)]
+    usage = {SID: {"recipes": [], "clusters": [], "deployments": deployments}}
+    with _usage(**usage):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/admin/storages/{SID}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["usage"]["deployments"] == [
+        {"id": "d1", "model_name": "fresh", "stale": False},
+        {"id": "d2", "model_name": "old", "stale": True},
+    ]
+    assert resp.json()["bindings"][0]["cluster_name"] == "gpu-a"
 
 
 async def test_create_storage_validates_name_and_409(client_for_user, super_user, mock_db):
@@ -1375,9 +1541,7 @@ async def test_binding_validation(client_for_user, super_user, mock_db):
 
 
 async def test_create_binding_201_and_duplicate_scope_409(client_for_user, super_user, mock_db):
-    names = MagicMock()
-    names.scalars.return_value.all.return_value = [types.SimpleNamespace(id=CLUSTER, name="gpu-a")]
-    mock_db.execute = AsyncMock(side_effect=[_result(scalar=_storage()), _result(scalar=None), names])
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=_storage()), _result(scalar=None), _cluster_names()])
     body = {"cluster_id": str(CLUSTER), "namespace": "prod", "type": "pvc", "claim_name": "models-pvc"}
     async with client_for_user(super_user) as client:
         resp = await client.post(f"/api/admin/storages/{SID}/bindings", json=body)
@@ -1398,9 +1562,11 @@ async def test_create_binding_201_and_duplicate_scope_409(client_for_user, super
 async def test_delete_binding_dry_run_lists_affected(client_for_user, super_user, mock_db):
     b = binding()
     mock_db.execute = AsyncMock(return_value=_result(scalar=b))
-    usage = {SID: {"recipes": [], "deployments": [{"id": "d1", "model_name": "llama", "binding_ids": {str(b.id)}},
-                                                   {"id": "d2", "model_name": "other", "binding_ids": {"x"}}],
-                   "clusters": []}}
+    deployments = [
+        {"id": "d1", "model_name": "llama", "binding_ids": {str(b.id)}},
+        {"id": "d2", "model_name": "other", "binding_ids": {"x"}},
+    ]
+    usage = {SID: {"recipes": [], "deployments": deployments, "clusters": []}}
     with _usage(**usage):
         async with client_for_user(super_user) as client:
             resp = await client.delete(f"/api/admin/storages/{SID}/bindings/{b.id}", params={"dry_run": "true"})
@@ -1420,7 +1586,7 @@ async def test_binding_status_groups_lookups_and_reports_missing(client_for_user
     mock_db.execute = AsyncMock(side_effect=[_result(scalar=_storage()), _result(all_rows=[b1, b2, b3])])
     k8s = MagicMock()
     k8s.list_pvcs = AsyncMock(return_value=[{"name": "models-pvc", "phase": "Bound"}])
-    with patch("app.api.storages.k8s_for_cluster", AsyncMock(return_value=k8s)):
+    with _k8s_patch(k8s):
         async with client_for_user(super_user) as client:
             resp = await client.get(f"/api/admin/storages/{SID}/bindings/status")
     assert resp.json()["status"] == {str(b1.id): "Bound", str(b2.id): "missing", str(b3.id): None}
@@ -1433,7 +1599,7 @@ async def test_resolve_endpoint(client_for_user, super_user, mock_db):
     with (
         patch("app.api.storages.load_storages", AsyncMock(return_value={SID: _storage()})),
         patch("app.api.storages.bindings_for", AsyncMock(return_value=[b])),
-        patch("app.api.storages.k8s_for_cluster", AsyncMock(return_value=k8s)),
+        _k8s_patch(k8s),
     ):
         async with client_for_user(super_user) as client:
             resp = await client.post(
@@ -1447,7 +1613,7 @@ async def test_resolve_endpoint(client_for_user, super_user, mock_db):
 
 async def test_cluster_pvcs_reports_errors_without_failing(client_for_user, super_user, mock_db):
     k8s = MagicMock(list_pvcs=AsyncMock(side_effect=RuntimeError("forbidden")))
-    with patch("app.api.storages.k8s_for_cluster", AsyncMock(return_value=k8s)):
+    with _k8s_patch(k8s):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/admin/k8s-clusters/default/pvcs", params={"namespace": "prod"})
     assert resp.status_code == 200
@@ -1475,8 +1641,6 @@ A storage is mounted by recipes/deployments by id; its binding for the deploy
 target decides the concrete PVC or NFS volume (see services/storage_store).
 """
 
-import asyncio
-import logging
 import re
 import uuid
 from typing import Literal
@@ -1492,16 +1656,20 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_storage import CustomStorage, CustomStorageBinding
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.clusters import k8s_for_cluster
 from app.services.gpu_profile_store import parse_cluster_id
-from app.services.storage_mounts import pick_binding, snapshot, validate_storage_name
-from app.services.storage_store import bindings_for, load_storages, usage_index
-
-logger = logging.getLogger(__name__)
+from app.services.storage_mounts import pick_binding, snapshot, stale_entries, validate_storage_name
+from app.services.storage_store import (
+    PVC_LOOKUP_TIMEOUT,
+    bindings_for,
+    list_pvcs_timed,
+    load_storages,
+    null_safe_eq,
+    pvc_phases,
+    usage_index,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["storages"])
 
-PVC_LOOKUP_TIMEOUT = 5.0
 _DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
 
 
@@ -1581,12 +1749,16 @@ def _serialize(s: CustomStorage) -> dict:
     }
 
 
+def _cluster_label(cluster_id: uuid.UUID | None, cluster_names: dict) -> str:
+    return cluster_names.get(cluster_id, "default") if cluster_id else "default"
+
+
 def _serialize_binding(b: CustomStorageBinding, cluster_names: dict) -> dict:
     return {
         "id": str(b.id),
         "storage_id": str(b.storage_id),
         "cluster_id": str(b.cluster_id) if b.cluster_id else None,
-        "cluster_name": cluster_names.get(b.cluster_id, "default") if b.cluster_id else "default",
+        "cluster_name": _cluster_label(b.cluster_id, cluster_names),
         "namespace": b.namespace,
         "type": b.type,
         "claim_name": b.claim_name,
@@ -1609,13 +1781,16 @@ async def _cluster_names(db: AsyncSession) -> dict:
     return {c.id: c.name for c in (await db.execute(select(CustomK8sCluster))).scalars().all()}
 
 
-def _public_usage(u: dict | None) -> dict:
+def _public_usage(u: dict | None, bindings: list | None = None) -> dict:
+    """Usage for responses. With ``bindings`` (all of this storage's) each deployment gets ``stale``."""
     u = u or {"recipes": [], "deployments": [], "clusters": []}
-    return {
-        "recipes": u["recipes"],
-        "deployments": [{"id": d["id"], "model_name": d["model_name"]} for d in u["deployments"]],
-        "clusters": u["clusters"],
-    }
+    deployments = []
+    for d in u["deployments"]:
+        item = {"id": d["id"], "model_name": d["model_name"]}
+        if bindings is not None:
+            item["stale"] = bool(stale_entries(d["entries"], bindings, d["cluster_id"], d["namespace"]))
+        deployments.append(item)
+    return {"recipes": u["recipes"], "deployments": deployments, "clusters": u["clusters"]}
 
 
 @router.get("/storages")
@@ -1627,10 +1802,17 @@ async def list_storages(
 ) -> dict:
     rows = list((await db.execute(select(CustomStorage).order_by(CustomStorage.name))).scalars().all())
     bindings = list((await db.execute(select(CustomStorageBinding))).scalars().all())
+    names = await _cluster_names(db)
     usage = await usage_index(db)
-    counts: dict[str, int] = {}
+    bound_on: dict[str, list[dict]] = {}
     for b in bindings:
-        counts[str(b.storage_id)] = counts.get(str(b.storage_id), 0) + 1
+        bound_on.setdefault(str(b.storage_id), []).append(
+            {
+                "cluster_id": str(b.cluster_id) if b.cluster_id else None,
+                "cluster_name": _cluster_label(b.cluster_id, names),
+                "namespace": b.namespace,
+            }
+        )
     needle = (q or "").strip().lower()
     out = []
     for s in rows:
@@ -1639,10 +1821,12 @@ async def list_storages(
         if needle and needle not in s.name and needle not in (s.description or "").lower():
             continue
         u = usage.get(str(s.id)) or {"recipes": [], "deployments": []}
+        mine = sorted(bound_on.get(str(s.id), []), key=lambda x: (x["cluster_name"], x["namespace"] or ""))
         out.append(
             {
                 **_serialize(s),
-                "binding_count": counts.get(str(s.id), 0),
+                "binding_count": len(mine),
+                "bound_on": mine,
                 "recipe_count": len(u["recipes"]),
                 "deployment_count": len(u["deployments"]),
             }
@@ -1685,13 +1869,14 @@ async def resolve_storages(
     storages = await load_storages(db, ids)
     bindings = await bindings_for(db, ids, cid)
     phases: dict[str, str] | None = None
+    looked_up = False
     results = []
     for sid in ids:
         b = pick_binding(bindings, sid, cid, body.namespace)
         phase = None
         if b is not None and b.type == "pvc":
-            if phases is None:
-                phases = await _pvc_phases(db, cid, body.namespace)
+            if not looked_up:
+                phases, looked_up = await pvc_phases(db, cid, body.namespace), True
             phase = phases.get(b.claim_name, "missing") if phases is not None else "error"
         results.append(
             {
@@ -1704,17 +1889,6 @@ async def resolve_storages(
     return {"results": results}
 
 
-async def _pvc_phases(db: AsyncSession, cid: uuid.UUID | None, namespace: str) -> dict[str, str] | None:
-    """claim → phase for one namespace, or None when the cluster can't be read."""
-    try:
-        k8s = await k8s_for_cluster(db, cid)
-        pvcs = await asyncio.wait_for(k8s.list_pvcs(namespace), timeout=PVC_LOOKUP_TIMEOUT)
-    except Exception as e:  # noqa: BLE001 - status is best-effort
-        logger.warning("PVC lookup failed for cluster %s/%s: %s", cid, namespace, e)
-        return None
-    return {p["name"]: p.get("phase") or "Pending" for p in pvcs}
-
-
 @router.get("/storages/{storage_id}")
 async def get_storage(
     storage_id: str,
@@ -1722,15 +1896,17 @@ async def get_storage(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     row = await _storage_or_404(db, storage_id)
-    bindings = (
-        await db.execute(select(CustomStorageBinding).where(CustomStorageBinding.storage_id == row.id))
-    ).scalars().all()
+    bindings = list(
+        (await db.execute(select(CustomStorageBinding).where(CustomStorageBinding.storage_id == row.id)))
+        .scalars()
+        .all()
+    )
     names = await _cluster_names(db)
     usage = (await usage_index(db)).get(str(row.id))
     return {
         **_serialize(row),
         "bindings": [_serialize_binding(b, names) for b in bindings],
-        "usage": _public_usage(usage),
+        "usage": _public_usage(usage, bindings),
     }
 
 
@@ -1773,10 +1949,8 @@ async def delete_storage(
 async def _binding_clash(db: AsyncSession, sid: uuid.UUID, body: BindingBody, cid, exclude: uuid.UUID | None):
     stmt = select(CustomStorageBinding).where(
         CustomStorageBinding.storage_id == sid,
-        CustomStorageBinding.cluster_id.is_(None) if cid is None else CustomStorageBinding.cluster_id == cid,
-        CustomStorageBinding.namespace.is_(None)
-        if body.namespace is None
-        else CustomStorageBinding.namespace == body.namespace,
+        null_safe_eq(CustomStorageBinding.cluster_id, cid),
+        null_safe_eq(CustomStorageBinding.namespace, body.namespace),
     )
     if exclude is not None:
         stmt = stmt.where(CustomStorageBinding.id != exclude)
@@ -1888,7 +2062,7 @@ async def binding_status(
             continue
         key = (b.cluster_id, b.namespace)
         if key not in groups:
-            groups[key] = await _pvc_phases(db, b.cluster_id, b.namespace)
+            groups[key] = await pvc_phases(db, b.cluster_id, b.namespace)
         phases = groups[key]
         out[str(b.id)] = "error" if phases is None else phases.get(b.claim_name, "missing")
     return {"status": out}
@@ -1904,8 +2078,7 @@ async def list_cluster_pvcs(
     """PVCs of one namespace for the binding dialog; failures come back in ``error``."""
     cid = _cid(cluster_id)
     try:
-        k8s = await k8s_for_cluster(db, cid)
-        pvcs = await asyncio.wait_for(k8s.list_pvcs(namespace), timeout=PVC_LOOKUP_TIMEOUT)
+        pvcs = await list_pvcs_timed(db, cid, namespace)
     except TimeoutError:
         return {"pvcs": [], "error": f"PVC lookup timed out after {PVC_LOOKUP_TIMEOUT:g}s"}
     except Exception as e:  # noqa: BLE001 - the dialog falls back to free text
@@ -1917,8 +2090,12 @@ Register it in `backend/app/main.py`: add `storages` to the `from app.api import
 
 - [ ] **Step 6: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storages_api.py tests/test_k8s_pvcs.py -q`
-Expected: PASS. If `test_list_storages_with_counts` fails because `usage_index` was awaited with the real DB, check the patch target is `app.api.storages.usage_index` (imported name).
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storages_api.py tests/test_k8s_pvcs.py tests/test_storage_store.py -q
+$PY -m ruff check app/clients/k8s.py app/api/storages.py app/main.py tests/test_k8s_pvcs.py tests/test_storages_api.py
+```
+Expected: PASS; `All checks passed!`. If `test_list_storages_with_counts_and_bound_on` fails because `usage_index` was awaited with the real DB, check the patch target is `app.api.storages.usage_index` (imported name). K8s lookups are patched at `app.services.storage_store.k8s_for_cluster` (the API reaches K8s only through `pvc_phases` / `list_pvcs_timed`).
 
 - [ ] **Step 7: Commit**
 
@@ -1933,12 +2110,12 @@ git commit -m "feat(storage): storage/binding API, live PVC status, resolve prev
 
 **Files:**
 - Modify: `backend/app/services/model_deployment_manifests.py:103-113` (`_volumes`)
-- Modify: `backend/app/services/pd_serving.py` (`RoleSpec` fields + `_blank_is_none` list, `POOL_FIELDS`)
+- Modify: `backend/app/services/pd_serving.py` (`RoleOverride` fields + `_blank_is_none` list, `POOL_FIELDS`)
 - Test: `backend/tests/test_storage_manifests.py`; update existing tests that pass `pvc_name=`/`pvc_mount_path=` into manifest builders (`grep -ln "pvc_name" backend/tests`)
 
 **Interfaces:**
 - Consumes: Task 2 `to_volumes`, `validate_entries`.
-- Produces: `RoleSpec.storages: list[dict] | None` (validated by `validate_entries`; `None` = inherit); `"storages"` in `POOL_FIELDS` (so `pool_row` falls back to the base list).
+- Produces: `RoleOverride.storages: list[dict] | None` (the pydantic pool model at `pd_serving.py:74`, validated by `validate_entries`; `None` = inherit); `"storages"` in `POOL_FIELDS` (so `pool_row` falls back to the base list). `RoleSpec` (the frozen dataclass at `pd_serving.py:218`) is not touched.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -2007,25 +2184,26 @@ def test_pool_override_replaces_base_list():
     assert dec["volumes"][0]["persistentVolumeClaim"]["claimName"] == "models-pvc"
 
 
-def test_role_spec_validates_storages():
-    assert pd_serving.RoleSpec(storages=None).storages is None
-    assert pd_serving.RoleSpec(storages=[{"storage_id": SID, "mount_path": "/m/"}]).storages == [
+def test_role_override_validates_storages():
+    assert pd_serving.RoleOverride(storages=None).storages is None
+    assert pd_serving.RoleOverride(storages=[{"storage_id": SID, "mount_path": "/m/"}]).storages == [
         {"storage_id": SID, "mount_path": "/m", "read_only": True}
     ]
     with pytest.raises(ValueError):
-        pd_serving.RoleSpec(storages=[{"storage_id": SID, "mount_path": "rel"}])
+        pd_serving.RoleOverride(storages=[{"storage_id": SID, "mount_path": "rel"}])
     assert "storages" in pd_serving.POOL_FIELDS
     assert "pvc_name" not in pd_serving.POOL_FIELDS
+    assert "pvc_name" not in pd_serving.RoleOverride.model_fields
 ```
 
-Note: `RoleSpec` is the pydantic model whose fields are listed at `pd_serving.py:75-95` — confirm its class name with `grep -n "^class" backend/app/services/pd_serving.py` and adjust the test if it differs. Check the pool Deployment labels key in `test_pd_serving.py` if `LABEL_PD_ROLE` is not on `metadata.labels`.
+Note: check the pool Deployment labels key in `test_pd_serving.py` if `LABEL_PD_ROLE` is not on `metadata.labels`. (`pytest.raises(ValueError)` catches pydantic's `ValidationError`, a `ValueError` subclass.)
 
-Note: role entries in `pd_config` are validated by `RoleSpec` *without* their `resolved` key, so the resolution in Task 7 writes resolved role lists **after** `validate_pd_config`. The manifest test builds the row directly and bypasses validation.
+Note: role entries in `pd_config` are validated by `RoleOverride` *without* their `resolved` key, so the resolution in Task 7 writes resolved role lists **after** `validate_pd_config`. The manifest test builds the row directly and bypasses validation.
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_manifests.py -q`
-Expected: FAIL (volumes empty for the migrated row; `RoleSpec` has no `storages`)
+Expected: FAIL (volumes empty for the migrated row; `RoleOverride` has no `storages`)
 
 - [ ] **Step 3: Implement**
 
@@ -2045,18 +2223,21 @@ def _volumes(dep: CustomModelDeployment) -> tuple[list, list]:
 and add `from app.services.storage_mounts import to_volumes` to the imports.
 
 `pd_serving.py`:
-- In `RoleSpec` replace `pvc_name: str | None = None` / `pvc_mount_path: str | None = None` with `storages: list[dict] | None = None`.
-- Remove `"pvc_name", "pvc_mount_path"` from the `_blank_is_none` field list and add:
+- In `class RoleOverride(BaseModel)` (line ~74) replace `pvc_name: str | None = None` / `pvc_mount_path: str | None = None` with `storages: list[dict] | None = None`.
+- Remove `"pvc_name", "pvc_mount_path"` from its `_blank_is_none` field list and add to the same class:
 
 ```python
     @field_validator("storages")
     @classmethod
     def _storages(cls, v):
+        # Imported here: storage_mounts imports ROLES from this module at load time.
+        from app.services.storage_mounts import validate_entries
+
         return None if v is None else validate_entries(v)
 ```
 
 - In `POOL_FIELDS` replace `"pvc_name", "pvc_mount_path"` with `"storages"`.
-- Import: `from app.services.storage_mounts import validate_entries`.
+- Do **not** add a module-level `storage_mounts` import to `pd_serving.py` (circular import: `storage_mounts` → `pd_serving.ROLES`).
 
 `pool_row` needs no change: it copies `ov["storages"]` when not `None`, else `dep.storages`.
 
@@ -2066,8 +2247,12 @@ Run `grep -n "pvc_name\|pvc_mount_path" backend/tests/*.py`. For each test that 
 
 - [ ] **Step 5: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_manifests.py tests/test_pd_serving.py tests/test_serving_engines.py tests/test_serving_probes.py tests/test_reconcile_pd.py tests/test_llmd_links.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_manifests.py tests/test_pd_serving.py tests/test_serving_engines.py tests/test_serving_probes.py tests/test_reconcile_pd.py tests/test_llmd_links.py tests/test_storage_mounts.py -q
+$PY -m ruff check app/services/model_deployment_manifests.py app/services/pd_serving.py tests/test_storage_manifests.py $(git diff --name-only -- tests | sed 's|^backend/||')
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 6: Commit**
 
@@ -2086,7 +2271,7 @@ git commit -m "feat(storage): manifests mount resolved storages; P/D pools may o
 - Test: `backend/tests/test_storage_recipes_deployments.py` (recipe part); update `backend/tests/test_serving_recipes.py`
 
 **Interfaces:**
-- Consumes: Task 2 `validate_entries`, `model_path_warnings`; Task 3 `check_known`, `UnknownStorageError`.
+- Consumes: Task 2 `validate_entries`, `model_path_warnings`, `all_entries`; Task 3 `check_known`, `UnknownStorageError`; `pd_serving.ROLES`.
 - Produces:
   - `storage_fields.reject_legacy_pvc(data: Any) -> Any` (pydantic `mode="before"` helper, raises `ValueError` with the Global Constraints hint)
   - `storage_fields.recipe_warnings(model_path: str | None, storages: list[dict], pd_config: dict | None) -> list[str]`
@@ -2098,14 +2283,13 @@ git commit -m "feat(storage): manifests mount resolved storages; P/D pools may o
 # backend/tests/test_storage_recipes_deployments.py
 """Recipe and deployment APIs: storages in, legacy pvc fields out, resolution at deploy."""
 
-import types
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests._storage import SID
 
-NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 19, tzinfo=UTC)
 RECIPE = {"name": "llama", "model_path": "/models/llama", "image": "vllm/vllm-openai:v0.9"}
 
 
@@ -2173,17 +2357,17 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.pd_serving import ROLES
 from app.services.storage_mounts import model_path_warnings
 
 LEGACY_PVC_HINT = "pvc_name/pvc_mount_path were replaced by storages: [{storage_id, mount_path, read_only}]"
-_ROLES = ("prefill", "decode")
 
 
 def reject_legacy_pvc(data: Any) -> Any:
     """``mode="before"`` validator body: refuse the removed fields (also inside P/D pools)."""
     if not isinstance(data, dict):
         return data
-    pools = [data] + [p for r in _ROLES if isinstance(p := (data.get("pd_config") or {}).get(r), dict)]
+    pools = [data] + [p for r in ROLES if isinstance(p := (data.get("pd_config") or {}).get(r), dict)]
     for block in pools:
         if block.get("pvc_name") is not None or block.get("pvc_mount_path") is not None:
             raise ValueError(LEGACY_PVC_HINT)
@@ -2195,7 +2379,7 @@ def reject_legacy_pvc(data: Any) -> Any:
 def recipe_warnings(model_path: str | None, storages: list[dict], pd_config: dict | None) -> list[str]:
     """``model_path_outside_storages`` for the base row or any pool, once."""
     out = set(model_path_warnings(model_path, storages))
-    for role in _ROLES:
+    for role in ROLES:
         pool = (pd_config or {}).get(role) or {}
         out |= set(model_path_warnings(pool.get("model_path") or model_path, pool.get("storages") or storages))
     return sorted(out)
@@ -2207,9 +2391,11 @@ def recipe_warnings(model_path: str | None, storages: list[dict], pd_config: dic
 
 ```python
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
-from app.services.storage_mounts import validate_entries
+from app.services.storage_mounts import all_entries, validate_entries
 from app.services.storage_store import UnknownStorageError, check_known
 ```
+
+(merge them into the module's sorted `app.services` import block so `ruff check` (isort) stays clean.)
 
 - In `RecipeBody`: delete `pvc_name` / `pvc_mount_path`, add `storages: list[dict] = Field(default_factory=list)` and
 
@@ -2226,15 +2412,13 @@ from app.services.storage_store import UnknownStorageError, check_known
 ```
 
 - `_serialize`: replace the two `pvc_*` lines with `"storages": list(r.storages or []),`.
-- Add a helper and call it in `create_recipe` (before `db.add`) and `update_recipe` (before the setattr loop):
+- Add a helper and call it as `await _check_known_storages(db, body)` in `create_recipe` (before `db.add`) and `update_recipe` (before the setattr loop):
 
 ```python
-async def _check_storages(db: AsyncSession, body: RecipeBody) -> None:
-    entries = list(body.storages)
-    for role in ("prefill", "decode"):
-        entries += list(((body.pd_config or {}).get(role) or {}).get("storages") or [])
+async def _check_known_storages(db: AsyncSession, body: RecipeBody) -> None:
+    """Every storage the recipe lists (base + P/D pools) must exist."""
     try:
-        await check_known(db, entries)
+        await check_known(db, all_entries(body))
     except UnknownStorageError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 ```
@@ -2247,8 +2431,12 @@ Replace any `pvc_name`/`pvc_mount_path` in request bodies and expected responses
 
 - [ ] **Step 6: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_recipes_deployments.py tests/test_serving_recipes.py tests/test_pd_api.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_recipes_deployments.py tests/test_serving_recipes.py tests/test_pd_api.py -q
+$PY -m ruff check app/services/storage_fields.py app/api/serving_recipes.py tests/test_storage_recipes_deployments.py tests/test_serving_recipes.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 7: Commit**
 
@@ -2266,7 +2454,7 @@ git commit -m "feat(storage): recipes reference storages; legacy pvc fields reje
 - Test: extend `backend/tests/test_storage_recipes_deployments.py`; update `backend/tests/test_model_deployments_engine.py`, `backend/tests/test_pd_api.py`
 
 **Interfaces:**
-- Consumes: Task 3 `resolve_entries`, `resolve_pool_storages`, `stale_storage_ids`, `UnresolvedStorageError`, `UnknownStorageError`; Task 6 `reject_legacy_pvc`, `recipe_warnings`; Task 4 `K8sClient.list_pvcs`.
+- Consumes: Task 3 `resolve_entries`, `resolve_pool_storages`, `stale_storage_ids`, `pvc_phases` (5 s-bounded, `None` on failure); Task 2 `validate_entries`, `all_entries`; Task 6 `reject_legacy_pvc`, `recipe_warnings`. Every resolution error is a `ValueError` (`UnresolvedStorageError`, `UnknownStorageError`, reserved/duplicate volume name) → 400.
 - Produces:
   - `CreateDeploymentRequest.storages: list[dict]` (default `[]`), `UpdateDeploymentRequest.storages: list[dict] | None`
   - Deployment JSON: `"storages"` (with `volume_name` + `resolved`); `GET /{id}` adds `"storage_stale": [storage_id…]`; create/update add `"warnings": [...]` with codes `model_path_outside_storages`, `pvc_pending:<claim>`, `pvc_missing:<claim>`.
@@ -2280,26 +2468,31 @@ DEPLOY = {
 }
 
 
-def _k8s(pvcs=None):
+def _k8s():
     k8s = MagicMock()
     k8s.create_or_patch = AsyncMock()
-    k8s.list_pvcs = AsyncMock(return_value=pvcs or [])
     return k8s
 
 
-def _resolved(entries, *a, **kw):
-    return [{**e, "volume_name": "st-llama-weights",
-             "resolved": {"binding_id": "b", "type": "pvc", "claim_name": "models-pvc", "namespace": "prod",
-                          "nfs_server": None, "nfs_path": None, "sub_path": None}} for e in entries]
+def _resolved(db, entries, *a, **kw):
+    """Stand-in for storage_store.resolve_entries(db, entries, cluster_id, namespace, *, previous)."""
+    snap = {"binding_id": "b", "type": "pvc", "claim_name": "models-pvc", "namespace": "prod",
+            "nfs_server": None, "nfs_path": None, "sub_path": None}
+    return [{**e, "volume_name": "st-llama-weights", "resolved": snap} for e in entries]
+
+
+def _phases(phases):
+    return patch("app.api.model_deployments.pvc_phases", AsyncMock(return_value=phases))
 
 
 async def test_deploy_snapshots_resolution_and_warns_pending_pvc(client_for_user, super_user, mock_db):
     mock_db.execute = AsyncMock(return_value=_result(None))
     mock_db.refresh = AsyncMock(side_effect=_refresh)
-    k8s = _k8s([{"name": "models-pvc", "phase": "Pending"}])
+    k8s = _k8s()
     with (
         patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
         patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)) as res,
+        _phases({"models-pvc": "Pending"}) as phases,
     ):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/model-deployments", json=DEPLOY)
@@ -2308,6 +2501,7 @@ async def test_deploy_snapshots_resolution_and_warns_pending_pvc(client_for_user
     assert data["storages"][0]["resolved"]["claim_name"] == "models-pvc"
     assert data["warnings"] == ["pvc_pending:models-pvc"]
     assert res.await_args.args[2:] == (None, "prod")
+    assert phases.await_args.args[1:] == (None, "prod")
     pod = next(m for m in k8s.create_or_patch.await_args.args[1] if m["kind"] == "Deployment")
     assert pod["spec"]["template"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "models-pvc"
 
@@ -2317,9 +2511,10 @@ async def test_deploy_unresolved_storage_400_and_nothing_applied(client_for_user
 
     mock_db.execute = AsyncMock(return_value=_result(None))
     k8s = _k8s()
+    unresolved = AsyncMock(side_effect=UnresolvedStorageError(["llama-weights"]))
     with (
         patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
-        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=UnresolvedStorageError(["llama-weights"]))),
+        patch("app.api.model_deployments.resolve_entries", unresolved),
     ):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/model-deployments", json=DEPLOY)
@@ -2356,6 +2551,7 @@ async def test_update_re_resolves_and_keeps_volume_name(client_for_user, super_u
     with (
         patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s())),
         patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)) as res,
+        _phases({"models-pvc": "Bound"}),
     ):
         async with client_for_user(super_user) as client:
             resp = await client.put(f"/api/model-deployments/{row.id}", json={"replicas": 2})
@@ -2363,6 +2559,7 @@ async def test_update_re_resolves_and_keeps_volume_name(client_for_user, super_u
     entries, cluster, ns = res.await_args.args[1:4]
     assert entries[0]["storage_id"] == SID and (cluster, ns) == (None, "prod")
     assert res.await_args.kwargs["previous"][0]["volume_name"] == "model-weights"
+    assert resp.json()["warnings"] == []
 
 
 async def test_get_deployment_reports_stale(client_for_user, super_user, mock_db):
@@ -2375,7 +2572,7 @@ async def test_get_deployment_reports_stale(client_for_user, super_user, mock_db
     assert resp.json()["storage_stale"] == [SID]
 ```
 
-`_resolved` writes `volume_name: "st-llama-weights"` regardless of `previous`; the update test asserts what was **passed** (`previous`), which is the contract. `get_deployment` may run more queries than one (recipe names, events, router); if the test fails on a second `execute`, make `mock_db.execute` return `_result(row)` for every call (it already does via `return_value`) and patch any other helper `get_deployment` awaits.
+`_resolved` has `resolve_entries`' positional shape `(db, entries, cluster_id, namespace)` and writes `volume_name: "st-llama-weights"` regardless of `previous`; the update test asserts what was **passed** (`previous`), which is the contract. `get_deployment` may run more queries than one (recipe names, events, router); if the test fails on a second `execute`, make `mock_db.execute` return `_result(row)` for every call (it already does via `return_value`) and patch any other helper `get_deployment` awaits.
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -2388,15 +2585,11 @@ Imports:
 
 ```python
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
-from app.services.storage_mounts import validate_entries
-from app.services.storage_store import (
-    UnknownStorageError,
-    UnresolvedStorageError,
-    resolve_entries,
-    resolve_pool_storages,
-    stale_storage_ids,
-)
+from app.services.storage_mounts import all_entries, validate_entries
+from app.services.storage_store import pvc_phases, resolve_entries, resolve_pool_storages, stale_storage_ids
 ```
+
+(merged into the module's sorted `app.services` imports.)
 
 `CreateDeploymentRequest`: remove `pvc_name`/`pvc_mount_path`; add `storages: list[dict] = Field(default_factory=list)`; add
 
@@ -2429,22 +2622,19 @@ async def _resolve_storages(
             dep.pd_config = await resolve_pool_storages(
                 db, dep.pd_config, dep.cluster_id, dep.namespace, previous=previous_pd
             )
-    except (UnresolvedStorageError, UnknownStorageError) as e:
+    except ValueError as e:  # unresolved / unknown storage, reserved or duplicate volume name
         raise HTTPException(status_code=400, detail=str(e))
 
 
-async def _deploy_warnings(k8s, dep: CustomModelDeployment) -> list[str]:
-    """model_path outside every storage; PVCs that are not Bound (best-effort lookup)."""
+async def _deploy_warnings(db: AsyncSession, dep: CustomModelDeployment) -> list[str]:
+    """model_path outside every storage; PVCs that are not Bound (bounded, best-effort lookup)."""
     out = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
-    entries = list(dep.storages or [])
-    for role in ("prefill", "decode"):
-        entries += list(((dep.pd_config or {}).get(role) or {}).get("storages") or [])
-    claims = sorted({e["resolved"]["claim_name"] for e in entries if (e.get("resolved") or {}).get("type") == "pvc"})
+    resolved = [e.get("resolved") or {} for e in all_entries(dep)]
+    claims = sorted({r["claim_name"] for r in resolved if r.get("type") == "pvc"})
     if not claims:
         return out
-    try:
-        phases = {p["name"]: p.get("phase") for p in await k8s.list_pvcs(dep.namespace)}
-    except Exception:  # noqa: BLE001 - warnings only
+    phases = await pvc_phases(db, dep.cluster_id, dep.namespace)
+    if phases is None:  # cluster unreadable: no PVC warnings
         return out
     for claim in claims:
         if claim not in phases:
@@ -2460,7 +2650,7 @@ async def _deploy_warnings(k8s, dep: CustomModelDeployment) -> list[str]:
     await _resolve_storages(db, dep, body.storages, previous=None, previous_pd=None)
 ```
 
-and change the final `return _serialize(dep)` to `return {**_serialize(dep), "warnings": await _deploy_warnings(k8s, dep)}`.
+and change the final `return _serialize(dep)` to `return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}`.
 
 `update_deployment`: before the `for field, value in updates.items()` loop capture
 
@@ -2476,7 +2666,7 @@ After the existing `pd_config` validation block (`validate_pd_config` strips res
     await _resolve_storages(db, dep, entries, previous=previous, previous_pd=previous_pd)
 ```
 
-and return `{**_serialize(dep), "warnings": await _deploy_warnings(k8s, dep)}`.
+and return `{**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}`.
 
 `get_deployment`: add `"storage_stale": await stale_storage_ids(db, dep)` to the returned dict (open the function and add it next to the other extras it already returns).
 
@@ -2486,8 +2676,12 @@ In `test_model_deployments_engine.py` and `test_pd_api.py`, replace request `pvc
 
 - [ ] **Step 5: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_recipes_deployments.py tests/test_model_deployments_engine.py tests/test_pd_api.py tests/test_gpu_profiles_api.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_recipes_deployments.py tests/test_model_deployments_engine.py tests/test_pd_api.py tests/test_gpu_profiles_api.py -q
+$PY -m ruff check app/api/model_deployments.py tests/test_storage_recipes_deployments.py tests/test_model_deployments_engine.py tests/test_pd_api.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 6: Commit**
 
@@ -2506,23 +2700,75 @@ git commit -m "feat(storage): deployments resolve storages per cluster/namespace
 
 **Interfaces:**
 - Consumes: Task 1 `bench_storage_id`/`bench_mount_path`; Task 3 `load_storages`.
-- Produces: cluster bodies/JSON carry `bench_storage_id: str | null`, `bench_mount_path: str | null` instead of `default_nfs_*`. Both set or both empty (400); unknown storage (400); mount path absolute (400). Update semantics as before: field omitted / `null` = unchanged, `""` = clear.
+- Produces: cluster bodies/JSON carry `bench_storage_id: str | null`, `bench_mount_path: str | null` instead of `default_nfs_*`. Both set or both empty (400); malformed or unknown storage id (400, never 500); mount path absolute (400); legacy `default_nfs_*` in a body → 422. Update semantics as before: field omitted / `null` = unchanged, `""` = clear.
 
-- [ ] **Step 1: Write the failing tests** (append to `test_k8s_clusters.py`; reuse its existing fixtures for a valid create body — copy the minimal body the file's `test_create_*` tests post, call it `BASE`)
+- [ ] **Step 1: Write the failing tests** (append to `test_k8s_clusters.py`)
+
+Add to the file's imports (keep them sorted; `patch` joins the existing `unittest.mock` import, `SID` comes after the `app.*` imports):
 
 ```python
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from tests._storage import SID
+```
+
+Then append:
+
+```python
+# ─── bench storage (replaces default_nfs_*) ───────────────────────────────────
+
+BASE = {"name": "c1", "context": "prod", "kubeconfig": SAMPLE_KUBECONFIG}
+
+
+def _result(scalar=None):
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = scalar
+    return r
+
+
 async def test_cluster_bench_storage_both_or_neither(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))  # no name clash
     async with client_for_user(super_user) as client:
         resp = await client.post("/api/admin/k8s-clusters", json={**BASE, "bench_storage_id": SID})
     assert resp.status_code == 400 and "together" in resp.text
 
 
 async def test_cluster_bench_storage_must_exist(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    body = {**BASE, "bench_storage_id": SID, "bench_mount_path": "/models"}
     with patch("app.api.k8s_clusters.load_storages", AsyncMock(return_value={})):
         async with client_for_user(super_user) as client:
-            resp = await client.post(
-                "/api/admin/k8s-clusters", json={**BASE, "bench_storage_id": SID, "bench_mount_path": "/models"}
-            )
+            resp = await client.post("/api/admin/k8s-clusters", json=body)
+    assert resp.status_code == 400 and "unknown storage" in resp.text
+
+
+async def test_cluster_bench_storage_malformed_id_400(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/k8s-clusters", json={**BASE, "bench_storage_id": "nope", "bench_mount_path": "/models"}
+        )
+    assert resp.status_code == 400 and "unknown storage" in resp.text
+
+
+async def test_cluster_create_with_bench_storage(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    body = {**BASE, "bench_storage_id": SID, "bench_mount_path": "/models"}
+    with patch("app.api.k8s_clusters.load_storages", AsyncMock(return_value={SID: object()})):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/admin/k8s-clusters", json=body)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["bench_storage_id"] == SID and data["bench_mount_path"] == "/models"
+    assert "default_nfs_server" not in data
+
+
+async def test_cluster_update_malformed_bench_storage_id_400(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(MagicMock(bench_storage_id=None, bench_mount_path=None)))
+    async with client_for_user(super_user) as client:
+        resp = await client.put(
+            f"/api/admin/k8s-clusters/{uuid.uuid4()}", json={"bench_storage_id": "nope", "bench_mount_path": "/m"}
+        )
     assert resp.status_code == 400 and "unknown storage" in resp.text
 
 
@@ -2532,15 +2778,15 @@ async def test_cluster_rejects_legacy_nfs_fields(client_for_user, super_user, mo
     assert resp.status_code == 422
 ```
 
-(`from tests._storage import SID` and `from unittest.mock import AsyncMock, patch` at the top.) Replace the file's existing NFS tests (`grep -n nfs backend/tests/test_k8s_clusters.py`) with an equivalent happy-path test that posts `bench_storage_id` + `bench_mount_path` (patch `load_storages` to return `{SID: object()}`) and asserts both come back in the response.
+Also update the three serializer tests that build `SimpleNamespace` cluster rows (`test_cluster_serialize_includes_argocd_namespace`, `test_serialize_includes_argocd_placement_fields`, `test_serialize_argocd_placement_nulls`): replace `default_nfs_server=None, default_nfs_path=None, default_nfs_mount_path=None` with `bench_storage_id=None, bench_mount_path=None` (the serializer now reads `c.bench_storage_id`). Leave `test_nfs_fields_incomplete` (the helper stays for `benchmarks.py`) and the `resolve_bench_nfs` / `build_vllm_bench_job` tests (Task 9 rewrites them).
 
 - [ ] **Step 2: Run to verify they fail**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_k8s_clusters.py -q` → new tests FAIL.
+Run: `PYTHONPATH=. $PY -m pytest tests/test_k8s_clusters.py -q` → the new tests FAIL (unknown fields ignored → 201 / no 400).
 
 - [ ] **Step 3: Implement**
 
-- Both request models: remove `default_nfs_*`, add `bench_storage_id: str | None = None`, `bench_mount_path: str | None = None`, and `model_config = ConfigDict(extra="forbid")` is **not** used elsewhere — instead add to both:
+- Both request models: remove `default_nfs_*`, add `bench_storage_id: str | None = None`, `bench_mount_path: str | None = None`, and (no `extra="forbid"` elsewhere in this module, so reject the old names explicitly) add to both:
 
 ```python
     @model_validator(mode="before")
@@ -2551,47 +2797,65 @@ Run: `PYTHONPATH=. $PY -m pytest tests/test_k8s_clusters.py -q` → new tests FA
         return data
 ```
 
-with `_LEGACY_NFS = ("default_nfs_server", "default_nfs_path", "default_nfs_mount_path")` at module level.
+with `_LEGACY_NFS = ("default_nfs_server", "default_nfs_path", "default_nfs_mount_path")` at module level (above the request models).
 
-- Add:
+- Add (below `_validate_argocd_host`):
 
 ```python
-async def _check_bench_storage(db: AsyncSession, storage_id: str | None, mount_path: str | None) -> None:
+def _bench_storage_uuid(raw: str | None) -> uuid.UUID | None:
+    """Form value → storage id; '' / None = none. Malformed ids are a 400, not a 500."""
+    if not raw:
+        return None
+    try:
+        return uuid.UUID(raw)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"unknown storage: {raw}")
+
+
+async def _check_bench_storage(db: AsyncSession, storage_id: uuid.UUID | None, mount_path: str | None) -> None:
     if bool(storage_id) != bool(mount_path):
         raise HTTPException(status_code=400, detail="bench_storage_id and bench_mount_path must be set together")
-    if not storage_id:
+    if storage_id is None:
         return
     if not mount_path.startswith("/"):
         raise HTTPException(status_code=400, detail="bench_mount_path must be an absolute path")
-    try:
-        known = await load_storages(db, [str(uuid.UUID(storage_id))])
-    except ValueError:
-        known = {}
-    if not known:
+    if not await load_storages(db, [str(storage_id)]):
         raise HTTPException(status_code=400, detail=f"unknown storage: {storage_id}")
 ```
 
-- Create: replace the `nfs_fields_incomplete` block with `await _check_bench_storage(db, body.bench_storage_id, body.bench_mount_path)`; in the constructor replace `default_nfs_*=` with
-  `bench_storage_id=uuid.UUID(body.bench_storage_id) if body.bench_storage_id else None, bench_mount_path=body.bench_mount_path or None,`.
-- Update: replace the three `default_nfs_*` `if … is not None` assignments with
+- Create: replace the `nfs_fields_incomplete` block (right after the duplicate-name check) with
 
 ```python
-    if body.bench_storage_id is not None:
-        cluster.bench_storage_id = uuid.UUID(body.bench_storage_id) if body.bench_storage_id else None
-    if body.bench_mount_path is not None:
-        cluster.bench_mount_path = body.bench_mount_path or None
+    bench_storage_id = _bench_storage_uuid(body.bench_storage_id)
+    bench_mount_path = body.bench_mount_path or None
+    await _check_bench_storage(db, bench_storage_id, bench_mount_path)
 ```
 
-  and replace the post-assignment `nfs_fields_incomplete` check with
-  `await _check_bench_storage(db, str(cluster.bench_storage_id) if cluster.bench_storage_id else None, cluster.bench_mount_path)`.
+  and in the `CustomK8sCluster(...)` constructor replace the three `default_nfs_*=` lines with `bench_storage_id=bench_storage_id, bench_mount_path=bench_mount_path,`.
+- Update: delete the three `default_nfs_*` `if … is not None` assignments **and** the post-assignment `nfs_fields_incomplete` check; in their place (before the kubeconfig re-validation) compute and validate the new values first, then assign:
+
+```python
+    bench_storage_id = (
+        cluster.bench_storage_id if body.bench_storage_id is None else _bench_storage_uuid(body.bench_storage_id)
+    )
+    bench_mount_path = cluster.bench_mount_path if body.bench_mount_path is None else (body.bench_mount_path or None)
+    await _check_bench_storage(db, bench_storage_id, bench_mount_path)
+    cluster.bench_storage_id = bench_storage_id
+    cluster.bench_mount_path = bench_mount_path
+```
+
 - Serializer: replace the `default_nfs_*` keys with
   `"bench_storage_id": str(c.bench_storage_id) if c.bench_storage_id else None, "bench_mount_path": c.bench_mount_path,`.
-- Imports: drop `nfs_fields_incomplete`; add `from app.services.storage_store import load_storages` and `model_validator` from pydantic.
+- Imports: drop `nfs_fields_incomplete`; add `from app.services.storage_store import load_storages` and `model_validator` to the `pydantic` import.
 
 - [ ] **Step 4: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_k8s_clusters.py tests/test_cluster_placement.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_k8s_clusters.py tests/test_cluster_placement.py -q
+$PY -m ruff check app/api/k8s_clusters.py tests/test_k8s_clusters.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 5: Commit**
 
@@ -2609,11 +2873,12 @@ git commit -m "feat(storage): clusters pick a benchmark default storage instead 
 - Modify: `backend/app/api/benchmarks.py` (`_serving_snapshot`, `_build_bench_job`, delete `_cluster_nfs_defaults`, every call site, ephemeral create + preview)
 - Modify: `backend/app/services/benchmark_serving.py` (`build_ephemeral_deployment`)
 - Modify: `backend/app/jobs/reconcile_benchmarks.py:116-130`
-- Test: `backend/tests/test_storage_benchmarks.py`; update `test_benchmark_manifests.py`, `test_benchmarks_ephemeral.py`, `test_benchmark_endpoint.py`, `test_reconcile_benchmarks.py`, `test_self_serving_bench.py`
+- Test: `backend/tests/test_storage_benchmarks.py`; update `test_k8s_clusters.py` (holds the `resolve_bench_nfs` / builder tests), `test_benchmark_manifests.py`, `test_benchmarks_ephemeral.py`, `test_benchmark_endpoint.py`, `test_reconcile_benchmarks.py`, `test_self_serving_bench.py`
 
 **Interfaces:**
-- Consumes: Task 2 `to_volumes`, `legacy_pvc_volumes`; Task 3 `bench_volumes`, `resolve_entries`, `UnresolvedStorageError`, `UnknownStorageError`.
+- Consumes: Task 2 `to_volumes`, `legacy_pvc_volumes`, `nfs_override_volumes`; Task 3 `bench_volumes`, `resolve_entries` (every error is a `ValueError`).
 - Produces:
+  - `benchmarks._ephemeral_storages(db, base, cluster_id, namespace) -> list[dict]` — the template's own snapshot (copied) when the run targets the template's cluster **and** namespace; otherwise `resolve_entries` for the run's target (PVC bindings are namespace-scoped, so a copied claim would not exist there). Raises `ValueError` when a storage has no binding there.
   - `build_vllm_bench_job(run, *, image, target_base_url, api_key, served_model, tokenizer=None, volumes=None, volume_mounts=None, backoff_limit=0, ttl_seconds_after_finished=…)`
   - `_build_bench_job(run, *, deployment, target_base, api_key, image_override, bench_vols: tuple[list, list] = ([], []))`
   - Serving snapshots carry `"storages"` (resolved list) instead of `pvc_name`/`pvc_mount_path` (external-clone snapshots unchanged).
@@ -2628,11 +2893,11 @@ import types
 import uuid
 from unittest.mock import AsyncMock, patch
 
+from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.jobs import reconcile_benchmarks
 from app.services.benchmark_manifests import build_vllm_bench_job
 from app.services.benchmark_serving import build_ephemeral_deployment
-from app.db.models.custom_model_deployment import CustomModelDeployment
-from tests._storage import legacy_entry
+from tests._storage import CLUSTER, legacy_entry
 
 
 def _run(**kw):
@@ -2659,7 +2924,8 @@ def test_bench_job_takes_prebuilt_volumes():
 def test_deployment_target_mounts_its_storages_read_only():
     from app.api.benchmarks import _build_bench_job
 
-    dep = types.SimpleNamespace(model_path="/models/llama", image="vllm:1", storages=[legacy_entry("models-pvc", "/models")])
+    storages = [legacy_entry("models-pvc", "/models")]
+    dep = types.SimpleNamespace(model_path="/models/llama", image="vllm:1", storages=storages)
     m = _build_bench_job(_run(), deployment=dep, target_base="http://t", api_key="k", image_override=None)
     vols, mounts = _job_volumes(m)
     assert vols == [{"name": "model-weights", "persistentVolumeClaim": {"claimName": "models-pvc", "readOnly": True}}]
@@ -2676,7 +2942,7 @@ def test_raw_target_uses_bench_vols():
     assert _job_volumes(m) == bench
 
 
-def test_ephemeral_copies_storages_for_re_resolution():
+def test_ephemeral_copies_storages():
     base = CustomModelDeployment(
         model_name="llama", namespace="prod", image="i", replicas=1, gpu_count=1, gpu_resource_key="nvidia.com/gpu",
         model_path="/models/llama", ingress_host="h", ingress_path="/", ingress_class="nginx", engine="vllm",
@@ -2686,8 +2952,33 @@ def test_ephemeral_copies_storages_for_re_resolution():
     assert eph.storages == base.storages and eph.storages is not base.storages
 
 
+async def test_ephemeral_storages_keep_snapshot_on_the_template_target():
+    from app.api.benchmarks import _ephemeral_storages
+
+    base = types.SimpleNamespace(
+        cluster_id=CLUSTER, namespace="prod", storages=[legacy_entry("models-pvc", "/models", namespace="prod")]
+    )
+    with patch("app.api.benchmarks.resolve_entries", AsyncMock()) as res:
+        out = await _ephemeral_storages(None, base, CLUSTER, "prod")
+    assert out == base.storages and out[0] is not base.storages[0]
+    res.assert_not_awaited()
+
+
+async def test_ephemeral_storages_re_resolve_for_another_namespace():
+    from app.api.benchmarks import _ephemeral_storages
+
+    base = types.SimpleNamespace(cluster_id=CLUSTER, namespace="prod", storages=[legacy_entry("models-pvc", "/models")])
+    with patch("app.api.benchmarks.resolve_entries", AsyncMock(return_value=["resolved"])) as res:
+        assert await _ephemeral_storages(None, base, CLUSTER, "bench") == ["resolved"]
+    assert res.await_args.args[1:] == (base.storages, CLUSTER, "bench")
+    assert res.await_args.kwargs["previous"] is base.storages
+
+
 async def test_reconcile_legacy_snapshot_still_mounts_pvc():
-    snap = {"model_path": "/models/llama", "pvc_name": "models-pvc", "pvc_mount_path": "/models", "vllm_extra_args": [], "env": {}}
+    snap = {
+        "model_path": "/models/llama", "pvc_name": "models-pvc", "pvc_mount_path": "/models",
+        "vllm_extra_args": [], "env": {},
+    }
     vols, mounts = reconcile_benchmarks._snapshot_volumes(snap)
     assert vols[0]["persistentVolumeClaim"] == {"claimName": "models-pvc", "readOnly": True}
     snap2 = {"storages": [legacy_entry("new-pvc", "/models")]}
@@ -2739,13 +3030,13 @@ Expected: FAIL (unexpected `volumes` kwarg; `_snapshot_volumes` missing)
 
 - [ ] **Step 4: `benchmark_serving.py`**
 
-In `build_ephemeral_deployment` replace `pvc_name=base.pvc_name, pvc_mount_path=base.pvc_mount_path,` with `storages=[dict(e) for e in (base.storages or [])],`. (The API re-resolves them for the run's cluster/namespace.)
+In `build_ephemeral_deployment` replace `pvc_name=base.pvc_name, pvc_mount_path=base.pvc_mount_path,` with `storages=[dict(e) for e in (base.storages or [])],`. (The API keeps them when the run targets the template's cluster + namespace and re-resolves them otherwise — `_ephemeral_storages`, Step 5.)
 
 - [ ] **Step 5: `benchmarks.py`**
 
-- Imports: drop `resolve_bench_nfs`; add
+- Imports: drop `resolve_bench_nfs` (and `CustomK8sCluster` if `_cluster_nfs_defaults` was its only user — `grep -n CustomK8sCluster backend/app/api/benchmarks.py`); add, in sorted position,
   `from app.services.storage_mounts import to_volumes` and
-  `from app.services.storage_store import UnknownStorageError, UnresolvedStorageError, bench_volumes, resolve_entries`.
+  `from app.services.storage_store import bench_volumes, resolve_entries`.
 - `_serving_snapshot`: replace the two `pvc_*` keys with `"storages": [dict(e) for e in (dep.storages or [])],`.
 - `_build_bench_job`: replace the three `cluster_default_nfs_*` params with `bench_vols: tuple[list, list] = ([], [])`; replace the mount-selection block with
 
@@ -2770,12 +3061,30 @@ In `build_ephemeral_deployment` replace `pvc_name=base.pvc_name, pvc_mount_path=
 ```
 
   In the preview handler the namespace variable is the one used for `run.k8s_namespace`; the cluster is `uuid.UUID(body.cluster_id) if body.cluster_id else None`. Pass `volumes=bench_vols[0], volume_mounts=bench_vols[1]` to the direct `build_vllm_bench_job` calls and `bench_vols=bench_vols` to `_build_bench_job`.
-- Ephemeral create (right after `eph = build_ephemeral_deployment(...)`, before `_serving_snapshot(eph)`):
+- Add next to `_serving_snapshot`:
+
+```python
+async def _ephemeral_storages(
+    db: AsyncSession, base: CustomModelDeployment, cluster_id: uuid.UUID | None, namespace: str
+) -> list[dict]:
+    """Storages for an ephemeral clone of ``base``.
+
+    Same cluster and namespace as the template → copy its snapshot as-is (what it
+    runs with today). Anywhere else → resolve for that target: PVC bindings are
+    namespace-scoped, so a copied claim would not exist there and the pod would
+    hang Pending. Raises ValueError when a storage has no binding there.
+    """
+    if (cluster_id, namespace) == (base.cluster_id, base.namespace):
+        return [dict(e) for e in (base.storages or [])]
+    return await resolve_entries(db, base.storages, cluster_id, namespace, previous=base.storages)
+```
+
+- Ephemeral create (right after `eph = build_ephemeral_deployment(...)` and its `except`, before `_serving_snapshot(eph)`):
 
 ```python
         try:
-            eph.storages = await resolve_entries(db, base.storages, cluster_uuid, namespace, previous=base.storages)
-        except (UnresolvedStorageError, UnknownStorageError) as e:
+            eph.storages = await _ephemeral_storages(db, base, cluster_uuid, namespace)
+        except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 ```
 
@@ -2783,11 +3092,10 @@ In `build_ephemeral_deployment` replace `pvc_name=base.pvc_name, pvc_mount_path=
 
 ```python
         try:
-            eph.storages = await resolve_entries(
-                db, base.storages, uuid.UUID(body.cluster_id) if body.cluster_id else None, namespace,
-                previous=base.storages,
+            eph.storages = await _ephemeral_storages(
+                db, base, uuid.UUID(body.cluster_id) if body.cluster_id else None, namespace
             )
-        except (UnresolvedStorageError, UnknownStorageError):
+        except ValueError:
             return {"manifests": [], "note": "storage_unresolved"}
 ```
 
@@ -2818,15 +3126,49 @@ def _snapshot_volumes(snap: dict) -> tuple[list, list]:
 - [ ] **Step 7: Update existing benchmark tests**
 
 `grep -n "pvc_\|nfs_\|resolve_bench_nfs\|_cluster_nfs_defaults" backend/tests/*.py`:
-- `test_benchmark_manifests.py`: tests of `resolve_bench_nfs` move to `test_storage_mounts.py::test_legacy_and_nfs_override_helpers` (already there) — delete them; tests that passed `pvc_name`/`nfs_*` to `build_vllm_bench_job` now pass `volumes`/`volume_mounts` built with `legacy_pvc_volumes` / `nfs_override_volumes`.
+- `tests/test_k8s_clusters.py` (lines ~14-21 and ~103-160 — the `resolve_bench_nfs` and old `build_vllm_bench_job` tests live here, not in `test_benchmark_manifests.py`):
+  - change the `app.services.benchmark_manifests` import to `build_vllm_bench_job, nfs_fields_incomplete` (drop `resolve_bench_nfs`) and add `from app.services.storage_mounts import legacy_pvc_volumes, nfs_override_volumes`;
+  - delete `test_resolve_nfs_run_override_beats_cluster_default`, `test_resolve_nfs_falls_back_to_cluster_default`, `test_resolve_nfs_none_when_nothing_set` (covered by `test_storage_mounts.py::test_legacy_and_nfs_override_helpers` and `test_storage_store.py::test_bench_volumes_*`);
+  - replace the two mounting builder tests with (keep `test_vllm_bench_job_no_volume_when_unset` as is):
+
+```python
+def test_vllm_bench_job_mounts_nfs_when_set():
+    vols, mounts = nfs_override_volumes(
+        {"nfs_server": "nfs.local", "nfs_path": "/export/models", "nfs_mount_path": "/models"}
+    )
+    job = build_vllm_bench_job(
+        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        served_model="m", tokenizer="/models/m", volumes=vols, volume_mounts=mounts,
+    )
+    spec = job["spec"]["template"]["spec"]
+    vol = next(v for v in spec["volumes"] if v["name"] == "model-weights")
+    assert vol["nfs"] == {"server": "nfs.local", "path": "/export/models", "readOnly": True}
+    mount = spec["containers"][0]["volumeMounts"][0]
+    assert mount["mountPath"] == "/models" and mount["readOnly"] is True
+
+
+def test_vllm_bench_job_mounts_pvc_for_deployment_target():
+    vols, mounts = legacy_pvc_volumes("weights", "/models")
+    job = build_vllm_bench_job(
+        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        served_model="m", volumes=vols, volume_mounts=mounts,
+    )
+    vol = job["spec"]["template"]["spec"]["volumes"][0]
+    assert vol["persistentVolumeClaim"]["claimName"] == "weights"
+```
+
 - Tests that patched `_cluster_nfs_defaults` patch `app.api.benchmarks.bench_volumes` with `AsyncMock(return_value=([], []))` (or the NFS tuple they expect).
-- Ephemeral tests: patch `app.api.benchmarks.resolve_entries` with `AsyncMock(side_effect=lambda db, e, *a, **k: list(e or []))`.
+- Ephemeral tests (`test_benchmarks_ephemeral.py`): where a test's run namespace/cluster differs from the template's, patch `app.api.benchmarks.resolve_entries` with `AsyncMock(side_effect=lambda db, e, *a, **k: list(e or []))`; same-target runs need no patch (the snapshot is copied).
 - Snapshot assertions: `pvc_name`/`pvc_mount_path` → `storages`.
 
 - [ ] **Step 8: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_benchmarks.py tests/test_benchmark_manifests.py tests/test_benchmarks_ephemeral.py tests/test_benchmark_endpoint.py tests/test_reconcile_benchmarks.py tests/test_self_serving_bench.py tests/test_bench_external_clone.py tests/test_gpu_profiles.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_benchmarks.py tests/test_k8s_clusters.py tests/test_benchmark_manifests.py tests/test_benchmarks_ephemeral.py tests/test_benchmark_endpoint.py tests/test_reconcile_benchmarks.py tests/test_self_serving_bench.py tests/test_bench_external_clone.py tests/test_gpu_profiles.py -q
+$PY -m ruff check app/services/benchmark_manifests.py app/services/benchmark_serving.py app/api/benchmarks.py app/jobs/reconcile_benchmarks.py tests/test_storage_benchmarks.py tests/test_k8s_clusters.py $(git diff --name-only -- tests | sed 's|^backend/||')
+```
+Expected: PASS; `All checks passed!` (`grep -rn "resolve_bench_nfs" app tests` → nothing).
 
 - [ ] **Step 9: Commit**
 
@@ -2919,7 +3261,11 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
                 _warn(warnings, "pvc_unmounted", pvc["claimName"])
                 continue
             pvc_mounts.append(
-                {"claim_name": pvc["claimName"], "mount_path": mount["mountPath"], "read_only": bool(mount.get("readOnly"))}
+                {
+                    "claim_name": pvc["claimName"],
+                    "mount_path": mount["mountPath"],
+                    "read_only": bool(mount.get("readOnly")),
+                }
             )
             continue
         kinds = [k for k in vol if k != "name"]
@@ -2966,8 +3312,12 @@ Replace `pvc_name`/`pvc_mount_path` expectations with `pvc_mounts` (unit tests) 
 
 - [ ] **Step 5: Run tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_import.py tests/test_recipe_import.py tests/test_recipe_draft_api.py tests/test_gpu_profiles_api.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_import.py tests/test_recipe_import.py tests/test_recipe_draft_api.py tests/test_gpu_profiles_api.py -q
+$PY -m ruff check app/services/recipe_import.py app/api/model_deployments.py tests/test_storage_import.py tests/test_recipe_import.py tests/test_recipe_draft_api.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 6: Commit**
 
@@ -2987,7 +3337,7 @@ git commit -m "feat(storage): recipe import maps PVC volumes to registered stora
 
 **Interfaces:**
 - Consumes: tables from 051.
-- Produces: no runtime interface; after upgrade every recipe/deployment that had both `pvc_name` and `pvc_mount_path` (base or P/D pool) has the equivalent `storages`, deployments with snapshots and `volume_name: "model-weights"`.
+- Produces: no runtime interface; after upgrade every recipe/deployment that had both `pvc_name` and `pvc_mount_path` has the equivalent `storages`, deployments with snapshots and `volume_name: "model-weights"`. A P/D pool that set either pool key gets `pd_config.<role>.storages` built per key with fallback to the base `pvc_*` (old `pool_row` semantics) — `[]` when the pair is still incomplete; pools that set neither keep inheriting. Every rendered manifest is unchanged. Generated storage names satisfy `validate_storage_name` (≤ 50 chars). Downgrade deletes the `created_by = 'migration'` storages.
 
 - [ ] **Step 1: Write the failing helper tests**
 
@@ -2998,6 +3348,8 @@ git commit -m "feat(storage): recipe import maps PVC volumes to registered stora
 import importlib.util
 import pathlib
 
+from app.services.storage_mounts import validate_storage_name
+
 _path = pathlib.Path(__file__).parents[1] / "migrations/versions/052_storages_backfill.py"
 _spec = importlib.util.spec_from_file_location("m052", _path)
 m052 = importlib.util.module_from_spec(_spec)
@@ -3007,7 +3359,7 @@ _spec.loader.exec_module(m052)
 def test_slug():
     assert m052._slug("Models_PVC.v2") == "models-pvc-v2"
     assert m052._slug("---") == "storage"
-    assert len(m052._slug("x" * 80)) <= 44
+    assert len(m052._slug("x" * 80)) <= 40
 
 
 def test_unique_name():
@@ -3016,11 +3368,30 @@ def test_unique_name():
     assert "pvc-models-2" in taken
 
 
-def test_pool_pvcs_and_strip():
+def test_generated_names_pass_the_storage_name_rule():
+    long = "c" * 128  # custom_k8s_cluster.name is String(128)
+    assert len(m052._bench_name(long)) == 50
+    validate_storage_name(m052._bench_name(long))
+    validate_storage_name(m052._bench_name("GPU_Cluster.A"))
+    validate_storage_name(m052._unique(f"pvc-{m052._slug('x' * 80)}", {f"pvc-{'x' * 40}"}))
+
+
+def test_pool_pvcs_fall_back_per_field_to_the_base():
+    # Old pool_row fell back per field, so a pool that set only one key mounted it
+    # together with the base's other key — the migration must reproduce exactly that.
     cfg = {"prefill": {"pvc_name": "p", "pvc_mount_path": "/m", "replicas": 1}, "decode": {"pvc_name": "d"}}
-    assert m052._pool_pvcs(cfg) == {"prefill": ("p", "/m")}
-    stripped = m052._strip_pool_pvcs(cfg)
-    assert stripped == {"prefill": {"replicas": 1}, "decode": {}}
+    assert m052._pool_pvcs(cfg, "base", "/models") == {"prefill": ("p", "/m"), "decode": ("d", "/models")}
+    assert m052._pool_pvcs({"decode": {"pvc_mount_path": "/x"}}, "base", "/models") == {"decode": ("base", "/x")}
+    # No complete pair even with the fallback → the old renderer mounted nothing for that pool.
+    assert m052._pool_pvcs({"decode": {"pvc_name": "d"}}, None, None) == {"decode": None}
+    assert m052._pool_pvcs({"decode": {"replicas": 2}}, "base", "/models") == {}
+    assert m052._pool_pvcs(None, "base", "/models") == {}
+
+
+def test_strip_pool_pvcs():
+    cfg = {"prefill": {"pvc_name": "p", "pvc_mount_path": "/m", "replicas": 1}, "decode": {"pvc_name": "d"}}
+    assert m052._strip_pool_pvcs(cfg) == {"prefill": {"replicas": 1}, "decode": {}}
+    assert m052._strip_pool_pvcs(None) is None
 ```
 
 - [ ] **Step 2: Run to verify they fail**
@@ -3038,13 +3409,17 @@ Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_backfill.py -q` → FAIL (fi
 - recipes:     storages = [{storage_id, mount_path, read_only: false}]
 - deployments: same + volume_name "model-weights" + resolved snapshot
   (renders byte-identical to the old pvc_* volume — no rollout)
-- P/D pools:   pd_config.<role>.pvc_name/pvc_mount_path → pd_config.<role>.storages
+- P/D pools:   pd_config.<role>.pvc_name/pvc_mount_path → pd_config.<role>.storages,
+  each key falling back to the row's base pvc_* exactly like the old pool_row
+  (a pool whose pair is still incomplete gets storages [] — it mounted nothing)
 - clusters with default_nfs_*: storage "<cluster>-bench-weights" + cluster-wide
   nfs binding → bench_storage_id / bench_mount_path; default_nfs_* dropped
 pvc_name / pvc_mount_path columns are left in place (unread).
 
-Downgrade restores default_nfs_* and pool pvc_* keys; storages created after the
-upgrade are dropped with the tables by 051's downgrade.
+Downgrade restores default_nfs_* and pool pvc_* keys, resets storages / bench_*,
+and deletes the storages this migration created (created_by = 'migration'; their
+bindings cascade) so a later upgrade starts clean. Storages created by admins
+after the upgrade stay until 051's downgrade drops the tables.
 
 Revision ID: 052_storages_backfill
 Revises: 051_storages
@@ -3062,13 +3437,19 @@ down_revision = "051_storages"
 branch_labels = None
 depends_on = None
 
-_ROLES = ("prefill", "decode")
+_ROLES = ("prefill", "decode")  # migrations don't import app code (pd_serving.ROLES)
 _VOLUME = "model-weights"
+_BY = "migration"
 
 
 def _slug(raw: str) -> str:
     s = re.sub(r"[^a-z0-9]+", "-", (raw or "").lower()).strip("-")[:40].strip("-")
     return s or "storage"
+
+
+def _bench_name(cluster_name: str) -> str:
+    """'<cluster>-bench-weights' within the 50-char storage name limit."""
+    return f"{_slug(cluster_name)[:36].strip('-')}-bench-weights"
 
 
 def _unique(base: str, taken: set[str]) -> str:
@@ -3080,12 +3461,17 @@ def _unique(base: str, taken: set[str]) -> str:
     return name
 
 
-def _pool_pvcs(cfg: dict | None) -> dict[str, tuple[str, str]]:
-    out = {}
+def _pool_pvcs(cfg: dict | None, base_claim: str | None, base_mount: str | None) -> dict:
+    """role → (claim, mount) for pools that set either pvc key, falling back per key to
+    the base (old pool_row semantics); None when the pair is still incomplete."""
+    out: dict[str, tuple[str, str] | None] = {}
     for role in _ROLES:
         pool = (cfg or {}).get(role) or {}
-        if pool.get("pvc_name") and pool.get("pvc_mount_path"):
-            out[role] = (pool["pvc_name"], pool["pvc_mount_path"])
+        if not (pool.get("pvc_name") or pool.get("pvc_mount_path")):
+            continue
+        claim = pool.get("pvc_name") or base_claim
+        mount = pool.get("pvc_mount_path") or base_mount
+        out[role] = (claim, mount) if claim and mount else None
     return out
 
 
@@ -3103,6 +3489,18 @@ def _load(value):
     return json.loads(value) if isinstance(value, str) else value
 
 
+def _insert_storage(bind, name: str, description: str) -> str:
+    sid = str(uuid.uuid4())
+    bind.execute(
+        sa.text(
+            "INSERT INTO custom_storage (id, name, description, kind, created_by, updated_by) "
+            "VALUES (:id, :name, :desc, 'weights', :by, :by)"
+        ),
+        {"id": sid, "name": name, "desc": description, "by": _BY},
+    )
+    return sid
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     recipes = bind.execute(
@@ -3113,29 +3511,28 @@ def upgrade() -> None:
     ).mappings().all()
 
     def pvcs_of(row) -> list[tuple[str, str, str | None]]:
-        """[(claim, mount, role|None)]"""
+        """[(claim, mount, role|None)] for the base pair and every renderable pool pair."""
         out = []
         if row["pvc_name"] and row["pvc_mount_path"]:
             out.append((row["pvc_name"], row["pvc_mount_path"], None))
-        for role, (claim, mount) in _pool_pvcs(_load(row["pd_config"])).items():
-            out.append((claim, mount, role))
+        pools = _pool_pvcs(_load(row["pd_config"]), row["pvc_name"], row["pvc_mount_path"])
+        for role, pair in pools.items():
+            if pair is not None:
+                out.append((pair[0], pair[1], role))
         return out
 
-    taken: set[str] = set()
+    def empty_pools(row) -> list[str]:
+        """Pools that set a pvc key but still had no complete pair (rendered no volume)."""
+        pools = _pool_pvcs(_load(row["pd_config"]), row["pvc_name"], row["pvc_mount_path"])
+        return [role for role, pair in pools.items() if pair is None]
+
+    taken = {r[0] for r in bind.execute(sa.text("SELECT name FROM custom_storage"))}
     storage_of: dict[str, str] = {}
     for row in [*recipes, *deps]:
         for claim, _, _ in pvcs_of(row):
-            if claim in storage_of:
-                continue
-            sid = str(uuid.uuid4())
-            storage_of[claim] = sid
-            bind.execute(
-                sa.text(
-                    "INSERT INTO custom_storage (id, name, description, kind, created_by, updated_by) "
-                    "VALUES (:id, :name, :desc, 'weights', 'migration', 'migration')"
-                ),
-                {"id": sid, "name": _unique(f"pvc-{_slug(claim)}", taken), "desc": f"Migrated from PVC {claim}"},
-            )
+            if claim not in storage_of:
+                name = _unique(f"pvc-{_slug(claim)}", taken)
+                storage_of[claim] = _insert_storage(bind, name, f"Migrated from PVC {claim}")
 
     def binding_id(sid: str, cluster_id, namespace: str, claim: str) -> str:
         found = bind.execute(
@@ -3151,70 +3548,73 @@ def upgrade() -> None:
         bind.execute(
             sa.text(
                 "INSERT INTO custom_storage_binding (id, storage_id, cluster_id, namespace, type, claim_name, "
-                "created_by, updated_by) VALUES (:id, :sid, :cid, :ns, 'pvc', :claim, 'migration', 'migration')"
+                "created_by, updated_by) VALUES (:id, :sid, :cid, :ns, 'pvc', :claim, :by, :by)"
             ),
-            {"id": bid, "sid": sid, "cid": cluster_id, "ns": namespace, "claim": claim},
+            {"id": bid, "sid": sid, "cid": cluster_id, "ns": namespace, "claim": claim, "by": _BY},
         )
         return bid
 
+    def write(table: str, row_id, storages: list, cfg: dict | None) -> None:
+        bind.execute(
+            sa.text(f"UPDATE {table} SET storages = CAST(:s AS jsonb), pd_config = CAST(:c AS jsonb) WHERE id = :id"),
+            {"s": json.dumps(storages), "c": json.dumps(cfg) if cfg is not None else None, "id": row_id},
+        )
+
     for r in recipes:
-        cfg = _load(r["pd_config"])
         storages = []
-        new_cfg = _strip_pool_pvcs(cfg)
+        new_cfg = _strip_pool_pvcs(_load(r["pd_config"]))
+        for role in empty_pools(r):
+            new_cfg[role]["storages"] = []
         for claim, mount, role in pvcs_of(r):
             entry = {"storage_id": storage_of[claim], "mount_path": mount, "read_only": False}
             if role is None:
                 storages.append(entry)
             else:
                 new_cfg[role]["storages"] = [entry]
-        bind.execute(
-            sa.text("UPDATE custom_serving_recipe SET storages = CAST(:s AS jsonb), pd_config = CAST(:c AS jsonb) WHERE id = :id"),
-            {"s": json.dumps(storages), "c": json.dumps(new_cfg) if new_cfg is not None else None, "id": r["id"]},
-        )
+        write("custom_serving_recipe", r["id"], storages, new_cfg)
 
     for d in deps:
-        cfg = _load(d["pd_config"])
         storages = []
-        new_cfg = _strip_pool_pvcs(cfg)
+        new_cfg = _strip_pool_pvcs(_load(d["pd_config"]))
+        for role in empty_pools(d):
+            new_cfg[role]["storages"] = []
         for claim, mount, role in pvcs_of(d):
             sid = storage_of[claim]
             bid = binding_id(sid, d["cluster_id"], d["namespace"], claim)
+            resolved = {
+                "binding_id": bid, "type": "pvc", "claim_name": claim, "namespace": d["namespace"],
+                "nfs_server": None, "nfs_path": None, "sub_path": None,
+            }
             entry = {
                 "storage_id": sid, "mount_path": mount, "read_only": False, "volume_name": _VOLUME,
-                "resolved": {"binding_id": bid, "type": "pvc", "claim_name": claim, "namespace": d["namespace"],
-                             "nfs_server": None, "nfs_path": None, "sub_path": None},
+                "resolved": resolved,
             }
             if role is None:
                 storages.append(entry)
             else:
                 new_cfg[role]["storages"] = [entry]
-        bind.execute(
-            sa.text("UPDATE custom_model_deployment SET storages = CAST(:s AS jsonb), pd_config = CAST(:c AS jsonb) WHERE id = :id"),
-            {"s": json.dumps(storages), "c": json.dumps(new_cfg) if new_cfg is not None else None, "id": d["id"]},
-        )
+        write("custom_model_deployment", d["id"], storages, new_cfg)
 
     clusters = bind.execute(
         sa.text(
             "SELECT id, name, default_nfs_server, default_nfs_path, default_nfs_mount_path FROM custom_k8s_cluster "
-            "WHERE default_nfs_server IS NOT NULL AND default_nfs_path IS NOT NULL AND default_nfs_mount_path IS NOT NULL"
+            "WHERE default_nfs_server IS NOT NULL AND default_nfs_path IS NOT NULL "
+            "AND default_nfs_mount_path IS NOT NULL"
         )
     ).mappings().all()
     for c in clusters:
-        sid = str(uuid.uuid4())
-        bind.execute(
-            sa.text(
-                "INSERT INTO custom_storage (id, name, description, kind, created_by, updated_by) "
-                "VALUES (:id, :name, :desc, 'weights', 'migration', 'migration')"
-            ),
-            {"id": sid, "name": _unique(f"{_slug(c['name'])}-bench-weights", taken),
-             "desc": f"Migrated from cluster {c['name']} default NFS"},
+        sid = _insert_storage(
+            bind, _unique(_bench_name(c["name"]), taken), f"Migrated from cluster {c['name']} default NFS"
         )
         bind.execute(
             sa.text(
-                "INSERT INTO custom_storage_binding (id, storage_id, cluster_id, namespace, type, nfs_server, nfs_path, "
-                "created_by, updated_by) VALUES (:id, :sid, :cid, NULL, 'nfs', :srv, :path, 'migration', 'migration')"
+                "INSERT INTO custom_storage_binding (id, storage_id, cluster_id, namespace, type, nfs_server, "
+                "nfs_path, created_by, updated_by) VALUES (:id, :sid, :cid, NULL, 'nfs', :srv, :path, :by, :by)"
             ),
-            {"id": str(uuid.uuid4()), "sid": sid, "cid": c["id"], "srv": c["default_nfs_server"], "path": c["default_nfs_path"]},
+            {
+                "id": str(uuid.uuid4()), "sid": sid, "cid": c["id"], "srv": c["default_nfs_server"],
+                "path": c["default_nfs_path"], "by": _BY,
+            },
         )
         bind.execute(
             sa.text("UPDATE custom_k8s_cluster SET bench_storage_id = :sid, bench_mount_path = :mp WHERE id = :id"),
@@ -3235,13 +3635,17 @@ def downgrade() -> None:
         sa.text(
             "UPDATE custom_k8s_cluster c SET default_nfs_server = b.nfs_server, default_nfs_path = b.nfs_path, "
             "default_nfs_mount_path = c.bench_mount_path FROM custom_storage_binding b "
-            "WHERE b.storage_id = c.bench_storage_id AND b.cluster_id = c.id AND b.namespace IS NULL AND b.type = 'nfs'"
+            "WHERE b.storage_id = c.bench_storage_id AND b.cluster_id = c.id AND b.namespace IS NULL "
+            "AND b.type = 'nfs'"
         )
     )
     claim_of = {
         str(r["storage_id"]): r["claim_name"]
         for r in bind.execute(
-            sa.text("SELECT DISTINCT ON (storage_id) storage_id, claim_name FROM custom_storage_binding WHERE type = 'pvc'")
+            sa.text(
+                "SELECT DISTINCT ON (storage_id) storage_id, claim_name FROM custom_storage_binding "
+                "WHERE type = 'pvc'"
+            )
         ).mappings()
     }
     for table in ("custom_serving_recipe", "custom_model_deployment"):
@@ -3252,23 +3656,33 @@ def downgrade() -> None:
                 pool = cfg.get(role)
                 entries = (pool or {}).pop("storages", None) if isinstance(pool, dict) else None
                 if entries:
-                    claim = (entries[0].get("resolved") or {}).get("claim_name") or claim_of.get(entries[0]["storage_id"])
+                    first = entries[0]
+                    claim = (first.get("resolved") or {}).get("claim_name") or claim_of.get(first["storage_id"])
                     if claim:
-                        pool["pvc_name"], pool["pvc_mount_path"] = claim, entries[0]["mount_path"]
+                        pool["pvc_name"], pool["pvc_mount_path"] = claim, first["mount_path"]
                 changed = changed or entries is not None
             if changed:
                 bind.execute(
                     sa.text(f"UPDATE {table} SET pd_config = CAST(:c AS jsonb) WHERE id = :id"),
                     {"c": json.dumps(cfg), "id": row["id"]},
                 )
+    # Undo the rest so `downgrade -1` + `upgrade` is repeatable (no "pvc-…-2" names on re-upgrade).
+    for table in ("custom_serving_recipe", "custom_model_deployment"):
+        bind.execute(sa.text(f"UPDATE {table} SET storages = '[]'::jsonb"))
+    bind.execute(sa.text("UPDATE custom_k8s_cluster SET bench_storage_id = NULL, bench_mount_path = NULL"))
+    bind.execute(sa.text("DELETE FROM custom_storage WHERE created_by = :by"), {"by": _BY})
 ```
 
 Remove the three `default_nfs_*` attributes (and their comment) from `custom_k8s_cluster.py`.
 
 - [ ] **Step 4: Run helper tests**
 
-Run: `PYTHONPATH=. $PY -m pytest tests/test_storage_backfill.py tests/test_storage_schema.py -q`
-Expected: PASS
+Run:
+```bash
+PYTHONPATH=. $PY -m pytest tests/test_storage_backfill.py tests/test_storage_schema.py -q
+$PY -m ruff check migrations/versions/052_storages_backfill.py app/db/models/custom_k8s_cluster.py tests/test_storage_backfill.py
+```
+Expected: PASS; `All checks passed!`
 
 - [ ] **Step 5: Live migration check on a copy of the local portal DB**
 
@@ -3286,9 +3700,10 @@ Seed rows covering every path (adapt column lists to `\d custom_serving_recipe` 
 docker exec litellm_db psql -U llmproxy -d portal_migtest <<'SQL'
 INSERT INTO custom_serving_recipe (id, name, model_path, image, pvc_name, pvc_mount_path)
 VALUES (gen_random_uuid(), 'mig-agg', '/models/llama', 'vllm:1', 'models-pvc', '/models');
-INSERT INTO custom_serving_recipe (id, name, model_path, image, serving_mode, pd_config)
-VALUES (gen_random_uuid(), 'mig-pd', '/models/llama', 'vllm:1', 'pd',
-        '{"prefill": {"replicas": 1, "pvc_name": "prefill-pvc", "pvc_mount_path": "/models"}, "decode": {"replicas": 1}}');
+INSERT INTO custom_serving_recipe (id, name, model_path, image, serving_mode, pvc_name, pvc_mount_path, pd_config)
+VALUES (gen_random_uuid(), 'mig-pd', '/models/llama', 'vllm:1', 'pd', 'models-pvc', '/models',
+        '{"prefill": {"replicas": 1, "pvc_name": "prefill-pvc", "pvc_mount_path": "/models"},
+          "decode": {"replicas": 1, "pvc_name": "decode-pvc"}}');
 INSERT INTO custom_model_deployment (id, model_name, namespace, image, model_path, ingress_host, pvc_name, pvc_mount_path)
 VALUES (gen_random_uuid(), 'mig-dep', 'serving-prod', 'vllm:1', '/models/llama', 'h', 'models-pvc', '/models');
 UPDATE custom_k8s_cluster SET default_nfs_server = '10.0.0.5', default_nfs_path = '/export', default_nfs_mount_path = '/models'
@@ -3310,11 +3725,16 @@ docker exec litellm_db psql -U llmproxy -d portal_migtest -c "SELECT name, descr
 PYTHONPATH=. $PY -m alembic downgrade 050_pd_serving
 docker exec litellm_db psql -U llmproxy -d portal_migtest -c "SELECT name, default_nfs_server, default_nfs_mount_path FROM custom_k8s_cluster" \
   -c "SELECT name, pd_config FROM custom_serving_recipe WHERE name = 'mig-pd'"
+PYTHONPATH=. $PY -m alembic upgrade 052_storages_backfill
+PYTHONPATH=. $PY -m alembic downgrade 051_storages
+docker exec litellm_db psql -U llmproxy -d portal_migtest -c "SELECT count(*) FROM custom_storage" \
+  -c "SELECT name, storages FROM custom_serving_recipe WHERE name LIKE 'mig-%'"
 PYTHONPATH=. $PY -m alembic upgrade head
+docker exec litellm_db psql -U llmproxy -d portal_migtest -c "SELECT name FROM custom_storage ORDER BY name"
 unset APP_DATABASE_URL
 ```
 
-Expected after upgrade: storages `pvc-models-pvc`, `pvc-prefill-pvc`, `<cluster>-bench-weights`; one pvc binding (`mig-dep`'s cluster NULL / `serving-prod` / `models-pvc`), one nfs binding (cluster-wide); `mig-agg.storages` = one read-write entry at `/models`; `mig-pd.pd_config.prefill` has `storages` and no `pvc_*`; `mig-dep.storages[0]` has `volume_name: model-weights` and a `resolved.binding_id`; the cluster has `bench_mount_path = /models`. After downgrade: the cluster's `default_nfs_*` and `mig-pd`'s pool `pvc_*` are back. Re-upgrade succeeds.
+Expected after upgrade: storages `pvc-models-pvc`, `pvc-prefill-pvc`, `pvc-decode-pvc`, `<cluster slug ≤ 36>-bench-weights`; one pvc binding (`mig-dep`'s cluster NULL / `serving-prod` / `models-pvc`), one nfs binding (cluster-wide); `mig-agg.storages` = one read-write entry at `/models`; `mig-pd.storages` = `models-pvc` at `/models`, `mig-pd.pd_config.prefill.storages` = `prefill-pvc` at `/models`, `mig-pd.pd_config.decode.storages` = `decode-pvc` at `/models` (mount path from the base — per-key fallback), no `pvc_*` keys left in either pool; `mig-dep.storages[0]` has `volume_name: model-weights` and a `resolved.binding_id`; the cluster has `bench_mount_path = /models`. After downgrade to `050_pd_serving`: the cluster's `default_nfs_*` and `mig-pd`'s pool `pvc_*` are back (decode now carries both keys — renders the same). After the 052-only downgrade (`downgrade 051_storages`): `count = 0` and every `storages = []`. The final re-upgrade succeeds and lists the same four names (no `-2` suffixes).
 
 Then render the migrated deployment with the worktree code and compare against the old renderer:
 
@@ -3378,9 +3798,10 @@ export interface StorageSnapshot {
   nfs_server: string | null; nfs_path: string | null; sub_path: string | null;
 }
 export interface ResolvedStorageEntry extends StorageEntry { volume_name: string; resolved: StorageSnapshot }
+export interface StorageBoundOn { cluster_id: string | null; cluster_name: string; namespace: string | null }
 export interface Storage {
   id: string; name: string; description: string | null; kind: StorageKind; created_by: string | null; updated_at: string | null;
-  binding_count?: number; recipe_count?: number; deployment_count?: number;
+  binding_count?: number; bound_on?: StorageBoundOn[]; recipe_count?: number; deployment_count?: number;
 }
 export interface StorageBinding {
   id: string; storage_id: string; cluster_id: string | null; cluster_name: string; namespace: string | null;
@@ -3389,7 +3810,11 @@ export interface StorageBinding {
 }
 export interface StorageDetail extends Storage {
   bindings: StorageBinding[];
-  usage: { recipes: { id: string; name: string }[]; deployments: { id: string; model_name: string }[]; clusters: { id: string; name: string }[] };
+  usage: {
+    recipes: { id: string; name: string }[];
+    deployments: { id: string; model_name: string; stale: boolean }[];
+    clusters: { id: string; name: string }[];
+  };
 }
 export type StorageInput = Pick<Storage, "name" | "description" | "kind">;
 export type StorageBindingInput = Omit<StorageBinding, "id" | "storage_id" | "cluster_name" | "updated_at">;
@@ -3546,12 +3971,12 @@ git commit -m "feat(storage): frontend storage types and API hooks"
 ### Task 13: Storage list + detail pages, binding dialog, sidebar
 
 **Files:**
-- Create: `frontend/src/app/(app)/admin/storages/page.tsx`, `frontend/src/app/(app)/admin/storages/[id]/page.tsx`, `frontend/src/components/storage-binding-dialog.tsx`
+- Create: `frontend/src/app/(app)/admin/storages/page.tsx`, `frontend/src/app/(app)/admin/storages/[id]/page.tsx`, `frontend/src/components/storage-binding-dialog.tsx`, `frontend/src/components/storage-bound-on.tsx`
 - Modify: `frontend/src/components/app-sidebar.tsx`, `frontend/messages/ko.json`, `frontend/messages/en.json`
 
 **Interfaces:**
 - Consumes: Task 12 hooks; `useK8sClusters()` (existing hook listing clusters — confirm the name with `grep -n "export function use.*Cluster" src/hooks/use-api.ts`).
-- Produces: route `/admin/storages`, `/admin/storages/[id]`; `StorageBindingDialog({ storageId, binding, open, onClose })`; i18n namespace `storages`; sidebar key `adminStorages`.
+- Produces: route `/admin/storages`, `/admin/storages/[id]`; `StorageBindingDialog({ storageId, binding, open, onClose })`; `StorageBoundOn({ boundOn })` (chips `<cluster>/<namespace|*>`, or "not bound") in `storage-bound-on.tsx`; i18n namespace `storages`; sidebar key `adminStorages`.
 
 - [ ] **Step 1: Messages.** Add a top-level `"storages"` namespace (ko shown; en mirrors it in English) and `sidebar.adminStorages` (`"스토리지"` / `"Storage"`):
 
@@ -3564,7 +3989,7 @@ git commit -m "feat(storage): frontend storage types and API hooks"
   "search": "이름·설명 검색",
   "allKinds": "전체 용도",
   "kind_weights": "모델 가중치", "kind_cache": "캐시", "kind_data": "데이터", "kind_other": "기타",
-  "colName": "이름", "colKind": "용도", "colDescription": "설명", "colBindings": "바인딩", "colUsage": "사용처",
+  "colName": "이름", "colKind": "용도", "colDescription": "설명", "colBoundOn": "바인딩된 클러스터", "colUsage": "사용처",
   "usageCount": "레시피 {recipes} · 배포 {deployments}",
   "name": "이름", "nameHint": "영문 소문자·숫자·하이픈, 50자 이하 (예: llama-weights)",
   "description": "설명", "kind": "용도",
@@ -3587,7 +4012,7 @@ git commit -m "feat(storage): frontend storage types and API hooks"
   "usage": "사용처", "usageRecipes": "레시피", "usageDeployments": "배포", "usageClusters": "벤치마크 기본 스토리지", "usageNone": "아직 쓰는 곳이 없습니다.",
   "picker": "스토리지", "pickerPlaceholder": "스토리지 선택", "mountPath": "마운트 경로", "readOnly": "읽기 전용", "addMount": "스토리지 추가",
   "noStorages": "등록된 스토리지가 없습니다. 관리자 → 스토리지에서 먼저 추가하세요.",
-  "boundOn": "바인딩: {where}", "notBound": "바인딩 없음",
+  "notBound": "바인딩 없음",
   "modelPathUnder": "{name} 안의 경로입니다.", "modelPathOutside": "모델 경로가 붙인 스토리지 안에 있지 않습니다.",
   "inheritBase": "기본 스토리지 사용", "overrideForPool": "이 풀만 따로 지정",
   "resolution": "스토리지 연결 결과", "resolutionNone": "바인딩 없음", "resolutionAll": "클러스터 공통",
@@ -3607,7 +4032,32 @@ git commit -m "feat(storage): frontend storage types and API hooks"
 
 and import `HardDrive` from `lucide-react`.
 
-- [ ] **Step 3: List page**
+- [ ] **Step 3: Bound-on chips + list page**
+
+```tsx
+// frontend/src/components/storage-bound-on.tsx
+"use client";
+
+import { useTranslations } from "next-intl";
+
+import type { StorageBoundOn as BoundOn } from "@/types";
+import { Badge } from "@/components/ui/badge";
+
+/** Where a storage is bound: one chip per binding, "<cluster>/<namespace>" (`*` = every namespace). */
+export function StorageBoundOn({ boundOn }: { boundOn: BoundOn[] | undefined }) {
+  const t = useTranslations("storages");
+  if (!boundOn?.length) return <span className="text-xs text-amber-600">{t("notBound")}</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {boundOn.map((b) => (
+        <Badge key={`${b.cluster_id ?? "default"}/${b.namespace ?? "*"}`} variant="outline" className="font-mono text-xs">
+          {b.cluster_name}/{b.namespace ?? "*"}
+        </Badge>
+      ))}
+    </div>
+  );
+}
+```
 
 ```tsx
 // frontend/src/app/(app)/admin/storages/page.tsx
@@ -3621,6 +4071,7 @@ import { useTranslations } from "next-intl";
 
 import { useCreateStorage, useStorages } from "@/hooks/use-api";
 import type { StorageKind } from "@/types";
+import { StorageBoundOn } from "@/components/storage-bound-on";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -3689,7 +4140,7 @@ export default function AdminStoragesPage() {
                 <TableHead>{t("colName")}</TableHead>
                 <TableHead>{t("colKind")}</TableHead>
                 <TableHead>{t("colDescription")}</TableHead>
-                <TableHead>{t("colBindings")}</TableHead>
+                <TableHead>{t("colBoundOn")}</TableHead>
                 <TableHead>{t("colUsage")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -3701,7 +4152,7 @@ export default function AdminStoragesPage() {
                   </TableCell>
                   <TableCell><Badge variant="secondary">{t(`kind_${s.kind}`)}</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{s.description ?? "-"}</TableCell>
-                  <TableCell>{s.binding_count ?? 0}</TableCell>
+                  <TableCell><StorageBoundOn boundOn={s.bound_on} /></TableCell>
                   <TableCell className="text-sm">
                     {t("usageCount", { recipes: s.recipe_count ?? 0, deployments: s.deployment_count ?? 0 })}
                   </TableCell>
@@ -4030,7 +4481,11 @@ function StorageDetailView({ storage }: { storage: StorageDetail }) {
           )}
           {storage.usage.deployments.length > 0 && (
             <p>{t("usageDeployments")}: {storage.usage.deployments.map((d, i) => (
-              <span key={d.id}>{i > 0 && ", "}<Link className="underline" href={`/admin/deployments/${d.id}`}>{d.model_name}</Link></span>
+              <span key={d.id} data-testid={`usage-deployment-${d.id}`}>
+                {i > 0 && ", "}
+                <Link className="underline" href={`/admin/deployments/${d.id}`}>{d.model_name}</Link>
+                {d.stale && <Badge variant="destructive" className="ml-1">{t("stale")}</Badge>}
+              </span>
             ))}</p>
           )}
           {storage.usage.clusters.length > 0 && (
@@ -4053,16 +4508,16 @@ function StorageDetailView({ storage }: { storage: StorageDetail }) {
 }
 ```
 
-Check: `Button size="xs"` exists (used on the recipes page); dynamic route params follow the existing `[id]` pages — open `src/app/(app)/admin/recipes/[id]/page.tsx` and use the same `params` pattern if it isn't `use(params)`. Stale badges on the usage list come from the deployment detail (Task 15); the storage page lists usages only.
+Check: `Button size="xs"` exists (used on the recipes page); dynamic route params follow the existing `[id]` pages — open `src/app/(app)/admin/recipes/[id]/page.tsx` and use the same `params` pattern if it isn't `use(params)`. Each usage deployment carries `stale` from `GET /storages/{id}` and shows the `stale` badge (spec: usage section with stale badge).
 
 - [ ] **Step 6: Check**
 
-Run: `npx tsc --noEmit -p . 2>&1 | grep -E "storages|storage-binding|app-sidebar"` (expect nothing), `npx eslint "src/app/(app)/admin/storages" src/components/storage-binding-dialog.tsx src/components/app-sidebar.tsx`.
+Run: `npx tsc --noEmit -p . 2>&1 | grep -E "storages|storage-binding|storage-bound-on|app-sidebar"` (expect nothing), `npx eslint "src/app/(app)/admin/storages" src/components/storage-binding-dialog.tsx src/components/storage-bound-on.tsx src/components/app-sidebar.tsx`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add "frontend/src/app/(app)/admin/storages" frontend/src/components/storage-binding-dialog.tsx frontend/src/components/app-sidebar.tsx frontend/messages
+git add "frontend/src/app/(app)/admin/storages" frontend/src/components/storage-binding-dialog.tsx frontend/src/components/storage-bound-on.tsx frontend/src/components/app-sidebar.tsx frontend/messages
 git commit -m "feat(storage): storage list/detail pages, binding dialog with PVC picker, sidebar entry"
 ```
 
@@ -4075,7 +4530,7 @@ git commit -m "feat(storage): storage list/detail pages, binding dialog with PVC
 - Modify: `frontend/src/components/pool-config-cards.tsx`, `frontend/src/lib/pd-serving.ts`, `frontend/src/lib/recipe-drafts.ts`, `frontend/src/components/serving-recipe-form.tsx`
 
 **Interfaces:**
-- Consumes: Task 12 `useStorages`, `StorageEntry`, `Storage`.
+- Consumes: Task 12 `useStorages`, `StorageEntry`, `Storage` (with `bound_on`); Task 13 `StorageBoundOn` (`@/components/storage-bound-on`).
 - Produces: `StorageMountsEditor({ value, onChange, modelPath, idPrefix, inheritable? })` where `value: StorageEntry[] | null` (null only when `inheritable`).
 
 - [ ] **Step 1: Editor component**
@@ -4090,6 +4545,7 @@ import { Plus, X } from "lucide-react";
 
 import { useStorages } from "@/hooks/use-api";
 import type { StorageEntry } from "@/types";
+import { StorageBoundOn } from "@/components/storage-bound-on";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -4100,7 +4556,8 @@ export function storageForPath(path: string, entries: StorageEntry[]): StorageEn
 }
 
 /**
- * Storage rows of a recipe or one P/D pool: [storage ▾] [mount path] [read-only] [✕].
+ * Storage rows of a recipe or one P/D pool: [storage ▾] [mount path] [read-only] [✕],
+ * each picked storage followed by chips of where it is bound.
  * With `inheritable`, `null` means "use the recipe's list" (pool tabs).
  */
 export function StorageMountsEditor({
@@ -4166,6 +4623,11 @@ export function StorageMountsEditor({
           <Button type="button" size="icon" variant="ghost" aria-label={t("delete")} onClick={() => onChange(rows.filter((_, j) => j !== i))}>
             <X className="size-4" />
           </Button>
+          {r.storage_id && (
+            <div className="col-span-4" data-testid={`${idPrefix}-storage-bound-${i}`}>
+              <StorageBoundOn boundOn={byId.get(r.storage_id)?.bound_on} />
+            </div>
+          )}
         </div>
       ))}
       <div className="flex items-center gap-3">
@@ -4332,9 +4794,7 @@ export function StorageResolutionPreview({
 
   - Add `storageBlocked` to the Deploy button's `disabled` condition.
   - In `onSuccess`, show each returned warning: `(res.warnings ?? []).forEach((w) => { const [code, claim] = w.split(":"); toast.warning(ts(\`warn_${code}\`, { claim })); });` with `const ts = useTranslations("storages");` (adapt to how the mutation result is typed in `useCreateModelDeployment`).
-  - Cluster greying: in the cluster `<option>` map, compute nothing new — the preview already explains per-storage results; keep options selectable as the spec says. (Greying requires a per-cluster lookup; implement it by passing `useStorages()` binding counts is insufficient, so it is intentionally done through the preview.)
-
-  > Spec note: "clusters with no binding are greyed" is satisfied by the preview's ✗ rows; if the reviewer wants literal greying, add a follow-up that calls `useResolveStorages` per cluster.
+  - Leave the cluster `<option>`s unchanged (no greying). The spec was amended: the per-storage ✓/✗ preview for the chosen cluster + namespace is the signal, and Deploy stays disabled while any row is ✗.
 
 - [ ] **Step 3: Deployment detail.** In `deployments/[id]/page.tsx`:
   - P/D pool card: replace the `pdStorage` field with
@@ -4454,17 +4914,17 @@ Expected: tsc clean, eslint clean on changed files, build succeeds, both message
 - [ ] **Step 3: Playwright on mocked API**
 
 Start `npx next dev -p 3100` (background). Write a Playwright script in the session scratchpad that sets a dummy `litellm_session` cookie, removes the `nextjs-portal` overlay before clicking, and mocks `/api/proxy/**` (follow the shape of earlier sessions' scripts: `/api/me` super user, sidebar endpoints with empty data). Mock:
-- `GET /api/admin/storages` → two storages (`llama-weights` with 2 bindings, `hf-cache` with 0)
-- `GET /api/admin/storages/<id>` → detail with one PVC binding (`serving-prod`) and one NFS cluster-wide binding; usage with one recipe
+- `GET /api/admin/storages` → two storages (`llama-weights` with 2 bindings and `bound_on: [{cluster_id: null, cluster_name: "default", namespace: null}, {cluster_id: null, cluster_name: "default", namespace: "serving-prod"}]`, `hf-cache` with 0 and `bound_on: []`)
+- `GET /api/admin/storages/<id>` → detail with one PVC binding (`serving-prod`) and one NFS cluster-wide binding; usage with one recipe and two deployments (`llama` `stale: true`, `qwen` `stale: false`)
 - `GET /api/admin/storages/<id>/bindings/status` → `{status: {<pvc>: "Bound", <nfs>: null}}`
 - `GET /api/admin/k8s-clusters/default/pvcs?namespace=serving-dev` → `{pvcs: [{name: "dev-pvc", phase: "Bound", capacity: "1Ti", …}], error: null}`; any other namespace → `{pvcs: [], error: "forbidden"}`
 - `POST /api/admin/storages/resolve` → first storage bound, second `binding: null`
 - recipes/deployments/clusters list endpoints the pages need
 
 Verify, with a screenshot each:
-1. `/admin/storages` lists both rows with counts; the kind filter hides `hf-cache` for "모델 가중치".
-2. Detail: bindings table shows `serving-prod`/`*`, `Bound` and `—`; Add binding → type PVC, namespace `serving-dev` → the claim select lists `dev-pvc · Bound · 1Ti`; namespace `other` → the free-text input and the "PVC 목록을 가져오지 못했습니다" note appear; Save posts `{type: "pvc", namespace: "serving-dev", claim_name: "dev-pvc", cluster_id: null, …}`.
-3. Recipe form: Storage section → add row, pick `llama-weights`, mount `/models`, model path `/models/llama` shows "llama-weights 안의 경로입니다."; change model path to `/data/x` shows the warning; a second row at `/models/cache` → save → the 422 message is shown.
+1. `/admin/storages` lists both rows with counts; `llama-weights` shows the chips `default/*` and `default/serving-prod`, `hf-cache` shows "바인딩 없음"; the kind filter hides `hf-cache` for "모델 가중치".
+2. Detail: bindings table shows `serving-prod`/`*`, `Bound` and `—`; the usage section shows the "바인딩이 바뀜 · 재배포 필요" badge after `llama` only; Add binding → type PVC, namespace `serving-dev` → the claim select lists `dev-pvc · Bound · 1Ti`; namespace `other` → the free-text input and the "PVC 목록을 가져오지 못했습니다" note appear; Save posts `{type: "pvc", namespace: "serving-dev", claim_name: "dev-pvc", cluster_id: null, …}`.
+3. Recipe form: Storage section → add row, pick `llama-weights` (its bound-on chips appear under the row), mount `/models`, model path `/models/llama` shows "llama-weights 안의 경로입니다."; change model path to `/data/x` shows the warning; a second row at `/models/cache` → save → the 422 message is shown.
 4. Deploy dialog from a recipe with both storages: preview shows ✓ for one, ✗ + "바인딩 추가하기" for the other, Deploy is disabled; mock resolve with both bound → Deploy enabled; POST body has `storages` and no `pvc_name`.
 5. Deployment detail with `storage_stale: [<id>]` shows the "바인딩이 바뀜 · 재배포 필요" badge.
 6. Settings → clusters: the bench storage select + mount path; selecting a storage with no mount path → toast `benchStorageBoth`.
