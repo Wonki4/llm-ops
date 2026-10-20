@@ -28,6 +28,7 @@ from app.api import (
     portal_settings,
     serving_overview,
     serving_recipes,
+    storages,
     team_requests,
     teams,
 )
@@ -79,6 +80,7 @@ app.include_router(k8s_clusters.router)
 app.include_router(llmd.router)
 app.include_router(serving_recipes.router)
 app.include_router(gpu_profiles.router)
+app.include_router(storages.router)
 app.include_router(serving_overview.router)
 
 
