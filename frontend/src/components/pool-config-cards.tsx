@@ -4,11 +4,11 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 
 import type { GpuTypeOption, PoolConfig, ProbeSpec, ProbesSpec, RuntimeOptions, ServingEngine } from "@/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StorageMountsEditor } from "@/components/storage-mounts-editor";
-import { Area, EngineArgsFields, Field, withEngineArg } from "@/components/engine-args-fields";
+import { Area, EngineArgsFields, Field, ROW_GRID, withEngineArg } from "@/components/engine-args-fields";
+import { CollapsibleSection, FormSection } from "@/components/form-section";
 import { linesToList, linesToMap, linesToTolerations, listToLines, mapToLines, tolerationsToLines } from "@/lib/placement";
 
 type OptionalText =
@@ -16,8 +16,9 @@ type OptionalText =
 type OptionalProbe = "liveness" | "startup";
 
 /**
- * The cards that describe one serving pool: image & model, resources,
- * storage, engine args, health checks, advanced (env, runtime, placement).
+ * The sections that describe one serving pool (rendered inside a FormCard):
+ * image & model, resources, storage, engine args, then folded health checks,
+ * env, runtime and placement with a one-line summary each.
  * An aggregated recipe binds these to the recipe row; a P/D recipe renders
  * one set per pool. Line-oriented text areas keep their own string state
  * and emit the parsed value on every change.
@@ -64,193 +65,188 @@ export function PoolConfigCards({
     onChange({ runtime: empty ? null : next });
   }
 
+  const probes = value.probes ?? {};
+  const probeSummary = [
+    `readiness ${probes.readiness?.path ?? READINESS_DEFAULTS.path} · ${probes.readiness?.initial_delay_seconds ?? READINESS_DEFAULTS.initial_delay_seconds}s`,
+    probes.liveness != null && "liveness",
+    probes.startup != null && "startup",
+  ].filter(Boolean).join(" · ");
+  const envCount = Object.keys(value.env ?? {}).length;
+  const runtimeSummary = [
+    runtime.host_ipc && "hostIPC",
+    runtime.privileged && "privileged",
+    ...Object.entries(runtime.extra_resources ?? {}).map(([k, v]) => `${k}=${v}`),
+  ].filter(Boolean).join(" · ");
+  const placementSummary = [
+    value.gpu_resource_key !== "nvidia.com/gpu" && value.gpu_resource_key,
+    ...Object.entries(value.node_selector ?? {}).map(([k, v]) => `${k}=${v}`),
+    (value.tolerations?.length ?? 0) > 0 && `tolerations ${value.tolerations!.length}`,
+  ].filter(Boolean).join(" · ");
+  const inline = "text-xs text-muted-foreground";
+
   return (
     <>
-      <Card>
-        <CardHeader><CardTitle className="text-base">{t("sectionImage")}</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field id={id("image")} label={t("image")} required>
-            <Input id={id("image")} className="font-mono" value={value.image} onChange={text("image")} />
-          </Field>
-          <Field id={id("model-path")} label={t("modelPath")} required>
-            <Input id={id("model-path")} className="font-mono" value={value.model_path} onChange={text("model_path")} />
-          </Field>
-        </CardContent>
-      </Card>
+      <FormSection title={t("sectionImage")}>
+        <Field id={id("image")} label={t("image")} required>
+          <Input id={id("image")} className="font-mono" value={value.image} onChange={text("image")} />
+        </Field>
+        <Field id={id("model-path")} label={t("modelPath")} required>
+          <Input id={id("model-path")} className="font-mono" value={value.model_path} onChange={text("model_path")} />
+        </Field>
+      </FormSection>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">{t("sectionResources")}</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field id={id("gpu-count")} label={t("gpuCount")}>
-              <Input
-                id={id("gpu-count")} type="number" min={0} value={value.gpu_count}
-                onChange={(e) => onChange({ gpu_count: e.target.value === "" ? 0 : Number(e.target.value) })}
-              />
-            </Field>
-            <Field id={id("gpu-type")} label={t("gpuType")} hint={t("gpuTypeHint")}>
-              <Input
-                id={id("gpu-type")} className="font-mono" list={id("gpu-type-options")} placeholder="a100-80g"
-                value={value.gpu_type ?? ""} onChange={(e) => onChange({ gpu_type: e.target.value.trim() || null })}
-              />
-              <datalist id={id("gpu-type-options")}>
-                {gpuTypes.map((g) => (
-                  <option key={g.name} value={g.name}>{g.clusters.map((c) => c.cluster_name).join(", ")}</option>
-                ))}
-              </datalist>
-            </Field>
-          </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field id={id("cpu-req")} label={t("cpuRequest")}>
-              <Input id={id("cpu-req")} placeholder="4" value={value.cpu_request ?? ""} onChange={optText("cpu_request")} />
-            </Field>
-            <Field id={id("cpu-limit")} label={t("cpuLimit")}>
-              <Input id={id("cpu-limit")} placeholder="8" value={value.cpu_limit ?? ""} onChange={optText("cpu_limit")} />
-            </Field>
-            <Field id={id("mem-req")} label={t("memoryRequest")}>
-              <Input id={id("mem-req")} placeholder="32Gi" value={value.memory_request ?? ""} onChange={optText("memory_request")} />
-            </Field>
-            <Field id={id("mem-limit")} label={t("memoryLimit")}>
-              <Input id={id("mem-limit")} placeholder="64Gi" value={value.memory_limit ?? ""} onChange={optText("memory_limit")} />
-            </Field>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle className="text-base">{t("sectionStorage")}</CardTitle></CardHeader>
-        <CardContent>
-          <StorageMountsEditor
-            idPrefix={idPrefix}
-            value={value.storages ?? []}
-            onChange={(storages) => onChange({ storages })}
-            modelPath={value.model_path}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("sectionEngineArgs")}</CardTitle>
-          <p className="text-xs text-muted-foreground">{t("engineArgsHint")}</p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <EngineArgsFields
-            engine={engine} values={value.engine_args} idPrefix={id("arg")}
-            onChange={(key, v) => onChange({ engine_args: withEngineArg(value.engine_args, key, v) })}
-          />
-          <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : undefined}>
-            <Area
-              id={id("args")} value={argsText}
-              placeholder={engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
-              onChange={(v) => { setArgsText(v); onChange({ vllm_extra_args: linesToList(v) }); }}
+      <FormSection title={t("sectionResources")}>
+        <Field id={id("gpu-count")} label={t("resGpu")} hint={t("gpuTypeHint")}>
+          <div className="flex items-center gap-2">
+            <Input
+              id={id("gpu-count")} aria-label={t("gpuCount")} type="number" min={0} className="w-20 shrink-0" value={value.gpu_count}
+              onChange={(e) => onChange({ gpu_count: e.target.value === "" ? 0 : Number(e.target.value) })}
             />
-          </Field>
-        </CardContent>
-      </Card>
+            <span className={inline}>×</span>
+            <select
+              id={id("gpu-type")}
+              aria-label={t("gpuType")}
+              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+              value={value.gpu_type ?? ""}
+              onChange={(e) => onChange({ gpu_type: e.target.value || null })}
+            >
+              <option value="">{t("gpuTypeNone")}</option>
+              {gpuTypes.map((g) => <option key={g.name} value={g.name}>{g.name}</option>)}
+              {/* A saved value no cluster defines any more stays selectable instead of silently clearing. */}
+              {value.gpu_type && !gpuTypes.some((g) => g.name === value.gpu_type) && (
+                <option value={value.gpu_type}>{t("gpuTypeUnregistered", { name: value.gpu_type })}</option>
+              )}
+            </select>
+          </div>
+        </Field>
+        <Field id={id("cpu-req")} label={t("resCpu")}>
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+            <span className={inline}>{t("resRequest")}</span>
+            <Input id={id("cpu-req")} aria-label={t("cpuRequest")} placeholder="4" value={value.cpu_request ?? ""} onChange={optText("cpu_request")} />
+            <span className={inline}>{t("resLimit")}</span>
+            <Input id={id("cpu-limit")} aria-label={t("cpuLimit")} placeholder="8" value={value.cpu_limit ?? ""} onChange={optText("cpu_limit")} />
+          </div>
+        </Field>
+        <Field id={id("mem-req")} label={t("resMemory")}>
+          <div className="grid grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
+            <span className={inline}>{t("resRequest")}</span>
+            <Input id={id("mem-req")} aria-label={t("memoryRequest")} placeholder="32Gi" value={value.memory_request ?? ""} onChange={optText("memory_request")} />
+            <span className={inline}>{t("resLimit")}</span>
+            <Input id={id("mem-limit")} aria-label={t("memoryLimit")} placeholder="64Gi" value={value.memory_limit ?? ""} onChange={optText("memory_limit")} />
+          </div>
+        </Field>
+        <Field id={id("shm")} label={t("resShm")} hint={t("shmHint")}>
+          <div className="flex items-center gap-2">
+            <Input
+              id={id("shm")} type="number" min={1} max={4096} step={1} className="w-28"
+              value={runtime.shm_size_gi ?? ""}
+              onChange={(e) => setRuntime({ shm_size_gi: e.target.value === "" ? null : Number(e.target.value) })}
+            />
+            <span className={inline}>Gi · /dev/shm</span>
+          </div>
+          {(value.gpu_count ?? 0) >= 2 && !runtime.shm_size_gi && (
+            <p className="text-[11px] text-amber-600" data-testid={id("shm-warning")}>{t("shmMultiGpuWarning")}</p>
+          )}
+        </Field>
+      </FormSection>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t("sectionProbes")}</CardTitle>
-          <p className="text-xs text-muted-foreground">{t("probesHint")}</p>
-        </CardHeader>
-        <CardContent className="space-y-5">
+      <FormSection title={t("sectionStorage")}>
+        <StorageMountsEditor
+          idPrefix={idPrefix}
+          value={value.storages ?? []}
+          onChange={(storages) => onChange({ storages })}
+          modelPath={value.model_path}
+        />
+      </FormSection>
+
+      <FormSection title={t("sectionEngineArgs")} hint={t("engineArgsHint")}>
+        <EngineArgsFields
+          engine={engine} values={value.engine_args} idPrefix={id("arg")}
+          onChange={(key, v) => onChange({ engine_args: withEngineArg(value.engine_args, key, v) })}
+        />
+        <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : undefined}>
+          <Area
+            id={id("args")} value={argsText}
+            placeholder={engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
+            onChange={(v) => { setArgsText(v); onChange({ vllm_extra_args: linesToList(v) }); }}
+          />
+        </Field>
+      </FormSection>
+
+      <CollapsibleSection title={t("sectionProbes")} summary={probeSummary} hint={t("probesHint")}>
+        <ProbeFields
+          idPrefix={idPrefix} kind="readiness" title={t("readiness")}
+          spec={probes.readiness ?? null} defaults={READINESS_DEFAULTS}
+          onChange={(k, v) => setProbe("readiness", k, v)}
+        />
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <input type="checkbox" checked={probes.liveness != null} onChange={(e) => setOptionalProbe("liveness", e.target.checked)} />
+          {t("livenessEnable")}
+        </label>
+        {probes.liveness != null && (
           <ProbeFields
-            idPrefix={idPrefix} kind="readiness" title={t("readiness")}
-            spec={value.probes?.readiness ?? null} defaults={READINESS_DEFAULTS}
-            onChange={(k, v) => setProbe("readiness", k, v)}
+            idPrefix={idPrefix} kind="liveness" title={t("liveness")}
+            spec={probes.liveness} defaults={LIVENESS_DEFAULTS}
+            onChange={(k, v) => setProbe("liveness", k, v)}
           />
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={value.probes?.liveness != null} onChange={(e) => setOptionalProbe("liveness", e.target.checked)} />
-              {t("livenessEnable")}
-            </label>
-            {value.probes?.liveness != null && (
-              <ProbeFields
-                idPrefix={idPrefix} kind="liveness" title={t("liveness")}
-                spec={value.probes.liveness} defaults={LIVENESS_DEFAULTS}
-                onChange={(k, v) => setProbe("liveness", k, v)}
-              />
-            )}
-          </div>
-          <div className="space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" checked={value.probes?.startup != null} onChange={(e) => setOptionalProbe("startup", e.target.checked)} />
-              {t("startupEnable")}
-            </label>
-            {pdHints && <p className="text-xs text-muted-foreground">{t("startupPdHint")}</p>}
-            {value.probes?.startup != null && (
-              <ProbeFields
-                idPrefix={idPrefix} kind="startup" title={t("startup")}
-                spec={value.probes.startup} defaults={STARTUP_DEFAULTS}
-                onChange={(k, v) => setProbe("startup", k, v)}
-              />
-            )}
-          </div>
-        </CardContent>
-      </Card>
+        )}
+        <label className="flex items-center gap-2 text-xs font-medium">
+          <input type="checkbox" checked={probes.startup != null} onChange={(e) => setOptionalProbe("startup", e.target.checked)} />
+          {t("startupEnable")}
+        </label>
+        {pdHints && <p className="text-[11px] text-muted-foreground">{t("startupPdHint")}</p>}
+        {probes.startup != null && (
+          <ProbeFields
+            idPrefix={idPrefix} kind="startup" title={t("startup")}
+            spec={probes.startup} defaults={STARTUP_DEFAULTS}
+            onChange={(k, v) => setProbe("startup", k, v)}
+          />
+        )}
+      </CollapsibleSection>
 
-      <Card>
-        <CardHeader><CardTitle className="text-base">{t("sectionAdvanced")}</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <Field id={id("env")} label={t("env")}>
-            <Area
-              id={id("env")} value={envText} placeholder={"HF_HOME=/models/.cache\nVLLM_LOGGING_LEVEL=INFO"}
-              onChange={(v) => { setEnvText(v); onChange({ env: linesToMap(v) }); }}
-            />
-          </Field>
-          <details className="rounded-md border p-3" open={!!(runtime.shm_size_gi || runtime.host_ipc || runtime.privileged || extraResText)}>
-            <summary className="cursor-pointer text-sm font-medium">{t("sectionRuntime")}</summary>
-            <p className="mt-1 text-xs text-muted-foreground">{t("runtimeHint")}</p>
-            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field id={id("shm")} label={t("runtimeShm")}>
-                <Input
-                  id={id("shm")} type="number" min={1} max={4096} step={1} placeholder="16"
-                  value={runtime.shm_size_gi ?? ""}
-                  onChange={(e) => setRuntime({ shm_size_gi: e.target.value === "" ? null : Number(e.target.value) })}
-                />
-              </Field>
-              <div className="flex flex-wrap items-end gap-x-6 gap-y-2 pb-2">
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={!!runtime.host_ipc} onChange={(e) => setRuntime({ host_ipc: e.target.checked })} />
-                  {t("runtimeHostIpc")}
-                </label>
-                <label className="flex items-center gap-2 text-sm">
-                  <input type="checkbox" checked={!!runtime.privileged} onChange={(e) => setRuntime({ privileged: e.target.checked })} />
-                  {t("runtimePrivileged")}
-                </label>
-              </div>
-              <Field id={id("extra-resources")} label={t("runtimeExtraResources")} span2 hint={t("runtimeExtraResourcesHint")}>
-                <Area
-                  id={id("extra-resources")} rows={2} value={extraResText} placeholder="rdma/ib=1"
-                  onChange={(v) => { setExtraResText(v); setRuntime({ extra_resources: linesToMap(v) ?? {} }); }}
-                />
-              </Field>
-            </div>
-          </details>
-          <details className="rounded-md border p-3" open={!!(value.node_selector || value.tolerations || value.gpu_resource_key !== "nvidia.com/gpu")}>
-            <summary className="cursor-pointer text-sm font-medium">{t("advancedPlacement")}</summary>
-            <p className="mt-1 text-xs text-muted-foreground">{t("advancedPlacementHint")}</p>
-            <div className="mt-3 space-y-4">
-              <Field id={id("gpu-key")} label={t("gpuResourceKey")}>
-                <Input id={id("gpu-key")} className="font-mono" value={value.gpu_resource_key} onChange={text("gpu_resource_key")} />
-              </Field>
-              <Field id={id("node-selector")} label={t("nodeSelector")}>
-                <Area
-                  id={id("node-selector")} value={nsText} placeholder="gpu-type=a100-80g"
-                  onChange={(v) => { setNsText(v); onChange({ node_selector: linesToMap(v) }); }}
-                />
-              </Field>
-              <Field id={id("tolerations")} label={t("tolerations")}>
-                <Area
-                  id={id("tolerations")} value={tolText} placeholder={"nvidia.com/gpu=present:NoSchedule\ndedicated=llm:NoExecute\nspot"}
-                  onChange={(v) => { setTolText(v); onChange({ tolerations: linesToTolerations(v) }); }}
-                />
-              </Field>
-            </div>
-          </details>
-        </CardContent>
-      </Card>
+      <CollapsibleSection title={t("env")} summary={envCount ? t("summaryCount", { count: envCount }) : t("summaryNone")}>
+        <Area
+          id={id("env")} value={envText} placeholder={"HF_HOME=/models/.cache\nVLLM_LOGGING_LEVEL=INFO"}
+          onChange={(v) => { setEnvText(v); onChange({ env: linesToMap(v) }); }}
+        />
+      </CollapsibleSection>
+
+      <CollapsibleSection title={t("sectionRuntime")} summary={runtimeSummary || t("summaryDefault")} hint={t("runtimeHint")}>
+        <div className="flex flex-wrap gap-x-5 gap-y-1.5 sm:pl-[9.5rem]">
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={!!runtime.host_ipc} onChange={(e) => setRuntime({ host_ipc: e.target.checked })} />
+            {t("runtimeHostIpc")}
+          </label>
+          <label className="flex items-center gap-1.5 text-xs">
+            <input type="checkbox" checked={!!runtime.privileged} onChange={(e) => setRuntime({ privileged: e.target.checked })} />
+            {t("runtimePrivileged")}
+          </label>
+        </div>
+        <Field id={id("extra-resources")} label={t("runtimeExtraResources")} hint={t("runtimeExtraResourcesHint")}>
+          <Area
+            id={id("extra-resources")} rows={2} value={extraResText} placeholder="rdma/ib=1"
+            onChange={(v) => { setExtraResText(v); setRuntime({ extra_resources: linesToMap(v) ?? {} }); }}
+          />
+        </Field>
+      </CollapsibleSection>
+
+      <CollapsibleSection title={t("advancedPlacement")} summary={placementSummary || t("summaryDefault")} hint={t("advancedPlacementHint")}>
+        <Field id={id("gpu-key")} label={t("gpuResourceKey")}>
+          <Input id={id("gpu-key")} className="font-mono" value={value.gpu_resource_key} onChange={text("gpu_resource_key")} />
+        </Field>
+        <Field id={id("node-selector")} label={t("nodeSelector")}>
+          <Area
+            id={id("node-selector")} rows={2} value={nsText} placeholder="gpu-type=a100-80g"
+            onChange={(v) => { setNsText(v); onChange({ node_selector: linesToMap(v) }); }}
+          />
+        </Field>
+        <Field id={id("tolerations")} label={t("tolerations")}>
+          <Area
+            id={id("tolerations")} value={tolText} placeholder={"nvidia.com/gpu=present:NoSchedule\ndedicated=llm:NoExecute\nspot"}
+            onChange={(v) => { setTolText(v); onChange({ tolerations: linesToTolerations(v) }); }}
+          />
+        </Field>
+      </CollapsibleSection>
     </>
   );
 }
@@ -285,19 +281,19 @@ function ProbeFields({
   const t = useTranslations("servingRecipes");
   const id = (k: string) => `${idPrefix}-probe-${kind}-${k}`;
   return (
-    <div className="space-y-2">
-      <div className="text-sm font-medium">{title}</div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-        <div className="space-y-1 col-span-2 sm:col-span-1">
-          <Label htmlFor={id("path")} className="text-xs">{t("probePath")}</Label>
+    <div className={ROW_GRID}>
+      <div className="text-xs leading-4 text-muted-foreground sm:pt-6">{title}</div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <div className="col-span-2 space-y-0.5 sm:col-span-1">
+          <Label htmlFor={id("path")} className="text-[11px] font-normal text-muted-foreground">{t("probePath")}</Label>
           <Input
             id={id("path")} className="font-mono" placeholder={defaults.path}
             value={spec?.path ?? ""} onChange={(e) => onChange("path", e.target.value)}
           />
         </div>
         {PROBE_NUMERIC.map((k) => (
-          <div key={k} className="space-y-1">
-            <Label htmlFor={id(k)} className="text-xs">{t(PROBE_LABEL[k])}</Label>
+          <div key={k} className="space-y-0.5">
+            <Label htmlFor={id(k)} className="text-[11px] font-normal text-muted-foreground">{t(PROBE_LABEL[k])}</Label>
             <Input
               id={id(k)} type="number" min={k === "initial_delay_seconds" ? 0 : 1} step={1}
               placeholder={String(defaults[k])}

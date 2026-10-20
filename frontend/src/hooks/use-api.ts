@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api";
 import { runSequential } from "@/lib/bulk-review";
 import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
@@ -62,6 +62,8 @@ import type {
   ServingRecipe,
   ServingRecipeCreateBody,
   ServingRecipeInput,
+  ServingRecipePreview,
+  ServingRecipePreviewBody,
   ServingOverview,
   CreateDeploymentBody,
   PersonalAccess,
@@ -1723,6 +1725,21 @@ export function useCreateServingRecipe() {
       qc.invalidateQueries({ queryKey: ["serving-recipes"] });
       qc.invalidateQueries({ queryKey: ["model-deployments"] });
     },
+  });
+}
+
+/** Render the manifests a deploy of an unsaved recipe would apply (no writes); off while `body` is null. */
+export function usePreviewServingRecipe(body: ServingRecipePreviewBody | null) {
+  return useQuery({
+    queryKey: ["serving-recipe-preview", body],
+    queryFn: () =>
+      apiFetch<ServingRecipePreview>("/api/admin/serving-recipes/preview", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    enabled: body !== null,
+    retry: false,
+    placeholderData: keepPreviousData, // live preview: keep the last YAML while the next one renders
   });
 }
 

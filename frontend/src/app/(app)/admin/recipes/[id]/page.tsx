@@ -15,7 +15,7 @@ export default function EditRecipePage() {
   const recipe = recipes?.find((r) => r.id === id);
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("editTitle")} description={recipe?.name} />
       {isLoading ? (
         <div className="h-64 animate-pulse rounded-lg bg-muted" />

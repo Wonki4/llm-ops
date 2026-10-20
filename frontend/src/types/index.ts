@@ -843,8 +843,28 @@ export interface PoolConfig {
 }
 
 /** One P/D pool: a complete PoolConfig plus its replica count. Missing fields fall back to the recipe row. */
+/** One pool's P/D-only pod settings, layered over its general config at render time. */
+export interface PdExtras {
+  env?: Record<string, string>;
+  args?: string[];
+  labels?: Record<string, string>;
+  annotations?: Record<string, string>;
+  resources?: Record<string, string>;
+}
+
+/** The decode pool's routing sidecar (initContainer); a blank image uses the portal's sidecar image. */
+export interface SidecarSpec {
+  image?: string | null;
+  args?: string[];
+  env?: Record<string, string>;
+  requests?: Record<string, string>;
+  limits?: Record<string, string>;
+}
+
 export interface PdRoleOverride extends Partial<PoolConfig> {
   replicas?: number;
+  pd_extras?: PdExtras | null;
+  sidecar?: SidecarSpec | null;
 }
 
 /** The llm-d router a P/D deployment creates: EPP tuning + stack-level overrides. */
@@ -858,7 +878,11 @@ export interface PdRouterConfig {
   ingress_class?: string | null;
 }
 
+/** Who orchestrates a P/D pair (router + KV plumbing); only llm-d today. */
+export type PdFramework = "llm-d";
+
 export interface PdConfig {
+  framework?: PdFramework;
   prefill?: PdRoleOverride;
   decode?: PdRoleOverride;
   nixl_port?: number;
@@ -959,6 +983,24 @@ export type ServingRecipeInput = Omit<
 // POST body: a recipe captured from a portal deployment back-links it
 // (deployment.recipe_id) when that deployment has no recipe yet.
 export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_id?: string | null };
+
+// POST /api/admin/serving-recipes/preview: an unsaved recipe rendered for a deploy target.
+export type ServingRecipePreviewBody = ServingRecipeInput & {
+  cluster_id: string | null;
+  namespace: string;
+  model_name: string | null;
+};
+
+export interface ManifestPreview {
+  kind: string;
+  name: string;
+  yaml: string;
+}
+
+export interface ServingRecipePreview {
+  manifests: ManifestPreview[];
+  warnings: string[];
+}
 
 /** One thing the reverse parser guessed or dropped; `code` maps to i18n `servingRecipes.warn.<code>`. */
 export interface RecipeDraftWarning {

@@ -36,7 +36,7 @@ function NewRecipeRoute() {
     );
   }
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("createTitle")} description={t("createDescription")} />
       <ServingRecipeForm />
     </div>
@@ -58,7 +58,7 @@ function FromPortalDeployment({ id }: { id: string }) {
   }, [dep, t]);
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("importTitle")} description={t("importDescription")} />
       {isLoading ? (
         <Pulse />
@@ -100,7 +100,7 @@ function FromExternalDeployment({
   }, [data, name, namespace, t]);
 
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("importTitle")} description={t("importExternalDescription")} />
       {isLoading ? (
         <Pulse />
