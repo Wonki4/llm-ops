@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.model_deployments import _apply_pool_profiles
+from app.api.model_deployments import _apply_pool_profiles, pvc_warnings
 from app.auth.deps import require_super_user
 from app.config import settings
 from app.db.models.custom_model_deployment import CustomModelDeployment
@@ -257,6 +257,7 @@ async def preview_recipe(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     warnings = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
     warnings += [f"storage_unresolved:{n}" for n in unresolved]
+    warnings += await pvc_warnings(db, dep)
     out = [
         {
             "kind": m.get("kind"),

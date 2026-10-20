@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 import yaml
 
 from tests._storage import SID
@@ -14,6 +15,13 @@ PD = {**RECIPE, "serving_mode": "pd", "pd_config": {"prefill": POOL, "decode": {
 SNAP = {"binding_id": "b", "type": "pvc", "claim_name": "models-pvc", "namespace": "prod",
         "nfs_server": None, "nfs_path": None, "sub_path": None}
 URL = "/api/admin/serving-recipes/preview"
+
+
+@pytest.fixture(autouse=True)
+def _no_pvc_lookup():
+    """No live PVC lookup unless a test patches its own."""
+    with patch("app.api.model_deployments.pvc_index", AsyncMock(return_value=None)) as m:
+        yield m
 
 
 def _result(scalar=None):
@@ -117,7 +125,6 @@ async def test_preview_matches_what_deploy_applies_for_pd(client_for_user, super
         _resolve(_bound),
         patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
         patch("app.api.model_deployments._attach_router", AsyncMock()),
-        patch("app.api.model_deployments.pvc_phases", AsyncMock(return_value=None)),
     ):
         async with client_for_user(super_user) as client:
             preview = await client.post(URL, json={**PD, "namespace": "prod"})
@@ -173,3 +180,23 @@ async def test_router_defaults_convert_an_older_recipes_structured_fields(client
     epp = yaml.safe_load(resp.json()["values_yaml"])["router"]["epp"]
     assert epp["replicas"] == 3 and epp["image"]["tag"] == "v0.8.0"  # an explicit EPP override is kept
     assert "peakPrefillThroughput: 5000" in next(iter(epp["pluginsCustomConfig"].values()))
+
+
+async def test_preview_warns_rwo_pvc_shared_by_both_pools(client_for_user, super_user, mock_db, _no_pvc_lookup):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    _no_pvc_lookup.return_value = {"models-pvc": {"phase": "Bound", "access_modes": ["ReadWriteOnce"]}}
+    with patch("app.api.serving_recipes.resolve_entries", AsyncMock(side_effect=_bound)), _resolve(_bound):
+        async with client_for_user(super_user) as client:
+            resp = await client.post(URL, json={**PD, "namespace": "prod"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["warnings"] == ["pvc_single_node:models-pvc"]
+    assert _no_pvc_lookup.await_args.args[1:] == (None, "prod")
+
+
+async def test_preview_skips_lookup_for_unbound_placeholders(client_for_user, super_user, mock_db, _no_pvc_lookup):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    with patch("app.api.serving_recipes.resolve_entries", AsyncMock(side_effect=_unbound)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post(URL, json=RECIPE)
+    assert resp.json()["warnings"] == ["storage_unresolved:llama-weights"]
+    _no_pvc_lookup.assert_not_awaited()

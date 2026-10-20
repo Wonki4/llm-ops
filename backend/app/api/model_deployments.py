@@ -35,11 +35,11 @@ from app.services.model_deployment_manifests import build_all, k8s_resource_name
 from app.services.recipe_import import attach_storages, build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 from app.services.serving_probes import validate_probes
-from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
+from app.services.storage_fields import pvc_access_warnings, recipe_warnings, reject_legacy_pvc
 from app.services.storage_mounts import all_entries, validate_entries
 from app.services.storage_store import (
     match_claims,
-    pvc_phases,
+    pvc_index,
     resolve_entries,
     resolve_pool_storages,
     stale_storage_ids,
@@ -495,21 +495,29 @@ async def _resolve_storages(
 
 
 async def _deploy_warnings(db: AsyncSession, dep: CustomModelDeployment) -> list[str]:
-    """model_path outside every storage; PVCs that are not Bound (bounded, best-effort lookup)."""
-    out = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
+    """model_path outside every storage, then the live PVC checks (``pvc_warnings``)."""
+    return recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config) + await pvc_warnings(db, dep)
+
+
+async def pvc_warnings(db: AsyncSession, dep: CustomModelDeployment) -> list[str]:
+    """PVCs that are missing / not Bound, or whose access modes don't fit how they are mounted.
+    Bounded, best-effort lookup; placeholder claims of unbound storages (preview) are skipped."""
     resolved = [e.get("resolved") or {} for e in all_entries(dep)]
-    claims = sorted({r["claim_name"] for r in resolved if r.get("type") == "pvc"})
+    claims = sorted(
+        {r["claim_name"] for r in resolved if r.get("type") == "pvc" and not r["claim_name"].startswith("<")}
+    )
     if not claims:
-        return out
-    phases = await pvc_phases(db, dep.cluster_id, dep.namespace)
-    if phases is None:  # cluster unreadable: no PVC warnings
-        return out
+        return []
+    pvcs = await pvc_index(db, dep.cluster_id, dep.namespace)
+    if pvcs is None:  # cluster unreadable: no PVC warnings
+        return []
+    out = []
     for claim in claims:
-        if claim not in phases:
+        if claim not in pvcs:
             out.append(f"pvc_missing:{claim}")
-        elif phases[claim] != "Bound":
+        elif (pvcs[claim].get("phase") or "Pending") != "Bound":
             out.append(f"pvc_pending:{claim}")
-    return out
+    return out + pvc_access_warnings(dep, pvcs)
 
 
 async def _router_stack_summary(db: AsyncSession, dep: CustomModelDeployment) -> dict | None:

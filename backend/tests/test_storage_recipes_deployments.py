@@ -166,8 +166,12 @@ def _resolved(db, entries, *a, **kw):
     return [{**e, "volume_name": "st-llama-weights", "resolved": snap} for e in entries]
 
 
-def _phases(phases):
-    return patch("app.api.model_deployments.pvc_phases", AsyncMock(return_value=phases))
+def _phases(phases, modes=("ReadWriteMany",)):
+    """Live PVC lookup: claim → phase (each PVC gets ``modes`` as its access modes)."""
+    pvcs = None if phases is None else {
+        c: {"name": c, "phase": ph, "access_modes": list(modes)} for c, ph in phases.items()
+    }
+    return patch("app.api.model_deployments.pvc_index", AsyncMock(return_value=pvcs))
 
 
 async def test_deploy_snapshots_resolution_and_warns_pending_pvc(client_for_user, super_user, mock_db):
@@ -355,3 +359,17 @@ async def test_update_keeps_the_live_selector_owner_and_deploy_uses_the_new_one(
     assert created.status_code == 201, created.text
     new = next(m for m in fresh.create_or_patch.await_args.args[1] if m["kind"] == "Deployment")
     assert new["spec"]["selector"]["matchLabels"]["llm-ops/managed-by"] == "llm-ops-portal"
+
+
+async def test_deploy_warns_rwo_pvc_with_two_replicas(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s())),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)),
+        _phases({"models-pvc": "Bound"}, modes=["ReadWriteOnce"]),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json={**DEPLOY, "replicas": 2})
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["warnings"] == ["pvc_single_node:models-pvc"]
