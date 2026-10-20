@@ -261,3 +261,42 @@ its snapshot (binding edited, deleted, or a more specific binding added).
 - Frontend: tsc/eslint/build; Playwright (mocked `/api/proxy`) for storage
   list/detail, binding dialog PVC dropdown + fallback, recipe storage rows,
   deploy-dialog resolution preview and disabled Deploy.
+
+## Live verification (2026-10-20)
+
+Environment: local docker stack (serves another branch, not rebuilt). Worktree backend run with
+`uvicorn` on port 8199 against a COPY database `portal_migtest` (pg_dump of `litellm_portal` in
+`litellm_db`; `APP_DATABASE_URL` guarded to end in `@localhost:5432/portal_migtest`). Auth: the real
+flow needs a Keycloak JWT, so a throwaway launcher (outside the repo) overrides `get_current_user`
+with the `ADMIN001` super user row of the copy DB. Kubernetes: the portal default context is
+`portal-test` (`https://127.0.0.1:51283`, local minikube) but minikube was **not running**
+(`connection refused`), so no K8s writes were made and the mock-vllm deploy step was skipped.
+
+Migration (copy DB; the copy had no legacy PVC rows, so it was downgraded to 050, seeded with
+`mig-dep` (pvc `models-pvc`, ns `serving-prod`) and `mig-dep-nfs`, plus cluster default NFS
+`10.0.0.5:/export`, then upgraded again):
+
+```
+alembic upgrade head      # 050_pd_serving -> 051_storages -> 052_storages_backfill
+custom_alembic_version    = 052_storages_backfill
+custom_storage            = minikube-local-bench-weights, pvc-models-pvc
+```
+
+API (curl against :8199):
+
+```
+POST /api/admin/storages {"name":"llama-weights","kind":"weights"}            -> 201, id returned
+POST /api/admin/storages/{id}/bindings {"namespace":"default","type":"pvc","claim_name":"llama-pvc"}
+                                                                               -> 201, cluster_name "default"
+GET  /api/admin/storages/{id}/bindings/status  -> {"status":{"<binding>":"error"}}
+POST /api/admin/storages/resolve {namespace:"default"}   -> binding (pvc llama-pvc), pvc_phase "error"
+POST /api/admin/storages/resolve {namespace:"other-ns"}  -> binding null, pvc_phase null
+GET  /api/model-deployments/{id} for each of the 4 deployments (incl. migrated mig-dep, 1 storage entry)
+                                                                               -> storage_stale [] (not stale) for all
+```
+
+Not verified live: `Bound` phase (the expected status when the cluster is reachable) and the rendered
+`volumes` of a mock-vllm deployment, because minikube was down; both paths are covered by unit tests and
+the Task 11 renderer comparison (old vs. new renderer identical).
+
+Cleanup: uvicorn stopped, `DROP DATABASE portal_migtest`; no K8s resources, LiteLLM models or catalog rows were created.
