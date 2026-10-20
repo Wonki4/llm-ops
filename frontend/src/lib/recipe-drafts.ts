@@ -72,24 +72,32 @@ export function flagLine(key: string, value: Scalar): string {
  */
 export function normalizeDraft(draft: ServingRecipeInput): { input: ServingRecipeInput; relocated: string[] } {
   const engine: ServingEngine = draft.engine === "sglang" ? "sglang" : "vllm";
+  const split = splitEngineArgs(engine, draft.engine_args, draft.vllm_extra_args);
+  return { input: { ...draft, engine, ...split.value }, relocated: split.relocated };
+}
+
+/**
+ * Keep the `engine_args` the form has a field for; turn the rest into extra-args
+ * lines (appended), so no flag is hidden from the operator or lost on save.
+ */
+export function splitEngineArgs(
+  engine: ServingEngine,
+  engineArgs: EngineArgs | null | undefined,
+  extraArgs: string[] | null | undefined,
+): { value: { engine_args: EngineArgs | null; vllm_extra_args: string[] | null }; relocated: string[] } {
   const fields = new Map(ENGINE_ARG_FIELDS[engine].map((f) => [f.key, f]));
   const kept: EngineArgs = {};
   const relocated: string[] = [];
-  for (const [key, raw] of Object.entries(draft.engine_args ?? {})) {
+  for (const [key, raw] of Object.entries(engineArgs ?? {})) {
     if (raw == null || raw === false || raw === "") continue;
     const field = fields.get(key);
     const fitted = field ? fitField(field, raw) : undefined;
     if (fitted !== undefined) kept[key] = fitted;
     else relocated.push(flagLine(key, raw));
   }
-  const extra = [...(draft.vllm_extra_args ?? []), ...relocated];
+  const extra = [...(extraArgs ?? []), ...relocated];
   return {
-    input: {
-      ...draft,
-      engine,
-      engine_args: Object.keys(kept).length ? kept : null,
-      vllm_extra_args: extra.length ? extra : null,
-    },
+    value: { engine_args: Object.keys(kept).length ? kept : null, vllm_extra_args: extra.length ? extra : null },
     relocated,
   };
 }

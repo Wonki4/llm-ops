@@ -18,6 +18,22 @@ export const ENGINE_LABEL_KEY: Record<ServingEngine, "engineVllm" | "engineSglan
   sglang: "engineSglang",
 };
 
+/** Structured flags a new recipe starts with (also re-applied when switching engine). */
+export const DEFAULT_ENGINE_ARGS: Record<ServingEngine, EngineArgs | null> = {
+  vllm: { "gpu-memory-utilization": 0.9, "enable-auto-tool-choice": true, "enable-prefix-caching": true },
+  sglang: null,
+};
+
+/**
+ * vLLM refuses to start with --enable-auto-tool-choice but no --tool-call-parser.
+ * True when a pool would hit that (the parser may also come from the free-text extra args).
+ */
+export function missingToolCallParser(args: EngineArgs | null | undefined, extraArgs: string[] | null | undefined): boolean {
+  if (args?.["enable-auto-tool-choice"] !== true) return false;
+  if (String(args["tool-call-parser"] ?? "").trim()) return false;
+  return !(extraArgs ?? []).some((a) => a === "--tool-call-parser" || a.startsWith("--tool-call-parser="));
+}
+
 export type EngineArgField =
   | { key: string; type: "int"; min?: number; placeholder?: string }
   | { key: string; type: "float"; step: number; min?: number; max?: number; placeholder?: string }
@@ -28,17 +44,13 @@ export type EngineArgField =
 export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
   vllm: [
     { key: "tensor-parallel-size", type: "int", min: 1, placeholder: "1" },
-    { key: "pipeline-parallel-size", type: "int", min: 1, placeholder: "1" },
     { key: "max-model-len", type: "int", min: 1, placeholder: "8192" },
     { key: "gpu-memory-utilization", type: "float", step: 0.01, min: 0, max: 1, placeholder: "0.9" },
-    { key: "dtype", type: "text", placeholder: "auto | bfloat16 | float16" },
-    { key: "quantization", type: "text", placeholder: "fp8 | awq | gptq | bitsandbytes" },
-    { key: "kv-cache-dtype", type: "text", placeholder: "auto | fp8" },
     { key: "max-num-seqs", type: "int", min: 1, placeholder: "256" },
     { key: "max-num-batched-tokens", type: "int", min: 1, placeholder: "8192" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },
-    { key: "reasoning-parser", type: "text", placeholder: "deepseek_r1 | qwen3 | ..." },
-    { key: "tool-call-parser", type: "text", placeholder: "hermes | llama3_json | mistral | ..." },
+    { key: "reasoning-parser", type: "text" },
+    { key: "tool-call-parser", type: "text" },
     { key: "enable-auto-tool-choice", type: "bool" },
     { key: "enable-prefix-caching", type: "bool" },
     { key: "enable-chunked-prefill", type: "bool" },
@@ -49,9 +61,6 @@ export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
     { key: "dp-size", type: "int", min: 1, placeholder: "1" },
     { key: "context-length", type: "int", min: 1, placeholder: "8192" },
     { key: "mem-fraction-static", type: "float", step: 0.01, min: 0, max: 1, placeholder: "0.88" },
-    { key: "dtype", type: "text", placeholder: "auto | bfloat16 | float16" },
-    { key: "quantization", type: "text", placeholder: "fp8 | awq | gptq | bitsandbytes" },
-    { key: "kv-cache-dtype", type: "text", placeholder: "auto | fp8_e5m2 | fp8_e4m3" },
     { key: "max-running-requests", type: "int", min: 1, placeholder: "256" },
     { key: "chunked-prefill-size", type: "int", min: 1, placeholder: "8192" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },

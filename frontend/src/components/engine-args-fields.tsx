@@ -6,26 +6,35 @@ import type { EngineArgs, ServingEngine } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ENGINE_ARG_FIELDS, argLabelKey, type EngineArgField } from "@/lib/serving-engines";
+import { cn } from "@/lib/utils";
 
-/** Labelled form row; `span2` spans both columns of a 2-col grid. */
+/** The label column of a form row: fixed width beside the control, stacked above it on phones. */
+export const ROW_GRID = "grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-start";
+const ROW_LABEL = "text-xs font-normal leading-4 text-muted-foreground sm:pt-2";
+
+/** Labelled form row: label on the left, control (+ hint) on the right; `span2` spans both columns of a 2-col grid. */
 export function Field({
   id, label, required, span2, hint, children,
 }: { id: string; label: string; required?: boolean; span2?: boolean; hint?: string; children: React.ReactNode }) {
   return (
-    <div className={span2 ? "space-y-2 sm:col-span-2" : "space-y-2"}>
-      <Label htmlFor={id}>
-        {label}
-        {required && <span className="text-destructive"> *</span>}
+    <div className={cn(ROW_GRID, span2 && "sm:col-span-2")}>
+      <Label htmlFor={id} className={ROW_LABEL}>
+        <span>
+          {label}
+          {required && <span className="text-destructive"> *</span>}
+        </span>
       </Label>
-      {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      <div className="min-w-0 space-y-1">
+        {children}
+        {hint && <p className="text-[11px] leading-snug text-muted-foreground">{hint}</p>}
+      </div>
     </div>
   );
 }
 
 /** Monospace multi-line input for line-oriented lists (args, env, labels). */
 export function Area({
-  id, value, onChange, placeholder, rows = 6,
+  id, value, onChange, placeholder, rows = 3,
 }: { id: string; value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
   return (
     <textarea
@@ -34,7 +43,7 @@ export function Area({
       value={value}
       placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-sm leading-relaxed placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      className="w-full rounded-md border border-input bg-transparent px-3 py-1.5 font-mono text-xs leading-relaxed placeholder:text-muted-foreground/50 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
     />
   );
 }
@@ -109,26 +118,31 @@ export function EngineArgsFields({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-3 gap-y-2 sm:grid-cols-2">
         {scalar.map((f) => (
-          <div key={f.key} className="space-y-2">
-            <Label htmlFor={`${idPrefix}-${f.key}`}>
+          <div key={f.key} className="min-w-0 space-y-0.5">
+            <Label htmlFor={`${idPrefix}-${f.key}`} className="block truncate text-[11px] font-normal text-muted-foreground" title={`--${f.key}`}>
               {t(argLabelKey(f.key))}
-              <span className="ml-2 font-mono text-[11px] text-muted-foreground">--{f.key}</span>
+              <span className="ml-1.5 font-mono text-[10px] text-muted-foreground/70">--{f.key}</span>
             </Label>
             {inputFor(f)}
           </div>
         ))}
       </div>
-      <div className="flex flex-wrap gap-x-6 gap-y-2">
-        {bools.map((f) => (
-          <label key={f.key} className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={get(f.key) === true} onChange={(e) => onChange(f.key, e.target.checked)} />
-            {t(argLabelKey(f.key))}
-            <span className="font-mono text-[11px] text-muted-foreground">--{f.key}</span>
-          </label>
-        ))}
-      </div>
+      {bools.length > 0 && (
+        <div className={ROW_GRID}>
+          <div className={ROW_LABEL}>{t("engineFlags")}</div>
+          <div className="flex flex-wrap gap-x-5 gap-y-1.5 sm:pt-1.5">
+            {bools.map((f) => (
+              <label key={f.key} className="flex items-center gap-1.5 text-xs" title={`--${f.key}`}>
+                <input type="checkbox" checked={get(f.key) === true} onChange={(e) => onChange(f.key, e.target.checked)} />
+                {t(argLabelKey(f.key))}
+                <span className="font-mono text-[10px] text-muted-foreground">--{f.key}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 }
