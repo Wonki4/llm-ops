@@ -51,8 +51,12 @@ class CustomModelDeployment(CustomBase):
     memory_limit: Mapped[str | None] = mapped_column(String(32), nullable=True)
     node_selector: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tolerations: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Deprecated: unread since migration 052 (see storages); dropped in a follow-up release.
     pvc_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
     pvc_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # [{"storage_id", "mount_path", "read_only"}]; deployments also carry
+    # "volume_name" + "resolved" (the binding snapshot). See services/storage_mounts.
+    storages: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
     model_path: Mapped[str] = mapped_column(String(512), nullable=False)
     vllm_extra_args: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     engine: Mapped[str] = mapped_column(String(16), nullable=False, default="vllm", server_default="vllm")
