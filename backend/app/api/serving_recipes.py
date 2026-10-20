@@ -15,6 +15,7 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import pd_router
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
 from app.services.model_deployment_manifests import build_all
@@ -256,16 +257,38 @@ async def preview_recipe(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     warnings = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
     warnings += [f"storage_unresolved:{n}" for n in unresolved]
+    out = [
+        {
+            "kind": m.get("kind"),
+            "name": (m.get("metadata") or {}).get("name"),
+            "yaml": yaml.dump(m, Dumper=_PlainDumper, sort_keys=False, default_flow_style=False),
+        }
+        for m in manifests
+    ]
+    if is_pd(dep):  # the router stack's values (ArgoCD renders the chart from them)
+        repo, chart, version = pd_router.router_chart(dep)
+        values = pd_router.dump_values(pd_router.rendered_router_values(dep))
+        out.append({
+            "kind": "values.yaml",
+            "name": f"{dep.model_name}-router",
+            "yaml": f"# chart: {repo}/{chart} {version}\n{values}",
+        })
+    return {"manifests": out, "warnings": warnings}
+
+
+class RouterDefaultsBody(BaseModel):
+    router: dict | None = None  # the recipe's current structured router fields (converting an older recipe)
+
+
+@router.post("/router-defaults")
+async def router_defaults(body: RouterDefaultsBody, user: CustomUser = Depends(require_super_user)) -> dict:
+    """What a P/D recipe's router editor starts with: a starter values.yaml (from the recipe's
+    structured router fields when converting one, else defaults) and the portal's chart."""
     return {
-        "manifests": [
-            {
-                "kind": m.get("kind"),
-                "name": (m.get("metadata") or {}).get("name"),
-                "yaml": yaml.dump(m, Dumper=_PlainDumper, sort_keys=False, default_flow_style=False),
-            }
-            for m in manifests
-        ],
-        "warnings": warnings,
+        "values_yaml": pd_router.default_values_yaml(body.router),
+        "chart_repo": settings.llmd_chart_repo,
+        "chart_name": settings.llmd_chart_name,
+        "chart_version": settings.llmd_chart_version,
     }
 
 

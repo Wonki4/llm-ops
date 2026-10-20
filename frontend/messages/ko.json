@@ -1980,7 +1980,16 @@
     "pdSidecarImageDefault": "비우면 포털 기본 사이드카 이미지",
     "pdSidecarRequests": "리소스 요청",
     "pdSidecarLimits": "리소스 제한",
-    "pdSidecarInDecode": "사이드카 설정은 Decode 탭에서 지정합니다."
+    "pdSidecarInDecode": "사이드카 설정은 Decode 탭에서 지정합니다.",
+    "pdRouterChartSection": "라우터 차트",
+    "pdChartRepo": "차트 저장소",
+    "pdChartName": "차트 이름",
+    "pdChartVersion": "차트 버전",
+    "pdChartHint": "비우면 포털 기본값. values.yaml은 이 버전 기준으로 작성하세요.",
+    "pdRouterValuesHint": "그대로 사용. '{{model_name}}' 지원, 이미지·matchLabels는 비우면 자동.",
+    "pdRouterValuesReset": "기본값으로",
+    "pdRouterValuesResetConfirm": "values.yaml을 포털 기본값으로 되돌릴까요? 지금 편집한 내용은 사라집니다.",
+    "pdRouterToValues": "values.yaml로 편집"
   },
   "serving": {
     "title": "서빙 홈",

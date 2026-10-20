@@ -876,6 +876,19 @@ export interface PdRouterConfig {
   epp_tag?: string | null;
   epp_replicas?: number | null;
   ingress_class?: string | null;
+  /** The router chart's values.yaml as written; supersedes the structured EPP/scheduler fields. */
+  values_yaml?: string | null;
+  chart_repo?: string | null;
+  chart_name?: string | null;
+  chart_version?: string | null;
+}
+
+/** POST /api/admin/serving-recipes/router-defaults */
+export interface RouterDefaults {
+  values_yaml: string;
+  chart_repo: string;
+  chart_name: string;
+  chart_version: string;
 }
 
 /** Who orchestrates a P/D pair (router + KV plumbing); only llm-d today. */

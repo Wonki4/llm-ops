@@ -1980,7 +1980,16 @@
     "pdSidecarImageDefault": "Blank = the portal's default sidecar image",
     "pdSidecarRequests": "Resource requests",
     "pdSidecarLimits": "Resource limits",
-    "pdSidecarInDecode": "Sidecar settings live in the Decode tab."
+    "pdSidecarInDecode": "Sidecar settings live in the Decode tab.",
+    "pdRouterChartSection": "Router chart",
+    "pdChartRepo": "Chart repo",
+    "pdChartName": "Chart name",
+    "pdChartVersion": "Chart version",
+    "pdChartHint": "Blank = portal default. Write values.yaml for this version.",
+    "pdRouterValuesHint": "Used as written; '{{model_name}}' works; image/matchLabels auto-filled.",
+    "pdRouterValuesReset": "Reset to default",
+    "pdRouterValuesResetConfirm": "Reset values.yaml to the portal default? Your edits will be lost.",
+    "pdRouterToValues": "Edit as values.yaml"
   },
   "serving": {
     "title": "Serving home",

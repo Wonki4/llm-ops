@@ -584,3 +584,21 @@ def test_decode_sidecar_blank_image_falls_back_and_absent_spec_renders_as_before
 def test_decode_sidecar_rejects_wrong_port_or_prefill(cfg):
     with pytest.raises(ValueError):
         pd_serving.validate_pd_config(cfg, engine="vllm", base_extra_args=None)
+
+
+def test_router_values_without_values_yaml_equal_the_previous_render():
+    """Recipes from before keep the exact router values they used to get."""
+    from app.config import settings
+    from app.services import pd_router
+    from app.services.llmd_manifests import default_llmd_values
+
+    router = {"peak_prefill_throughput": 5000, "epp_replicas": 2}
+    dep = _dep(pd_config={**_dep().pd_config, "router": router})
+    assert pd_router.router_values(dep) == default_llmd_values(
+        "glm",
+        epp_registry=settings.llmd_epp_image_registry,
+        epp_repository=settings.llmd_epp_image_repository,
+        epp_tag=settings.llmd_epp_image_tag,
+        serving_mode="pd",
+        pd_router=router,
+    )

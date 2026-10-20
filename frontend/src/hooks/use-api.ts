@@ -64,6 +64,8 @@ import type {
   ServingRecipeInput,
   ServingRecipePreview,
   ServingRecipePreviewBody,
+  RouterDefaults,
+  PdRouterConfig,
   ServingOverview,
   CreateDeploymentBody,
   PersonalAccess,
@@ -1740,6 +1742,27 @@ export function usePreviewServingRecipe(body: ServingRecipePreviewBody | null) {
     enabled: body !== null,
     retry: false,
     placeholderData: keepPreviousData, // live preview: keep the last YAML while the next one renders
+  });
+}
+
+/** The portal's router chart + starter values.yaml (cached; seeds new P/D recipes). */
+export function useRouterDefaults() {
+  return useQuery({
+    queryKey: ["serving-recipe-router-defaults"],
+    queryFn: () =>
+      apiFetch<RouterDefaults>("/api/admin/serving-recipes/router-defaults", { method: "POST", body: JSON.stringify({}) }),
+    staleTime: Infinity,
+  });
+}
+
+/** A values.yaml rendered from an older recipe's structured router fields. */
+export function useConvertRouterValues() {
+  return useMutation({
+    mutationFn: (router: PdRouterConfig) =>
+      apiFetch<RouterDefaults>("/api/admin/serving-recipes/router-defaults", {
+        method: "POST",
+        body: JSON.stringify({ router }),
+      }),
   });
 }
 

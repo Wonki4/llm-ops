@@ -7,7 +7,7 @@ import { ArrowLeft, FileCode2, Loader2, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateServingRecipe, useGpuTypes, useUpdateServingRecipe } from "@/hooks/use-api";
+import { useCreateServingRecipe, useGpuTypes, useRouterDefaults, useUpdateServingRecipe } from "@/hooks/use-api";
 import type { PdConfig, PdFramework, PdRoleOverride, PoolConfig, ServingEngine, ServingMode, ServingRecipe, ServingRecipeInput, StorageEntry } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -117,6 +117,7 @@ export function ServingRecipeForm({
   const createMut = useCreateServingRecipe();
   const updateMut = useUpdateServingRecipe();
   const { data: gpuTypes } = useGpuTypes();
+  const { data: routerDefaults } = useRouterDefaults();
 
   // Drafts from the reverse parser predate some fields; BLANK fills the gaps.
   const seed: ServingRecipeInput = withListedArgs(withFullRoles({ ...BLANK, ...(recipe ? toInput(recipe) : initial ?? {}) }));
@@ -161,6 +162,8 @@ export function ServingRecipeForm({
         pd_config: {
           ...pdc,
           framework: pdc.framework ?? DEFAULT_PD_FRAMEWORK,
+          // A recipe entering P/D starts with the router's values.yaml (an older P/D recipe keeps its fields).
+          router: pdc.router?.values_yaml != null || !routerDefaults ? pdc.router : { ...(pdc.router ?? {}), values_yaml: routerDefaults.values_yaml },
           prefill: withPdDefaults(effectiveRole(f, pdc.prefill), "prefill", pdc),
           decode: withPdDefaults(effectiveRole(f, pdc.decode), "decode", pdc),
         },

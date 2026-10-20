@@ -4,6 +4,7 @@ import types
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi import HTTPException
 
 from app.api.model_deployments import _serialize
@@ -465,3 +466,57 @@ async def test_deploy_pd_resolves_a_gpu_profile_per_pool(client_for_user, super_
     assert manifests[0]["spec"]["template"]["spec"]["nodeSelector"] == {"gpu-type": "h100-80g"}
     assert manifests[1]["spec"]["template"]["spec"]["nodeSelector"] == {"accel": "mi300x"}
     assert "amd.com/gpu" in manifests[1]["spec"]["template"]["spec"]["containers"][0]["resources"]["limits"]
+
+
+_VALUES_YAML = """# edited by hand, kept verbatim
+router:
+  epp:
+    replicas: 2
+    flags:
+      v: 3
+  modelServers:
+    type: vllm
+    matchLabels:
+      llm-d.ai/guide: "{{model_name}}"
+"""
+
+
+async def test_deploy_pd_creates_router_from_recipe_values_yaml_and_chart_pins(client_for_user, super_user, mock_db):
+    k8s, patches = _deploy_env(mock_db)
+    create_stack = AsyncMock(return_value=_stack())
+    router = {"values_yaml": _VALUES_YAML, "chart_version": "v0.10.1", "chart_name": "llm-d-router"}
+    body = {**_DEPLOY, "model_name": "GLM_5", "pd_config": {**_DEPLOY["pd_config"], "router": router}}
+    with patches[0], patches[1], patch("app.api.model_deployments.llmd_stacks.create_stack", create_stack):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=body)
+    assert resp.status_code == 201, resp.text
+    kw = create_stack.await_args.kwargs
+    assert kw["values"] == {
+        "router": {
+            "epp": {"replicas": 2, "flags": {"v": 3}},
+            "modelServers": {"type": "vllm", "matchLabels": {"llm-d.ai/guide": "glm-5"}},
+        }
+    }
+    assert (kw["chart_repo"], kw["chart_name"], kw["chart_version"]) == (None, "llm-d-router", "v0.10.1")
+
+
+async def test_deploy_pd_router_values_get_match_labels_only_when_missing(client_for_user, super_user, mock_db):
+    k8s, patches = _deploy_env(mock_db)
+    create_stack = AsyncMock(return_value=_stack())
+    router = {"values_yaml": "router:\n  epp:\n    replicas: 1\n"}
+    body = {**_DEPLOY, "pd_config": {**_DEPLOY["pd_config"], "router": router}}
+    with patches[0], patches[1], patch("app.api.model_deployments.llmd_stacks.create_stack", create_stack):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=body)
+    assert resp.status_code == 201, resp.text
+    kw = create_stack.await_args.kwargs
+    assert kw["values"]["router"]["modelServers"]["matchLabels"] == {"llm-d.ai/model": "glm"}
+    assert kw["chart_version"] is None  # no pin: the stack keeps following the portal default
+
+
+@pytest.mark.parametrize("text", ["router: [unclosed", "- a\n- b\n", "just a string"])
+async def test_deploy_pd_rejects_invalid_router_values_yaml(client_for_user, super_user, mock_db, text):
+    body = {**_DEPLOY, "pd_config": {**_DEPLOY["pd_config"], "router": {"values_yaml": text}}}
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/model-deployments", json=body)
+    assert resp.status_code == 422 and "values.yaml" in resp.text
