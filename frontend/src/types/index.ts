@@ -576,6 +576,7 @@ export interface ServingSnapshot {
   env: Record<string, string>;
   pvc_name?: string | null;
   pvc_mount_path?: string | null;
+  storages?: ResolvedStorageEntry[];
   // The fields below are only captured for portal-managed deployments —
   // external-clone snapshots omit them entirely.
   engine?: string;
@@ -661,8 +662,8 @@ export interface ModelDeployment {
   memory_limit: string | null;
   node_selector: Record<string, string> | null;
   tolerations: unknown[] | null;
-  pvc_name: string | null;
-  pvc_mount_path: string | null;
+  storages: ResolvedStorageEntry[];
+  storage_stale?: string[];
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
@@ -726,9 +727,8 @@ export interface K8sClusterSummary {
   api_server: string | null;
   is_default: boolean;
   description: string | null;
-  default_nfs_server: string | null;
-  default_nfs_path: string | null;
-  default_nfs_mount_path: string | null;
+  bench_storage_id: string | null;
+  bench_mount_path: string | null;
   /** Node label key marking GPU kinds on this cluster (default gpu-type). */
   gpu_label_key: string;
   has_kubeconfig: boolean;
@@ -829,8 +829,8 @@ export interface PoolConfig {
   cpu_limit: string | null;
   memory_request: string | null;
   memory_limit: string | null;
-  pvc_name: string | null;
-  pvc_mount_path: string | null;
+  /** null = inherit from the recipe (pools). */
+  storages: StorageEntry[] | null;
   engine_args: EngineArgs | null;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
@@ -912,8 +912,7 @@ export interface ServingRecipe {
   memory_limit: string | null;
   node_selector: Record<string, string> | null;
   tolerations: unknown[] | null;
-  pvc_name: string | null;
-  pvc_mount_path: string | null;
+  storages: StorageEntry[];
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
   engine: ServingEngine;
@@ -995,8 +994,7 @@ export interface CreateDeploymentBody {
   memory_limit: string | null;
   node_selector: Record<string, string> | null;
   tolerations: unknown[] | null;
-  pvc_name: string | null;
-  pvc_mount_path: string | null;
+  storages: StorageEntry[];
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
@@ -1066,6 +1064,39 @@ export interface ServingOverviewRow {
   catalog: { id: string; display_name: string; status: ModelStatus; visible: boolean } | null;
   litellm_registered: boolean;
 }
+
+// ─── Storage ─────────────────────────────────────────────────────────────────
+
+export type StorageKind = "weights" | "cache" | "data" | "other";
+export interface StorageEntry { storage_id: string; mount_path: string; read_only: boolean }
+export interface StorageSnapshot {
+  binding_id: string; type: "pvc" | "nfs"; claim_name: string | null; namespace: string | null;
+  nfs_server: string | null; nfs_path: string | null; sub_path: string | null;
+}
+export interface ResolvedStorageEntry extends StorageEntry { volume_name: string; resolved: StorageSnapshot }
+export interface StorageBoundOn { cluster_id: string | null; cluster_name: string; namespace: string | null }
+export interface Storage {
+  id: string; name: string; description: string | null; kind: StorageKind; created_by: string | null; updated_at: string | null;
+  binding_count?: number; bound_on?: StorageBoundOn[]; recipe_count?: number; deployment_count?: number;
+}
+export interface StorageBinding {
+  id: string; storage_id: string; cluster_id: string | null; cluster_name: string; namespace: string | null;
+  type: "pvc" | "nfs"; claim_name: string | null; nfs_server: string | null; nfs_path: string | null;
+  sub_path: string | null; updated_at: string | null;
+}
+export interface StorageDetail extends Storage {
+  bindings: StorageBinding[];
+  usage: {
+    recipes: { id: string; name: string }[];
+    deployments: { id: string; model_name: string; stale: boolean }[];
+    clusters: { id: string; name: string }[];
+  };
+}
+export type StorageInput = Pick<Storage, "name" | "description" | "kind">;
+export type StorageBindingInput = Omit<StorageBinding, "id" | "storage_id" | "cluster_name" | "updated_at">;
+export type PvcPhase = "Bound" | "Pending" | "Lost" | "missing" | "error";
+export interface ClusterPvc { name: string; phase: string | null; capacity: string | null; storage_class: string | null; access_modes: string[] }
+export interface StorageResolution { storage_id: string; name: string | null; binding: StorageSnapshot | null; pvc_phase: PvcPhase | null }
 
 // ─── GPU type profiles ───────────────────────────────────────────────────────
 
