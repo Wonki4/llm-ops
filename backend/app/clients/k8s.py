@@ -260,6 +260,29 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    async def list_pvcs(self, namespace: str) -> list[dict]:
+        """PVCs in ``namespace`` with phase / capacity, for storage bindings."""
+        api_client = await self._api_client()
+        try:
+            core = client.CoreV1Api(api_client)
+            res = await core.list_namespaced_persistent_volume_claim(namespace=namespace)
+            out = []
+            for p in res.items:
+                status = p.status
+                spec = p.spec
+                out.append(
+                    {
+                        "name": p.metadata.name,
+                        "phase": status.phase if status else None,
+                        "capacity": (status.capacity or {}).get("storage") if status else None,
+                        "storage_class": spec.storage_class_name if spec else None,
+                        "access_modes": list(spec.access_modes or []) if spec else [],
+                    }
+                )
+            return sorted(out, key=lambda x: x["name"])
+        finally:
+            await api_client.close()
+
     # ─── ArgoCD Applications (custom resource) ──────────────────────
 
     _ARGO = dict(group="argoproj.io", version="v1alpha1", plural="applications")
