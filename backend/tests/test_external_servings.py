@@ -113,8 +113,9 @@ def test_unrelated_image_ignored():
 
 
 def test_portal_managed_label_excluded():
-    dep = _raw_dep(labels={"llm-ops/managed-by": "litellm-portal"})
-    assert to_external_serving(dep) is None
+    for owner in ("llm-ops-portal", "litellm-portal"):  # current value and the pre-rename one
+        dep = _raw_dep(labels={"llm-ops/managed-by": owner})
+        assert to_external_serving(dep) is None
 
 
 def test_model_arg_equals_form():

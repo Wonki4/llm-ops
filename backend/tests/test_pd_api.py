@@ -240,6 +240,7 @@ async def test_update_pd_validates_pd_config_against_row(client_for_user, super_
     mock_db.refresh = AsyncMock()
     k8s = MagicMock()
     k8s.create_or_patch = AsyncMock()
+    k8s.read_deployment = AsyncMock(return_value=None)
     with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)):
         async with client_for_user(super_user) as client:
             bad = await client.put(

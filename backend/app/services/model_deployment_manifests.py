@@ -16,6 +16,11 @@ from app.services.storage_mounts import to_volumes
 
 VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
+# The owner label value new deployments get. Deployments created before the rename keep
+# LEGACY_OWNER in their (immutable) selector; the update path reads it back from the cluster.
+OWNER = "llm-ops-portal"
+LEGACY_OWNER = "litellm-portal"
+PORTAL_OWNERS = (OWNER, LEGACY_OWNER)
 LABEL_MODEL = "llm-ops/model-name"
 # llm-d's standard model-server label; llm-d routers select servers by it.
 LABEL_LLMD_MODEL = "llm-d.ai/model"
@@ -60,15 +65,15 @@ def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
     }
 
 
-def _labels(dep: CustomModelDeployment) -> dict[str, str]:
+def _labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:
     """Selector labels: immutable once a Deployment exists, so never add here."""
-    return {LABEL_OWNER: "litellm-portal", LABEL_MODEL: dep.model_name}
+    return {LABEL_OWNER: owner, LABEL_MODEL: dep.model_name}
 
 
-def pod_labels(dep: CustomModelDeployment) -> dict[str, str]:
+def pod_labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:
     """Labels stamped on the serving pods: the selector labels plus llm-d's
     ``llm-d.ai/model`` so an llm-d router can target this deployment."""
-    return {**_labels(dep), LABEL_LLMD_MODEL: dep.model_name}
+    return {**_labels(dep, owner), LABEL_LLMD_MODEL: dep.model_name}
 
 
 def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment) -> dict:
@@ -77,7 +82,9 @@ def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDep
     requests: dict = {}
     limits: dict = {}
     if gpu_count and gpu_count > 0:
+        # Extended resources need requests == limits; state both so the manifest says what it gets.
         limits[gpu_resource_key] = str(gpu_count)
+        requests[gpu_resource_key] = str(gpu_count)
     if dep.cpu_request:
         requests["cpu"] = dep.cpu_request
     if dep.cpu_limit:
@@ -164,8 +171,19 @@ def build_pod_spec(
 
 
 def _deployment(
-    name: str, namespace: str, labels: dict, selector: dict, pod_labels_: dict, replicas: int, pod_spec: dict
+    name: str,
+    namespace: str,
+    labels: dict,
+    selector: dict,
+    pod_labels_: dict,
+    replicas: int,
+    pod_spec: dict,
+    *,
+    pod_annotations: dict | None = None,
 ) -> dict:
+    template_meta: dict = {"labels": pod_labels_}
+    if pod_annotations:
+        template_meta["annotations"] = dict(pod_annotations)
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -173,15 +191,15 @@ def _deployment(
         "spec": {
             "replicas": replicas,
             "selector": {"matchLabels": selector},
-            "template": {"metadata": {"labels": pod_labels_}, "spec": pod_spec},
+            "template": {"metadata": template_meta, "spec": pod_spec},
         },
     }
 
 
-def build_deployment(dep: CustomModelDeployment) -> dict:
+def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     """The aggregated (single-pool) Deployment."""
     names = k8s_resource_names(dep)
-    labels = _labels(dep)
+    labels = _labels(dep, owner)
     command, args = container_launch(dep)
     volumes, mounts = _volumes(dep)
     container = build_container(
@@ -200,13 +218,15 @@ def build_deployment(dep: CustomModelDeployment) -> dict:
         dep.namespace,
         labels,
         labels,
-        pod_labels(dep),
+        pod_labels(dep, owner),
         dep.replicas,
         build_pod_spec(dep, [container], volumes),
     )
 
 
-def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | None = None) -> list[dict]:
+def build_pd_deployments(
+    dep: CustomModelDeployment, *, sidecar_image: str | None = None, owner: str = OWNER
+) -> list[dict]:
     """Prefill + decode Deployments for ``serving_mode == "pd"``.
 
     Each pool is rendered from its own deployment-like row (``pd_serving.pool_row``:
@@ -215,13 +235,19 @@ def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | Non
     """
     pd_serving.engine_guard(dep)
     names = k8s_resource_names(dep)
-    base_labels = _labels(dep)
+    base_labels = _labels(dep, owner)
     out = []
     for role in pd_serving.ROLES:
         spec = pd_serving.role_view(dep, role)
         pool = spec.pool
         selector = {**base_labels, pd_serving.LABEL_PD_ROLE: role}
-        labels_on_pod = {**pod_labels(dep), pd_serving.LABEL_PD_ROLE: role, pd_serving.LABEL_ROLE: role}
+        # The pool's P/D extra labels first, so the portal-owned ones always win.
+        labels_on_pod = {
+            **spec.pod_labels,
+            **pod_labels(dep, owner),
+            pd_serving.LABEL_PD_ROLE: role,
+            pd_serving.LABEL_ROLE: role,
+        }
         ports = [
             {"containerPort": spec.port, "name": "http"},
             {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
@@ -238,9 +264,18 @@ def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | Non
             probes=render_probes(pool, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
             volume_mounts=mounts,
         )
+        if spec.pd_resources:  # P/D extras (e.g. rdma/ib): requested and limited like runtime extra_resources
+            res = container["resources"]
+            for key, qty in spec.pd_resources.items():
+                res.setdefault("limits", {})[key] = str(qty)
+                res.setdefault("requests", {})[key] = str(qty)
         init = None
         if role == "decode":
-            init = [pd_serving.sidecar_container(pd_serving.sidecar_image_for(dep, sidecar_image))]
+            init = [
+                pd_serving.sidecar_container(
+                    pd_serving.sidecar_image_for(dep, sidecar_image), pd_serving.decode_sidecar_spec(dep)
+                )
+            ]
         out.append(
             _deployment(
                 names[f"{role}_deployment"],
@@ -250,6 +285,7 @@ def build_pd_deployments(dep: CustomModelDeployment, *, sidecar_image: str | Non
                 labels_on_pod,
                 spec.replicas,
                 build_pod_spec(pool, [container], volumes, init_containers=init),
+                pod_annotations=spec.pod_annotations,
             )
         )
     return out
@@ -268,25 +304,25 @@ def _service(name: str, namespace: str, labels: dict, selector: dict, target_por
     }
 
 
-def build_service(dep: CustomModelDeployment) -> dict:
+def build_service(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     names = k8s_resource_names(dep)
-    labels = _labels(dep)
+    labels = _labels(dep, owner)
     return _service(names["service"], dep.namespace, labels, labels, VLLM_PORT)
 
 
-def build_pd_services(dep: CustomModelDeployment) -> list[dict]:
+def build_pd_services(dep: CustomModelDeployment, owner: str = OWNER) -> list[dict]:
     """One Service per pool; both expose 80 → 8000 (decode's 8000 is the sidecar)."""
     names = k8s_resource_names(dep)
-    base = _labels(dep)
+    base = _labels(dep, owner)
     return [
         _service(names[f"{role}_service"], dep.namespace, base, {**base, pd_serving.LABEL_PD_ROLE: role}, SERVING_PORT)
         for role in pd_serving.ROLES
     ]
 
 
-def build_ingress(dep: CustomModelDeployment) -> dict:
+def build_ingress(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     names = k8s_resource_names(dep)
-    labels = _labels(dep)
+    labels = _labels(dep, owner)
     return {
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
@@ -316,7 +352,18 @@ def build_ingress(dep: CustomModelDeployment) -> dict:
     }
 
 
-def build_all(dep: CustomModelDeployment, *, sidecar_image: str | None = None) -> list[dict]:
+def build_all(dep: CustomModelDeployment, *, sidecar_image: str | None = None, owner: str = OWNER) -> list[dict]:
+    """All manifests for ``dep``. ``owner`` is the managed-by value its selector carries:
+    OWNER for a new deployment, whatever the live Deployment has on update (``live_owner``)."""
     if pd_serving.is_pd(dep):
-        return [*build_pd_deployments(dep, sidecar_image=sidecar_image), *build_pd_services(dep)]
-    return [build_deployment(dep), build_service(dep), build_ingress(dep)]
+        return [*build_pd_deployments(dep, sidecar_image=sidecar_image, owner=owner), *build_pd_services(dep, owner)]
+    return [build_deployment(dep, owner), build_service(dep, owner), build_ingress(dep, owner)]
+
+
+async def live_owner(k8s, dep: CustomModelDeployment) -> str:
+    """The managed-by value the existing Deployment's selector was created with
+    (selectors are immutable), OWNER when there is none yet."""
+    names = k8s_resource_names(dep)
+    live = await k8s.read_deployment(dep.namespace, names.get("deployment") or names["prefill_deployment"])
+    value = ((live or {}).get("labels") or {}).get(LABEL_OWNER)
+    return value if value in PORTAL_OWNERS else OWNER

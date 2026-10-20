@@ -2,23 +2,28 @@
 
 import uuid
 
+import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.model_deployments import _apply_pool_profiles
 from app.auth.deps import require_super_user
+from app.config import settings
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services.gpu_profiles import validate_profile_name
-from app.services.pd_serving import ServingMode, validate_pd_config, validate_runtime
+from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
+from app.services.gpu_profiles import apply_profile, validate_profile_name
+from app.services.model_deployment_manifests import build_all
+from app.services.pd_serving import ServingMode, is_pd, validate_pd_config, validate_runtime
 from app.services.serving_engines import ServingEngine, validate_engine_args
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
 from app.services.storage_mounts import all_entries, validate_entries
-from app.services.storage_store import UnknownStorageError, check_known
+from app.services.storage_store import UnknownStorageError, check_known, resolve_entries, resolve_pool_storages
 
 router = APIRouter(prefix="/api/admin/serving-recipes", tags=["serving-recipes"])
 
@@ -93,6 +98,25 @@ class CreateRecipeBody(RecipeBody):
     # recipe_id = the new recipe unless it already points at one (a deployment
     # launched from recipe A keeps A even if someone snapshots it into B).
     source_deployment_id: str | None = None
+
+
+class PreviewRecipeBody(RecipeBody):
+    """An unsaved recipe plus the deploy target the preview renders it for."""
+
+    name: str = ""
+    cluster_id: str | None = None  # None = portal default cluster
+    namespace: str = "default"
+    model_name: str | None = None  # None = the recipe name
+
+
+PREVIEW_INGRESS_HOST = "<ingress-host>"
+
+
+class _PlainDumper(yaml.SafeDumper):
+    """Writes shared dicts (selector labels) out in full instead of as &id/*id aliases."""
+
+    def ignore_aliases(self, data) -> bool:
+        return True
 
 
 def _serialize(r: CustomServingRecipe) -> dict:
@@ -181,6 +205,68 @@ async def create_recipe(
             linked = True
     warnings = recipe_warnings(recipe.model_path, recipe.storages, recipe.pd_config)
     return {**_serialize(recipe), "linked_deployment": linked, "warnings": warnings}
+
+
+@router.post("/preview")
+async def preview_recipe(
+    body: PreviewRecipeBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Render the K8s manifests a deploy of this (unsaved) recipe would apply.
+
+    Runs the deploy path — storage resolution, GPU profiles, ``build_all`` — on
+    a transient row that is never added to the session. Unbound storages render
+    as placeholder claims and come back as ``storage_unresolved:<name>``
+    warnings; the P/D router (an llm-d stack) is not part of these manifests.
+    """
+    cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    try:
+        gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
+    except UnknownGpuTypeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    fields = body.model_dump(exclude={"name", "description", "cluster_id", "namespace", "model_name", "storages"})
+    dep = CustomModelDeployment(
+        id=uuid.uuid4(),
+        model_name=(body.model_name or body.name or "preview").strip(),
+        cluster_id=cluster_uuid,
+        namespace=body.namespace.strip() or "default",
+        replicas=1,
+        ingress_host=PREVIEW_INGRESS_HOST,
+        ingress_path="/",
+        ingress_class="nginx",
+        status="Pending",
+        **fields,
+    )
+    unresolved: list[str] = []
+    try:
+        dep.storages = await resolve_entries(db, body.storages, cluster_uuid, dep.namespace, unresolved_out=unresolved)
+        if is_pd(dep):
+            dep.pd_config = await resolve_pool_storages(
+                db, dep.pd_config, cluster_uuid, dep.namespace, unresolved_out=unresolved
+            )
+    except ValueError as e:  # unknown storage, reserved or duplicate volume name
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    if is_pd(dep):
+        await _apply_pool_profiles(db, dep, default_gpu_type=body.gpu_type)
+    apply_profile(dep, gpu_profile, gpu_label_key)
+    try:
+        manifests = build_all(dep, sidecar_image=settings.llmd_sidecar_image)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    warnings = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
+    warnings += [f"storage_unresolved:{n}" for n in unresolved]
+    return {
+        "manifests": [
+            {
+                "kind": m.get("kind"),
+                "name": (m.get("metadata") or {}).get("name"),
+                "yaml": yaml.dump(m, Dumper=_PlainDumper, sort_keys=False, default_flow_style=False),
+            }
+            for m in manifests
+        ],
+        "warnings": warnings,
+    }
 
 
 @router.get("/{recipe_id}")

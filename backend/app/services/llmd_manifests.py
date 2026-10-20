@@ -17,7 +17,7 @@ from app.services.model_deployment_manifests import LABEL_LLMD_MODEL, LABEL_MODE
 if TYPE_CHECKING:
     from app.db.models.custom_llmd_stack import CustomLlmdStack
 
-MANAGED_BY = "litellm-portal"
+MANAGED_BY = "llm-ops-portal"  # metadata label only (not in any selector), so safe to rename
 
 
 def argo_app_name_for(name: str) -> str:
