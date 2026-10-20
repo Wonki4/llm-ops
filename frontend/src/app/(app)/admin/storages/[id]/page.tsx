@@ -58,7 +58,13 @@ function StorageDetailView({ storage }: { storage: StorageDetail }) {
   }
 
   async function delBinding(b: StorageBinding) {
-    const dry = await removeBinding.mutateAsync({ id: b.id, dryRun: true });
+    let dry;
+    try {
+      dry = await removeBinding.mutateAsync({ id: b.id, dryRun: true });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("saveError"));
+      return;
+    }
     const n = dry.affected_deployments.length;
     const msg = n
       ? t("deleteBindingAffected", { count: n, names: dry.affected_deployments.map((d) => d.model_name).join(", ") })

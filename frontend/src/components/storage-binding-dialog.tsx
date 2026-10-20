@@ -36,7 +36,13 @@ export function StorageBindingDialog({
   const pvcList = pvcs.data?.pvcs ?? [];
   const showManual = manual || !!pvcs.data?.error || (!!form.claim_name && !pvcList.some((p) => p.name === form.claim_name));
 
+  const valid =
+    form.type === "pvc"
+      ? !!ns && !!(form.claim_name ?? "").trim()
+      : !!(form.nfs_server ?? "").trim() && !!(form.nfs_path ?? "").trim();
+
   function save() {
+    if (!valid) return;
     const body: StorageBindingInput = {
       cluster_id: form.cluster_id,
       namespace: ns || null,
@@ -131,7 +137,7 @@ export function StorageBindingDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
-          <Button onClick={save} disabled={create.isPending || update.isPending} data-testid="binding-save">{t("save")}</Button>
+          <Button onClick={save} disabled={!valid || create.isPending || update.isPending} data-testid="binding-save">{t("save")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
