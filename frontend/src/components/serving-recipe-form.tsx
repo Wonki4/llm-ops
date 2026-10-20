@@ -187,18 +187,15 @@ export function ServingRecipeForm({
       // columns, list views); each pool's own config is what gets rendered.
       const representative: Partial<PoolConfig> = {};
       for (const k of POOL_KEYS) (representative as Record<string, unknown>)[k] = prefill[k] ?? null;
-      // Pool storages: null (inherit) is omitted from the role block; the row keeps the prefill pool's list.
-      const withStorages = (pool: PdRoleOverride): PdRoleOverride => {
-        const { storages, ...rest } = pool;
-        return storages == null ? rest : { ...rest, storages: keepStorages(storages) };
-      };
+      // Each pool always carries its own explicit storage list; the row keeps the prefill pool's list.
+      const withStorages = (pool: PdRoleOverride): PdRoleOverride => ({ ...pool, storages: keepStorages(pool.storages) });
       body = {
         ...body,
         ...representative,
         image: prefill.image ?? "",
         model_path: prefill.model_path ?? "",
         gpu_resource_key: prefill.gpu_resource_key ?? "nvidia.com/gpu",
-        storages: keepStorages(prefill.storages ?? form.storages),
+        storages: keepStorages(prefill.storages),
         gpu_count: Math.max(prefill.gpu_count ?? 0, decode.gpu_count ?? 0),
         pd_config: { ...pd, prefill: withStorages(prefill), decode: withStorages(decode), kv_transfer_extra: kvExtra ?? {}, sidecar_image: pd.sidecar_image?.trim() || null },
       };

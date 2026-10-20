@@ -23,7 +23,7 @@ type OptionalProbe = "liveness" | "startup";
  * and emit the parsed value on every change.
  */
 export function PoolConfigCards({
-  idPrefix, engine, value, onChange, gpuTypes, pdHints, inheritStorages,
+  idPrefix, engine, value, onChange, gpuTypes, pdHints,
 }: {
   idPrefix: string;
   engine: ServingEngine;
@@ -32,8 +32,6 @@ export function PoolConfigCards({
   gpuTypes: GpuTypeOption[];
   /** P/D: show the startup-probe default note. */
   pdHints?: boolean;
-  /** P/D pool tabs: `storages: null` means "use the recipe's list". */
-  inheritStorages?: boolean;
 }) {
   const t = useTranslations("servingRecipes");
   const id = (s: string) => `${idPrefix}-${s}`;
@@ -124,10 +122,9 @@ export function PoolConfigCards({
         <CardContent>
           <StorageMountsEditor
             idPrefix={idPrefix}
-            value={inheritStorages ? value.storages : value.storages ?? []}
+            value={value.storages ?? []}
             onChange={(storages) => onChange({ storages })}
             modelPath={value.model_path}
-            inheritable={inheritStorages}
           />
         </CardContent>
       </Card>
