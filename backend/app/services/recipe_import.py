@@ -279,7 +279,7 @@ def _env(container: dict, warnings: list[dict]) -> dict[str, str] | None:
 
 def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> None:
     mounts = {m.get("name"): m for m in (container.get("volume_mounts") or container.get("volumeMounts") or [])}
-    pvc_pairs: list[tuple[str, str | None]] = []
+    pvc_mounts: list[dict] = []
     unsupported: list[str] = []
     for vol in spec.get("volumes") or []:
         name = vol.get("name")
@@ -288,7 +288,16 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
             mount = mounts.get(name) or {}
             if mount.get("subPath") or mount.get("subPathExpr"):
                 _warn(warnings, "subpath_dropped", f"{name}: {mount.get('subPath') or mount.get('subPathExpr')}")
-            pvc_pairs.append((pvc["claimName"], mount.get("mountPath")))
+            if not mount.get("mountPath"):
+                _warn(warnings, "pvc_unmounted", pvc["claimName"])
+                continue
+            pvc_mounts.append(
+                {
+                    "claim_name": pvc["claimName"],
+                    "mount_path": mount["mountPath"],
+                    "read_only": bool(mount.get("readOnly")),
+                }
+            )
             continue
         kinds = [k for k in vol if k != "name"]
         kind = kinds[0] if kinds else "unknown"
@@ -297,19 +306,21 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
             _warn(warnings, "shm_volume_dropped", name)
         else:
             unsupported.append(f"{name} ({kind})")
-    if pvc_pairs:
-        claim, path = pvc_pairs[0]
-        out["pvc_name"] = claim
-        out["pvc_mount_path"] = path
-        if path is None:
-            _warn(warnings, "pvc_unmounted", claim)
-        if len(pvc_pairs) > 1:
-            _warn(warnings, "multi_pvc", ", ".join(c for c, _ in pvc_pairs[1:]))
-    else:
-        out["pvc_name"] = None
-        out["pvc_mount_path"] = None
+    out["pvc_mounts"] = pvc_mounts
     if unsupported:
         _warn(warnings, "volume_unsupported", ", ".join(unsupported))
+
+
+def attach_storages(draft: dict, warnings: list[dict], claim_to_storage: dict[str, str]) -> None:
+    """Turn the draft's PVC mounts into storage entries for claims registered as bindings."""
+    storages = []
+    for m in draft.pop("pvc_mounts", None) or []:
+        sid = claim_to_storage.get(m["claim_name"])
+        if sid is None:
+            _warn(warnings, "unregistered_pvc", m["claim_name"])
+            continue
+        storages.append({"storage_id": sid, "mount_path": m["mount_path"], "read_only": m["read_only"]})
+    draft["storages"] = storages
 
 
 def _probes(container: dict, warnings: list[dict]) -> dict | None:

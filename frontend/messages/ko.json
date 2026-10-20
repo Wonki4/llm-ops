@@ -1842,7 +1842,7 @@
       "subpath_dropped": "PVC 마운트에 subPath가 있었지만 레시피로는 표현할 수 없습니다:",
       "shm_volume_dropped": "메모리 기반 /dev/shm 볼륨을 버렸습니다. 멀티 GPU NCCL에 필요할 수 있습니다:",
       "volume_unsupported": "PVC 외 볼륨은 지원하지 않아 버렸습니다:",
-      "multi_pvc": "PVC가 둘 이상입니다. 첫 번째만 유지하고 나머지는 버렸습니다:",
+      "unregistered_pvc": "등록된 스토리지 바인딩이 없는 PVC라서 건너뛰었습니다. 스토리지 메뉴에서 바인딩을 추가한 뒤 다시 가져오세요:",
       "pvc_unmounted": "PVC가 서빙 컨테이너에 마운트돼 있지 않습니다. 마운트 경로를 지정하세요:",
       "multi_container": "파드에 사이드카 컨테이너가 있어 레시피로 재현할 수 없습니다. 컨테이너 수:",
       "init_containers": "init 컨테이너는 재현되지 않습니다:",

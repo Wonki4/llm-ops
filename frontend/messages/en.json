@@ -1842,7 +1842,7 @@
       "subpath_dropped": "PVC mount used subPath, which the recipe cannot express:",
       "shm_volume_dropped": "A memory-backed /dev/shm volume was dropped; multi-GPU NCCL may need it:",
       "volume_unsupported": "Volumes other than a PVC are not supported and were dropped:",
-      "multi_pvc": "More than one PVC; only the first was kept, dropped:",
+      "unregistered_pvc": "Skipped a PVC with no storage binding. Add a binding under Storage and import again:",
       "pvc_unmounted": "The PVC is not mounted in the serving container; set a mount path:",
       "multi_container": "The pod has sidecar containers, which the recipe cannot reproduce. Count:",
       "init_containers": "Init containers are not reproduced:",

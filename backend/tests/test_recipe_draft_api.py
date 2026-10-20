@@ -53,6 +53,35 @@ async def test_recipe_draft_parses_live_deployment(client_for_user, super_user, 
     k8s.read_deployment.assert_awaited_once_with("team-a", "ext-vllm")
 
 
+async def test_recipe_draft_attaches_registered_storages(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_no_rows())
+    spec = _live_spec()
+    spec["container"]["volume_mounts"] = [
+        {"name": "w", "mountPath": "/models", "readOnly": True}, {"name": "c", "mountPath": "/cache"},
+    ]
+    spec["volumes"] = [
+        {"name": "w", "persistentVolumeClaim": {"claimName": "models-pvc"}},
+        {"name": "c", "persistentVolumeClaim": {"claimName": "cache-pvc"}},
+    ]
+    sid = str(uuid.uuid4())
+    match = AsyncMock(return_value={"models-pvc": sid})
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s(spec))),
+        patch("app.api.model_deployments.match_claims", match),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(
+                "/api/model-deployments/external/recipe-draft",
+                params={"namespace": "team-a", "deployment_name": "ext-vllm"},
+            )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["draft"]["storages"] == [{"storage_id": sid, "mount_path": "/models", "read_only": True}]
+    assert "pvc_mounts" not in body["draft"]
+    assert {"code": "unregistered_pvc", "detail": "cache-pvc"} in body["warnings"]
+    assert match.await_args.args[2:] == ("team-a", ["models-pvc", "cache-pvc"])
+
+
 async def test_recipe_draft_404_when_deployment_gone(client_for_user, super_user, mock_db):
     with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s(None))):
         async with client_for_user(super_user) as client:

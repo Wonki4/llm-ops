@@ -79,9 +79,7 @@ def _dep(**kw):
         memory_limit="64Gi",
         node_selector={"gpu": "a100"},
         tolerations=[{"key": "gpu", "operator": "Exists", "effect": "NoSchedule"}],
-        pvc_name="weights",
-        pvc_mount_path="/models",
-        storages=[legacy_entry("weights", "/models")],  # Task 7 drops the pvc_* draft keys
+        storages=[legacy_entry("weights", "/models")],
         model_path="/models/Qwen3-32B",
         vllm_extra_args=None,
         env={"HF_HOME": "/models/.cache"},
@@ -109,7 +107,7 @@ def test_portal_vllm_manifest_round_trips_without_warnings():
     assert (d["gpu_count"], d["gpu_resource_key"]) == (2, "nvidia.com/gpu")
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("4", "8", "32Gi", "64Gi")
     assert d["env"] == dep.env and d["node_selector"] == dep.node_selector and d["tolerations"] == dep.tolerations
-    assert (d["pvc_name"], d["pvc_mount_path"]) == ("weights", "/models")
+    assert d["pvc_mounts"] == [{"claim_name": "weights", "mount_path": "/models", "read_only": False}]
     assert d["name"] == "qwen-deployment"  # the K8s object name; the UI picks a friendlier default
 
 
@@ -123,9 +121,7 @@ def test_portal_sglang_manifest_round_trips():
         cpu_limit=None,
         memory_request=None,
         memory_limit=None,
-        pvc_name=None,
         storages=[],
-        pvc_mount_path=None,
         env=None,
         node_selector=None,
         tolerations=None,
@@ -135,7 +131,7 @@ def test_portal_sglang_manifest_round_trips():
     assert out["warnings"] == []
     assert d["engine"] == "sglang" and d["model_path"] == dep.model_path
     assert d["engine_args"] == {"tp-size": 2, "context-length": 4096}
-    assert d["gpu_count"] == 0 and d["pvc_name"] is None and d["env"] is None
+    assert d["gpu_count"] == 0 and d["pvc_mounts"] == [] and d["env"] is None
 
 
 def test_extra_args_from_portal_manifest_land_in_engine_args():
@@ -314,7 +310,7 @@ def test_resources_extended_key_env_value_from_and_volumes():
     assert (d["gpu_resource_key"], d["gpu_count"]) == ("amd.com/gpu", 4)
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("8", "16", "96Gi", "128Gi")
     assert d["env"] == {"HF_HOME": "/w/.cache", "EMPTY": ""}
-    assert (d["pvc_name"], d["pvc_mount_path"]) == ("model-pvc", "/w")
+    assert d["pvc_mounts"] == [{"claim_name": "model-pvc", "mount_path": "/w", "read_only": False}]
     assert d["node_selector"] == {"kubernetes.io/arch": "amd64"}
     assert d["tolerations"] == [{"key": "gpu", "operator": "Exists"}]
     by_code = {w["code"]: w.get("detail") for w in out["warnings"]}
@@ -324,7 +320,7 @@ def test_resources_extended_key_env_value_from_and_volumes():
     assert by_code["volume_unsupported"] == "cfg (configMap), scratch (hostPath)"
 
 
-def test_multiple_gpu_resources_and_pvcs_keep_first_and_warn():
+def test_multiple_gpu_resources_keep_first_and_warn():
     out = build_recipe_draft(
         _spec(
             args=["--model", "/w/m"],
@@ -339,9 +335,10 @@ def test_multiple_gpu_resources_and_pvcs_keep_first_and_warn():
         )
     )
     d = out["draft"]
-    assert (d["gpu_resource_key"], d["gpu_count"], d["pvc_name"]) == ("nvidia.com/gpu", 1, "pvc-a")
+    assert (d["gpu_resource_key"], d["gpu_count"]) == ("nvidia.com/gpu", 1)
+    assert [m["claim_name"] for m in d["pvc_mounts"]] == ["pvc-a", "pvc-b"]
     by_code = {w["code"]: w.get("detail") for w in out["warnings"]}
-    assert by_code["multi_gpu_resource"] == "nvidia.com/mig-1g.5gb" and by_code["multi_pvc"] == "pvc-b"
+    assert by_code["multi_gpu_resource"] == "nvidia.com/mig-1g.5gb"
 
 
 def test_no_gpu_limit_means_cpu_only_recipe():
@@ -395,9 +392,7 @@ def test_pd_pool_imports_as_base_with_pd_detected_warning():
         memory_limit=None,
         node_selector=None,
         tolerations=None,
-        pvc_name=None,
         storages=[],
-        pvc_mount_path=None,
         vllm_extra_args=None,
         env={"VLLM_KV_CACHE_LAYOUT": "HND"},
         engine="vllm",
