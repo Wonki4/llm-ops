@@ -88,6 +88,7 @@ async def resolve_entries(
     namespace: str,
     *,
     previous: list | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> list[dict]:
     """Validate ``entries`` and attach ``volume_name`` + ``resolved`` for the target.
 
@@ -95,6 +96,9 @@ async def resolve_entries(
     storage — migrated entries stay ``model-weights`` so manifests don't change.
     Raises ``UnknownStorageError`` / ``UnresolvedStorageError``, or a plain
     ``ValueError`` for an invalid list or a reserved/duplicate volume name.
+
+    With ``unresolved_out`` (manifest preview) an unbound storage doesn't raise:
+    its name is appended there and it renders as a placeholder PVC claim.
     """
     clean = validate_entries(entries)
     if not clean:
@@ -109,13 +113,20 @@ async def resolve_entries(
     out: list[dict] = []
     unresolved: list[str] = []
     for e in clean:
+        storage_name = storages[e["storage_id"]].name
         b = pick_binding(bindings, e["storage_id"], cluster_id, namespace)
         if b is None:
-            unresolved.append(storages[e["storage_id"]].name)
-            continue
-        name = kept.get(e["storage_id"]) or default_volume_name(storages[e["storage_id"]].name)
-        out.append({**e, "volume_name": name, "resolved": snapshot(b)})
-    if unresolved:
+            unresolved.append(storage_name)
+            if unresolved_out is None:
+                continue
+            resolved = {"binding_id": None, "type": "pvc", "claim_name": f"<unbound:{storage_name}>"}
+        else:
+            resolved = snapshot(b)
+        name = kept.get(e["storage_id"]) or default_volume_name(storage_name)
+        out.append({**e, "volume_name": name, "resolved": resolved})
+    if unresolved_out is not None:
+        unresolved_out.extend(n for n in unresolved if n not in unresolved_out)
+    elif unresolved:
         raise UnresolvedStorageError(unresolved)
     check_volume_names(out)
     return out
@@ -128,6 +139,7 @@ async def resolve_pool_storages(
     namespace: str,
     *,
     previous: dict | None = None,
+    unresolved_out: list[str] | None = None,
 ) -> dict | None:
     """Resolve each P/D pool's own ``storages`` override (pools without one inherit the base list)."""
     if pd_config is None:
@@ -138,7 +150,9 @@ async def resolve_pool_storages(
         if not isinstance(pool, dict) or pool.get("storages") is None:
             continue
         prev = ((previous or {}).get(role) or {}).get("storages")
-        pool["storages"] = await resolve_entries(db, pool["storages"], cluster_id, namespace, previous=prev)
+        pool["storages"] = await resolve_entries(
+            db, pool["storages"], cluster_id, namespace, previous=prev, unresolved_out=unresolved_out
+        )
     return cfg
 
 

@@ -12,11 +12,10 @@ from typing import Any
 
 from app.clients.k8s import K8sNotConfigured
 from app.services.deployment_status import classify
-from app.services.model_deployment_manifests import LABEL_OWNER
+from app.services.model_deployment_manifests import LABEL_OWNER, PORTAL_OWNERS
 
 logger = logging.getLogger(__name__)
 
-PORTAL_MANAGED_VALUE = "litellm-portal"
 
 
 def _detect_engine(containers: list[dict]) -> tuple[str, dict] | None:
@@ -41,7 +40,7 @@ def _extract_model_path(args: list[str]) -> str | None:
 
 def to_external_serving(dep: dict) -> dict | None:
     """Shape one list_deployments_all item into an external serving, or None."""
-    if dep.get("labels", {}).get(LABEL_OWNER) == PORTAL_MANAGED_VALUE:
+    if dep.get("labels", {}).get(LABEL_OWNER) in PORTAL_OWNERS:
         return None
     detected = _detect_engine(dep.get("containers", []))
     if detected is None:

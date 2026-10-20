@@ -152,9 +152,10 @@ DEPLOY = {
 }
 
 
-def _k8s():
+def _k8s(live_labels: dict | None = None):
     k8s = MagicMock()
     k8s.create_or_patch = AsyncMock()
+    k8s.read_deployment = AsyncMock(return_value={"labels": live_labels} if live_labels is not None else None)
     return k8s
 
 
@@ -271,7 +272,7 @@ async def test_update_pd_pool_keeps_migrated_volume_name(client_for_user, super_
     mock_db.refresh = AsyncMock(side_effect=_refresh)
     calls = []
 
-    async def fake(db, entries, cluster, ns, *, previous=None):
+    async def fake(db, entries, cluster, ns, *, previous=None, **kw):
         calls.append((entries, previous))
         return _resolved(db, entries)
 
@@ -322,3 +323,35 @@ async def test_update_null_storages_means_unchanged(client_for_user, super_user,
     assert resp.status_code == 200, resp.text
     assert res.await_args.args[1][0]["storage_id"] == SID
     assert len(resp.json()["storages"]) == 1
+
+
+async def test_update_keeps_the_live_selector_owner_and_deploy_uses_the_new_one(client_for_user, super_user, mock_db):
+    """Selectors are immutable: an update re-applies with the owner value the live Deployment
+    was created with (pre-rename rows keep litellm-portal); a fresh deploy gets llm-ops-portal."""
+    row = _dep_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    k8s = _k8s(live_labels={"llm-ops/managed-by": "litellm-portal", "llm-ops/model-name": row.model_name})
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)),
+        _phases({"models-pvc": "Bound"}),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.put(f"/api/model-deployments/{row.id}", json={"replicas": 2})
+    assert resp.status_code == 200, resp.text
+    applied = next(m for m in k8s.create_or_patch.await_args.args[1] if m["kind"] == "Deployment")
+    assert applied["spec"]["selector"]["matchLabels"]["llm-ops/managed-by"] == "litellm-portal"
+
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    fresh = _k8s()
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=fresh)),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)),
+        _phases({"models-pvc": "Bound"}),
+    ):
+        async with client_for_user(super_user) as client:
+            created = await client.post("/api/model-deployments", json=DEPLOY)
+    assert created.status_code == 201, created.text
+    new = next(m for m in fresh.create_or_patch.await_args.args[1] if m["kind"] == "Deployment")
+    assert new["spec"]["selector"]["matchLabels"]["llm-ops/managed-by"] == "llm-ops-portal"

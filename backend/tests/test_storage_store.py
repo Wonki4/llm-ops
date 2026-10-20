@@ -240,3 +240,18 @@ async def test_list_pvcs_timed_raises_timeout():
         pytest.raises(TimeoutError),
     ):
         await storage_store.list_pvcs_timed(None, CLUSTER, "prod")
+
+
+async def test_resolve_collects_unresolved_as_placeholders_when_asked():
+    b = binding(cluster_id=CLUSTER, namespace="prod")
+    p1, p2 = _patch([_storage(), _storage(SID2, "hf-cache")], [b])
+    unresolved: list[str] = []
+    with p1, p2:
+        out = await resolve_entries(
+            None, [{"storage_id": SID, "mount_path": "/a"}, {"storage_id": SID2, "mount_path": "/b"}],
+            CLUSTER, "prod", unresolved_out=unresolved,
+        )
+    assert unresolved == ["hf-cache"]
+    assert out[0]["resolved"] == storage_store.snapshot(b)
+    assert out[1]["volume_name"] == "st-hf-cache"
+    assert out[1]["resolved"] == {"binding_id": None, "type": "pvc", "claim_name": "<unbound:hf-cache>"}

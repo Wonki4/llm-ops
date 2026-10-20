@@ -222,7 +222,7 @@ def test_build_ingress_shape_and_backend():
     assert ing["kind"] == "Ingress"
     assert ing["metadata"]["name"] == "llmd-my-stack-ingress"
     assert ing["metadata"]["namespace"] == "llmd-my-stack"
-    assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "litellm-portal"
+    assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "llm-ops-portal"
     rule = ing["spec"]["rules"][0]
     # host is used verbatim — the caller resolves override vs {app}.{domain}
     assert rule["host"] == "myrouter.corp.internal"

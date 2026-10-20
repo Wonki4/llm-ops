@@ -31,7 +31,7 @@ from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_ke
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import default_llmd_values, stack_selector
-from app.services.model_deployment_manifests import build_all, k8s_resource_names
+from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
 from app.services.recipe_import import attach_storages, build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 from app.services.serving_probes import validate_probes
@@ -706,7 +706,8 @@ async def update_deployment(
     await db.refresh(dep)
 
     try:
-        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
+        owner = await live_owner(k8s, dep)  # keep the selector the live Deployment was created with
+        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image, owner=owner))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception:

@@ -173,7 +173,7 @@ def test_pd_deployments_render_roles():
     c = pod["containers"][0]
     assert pre["spec"]["replicas"] == 2
     assert pre["spec"]["selector"]["matchLabels"] == {
-        "llm-ops/managed-by": "litellm-portal",
+        "llm-ops/managed-by": "llm-ops-portal",
         "llm-ops/model-name": "glm",
         "llm-ops/pd-role": "prefill",
     }
@@ -285,7 +285,7 @@ def test_aggregated_output_unchanged_without_runtime():
     c = pod["containers"][0]
     assert list(c.keys()) == ["name", "image", "args", "ports", "resources", "env", "volumeMounts", "readinessProbe"]
     assert c["resources"] == {} and "securityContext" not in c and "hostIPC" not in pod
-    assert m["spec"]["selector"]["matchLabels"] == {"llm-ops/managed-by": "litellm-portal", "llm-ops/model-name": "glm"}
+    assert m["spec"]["selector"]["matchLabels"] == {"llm-ops/managed-by": "llm-ops-portal", "llm-ops/model-name": "glm"}
     assert k8s_resource_names(dep) == {
         "deployment": "glm-deployment",
         "service": "glm-service",
@@ -418,3 +418,169 @@ def test_pool_probes_and_runtime_are_validated():
         validate_pd_config({"decode": {"runtime": {"shm_size_gi": 0}}}, engine="vllm", base_extra_args=None)
     out = validate_pd_config({"prefill": {"image": " ", "model_path": "/m"}}, engine="vllm", base_extra_args=None)
     assert "image" not in out["prefill"] and out["prefill"]["model_path"] == "/m"
+
+
+def test_pd_framework_defaults_to_llmd_and_rejects_unknown():
+    assert pd_serving.validate_pd_config({}, engine="vllm", base_extra_args=None)["framework"] == "llm-d"
+    explicit = pd_serving.validate_pd_config({"framework": "llm-d"}, engine="vllm", base_extra_args=None)
+    assert explicit["framework"] == "llm-d"
+    with pytest.raises(ValueError):
+        pd_serving.validate_pd_config({"framework": "dynamo"}, engine="vllm", base_extra_args=None)
+
+
+def _extras(role: str, **over) -> dict:
+    """Complete P/D settings for ``role``, as the form seeds them."""
+    port = 8000 if role == "prefill" else 8200
+    kv_role = "kv_producer" if role == "prefill" else "kv_consumer"
+    base = {
+        "env": {
+            "UCX_TLS": "cuda_ipc,cuda_copy,tcp",
+            "VLLM_NIXL_SIDE_CHANNEL_HOST": "fieldRef:status.podIP",
+            "VLLM_NIXL_SIDE_CHANNEL_PORT": "5700",
+        },
+        "args": [f"--port={port}", f'--kv-transfer-config={{"kv_connector":"NixlConnector","kv_role":"{kv_role}"}}',
+                 "--block-size=128"],
+        "labels": {"llm-d.ai/role": role, "llm-d.ai/inferenceServing": "true"},
+        "annotations": {"k8s.v1.cni.cncf.io/networks": "multi-nic"},
+        "resources": {"rdma/ib": "1"},
+    }
+    return {**base, **over}
+
+
+def _with_extras(role: str, extras: dict):
+    dep = _dep()
+    cfg = {**dep.pd_config, role: {**dep.pd_config[role], "pd_extras": extras}}
+    return _dep(pd_config=cfg)
+
+
+def test_pd_settings_render_verbatim_on_their_pool():
+    prefill, decode = build_pd_deployments(_with_extras("prefill", _extras("prefill")))
+    tpl = prefill["spec"]["template"]
+    c = tpl["spec"]["containers"][0]
+    # the settings carry the plumbing: no portal-injected --port / --kv-transfer-config duplicates
+    assert c["args"][:2] == ["--model", "zai-org/GLM-5.3-Flash"]
+    assert c["args"].count("--port") == 0 and c["args"].count("--kv-transfer-config") == 0
+    assert c["args"][-3:] == [
+        "--port=8000",
+        '--kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_producer"}',
+        "--block-size=128",
+    ]
+    env = {e["name"]: e for e in c["env"]}
+    assert env["UCX_TLS"]["value"] == "cuda_ipc,cuda_copy,tcp"
+    assert env["VLLM_NIXL_SIDE_CHANNEL_PORT"]["value"] == "5700"
+    assert env["VLLM_NIXL_SIDE_CHANNEL_HOST"] == {
+        "name": "VLLM_NIXL_SIDE_CHANNEL_HOST", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}},
+    }
+    assert [e["name"] for e in c["env"]].count("VLLM_NIXL_SIDE_CHANNEL_HOST") == 1
+    assert {"containerPort": 5700, "name": "nixl", "protocol": "TCP"} in c["ports"]
+    assert tpl["metadata"]["labels"]["llm-d.ai/inferenceServing"] == "true"
+    assert tpl["metadata"]["labels"]["llm-d.ai/role"] == "prefill"
+    assert tpl["metadata"]["annotations"] == {"k8s.v1.cni.cncf.io/networks": "multi-nic"}
+    assert c["resources"]["limits"]["rdma/ib"] == "1" and c["resources"]["requests"]["rdma/ib"] == "1"
+    assert "llm-d.ai/inferenceServing" not in prefill["spec"]["selector"]["matchLabels"]
+    # the pool without settings keeps the portal-injected plumbing
+    d = decode["spec"]["template"]["spec"]["containers"][0]
+    assert "--kv-transfer-config" in d["args"] and d["args"][d["args"].index("--port") + 1] == "8200"
+    assert "annotations" not in decode["spec"]["template"]["metadata"]
+    assert all(e["name"] != "UCX_TLS" for e in d["env"])
+
+
+def test_pd_without_settings_renders_as_before():
+    """No pd_extras = portal plumbing, no annotations / extra labels (existing P/D deployments don't roll)."""
+    for d in build_pd_deployments(_dep()):
+        meta = d["spec"]["template"]["metadata"]
+        assert "annotations" not in meta
+        assert set(meta["labels"]) == {
+            "llm-ops/managed-by", "llm-ops/model-name", "llm-d.ai/model", "llm-ops/pd-role", "llm-d.ai/role",
+        }
+        assert "--kv-transfer-config" in d["spec"]["template"]["spec"]["containers"][0]["args"]
+
+
+@pytest.mark.parametrize("over", [
+    {"env": {"UCX_TLS": "tcp"}},  # side-channel host missing
+    {"env": {"VLLM_NIXL_SIDE_CHANNEL_HOST": "fieldRef:"}},
+    {"env": {"VLLM_NIXL_SIDE_CHANNEL_HOST": "fieldRef:status.podIP", "VLLM_NIXL_SIDE_CHANNEL_PORT": "abc"}},
+    {"labels": {"llm-d.ai/inferenceServing": "true"}},  # role label missing
+    {"labels": {"llm-d.ai/role": "decode"}},  # wrong role
+    {"labels": {"llm-d.ai/role": "prefill", "llm-d.ai/model": "x"}},
+    {"labels": {"llm-d.ai/role": "prefill", "llm-ops/model-name": "x"}},
+    {"resources": {"ib": "1"}},
+    {"args": ['--kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_producer"}']},  # no --port
+    {"args": ["--port=9000", '--kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_producer"}']},
+    {"args": ["--port=8000"]},  # no kv config
+    {"args": ["--port=8000", "--kv-transfer-config={not json"]},
+    {"args": ["--port=8000", '--kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_consumer"}']},
+])
+def test_pd_settings_reject_broken_or_portal_owned_values(over):
+    with pytest.raises(ValueError):
+        pd_serving.validate_pd_config(
+            {"prefill": {"pd_extras": _extras("prefill", **over)}}, engine="vllm", base_extra_args=None
+        )
+
+
+def test_pd_settings_accept_split_flag_form_and_round_trip():
+    split = ["--port", "8200", "--kv-transfer-config", '{"kv_connector":"X","kv_role":"kv_consumer"}']
+    ex = _extras("decode", args=split)
+    out = pd_serving.validate_pd_config({"decode": {"pd_extras": ex}}, engine="vllm", base_extra_args=None)
+    assert out["decode"]["pd_extras"] == ex
+    assert "pd_extras" not in out["prefill"]
+
+
+def test_pd_settings_model_name_placeholder_groups_both_pools():
+    dep = _dep(model_name="Org/GLM_5.3")
+    def pool(role):
+        guide = "{{model_name}}" if role == "prefill" else "{{ model_name }}"
+        extras = _extras(role, labels={"llm-d.ai/guide": guide, "llm-d.ai/role": role})
+        return {**dep.pd_config[role], "pd_extras": extras}
+
+    cfg = {**dep.pd_config, "prefill": pool("prefill"), "decode": pool("decode")}
+    prefill, decode = build_pd_deployments(_dep(model_name="Org/GLM_5.3", pd_config=cfg))
+    for d in (prefill, decode):
+        assert d["spec"]["template"]["metadata"]["labels"]["llm-d.ai/guide"] == "org-glm-5-3"
+
+
+def test_gpu_is_requested_and_limited():
+    for d in build_pd_deployments(_dep()):
+        res = d["spec"]["template"]["spec"]["containers"][0]["resources"]
+        assert res["limits"]["nvidia.com/gpu"] == res["requests"]["nvidia.com/gpu"] == "8"
+
+
+def _with_sidecar(spec: dict):
+    dep = _dep()
+    return _dep(pd_config={**dep.pd_config, "decode": {**dep.pd_config["decode"], "sidecar": spec}})
+
+
+def test_decode_sidecar_settings_render_into_the_init_container():
+    spec = {
+        "image": "registry.local/llm-d/sidecar:v1",
+        "args": ["--port=8000", "--kv-connector=nixlv2", "--zap-log-level=3"],
+        "env": {"POD_IP": "fieldRef:status.podIP", "FOO": "1"},
+        "requests": {"cpu": "100m", "memory": "128Mi"},
+        "limits": {"memory": "256Mi"},
+    }
+    _, decode = build_pd_deployments(_with_sidecar(spec), sidecar_image="portal/default:1")
+    init = decode["spec"]["template"]["spec"]["initContainers"][0]
+    assert init["name"] == "routing-proxy" and init["restartPolicy"] == "Always"
+    assert init["image"] == "registry.local/llm-d/sidecar:v1"
+    assert init["args"] == spec["args"]
+    assert {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}} in init["env"]
+    assert init["resources"] == {"requests": {"cpu": "100m", "memory": "128Mi"}, "limits": {"memory": "256Mi"}}
+
+
+def test_decode_sidecar_blank_image_falls_back_and_absent_spec_renders_as_before():
+    blank = _with_sidecar({"image": " ", "args": ["--port=8000"]})
+    _, decode = build_pd_deployments(blank, sidecar_image="portal/default:1")
+    assert decode["spec"]["template"]["spec"]["initContainers"][0]["image"] == "portal/default:1"
+    _, legacy = build_pd_deployments(_dep(), sidecar_image="portal/default:1")
+    init = legacy["spec"]["template"]["spec"]["initContainers"][0]
+    assert init["args"] == list(pd_serving.SIDECAR_ARGS) and init["resources"] == {} and "env" not in init
+
+
+@pytest.mark.parametrize("cfg", [
+    {"decode": {"sidecar": {"args": ["--port=9000"]}}},
+    {"decode": {"sidecar": {"args": ["--kv-connector=nixlv2"]}}},
+    {"prefill": {"sidecar": {"args": ["--port=8000"]}}},
+])
+def test_decode_sidecar_rejects_wrong_port_or_prefill(cfg):
+    with pytest.raises(ValueError):
+        pd_serving.validate_pd_config(cfg, engine="vllm", base_extra_args=None)
