@@ -50,6 +50,14 @@ import type {
   GpuProfileInput,
   GpuProfilesResponse,
   GpuTypeOption,
+  Storage,
+  StorageDetail,
+  StorageInput,
+  StorageBinding,
+  StorageBindingInput,
+  PvcPhase,
+  ClusterPvc,
+  StorageResolution,
   RecipeDraftResponse,
   ServingRecipe,
   ServingRecipeCreateBody,
@@ -1803,6 +1811,116 @@ export function useDeleteGpuProfile(clusterId: string | null) {
       qc.invalidateQueries({ queryKey: ["gpu-types"] });
       qc.invalidateQueries({ queryKey: ["gpu-nodes"] });
     },
+  });
+}
+
+// ─── Storage ───────────────────────────────────────────────────────────────
+
+export function useStorages(params: { kind?: string; q?: string } = {}) {
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]).toString();
+  return useQuery({
+    queryKey: ["storages", params],
+    queryFn: () => apiFetch<{ storages: Storage[] }>(`/api/admin/storages${qs ? `?${qs}` : ""}`).then((r) => r.storages),
+  });
+}
+
+export function useStorage(id: string) {
+  return useQuery({ queryKey: ["storage", id], queryFn: () => apiFetch<StorageDetail>(`/api/admin/storages/${id}`) });
+}
+
+function useStorageInvalidate() {
+  const qc = useQueryClient();
+  return (id?: string) => {
+    qc.invalidateQueries({ queryKey: ["storages"] });
+    if (id) {
+      qc.invalidateQueries({ queryKey: ["storage", id] });
+      qc.invalidateQueries({ queryKey: ["storage-status", id] });
+    }
+  };
+}
+
+export function useCreateStorage() {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: (body: StorageInput) => apiFetch<Storage>("/api/admin/storages", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useUpdateStorage(id: string) {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: (body: StorageInput) => apiFetch<Storage>(`/api/admin/storages/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => invalidate(id),
+  });
+}
+
+export function useDeleteStorage() {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch<{ deleted: boolean }>(`/api/admin/storages/${id}`, { method: "DELETE" }),
+    onSuccess: () => invalidate(),
+  });
+}
+
+export function useCreateStorageBinding(storageId: string) {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: (body: StorageBindingInput) =>
+      apiFetch<StorageBinding>(`/api/admin/storages/${storageId}/bindings`, { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => invalidate(storageId),
+  });
+}
+
+export function useUpdateStorageBinding(storageId: string) {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: StorageBindingInput }) =>
+      apiFetch<StorageBinding>(`/api/admin/storages/${storageId}/bindings/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => invalidate(storageId),
+  });
+}
+
+export function useDeleteStorageBinding(storageId: string) {
+  const invalidate = useStorageInvalidate();
+  return useMutation({
+    mutationFn: ({ id, dryRun }: { id: string; dryRun: boolean }) =>
+      apiFetch<{ deleted: boolean; affected_deployments: { id: string; model_name: string }[] }>(
+        `/api/admin/storages/${storageId}/bindings/${id}?dry_run=${dryRun}`, { method: "DELETE" },
+      ),
+    onSuccess: (r) => { if (r.deleted) invalidate(storageId); },
+  });
+}
+
+export function useStorageBindingStatus(storageId: string) {
+  return useQuery({
+    queryKey: ["storage-status", storageId],
+    queryFn: () =>
+      apiFetch<{ status: Record<string, PvcPhase | null> }>(`/api/admin/storages/${storageId}/bindings/status`).then((r) => r.status),
+    staleTime: 30_000,
+  });
+}
+
+export function useClusterPvcs(clusterId: string | null, namespace: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["cluster-pvcs", clusterId ?? "default", namespace],
+    queryFn: () =>
+      apiFetch<{ pvcs: ClusterPvc[]; error: string | null }>(
+        `${gpuClusterPath(clusterId)}/pvcs?namespace=${encodeURIComponent(namespace)}`,
+      ),
+    enabled: enabled && !!namespace,
+  });
+}
+
+export function useResolveStorages(storageIds: string[], clusterId: string | null, namespace: string) {
+  return useQuery({
+    queryKey: ["storage-resolve", storageIds, clusterId ?? "default", namespace],
+    queryFn: () =>
+      apiFetch<{ results: StorageResolution[] }>("/api/admin/storages/resolve", {
+        method: "POST",
+        body: JSON.stringify({ storage_ids: storageIds, cluster_id: clusterId, namespace }),
+      }).then((r) => r.results),
+    enabled: storageIds.length > 0 && !!namespace,
   });
 }
 
