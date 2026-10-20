@@ -5,6 +5,24 @@ export class AuthError extends Error {
   }
 }
 
+/** Flatten FastAPI `detail` (string, 422 validation array, or object) into a readable message. */
+function formatDetail(detail: unknown): string {
+  if (!detail) return "";
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail
+      .map((d) => (typeof d === "string" ? d : formatDetail((d as { msg?: unknown })?.msg ?? d)))
+      .map((m) => m.replace(/^Value error, /, ""))
+      .filter(Boolean)
+      .join("; ");
+  }
+  if (typeof detail === "object") {
+    const m = (detail as { message?: unknown }).message;
+    return typeof m === "string" ? m : JSON.stringify(detail);
+  }
+  return String(detail);
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const proxyPath = path.replace(/^\/api\//, "/api/proxy/");
 
@@ -25,7 +43,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(error.detail || `API Error ${res.status}`);
+    throw new Error(formatDetail(error.detail) || `API Error ${res.status}`);
   }
   return res.json();
 }
