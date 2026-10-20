@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useCreateServingRecipe, useGpuTypes, useUpdateServingRecipe } from "@/hooks/use-api";
-import type { PdConfig, PdRoleOverride, PoolConfig, ServingEngine, ServingMode, ServingRecipe, ServingRecipeInput } from "@/types";
+import type { PdConfig, PdRoleOverride, PoolConfig, ServingEngine, ServingMode, ServingRecipe, ServingRecipeInput, StorageEntry } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +26,7 @@ const BLANK: ServingRecipeInput = {
   name: "", description: null, model_path: "", image: "", gpu_count: 1,
   gpu_resource_key: "nvidia.com/gpu", cpu_request: null, cpu_limit: null,
   memory_request: null, memory_limit: null, node_selector: null, tolerations: null,
-  pvc_name: null, pvc_mount_path: null, vllm_extra_args: null, env: null,
+  storages: [], vllm_extra_args: null, env: null,
   engine: "vllm", engine_args: null, probes: null, gpu_type: null,
   serving_mode: "aggregated", pd_config: null, runtime: null,
 };
@@ -90,6 +90,7 @@ export function ServingRecipeForm({
 }) {
   const t = useTranslations("servingRecipes");
   const tc = useTranslations("common");
+  const ts = useTranslations("storages");
   const router = useRouter();
   const createMut = useCreateServingRecipe();
   const updateMut = useUpdateServingRecipe();
@@ -158,7 +159,8 @@ export function ServingRecipeForm({
       toast.error(t("requiredError"));
       return;
     }
-    let body: ServingRecipeInput = { ...form, pd_config: null };
+    const keepStorages = (list: StorageEntry[] | null | undefined) => (list ?? []).filter((s) => s.storage_id);
+    let body: ServingRecipeInput = { ...form, storages: keepStorages(form.storages), pd_config: null };
     if (isPd) {
       const prefill = pd.prefill ?? {};
       const decode = pd.decode ?? {};
@@ -185,22 +187,29 @@ export function ServingRecipeForm({
       // columns, list views); each pool's own config is what gets rendered.
       const representative: Partial<PoolConfig> = {};
       for (const k of POOL_KEYS) (representative as Record<string, unknown>)[k] = prefill[k] ?? null;
+      // Pool storages: null (inherit) is omitted from the role block; the row keeps the prefill pool's list.
+      const withStorages = (pool: PdRoleOverride): PdRoleOverride => {
+        const { storages, ...rest } = pool;
+        return storages == null ? rest : { ...rest, storages: keepStorages(storages) };
+      };
       body = {
         ...body,
         ...representative,
         image: prefill.image ?? "",
         model_path: prefill.model_path ?? "",
         gpu_resource_key: prefill.gpu_resource_key ?? "nvidia.com/gpu",
+        storages: keepStorages(prefill.storages ?? form.storages),
         gpu_count: Math.max(prefill.gpu_count ?? 0, decode.gpu_count ?? 0),
-        pd_config: { ...pd, prefill, decode, kv_transfer_extra: kvExtra ?? {}, sidecar_image: pd.sidecar_image?.trim() || null },
+        pd_config: { ...pd, prefill: withStorages(prefill), decode: withStorages(decode), kv_transfer_extra: kvExtra ?? {}, sidecar_image: pd.sidecar_image?.trim() || null },
       };
     } else if (!form.image.trim() || !form.model_path.trim()) {
       toast.error(t("requiredError"));
       return;
     }
     const opts = {
-      onSuccess: () => {
+      onSuccess: (saved: ServingRecipe) => {
         toast.success(recipe ? t("saveSuccess") : t("createSuccess"));
+        for (const code of saved.warnings ?? []) toast.warning(ts(`warn_${code}`));
         router.push(RECIPES_HREF);
       },
       onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("saveError")),
@@ -301,7 +310,7 @@ export function ServingRecipeForm({
           engine={form.engine}
           value={poolOf(form)}
           gpuTypes={gpuTypeList}
-          onChange={(patch) => setForm((f) => ({ ...f, ...patch }))}
+          onChange={({ storages, ...patch }) => setForm((f) => ({ ...f, ...patch, ...(storages !== undefined && { storages: storages ?? [] }) }))}
         />
       )}
 

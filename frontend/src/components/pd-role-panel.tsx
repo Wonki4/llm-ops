@@ -65,6 +65,7 @@ export function PdRolePanel({
         value={pool}
         gpuTypes={gpuTypes}
         pdHints
+        inheritStorages
         onChange={(patch) => onChange({ ...value, ...patch })}
       />
     </div>

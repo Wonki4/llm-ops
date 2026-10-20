@@ -7,11 +7,12 @@ import type { GpuTypeOption, PoolConfig, ProbeSpec, ProbesSpec, RuntimeOptions, 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { StorageMountsEditor } from "@/components/storage-mounts-editor";
 import { Area, EngineArgsFields, Field, withEngineArg } from "@/components/engine-args-fields";
 import { linesToList, linesToMap, linesToTolerations, listToLines, mapToLines, tolerationsToLines } from "@/lib/placement";
 
 type OptionalText =
-  | "cpu_request" | "cpu_limit" | "memory_request" | "memory_limit" | "pvc_name" | "pvc_mount_path";
+  | "cpu_request" | "cpu_limit" | "memory_request" | "memory_limit";
 type OptionalProbe = "liveness" | "startup";
 
 /**
@@ -22,7 +23,7 @@ type OptionalProbe = "liveness" | "startup";
  * and emit the parsed value on every change.
  */
 export function PoolConfigCards({
-  idPrefix, engine, value, onChange, gpuTypes, pdHints,
+  idPrefix, engine, value, onChange, gpuTypes, pdHints, inheritStorages,
 }: {
   idPrefix: string;
   engine: ServingEngine;
@@ -31,6 +32,8 @@ export function PoolConfigCards({
   gpuTypes: GpuTypeOption[];
   /** P/D: show the startup-probe default note. */
   pdHints?: boolean;
+  /** P/D pool tabs: `storages: null` means "use the recipe's list". */
+  inheritStorages?: boolean;
 }) {
   const t = useTranslations("servingRecipes");
   const id = (s: string) => `${idPrefix}-${s}`;
@@ -118,13 +121,14 @@ export function PoolConfigCards({
 
       <Card>
         <CardHeader><CardTitle className="text-base">{t("sectionStorage")}</CardTitle></CardHeader>
-        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field id={id("pvc-name")} label={t("pvcName")}>
-            <Input id={id("pvc-name")} className="font-mono" value={value.pvc_name ?? ""} onChange={optText("pvc_name")} />
-          </Field>
-          <Field id={id("pvc-mount")} label={t("pvcMountPath")}>
-            <Input id={id("pvc-mount")} className="font-mono" placeholder="/models" value={value.pvc_mount_path ?? ""} onChange={optText("pvc_mount_path")} />
-          </Field>
+        <CardContent>
+          <StorageMountsEditor
+            idPrefix={idPrefix}
+            value={inheritStorages ? value.storages : value.storages ?? []}
+            onChange={(storages) => onChange({ storages })}
+            modelPath={value.model_path}
+            inheritable={inheritStorages}
+          />
         </CardContent>
       </Card>
 
