@@ -45,6 +45,12 @@ class CustomK8sCluster(CustomBase):
     default_nfs_server: Mapped[str | None] = mapped_column(String(253), nullable=True)
     default_nfs_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     default_nfs_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Storage mounted read-only into benchmarks against a raw model_name (tokenizer
+    # / weights), resolved for the job's namespace. Replaces default_nfs_* (052).
+    bench_storage_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_storage.id", ondelete="SET NULL"), nullable=True
+    )
+    bench_mount_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
     # Node label key that marks GPU kinds on this cluster (hand-managed; no GFD).
     gpu_label_key: Mapped[str] = mapped_column(
         String(128), nullable=False, default="gpu-type", server_default="gpu-type"
