@@ -4,6 +4,7 @@ import types
 
 from app.services.model_deployment_manifests import build_deployment
 from app.services.recipe_import import build_recipe_draft, parse_flags
+from tests._storage import legacy_entry
 
 
 def _codes(result):
@@ -80,6 +81,7 @@ def _dep(**kw):
         tolerations=[{"key": "gpu", "operator": "Exists", "effect": "NoSchedule"}],
         pvc_name="weights",
         pvc_mount_path="/models",
+        storages=[legacy_entry("weights", "/models")],  # Task 7 drops the pvc_* draft keys
         model_path="/models/Qwen3-32B",
         vllm_extra_args=None,
         env={"HF_HOME": "/models/.cache"},
@@ -122,6 +124,7 @@ def test_portal_sglang_manifest_round_trips():
         memory_request=None,
         memory_limit=None,
         pvc_name=None,
+        storages=[],
         pvc_mount_path=None,
         env=None,
         node_selector=None,
@@ -393,6 +396,7 @@ def test_pd_pool_imports_as_base_with_pd_detected_warning():
         node_selector=None,
         tolerations=None,
         pvc_name=None,
+        storages=[],
         pvc_mount_path=None,
         vllm_extra_args=None,
         env={"VLLM_KV_CACHE_LAYOUT": "HND"},

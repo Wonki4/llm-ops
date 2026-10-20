@@ -24,6 +24,7 @@ from app.services.pd_serving import (
     validate_runtime,
 )
 from app.services.serving_probes import render_probes, validate_probes
+from tests._storage import legacy_entry
 
 
 def _dep(**kw):
@@ -41,8 +42,7 @@ def _dep(**kw):
         memory_limit=None,
         node_selector={"gpu-type": "h200"},
         tolerations=None,
-        pvc_name="weights",
-        pvc_mount_path="/models",
+        storages=[legacy_entry("weights", "/models")],
         model_path="zai-org/GLM-5.3-Flash",
         vllm_extra_args=None,
         env={"VLLM_KV_CACHE_LAYOUT": "HND"},
@@ -374,8 +374,7 @@ def test_each_pool_renders_its_own_image_model_storage_probes_runtime_placement(
     dep = _dep(
         image="base:img",
         model_path="/models/base",
-        pvc_name="base-pvc",
-        pvc_mount_path="/models",
+        storages=[legacy_entry("base-pvc", "/models")],
         node_selector={"gpu-type": "h200"},
         tolerations=None,
         probes=None,
@@ -386,8 +385,7 @@ def test_each_pool_renders_its_own_image_model_storage_probes_runtime_placement(
                 "image": "pre:img",
                 "model_path": "/models/pre",
                 "gpu_resource_key": "amd.com/gpu",
-                "pvc_name": "pre-pvc",
-                "pvc_mount_path": "/pre",
+                "storages": [legacy_entry("pre-pvc", "/pre")],
                 "probes": {"readiness": {"path": "/ready"}},
                 "runtime": {"shm_size_gi": 4, "host_ipc": True},
                 "node_selector": {"gpu-type": "mi300"},

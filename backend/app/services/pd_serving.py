@@ -84,8 +84,7 @@ class RoleOverride(BaseModel):
     cpu_limit: str | None = None
     memory_request: str | None = None
     memory_limit: str | None = None
-    pvc_name: str | None = None
-    pvc_mount_path: str | None = None
+    storages: list[dict] | None = None
     engine_args: dict[str, str | int | float | bool] | None = None
     vllm_extra_args: list[str] | None = None
     env: dict[str, str] | None = None
@@ -103,13 +102,19 @@ class RoleOverride(BaseModel):
         "cpu_limit",
         "memory_request",
         "memory_limit",
-        "pvc_name",
-        "pvc_mount_path",
     )
     @classmethod
     def _blank_is_none(cls, v):
         v = (v or "").strip() if isinstance(v, str) else v
         return v or None
+
+    @field_validator("storages")
+    @classmethod
+    def _storages(cls, v):
+        # Imported here: storage_mounts imports ROLES from this module at load time.
+        from app.services.storage_mounts import validate_entries
+
+        return None if v is None else validate_entries(v)
 
     @field_validator("probes")
     @classmethod
@@ -253,8 +258,7 @@ POOL_FIELDS = (
     "cpu_limit",
     "memory_request",
     "memory_limit",
-    "pvc_name",
-    "pvc_mount_path",
+    "storages",
     "probes",
     "runtime",
     "node_selector",

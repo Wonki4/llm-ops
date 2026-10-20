@@ -12,6 +12,7 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services import pd_serving
 from app.services.serving_engines import SERVING_PORT, container_launch, engine_of
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
+from app.services.storage_mounts import to_volumes
 
 VLLM_PORT = SERVING_PORT  # kept for existing imports
 LABEL_OWNER = "llm-ops/managed-by"
@@ -101,12 +102,8 @@ def _runtime(dep) -> dict:
 
 
 def _volumes(dep: CustomModelDeployment) -> tuple[list, list]:
-    """(volumes, volumeMounts): the model PVC when configured, ``/dev/shm`` when runtime asks."""
-    volumes = []
-    mounts = []
-    if dep.pvc_name and dep.pvc_mount_path:
-        volumes.append({"name": "model-weights", "persistentVolumeClaim": {"claimName": dep.pvc_name}})
-        mounts.append({"name": "model-weights", "mountPath": dep.pvc_mount_path})
+    """(volumes, volumeMounts): the resolved storages, then ``/dev/shm`` when runtime asks."""
+    volumes, mounts = to_volumes(getattr(dep, "storages", None) or [])
     shm = _runtime(dep).get("shm_size_gi")
     if shm:
         volumes.append({"name": "shm", "emptyDir": {"medium": "Memory", "sizeLimit": f"{int(shm)}Gi"}})
