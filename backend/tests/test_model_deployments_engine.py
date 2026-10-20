@@ -14,7 +14,7 @@ def _row(**kw):
         id=uuid.uuid4(), model_name="m", cluster_id=None, namespace="ns", image="img", replicas=1,
         gpu_count=1, gpu_resource_key="nvidia.com/gpu", cpu_request=None, cpu_limit=None,
         memory_request=None, memory_limit=None, node_selector=None, tolerations=None,
-        pvc_name=None, pvc_mount_path=None, model_path="/m", vllm_extra_args=None, env=None,
+        storages=[], model_path="/m", vllm_extra_args=None, env=None,
         ingress_host="h", ingress_path="/", ingress_class="nginx", status="Pending",
         status_message=None, ready_replicas=0, service_cluster_ip=None, litellm_model_id=None,
         last_synced_at=None, created_by=None, updated_by=None, created_at=None, updated_at=None,

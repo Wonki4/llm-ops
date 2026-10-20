@@ -144,3 +144,113 @@ async def test_recipe_update_returns_storages_and_warnings(client_for_user, supe
     data = resp.json()
     assert data["storages"] == [{"storage_id": SID, "mount_path": "/models", "read_only": True}]
     assert data["warnings"] == ["model_path_outside_storages"]
+
+
+DEPLOY = {
+    "model_name": "llama", "namespace": "prod", "model_path": "/models/llama", "ingress_host": "llama.local",
+    "storages": [{"storage_id": SID, "mount_path": "/models"}],
+}
+
+
+def _k8s():
+    k8s = MagicMock()
+    k8s.create_or_patch = AsyncMock()
+    return k8s
+
+
+def _resolved(db, entries, *a, **kw):
+    """Stand-in for storage_store.resolve_entries(db, entries, cluster_id, namespace, *, previous)."""
+    snap = {"binding_id": "b", "type": "pvc", "claim_name": "models-pvc", "namespace": "prod",
+            "nfs_server": None, "nfs_path": None, "sub_path": None}
+    return [{**e, "volume_name": "st-llama-weights", "resolved": snap} for e in entries]
+
+
+def _phases(phases):
+    return patch("app.api.model_deployments.pvc_phases", AsyncMock(return_value=phases))
+
+
+async def test_deploy_snapshots_resolution_and_warns_pending_pvc(client_for_user, super_user, mock_db):
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    k8s = _k8s()
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)) as res,
+        _phases({"models-pvc": "Pending"}) as phases,
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=DEPLOY)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    assert data["storages"][0]["resolved"]["claim_name"] == "models-pvc"
+    assert data["warnings"] == ["pvc_pending:models-pvc"]
+    assert res.await_args.args[2:] == (None, "prod")
+    assert phases.await_args.args[1:] == (None, "prod")
+    pod = next(m for m in k8s.create_or_patch.await_args.args[1] if m["kind"] == "Deployment")
+    assert pod["spec"]["template"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "models-pvc"
+
+
+async def test_deploy_unresolved_storage_400_and_nothing_applied(client_for_user, super_user, mock_db):
+    from app.services.storage_store import UnresolvedStorageError
+
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    k8s = _k8s()
+    unresolved = AsyncMock(side_effect=UnresolvedStorageError(["llama-weights"]))
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)),
+        patch("app.api.model_deployments.resolve_entries", unresolved),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json=DEPLOY)
+    assert resp.status_code == 400 and "llama-weights" in resp.text
+    k8s.create_or_patch.assert_not_awaited()
+    mock_db.add.assert_not_called()
+
+
+async def test_deploy_rejects_legacy_pvc(client_for_user, super_user, mock_db):
+    async with client_for_user(super_user) as client:
+        resp = await client.post("/api/model-deployments", json={**DEPLOY, "pvc_name": "x", "pvc_mount_path": "/m"})
+    assert resp.status_code == 422
+
+
+def _dep_row(**kw):
+    from app.db.models.custom_model_deployment import CustomModelDeployment
+
+    base = dict(
+        id=uuid.uuid4(), model_name="llama", namespace="prod", cluster_id=None, image="img", replicas=1,
+        gpu_count=1, gpu_resource_key="nvidia.com/gpu", model_path="/models/llama", ingress_host="h",
+        ingress_path="/", ingress_class="nginx", engine="vllm", serving_mode="aggregated", status="Running",
+        ready_replicas=1, created_at=NOW, updated_at=NOW,
+        storages=[{"storage_id": SID, "mount_path": "/models", "read_only": False, "volume_name": "model-weights",
+                   "resolved": {"binding_id": "old"}}],
+    )
+    base.update(kw)
+    return CustomModelDeployment(**base)
+
+
+async def test_update_re_resolves_and_keeps_volume_name(client_for_user, super_user, mock_db):
+    row = _dep_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    with (
+        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=_k8s())),
+        patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_resolved)) as res,
+        _phases({"models-pvc": "Bound"}),
+    ):
+        async with client_for_user(super_user) as client:
+            resp = await client.put(f"/api/model-deployments/{row.id}", json={"replicas": 2})
+    assert resp.status_code == 200, resp.text
+    entries, cluster, ns = res.await_args.args[1:4]
+    assert entries[0]["storage_id"] == SID and (cluster, ns) == (None, "prod")
+    assert res.await_args.kwargs["previous"][0]["volume_name"] == "model-weights"
+    assert resp.json()["warnings"] == []
+
+
+async def test_get_deployment_reports_stale(client_for_user, super_user, mock_db):
+    row = _dep_row()
+    mock_db.execute = AsyncMock(return_value=_result(row))
+    with patch("app.api.model_deployments.stale_storage_ids", AsyncMock(return_value=[SID])):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/model-deployments/{row.id}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["storage_stale"] == [SID]

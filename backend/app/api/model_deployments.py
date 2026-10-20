@@ -35,6 +35,9 @@ from app.services.model_deployment_manifests import build_all, k8s_resource_name
 from app.services.recipe_import import build_recipe_draft
 from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
 from app.services.serving_probes import validate_probes
+from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
+from app.services.storage_mounts import all_entries, validate_entries
+from app.services.storage_store import pvc_phases, resolve_entries, resolve_pool_storages, stale_storage_ids
 
 logger = logging.getLogger(__name__)
 
@@ -58,8 +61,7 @@ class CreateDeploymentRequest(BaseModel):
     memory_limit: str | None = None
     node_selector: dict | None = None
     tolerations: list | None = None
-    pvc_name: str | None = None
-    pvc_mount_path: str | None = None
+    storages: list[dict] = Field(default_factory=list)
     model_path: str
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
@@ -96,6 +98,16 @@ class CreateDeploymentRequest(BaseModel):
     def _check_runtime(cls, v: dict | None) -> dict | None:
         return pd_serving.validate_runtime(v)
 
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_pvc(cls, data):
+        return reject_legacy_pvc(data)
+
+    @field_validator("storages")
+    @classmethod
+    def _check_storages(cls, v):
+        return validate_entries(v)
+
     @model_validator(mode="after")
     def _check_pd(self):
         if self.serving_mode == "pd":
@@ -118,8 +130,7 @@ class UpdateDeploymentRequest(BaseModel):
     memory_limit: str | None = None
     node_selector: dict | None = None
     tolerations: list | None = None
-    pvc_name: str | None = None
-    pvc_mount_path: str | None = None
+    storages: list[dict] | None = None
     model_path: str | None = None
     vllm_extra_args: list[str] | None = None
     env: dict | None = None
@@ -132,6 +143,16 @@ class UpdateDeploymentRequest(BaseModel):
     ingress_class: str | None = None
     pd_config: dict | None = None  # validated against the row's engine/extra args in the handler
     runtime: dict | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_legacy_pvc(cls, data):
+        return reject_legacy_pvc(data)
+
+    @field_validator("storages")
+    @classmethod
+    def _check_storages(cls, v):
+        return None if v is None else validate_entries(v)
 
     @field_validator("engine_args")
     @classmethod
@@ -183,8 +204,7 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
         "memory_limit": d.memory_limit,
         "node_selector": d.node_selector,
         "tolerations": d.tolerations,
-        "pvc_name": d.pvc_name,
-        "pvc_mount_path": d.pvc_mount_path,
+        "storages": list(d.storages or []),
         "model_path": d.model_path,
         "vllm_extra_args": d.vllm_extra_args,
         "env": d.env,
@@ -421,6 +441,7 @@ async def get_deployment(
         **_serialize(dep, await _recipe_names(db, [dep])),
         "llmd_stacks": linked,
         "router_stack": await _router_stack_summary(db, dep),
+        "storage_stale": await stale_storage_ids(db, dep),
     }
 
 
@@ -449,6 +470,38 @@ async def _apply_pool_profiles(db: AsyncSession, dep: CustomModelDeployment, *, 
         pool["gpu_resource_key"] = placement.gpu_resource_key
         cfg[role] = pool
     dep.pd_config = cfg
+
+
+async def _resolve_storages(
+    db: AsyncSession, dep: CustomModelDeployment, entries: list, *, previous: list | None, previous_pd: dict | None
+) -> None:
+    """Snapshot the binding of every storage (base + P/D pools) for the row's cluster/namespace."""
+    try:
+        dep.storages = await resolve_entries(db, entries, dep.cluster_id, dep.namespace, previous=previous)
+        if pd_serving.is_pd(dep):
+            dep.pd_config = await resolve_pool_storages(
+                db, dep.pd_config, dep.cluster_id, dep.namespace, previous=previous_pd
+            )
+    except ValueError as e:  # unresolved / unknown storage, reserved or duplicate volume name
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+async def _deploy_warnings(db: AsyncSession, dep: CustomModelDeployment) -> list[str]:
+    """model_path outside every storage; PVCs that are not Bound (bounded, best-effort lookup)."""
+    out = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
+    resolved = [e.get("resolved") or {} for e in all_entries(dep)]
+    claims = sorted({r["claim_name"] for r in resolved if r.get("type") == "pvc"})
+    if not claims:
+        return out
+    phases = await pvc_phases(db, dep.cluster_id, dep.namespace)
+    if phases is None:  # cluster unreadable: no PVC warnings
+        return out
+    for claim in claims:
+        if claim not in phases:
+            out.append(f"pvc_missing:{claim}")
+        elif phases[claim] != "Bound":
+            out.append(f"pvc_pending:{claim}")
+    return out
 
 
 async def _router_stack_summary(db: AsyncSession, dep: CustomModelDeployment) -> dict | None:
@@ -556,8 +609,6 @@ async def create_deployment(
         memory_limit=body.memory_limit,
         node_selector=body.node_selector,
         tolerations=body.tolerations,
-        pvc_name=body.pvc_name,
-        pvc_mount_path=body.pvc_mount_path,
         model_path=body.model_path,
         vllm_extra_args=body.vllm_extra_args,
         env=body.env,
@@ -576,6 +627,7 @@ async def create_deployment(
         created_by=user.user_id,
         updated_by=user.user_id,
     )
+    await _resolve_storages(db, dep, body.storages, previous=None, previous_pd=None)
     if pd_serving.is_pd(dep):
         await _apply_pool_profiles(db, dep, default_gpu_type=body.gpu_type)
     apply_profile(dep, gpu_profile, gpu_label_key)
@@ -595,7 +647,7 @@ async def create_deployment(
     if pd_serving.is_pd(dep):
         await _attach_router(db, dep, body, user.user_id)
 
-    return _serialize(dep)
+    return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
 
 
 @router.put("/{deployment_id}")
@@ -616,6 +668,8 @@ async def update_deployment(
 
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     updates = body.model_dump(exclude_unset=True)
+    previous = list(dep.storages or [])
+    previous_pd = dict(dep.pd_config or {}) if dep.pd_config else None
     for field, value in updates.items():
         setattr(dep, field, value)
     if pd_serving.is_pd(dep):
@@ -627,6 +681,8 @@ async def update_deployment(
             raise HTTPException(status_code=400, detail=str(e))
     else:
         dep.pd_config = None
+    entries = updates["storages"] if "storages" in updates else previous
+    await _resolve_storages(db, dep, entries, previous=previous, previous_pd=previous_pd)
     if pd_serving.is_pd(dep) and ("gpu_type" in updates or "pd_config" in updates):
         await _apply_pool_profiles(db, dep, default_gpu_type=dep.gpu_type)
     if updates.get("gpu_type"):
@@ -649,7 +705,7 @@ async def update_deployment(
         logger.exception("K8s apply failed for %s", dep.model_name)
         raise HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
 
-    return _serialize(dep)
+    return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
 
 
 @router.delete("/{deployment_id}")

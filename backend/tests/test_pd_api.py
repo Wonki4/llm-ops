@@ -46,8 +46,9 @@ def _dep(**kw):
         memory_limit=None,
         node_selector=None,
         tolerations=None,
-        pvc_name=None,
+        pvc_name=None,  # still read by benchmarks._serving_snapshot (out of Task 7 scope)
         pvc_mount_path=None,
+        storages=[],
         model_path="/models/glm",
         vllm_extra_args=None,
         env=None,
