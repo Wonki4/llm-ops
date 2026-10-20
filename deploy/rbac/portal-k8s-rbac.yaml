@@ -56,6 +56,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # --- Storage: list PVCs for storage bindings (K8sClient.list_pvcs, read-only) ---
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]
   # --- llm-d stacks: manage ArgoCD Application CRs (CRD-based provisioning) ---
   - apiGroups: ["argoproj.io"]
     resources: ["applications"]
