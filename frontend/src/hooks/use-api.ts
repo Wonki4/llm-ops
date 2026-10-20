@@ -1474,9 +1474,8 @@ export interface CreateK8sClusterBody {
   kubeconfig: string;
   description?: string | null;
   is_default?: boolean;
-  default_nfs_server?: string | null;
-  default_nfs_path?: string | null;
-  default_nfs_mount_path?: string | null;
+  bench_storage_id?: string | null;
+  bench_mount_path?: string | null;
   gpu_label_key?: string;
 }
 

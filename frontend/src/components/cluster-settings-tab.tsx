@@ -12,6 +12,7 @@ import {
   useDeleteK8sCluster,
   useTestK8sCluster,
   useTestSavedK8sCluster,
+  useStorages,
   type CreateK8sClusterBody,
 } from "@/hooks/use-api";
 import type { K8sClusterSummary, ClusterTestResult } from "@/types";
@@ -44,9 +45,8 @@ type FormState = {
   kubeconfig: string;
   description: string;
   is_default: boolean;
-  default_nfs_server: string;
-  default_nfs_path: string;
-  default_nfs_mount_path: string;
+  bench_storage_id: string;
+  bench_mount_path: string;
   gpu_label_key: string;
 };
 
@@ -60,15 +60,15 @@ const EMPTY: FormState = {
   kubeconfig: "",
   description: "",
   is_default: false,
-  default_nfs_server: "",
-  default_nfs_path: "",
-  default_nfs_mount_path: "",
+  bench_storage_id: "",
+  bench_mount_path: "",
   gpu_label_key: "gpu-type",
 };
 
 export function ClusterSettingsTab() {
   const t = useTranslations("settings.clusters");
   const { data: clusters, isLoading } = useK8sClusters();
+  const { data: storages } = useStorages();
   const createMut = useCreateK8sCluster();
   const updateMut = useUpdateK8sCluster();
   const deleteMut = useDeleteK8sCluster();
@@ -101,9 +101,8 @@ export function ClusterSettingsTab() {
       kubeconfig: "", // masked — empty keeps existing
       description: c.description ?? "",
       is_default: c.is_default,
-      default_nfs_server: c.default_nfs_server ?? "",
-      default_nfs_path: c.default_nfs_path ?? "",
-      default_nfs_mount_path: c.default_nfs_mount_path ?? "",
+      bench_storage_id: c.bench_storage_id ?? "",
+      bench_mount_path: c.bench_mount_path ?? "",
       gpu_label_key: c.gpu_label_key ?? "gpu-type",
     });
     setTestResult(null);
@@ -131,12 +130,10 @@ export function ClusterSettingsTab() {
       toast.error(t("kubeconfigRequired"));
       return;
     }
-    const nfsServer = form.default_nfs_server.trim();
-    const nfsPath = form.default_nfs_path.trim();
-    const nfsMount = form.default_nfs_mount_path.trim();
-    const nfsSet = [nfsServer, nfsPath, nfsMount].filter(Boolean).length;
-    if (nfsSet !== 0 && nfsSet !== 3) {
-      toast.error(t("nfsFieldsRequired"));
+    const benchStorage = form.bench_storage_id;
+    const benchMount = form.bench_mount_path.trim();
+    if (!!benchStorage !== !!benchMount) {
+      toast.error(t("benchStorageBoth"));
       return;
     }
 
@@ -150,9 +147,8 @@ export function ClusterSettingsTab() {
         argocd_dest_server: form.argocd_dest_server,
         description: form.description,
         is_default: form.is_default,
-        default_nfs_server: nfsServer,
-        default_nfs_path: nfsPath,
-        default_nfs_mount_path: nfsMount,
+        bench_storage_id: benchStorage,
+        bench_mount_path: benchMount,
         gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
@@ -177,9 +173,8 @@ export function ClusterSettingsTab() {
         kubeconfig: form.kubeconfig,
         description: form.description || null,
         is_default: form.is_default,
-        default_nfs_server: nfsServer || null,
-        default_nfs_path: nfsPath || null,
-        default_nfs_mount_path: nfsMount || null,
+        bench_storage_id: benchStorage || null,
+        bench_mount_path: benchMount || null,
         gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
       };
       createMut.mutate(body, {
@@ -408,31 +403,27 @@ export function ClusterSettingsTab() {
                 placeholder={t("descriptionPlaceholder")}
               />
             </div>
-            <div className="space-y-2">
-              <Label>{t("defaultNfsLabel")}</Label>
-              <Input
-                id="cluster-nfs-server"
-                value={form.default_nfs_server}
-                onChange={(e) => setForm({ ...form, default_nfs_server: e.target.value })}
-                placeholder={t("nfsServerPlaceholder")}
-              />
-              <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1 sm:col-span-2">
+              <Label htmlFor="cluster-bench-storage">{t("benchStorageLabel")}</Label>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <select
+                  id="cluster-bench-storage"
+                  className="h-9 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+                  value={form.bench_storage_id}
+                  onChange={(e) => setForm({ ...form, bench_storage_id: e.target.value })}
+                >
+                  <option value="">{t("benchStorageNone")}</option>
+                  {(storages ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
                 <Input
-                  id="cluster-nfs-path"
-                  value={form.default_nfs_path}
-                  onChange={(e) => setForm({ ...form, default_nfs_path: e.target.value })}
-                  placeholder={t("nfsPathPlaceholder")}
-                />
-                <Input
-                  id="cluster-nfs-mount"
-                  value={form.default_nfs_mount_path}
-                  onChange={(e) =>
-                    setForm({ ...form, default_nfs_mount_path: e.target.value })
-                  }
-                  placeholder={t("nfsMountPlaceholder")}
+                  id="cluster-bench-mount"
+                  className="font-mono"
+                  placeholder="/models"
+                  value={form.bench_mount_path}
+                  onChange={(e) => setForm({ ...form, bench_mount_path: e.target.value })}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">{t("defaultNfsHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("benchStorageHint")}</p>
             </div>
             <div className="space-y-1">
               <Label htmlFor="cluster-gpu-label-key">{t("gpuLabelKey")}</Label>
