@@ -28,5 +28,7 @@ def recipe_warnings(model_path: str | None, storages: list[dict], pd_config: dic
     out = set(model_path_warnings(model_path, storages))
     for role in ROLES:
         pool = (pd_config or {}).get(role) or {}
-        out |= set(model_path_warnings(pool.get("model_path") or model_path, pool.get("storages") or storages))
+        pool_storages = pool.get("storages")  # None inherits the base list; [] means no storages
+        entries = storages if pool_storages is None else pool_storages
+        out |= set(model_path_warnings(pool.get("model_path") or model_path, entries))
     return sorted(out)
