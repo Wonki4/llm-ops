@@ -32,7 +32,7 @@ export function StorageResolutionPreview({
   onBlockedChange: (blocked: boolean) => void;
 }) {
   const t = useTranslations("storages");
-  const { data, isFetching } = useResolveStorages(storageIds, clusterId, namespace);
+  const { data, isFetching, isError, refetch } = useResolveStorages(storageIds, clusterId, namespace);
   const blocked = storageIds.length > 0 && (!data || data.some((r) => !r.binding));
 
   useEffect(() => { onBlockedChange(blocked); }, [blocked, onBlockedChange]);
@@ -41,7 +41,12 @@ export function StorageResolutionPreview({
   return (
     <div className="sm:col-span-2 rounded-md border bg-muted/30 p-3 text-xs" data-testid="storage-resolution">
       <div className="mb-1 font-medium">{t("resolution")}</div>
-      {isFetching && !data ? (
+      {isError ? (
+        <div className="flex items-center gap-2 text-destructive">
+          <span>{t("resolutionError")}</span>
+          <button type="button" className="underline" onClick={() => refetch()}>{t("resolutionRetry")}</button>
+        </div>
+      ) : isFetching && !data ? (
         <div className="h-4 w-40 animate-pulse rounded bg-muted" />
       ) : (
         <ul className="space-y-1">
@@ -51,7 +56,7 @@ export function StorageResolutionPreview({
               <span className="font-medium">{r.name ?? r.storage_id}</span>
               <span className="text-muted-foreground">→ {targetOf(r, t)}</span>
               {r.pvc_phase && r.pvc_phase !== "Bound" && (
-                <span className="text-amber-600">{t(`status_${r.pvc_phase}`)}</span>
+                <span className="text-amber-600">{t.has(`status_${r.pvc_phase}`) ? t(`status_${r.pvc_phase}`) : r.pvc_phase}</span>
               )}
               {!r.binding && (
                 <Link className="underline" href={`/admin/storages/${r.storage_id}`}>{t("addBindingLink")}</Link>
@@ -60,7 +65,7 @@ export function StorageResolutionPreview({
           ))}
         </ul>
       )}
-      {blocked && data && <p className="mt-2 text-destructive">{t("deployBlocked")}</p>}
+      {blocked && !(isFetching && !data) && <p className="mt-2 text-destructive">{t("deployBlocked")}</p>}
     </div>
   );
 }

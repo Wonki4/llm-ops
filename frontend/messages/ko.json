@@ -2092,6 +2092,8 @@
     "resolutionNone": "바인딩 없음",
     "resolutionAll": "클러스터 공통",
     "addBindingLink": "바인딩 추가하기",
+    "resolutionError": "스토리지 바인딩을 확인하지 못했습니다.",
+    "resolutionRetry": "다시 시도",
     "deployBlocked": "바인딩이 없는 스토리지가 있어 배포할 수 없습니다.",
     "volumes": "마운트된 스토리지",
     "stale": "바인딩이 바뀜 · 재배포 필요",
