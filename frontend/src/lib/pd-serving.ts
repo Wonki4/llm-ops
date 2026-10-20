@@ -15,13 +15,13 @@ export function roleOverride(dep: Pick<ModelDeployment, "pd_config">, role: PdRo
 
 export const POOL_KEYS: (keyof PoolConfig)[] = [
   "image", "model_path", "gpu_count", "gpu_type", "gpu_resource_key",
-  "cpu_request", "cpu_limit", "memory_request", "memory_limit", "pvc_name", "pvc_mount_path",
+  "cpu_request", "cpu_limit", "memory_request", "memory_limit", "storages",
   "engine_args", "vllm_extra_args", "env", "probes", "runtime", "node_selector", "tolerations",
 ];
 
 export const EMPTY_POOL: PoolConfig = {
   image: "", model_path: "", gpu_count: 1, gpu_type: null, gpu_resource_key: "nvidia.com/gpu",
-  cpu_request: null, cpu_limit: null, memory_request: null, memory_limit: null, pvc_name: null, pvc_mount_path: null,
+  cpu_request: null, cpu_limit: null, memory_request: null, memory_limit: null, storages: null,
   engine_args: null, vllm_extra_args: null, env: null, probes: null, runtime: null, node_selector: null, tolerations: null,
 };
 
@@ -54,8 +54,7 @@ export function effectiveRole(base: PoolConfig, role: PdRoleOverride | null | un
     cpu_limit: pick("cpu_limit"),
     memory_request: pick("memory_request"),
     memory_limit: pick("memory_limit"),
-    pvc_name: pick("pvc_name"),
-    pvc_mount_path: pick("pvc_mount_path"),
+    storages: r.storages ?? base.storages ?? [],
     probes: pick("probes"),
     runtime: pick("runtime"),
     node_selector: pick("node_selector"),
