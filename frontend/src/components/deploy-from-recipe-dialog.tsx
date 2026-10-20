@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
 import { mapToLines, resolvePlacementPreview, tolerationsToLines } from "@/lib/placement";
 
 export function DeployFromRecipeDialog({
@@ -23,6 +24,7 @@ export function DeployFromRecipeDialog({
 }) {
   const t = useTranslations("servingRecipes");
   const tc = useTranslations("common");
+  const ts = useTranslations("storages");
   const createDep = useCreateDeployment();
   const { data: clusters } = useK8sClusters();
 
@@ -37,6 +39,7 @@ export function DeployFromRecipeDialog({
   // P/D: one replica count per pool, seeded from the recipe's role overrides.
   const [prefillReplicas, setPrefillReplicas] = useState(recipe?.pd_config?.prefill?.replicas ?? 1);
   const [decodeReplicas, setDecodeReplicas] = useState(recipe?.pd_config?.decode?.replicas ?? 1);
+  const [storageBlocked, setStorageBlocked] = useState(false);
   const [gpuTypeChoice, setGpuTypeChoice] = useState<string | null>(null); // null = follow the recipe
   const gpuType = gpuTypeChoice ?? recipe?.gpu_type ?? "";
   const setGpuType = (v: string) => setGpuTypeChoice(v);
@@ -108,8 +111,7 @@ export function DeployFromRecipeDialog({
       memory_limit: recipe.memory_limit,
       node_selector: recipe.node_selector,
       tolerations: recipe.tolerations,
-      pvc_name: recipe.pvc_name,
-      pvc_mount_path: recipe.pvc_mount_path,
+      storages: recipe.storages ?? [],
       model_path: recipe.model_path,
       vllm_extra_args: recipe.vllm_extra_args,
       env: recipe.env,
@@ -125,7 +127,17 @@ export function DeployFromRecipeDialog({
       runtime: recipe.runtime ?? null,
     };
     createDep.mutate(body, {
-      onSuccess: () => { toast.success(t("deploySuccess")); onClose(); },
+      onSuccess: (res) => {
+        toast.success(t("deploySuccess"));
+        // Warnings look like `code` or `code:detail`; unknown codes fall back to the raw text.
+        (res.warnings ?? []).forEach((w) => {
+          const i = w.indexOf(":");
+          const code = i < 0 ? w : w.slice(0, i);
+          const claim = i < 0 ? "" : w.slice(i + 1);
+          toast.warning(ts.has(`warn_${code}`) ? ts(`warn_${code}`, { claim }) : w);
+        });
+        onClose();
+      },
       onError: (e) => toast.error(e instanceof Error ? e.message : t("deployError")),
     });
   }
@@ -205,10 +217,18 @@ export function DeployFromRecipeDialog({
               </div>
             </div>
           )}
+          {recipe && (
+            <StorageResolutionPreview
+              storageIds={recipeStorageIds(recipe)}
+              clusterId={clusterId || null}
+              namespace={namespace.trim() || "default"}
+              onBlockedChange={setStorageBlocked}
+            />
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={createDep.isPending}>{tc("cancel")}</Button>
-          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing}>{t("deploySubmit")}</Button>
+          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked}>{t("deploySubmit")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
