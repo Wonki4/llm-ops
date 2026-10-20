@@ -664,6 +664,8 @@ export interface ModelDeployment {
   tolerations: unknown[] | null;
   storages: ResolvedStorageEntry[];
   storage_stale?: string[];
+  /** Present on create/update responses only. */
+  warnings?: string[];
   model_path: string;
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
@@ -913,6 +915,8 @@ export interface ServingRecipe {
   node_selector: Record<string, string> | null;
   tolerations: unknown[] | null;
   storages: StorageEntry[];
+  /** Present on create/update responses only. */
+  warnings?: string[];
   vllm_extra_args: string[] | null;
   env: Record<string, string> | null;
   engine: ServingEngine;
