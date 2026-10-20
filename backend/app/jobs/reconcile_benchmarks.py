@@ -25,6 +25,7 @@ from app.services.benchmark_manifests import build_job_manifest, build_vllm_benc
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
 from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import serving_api_key
+from app.services.storage_mounts import legacy_pvc_volumes, to_volumes
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,14 @@ TERMINAL = ("succeeded", "failed", "cancelled")
 # A serving loading weights from a PVC can take a while to report ready.
 PROVISION_TIMEOUT_S = 1800
 DEFAULT_BENCH_IMAGE = "llmops-benchmark:latest"
+
+
+def _snapshot_volumes(snap: dict) -> tuple[list, list]:
+    """Read-only weights for the bench Job: the snapshot's resolved storages, or
+    a pre-storage snapshot's ``pvc_name``/``pvc_mount_path``."""
+    if snap.get("storages") is not None:
+        return to_volumes(snap["storages"], force_read_only=True)
+    return legacy_pvc_volumes(snap.get("pvc_name"), snap.get("pvc_mount_path"))
 
 
 def _now():
@@ -118,6 +127,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
         target = serving_target_url(run.serving_k8s_name, run.k8s_namespace)
         if run.kind == "performance":
             params = run.params or {}
+            vols, mounts = _snapshot_volumes(snap)
             manifest = build_vllm_bench_job(
                 run,
                 image=run.bench_image or settings.vllm_bench_image,
@@ -125,8 +135,8 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
                 served_model=snap.get("model_path"),
                 tokenizer=params.get("tokenizer") or snap.get("model_path"),
-                pvc_name=snap.get("pvc_name"),
-                pvc_mount_path=snap.get("pvc_mount_path"),
+                volumes=vols,
+                volume_mounts=mounts,
             )
         else:
             manifest = build_job_manifest(

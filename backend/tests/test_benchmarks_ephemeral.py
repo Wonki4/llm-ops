@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.benchmark_manifests import job_name_for
+from tests._storage import legacy_entry
 
 
 async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, super_user, mock_db):
@@ -21,8 +22,9 @@ async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, s
     base.memory_limit = None
     base.node_selector = {}
     base.tolerations = None
-    base.pvc_name = "w"
-    base.pvc_mount_path = "/models"
+    base.cluster_id = None
+    base.namespace = "prod"
+    base.storages = [legacy_entry("w", "/models", namespace="prod")]
     base.vllm_extra_args = []
     base.env = {}
     result = MagicMock()
@@ -31,11 +33,15 @@ async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, s
     fake_k8s = MagicMock()
     fake_k8s.create_job = AsyncMock()
     body = {"tool": "vllm_serving", "params": {"num_prompts": 10}, "ephemeral": True, "deployment_id": str(base.id)}
-    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)):
+    with (
+        patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)),
+        patch("app.api.benchmarks.resolve_entries", AsyncMock(side_effect=lambda db, e, *a, **k: list(e or []))),
+    ):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/benchmarks", json=body)
     assert resp.status_code == 201, resp.text
     run = mock_db.add.call_args.args[0]
+    assert run.serving_snapshot["storages"] == base.storages and "pvc_name" not in run.serving_snapshot
     assert run.status == "pending" and run.serving_k8s_name is None and run.serving_torn_down is True
     assert run.k8s_job_name == job_name_for(run.id)
     ns, manifest = fake_k8s.create_job.await_args.args

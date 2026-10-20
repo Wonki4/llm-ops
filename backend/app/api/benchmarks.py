@@ -17,7 +17,6 @@ from app.auth.deps import require_super_user
 from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa: F401
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
-from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
@@ -29,7 +28,6 @@ from app.services.benchmark_manifests import (
     build_vllm_bench_job,
     job_name_for,
     nfs_fields_incomplete,
-    resolve_bench_nfs,
 )
 from app.services.benchmark_presets import LOAD_PRESETS
 from app.services.benchmark_serving import (
@@ -54,6 +52,8 @@ from app.services.model_deployment_manifests import (
 )
 from app.services.serving_engines import engine_of
 from app.services.serving_engines import serve_argv as engine_serve_argv
+from app.services.storage_mounts import to_volumes
+from app.services.storage_store import bench_volumes, resolve_entries
 
 logger = logging.getLogger(__name__)
 
@@ -197,14 +197,28 @@ def _serving_snapshot(dep: CustomModelDeployment) -> dict:
         },
         "node_selector": dict(dep.node_selector or {}),
         "namespace": dep.namespace,
-        "pvc_name": dep.pvc_name,
-        "pvc_mount_path": dep.pvc_mount_path,
+        "storages": [dict(e) for e in (dep.storages or [])],
         **(
             {"serving_mode": "pd", "pd_config": dict(getattr(dep, "pd_config", None) or {})}
             if pd_serving.is_pd(dep)
             else {}
         ),
     }
+
+
+async def _ephemeral_storages(
+    db: AsyncSession, base: CustomModelDeployment, cluster_id: uuid.UUID | None, namespace: str
+) -> list[dict]:
+    """Storages for an ephemeral clone of ``base``.
+
+    Same cluster and namespace as the template -> copy its snapshot as-is (what it
+    runs with today). Anywhere else -> resolve for that target: PVC bindings are
+    namespace-scoped, so a copied claim would not exist there and the pod would
+    hang Pending. Raises ValueError when a storage has no binding there.
+    """
+    if (cluster_id, namespace) == (base.cluster_id, base.namespace):
+        return [dict(e) for e in (base.storages or [])]
+    return await resolve_entries(db, base.storages, cluster_id, namespace, previous=base.storages)
 
 
 async def _router_target_base(db: AsyncSession, deployment: CustomModelDeployment) -> str:
@@ -224,32 +238,21 @@ def _build_bench_job(
     target_base: str,
     api_key: str,
     image_override: str | None,
-    cluster_default_nfs_server: str | None = None,
-    cluster_default_nfs_path: str | None = None,
-    cluster_default_nfs_mount_path: str | None = None,
+    bench_vols: tuple[list, list] = ([], []),
 ) -> dict:
     """Pick the manifest for a run: performance → official `vllm bench serve`
     (on a vLLM image), accuracy → the lm-eval runner image. Shared by create
     and preview so the YAML preview is exactly what runs.
     """
     params = run.params or {}
-    # Model-weights mount: a deployment target reuses its own PVC; a raw
-    # model_name target attaches an NFS export (run override → cluster default).
-    pvc_name = pvc_mount = None
-    nfs_server = nfs_path = nfs_mount = None
     if deployment is not None:
         served_model = deployment.model_path
         perf_default_image = deployment.image
-        pvc_name, pvc_mount = deployment.pvc_name, deployment.pvc_mount_path
+        vols, mounts = to_volumes(deployment.storages, force_read_only=True)
     else:
         served_model = run.model_name
         perf_default_image = settings.vllm_bench_image
-        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
-            params,
-            default_server=cluster_default_nfs_server,
-            default_path=cluster_default_nfs_path,
-            default_mount_path=cluster_default_nfs_mount_path,
-        )
+        vols, mounts = bench_vols
 
     if run.kind == "performance":
         tokenizer = params.get("tokenizer") or served_model
@@ -260,11 +263,8 @@ def _build_bench_job(
             api_key=api_key,
             served_model=served_model,
             tokenizer=tokenizer,
-            pvc_name=pvc_name,
-            pvc_mount_path=pvc_mount,
-            nfs_server=nfs_server,
-            nfs_path=nfs_path,
-            nfs_mount_path=nfs_mount,
+            volumes=vols,
+            volume_mounts=mounts,
         )
     # accuracy (lm-eval): bench_model None for a LiteLLM alias target.
     return build_job_manifest(
@@ -274,21 +274,6 @@ def _build_bench_job(
         api_key=api_key,
         bench_model=deployment.model_path if deployment is not None else None,
     )
-
-
-async def _cluster_nfs_defaults(
-    db: AsyncSession, cluster_uuid: uuid.UUID | None
-) -> tuple[str | None, str | None, str | None]:
-    """Default NFS (server, export path, mount path) for the run's cluster.
-
-    Returns (None, None, None) for the portal default cluster or an unknown id.
-    """
-    if cluster_uuid is None:
-        return None, None, None
-    row = (await db.execute(select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_uuid))).scalar_one_or_none()
-    if row is None:
-        return None, None, None
-    return row.default_nfs_server, row.default_nfs_path, row.default_nfs_mount_path
 
 
 def _serialize(r: CustomBenchmarkRun) -> dict:
@@ -425,13 +410,7 @@ async def create_benchmark(
         await db.flush()
         await db.refresh(run)
 
-        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(db, cluster_uuid)
-        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
-            body.params,
-            default_server=cl_nfs_server,
-            default_path=cl_nfs_path,
-            default_mount_path=cl_nfs_mount,
-        )
+        bench_vols = await bench_volumes(db, cluster_uuid, namespace, body.params)
         manifest = build_vllm_bench_job(
             run,
             image=run.bench_image,
@@ -439,9 +418,8 @@ async def create_benchmark(
             api_key=body.api_key or "",
             served_model=body.model_name,
             tokenizer=body.params.get("tokenizer") or body.model_name,
-            nfs_server=nfs_server,
-            nfs_path=nfs_path,
-            nfs_mount_path=nfs_mount,
+            volumes=bench_vols[0],
+            volume_mounts=bench_vols[1],
         )
         try:
             await k8s.create_job(namespace, manifest)
@@ -589,6 +567,10 @@ async def create_benchmark(
             )
         except ValueError as e:  # P/D templates cannot be cloned into one pod
             raise HTTPException(status_code=400, detail=str(e))
+        try:
+            eph.storages = await _ephemeral_storages(db, base, cluster_uuid, namespace)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         run.serving_snapshot = _serving_snapshot(eph)
         if body.api_key:
             run.serving_snapshot["api_key_override"] = body.api_key
@@ -696,16 +678,14 @@ async def create_benchmark(
         target_base = settings.litellm_base_url.rstrip("/")
         api_key = body.api_key or settings.litellm_admin_api_key
 
-    cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(db, cluster_uuid)
+    bench_vols = await bench_volumes(db, cluster_uuid, namespace, body.params)
     manifest = _build_bench_job(
         run,
         deployment=deployment,
         target_base=target_base,
         api_key=api_key,
         image_override=body.image or None,
-        cluster_default_nfs_server=cl_nfs_server,
-        cluster_default_nfs_path=cl_nfs_path,
-        cluster_default_nfs_mount_path=cl_nfs_mount,
+        bench_vols=bench_vols,
     )
     try:
         await k8s.create_job(namespace, manifest)
@@ -775,14 +755,8 @@ async def preview_benchmark(
         if not body.model_name:
             return {"manifests": [], "note": "target_required"}
         run.model_name = body.model_name
-        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(
-            db, uuid.UUID(body.cluster_id) if body.cluster_id else None
-        )
-        nfs_server, nfs_path, nfs_mount = resolve_bench_nfs(
-            body.params,
-            default_server=cl_nfs_server,
-            default_path=cl_nfs_path,
-            default_mount_path=cl_nfs_mount,
+        bench_vols = await bench_volumes(
+            db, uuid.UUID(body.cluster_id) if body.cluster_id else None, namespace, body.params
         )
         manifests.append(
             build_vllm_bench_job(
@@ -792,9 +766,8 @@ async def preview_benchmark(
                 api_key="<redacted>",
                 served_model=body.model_name,
                 tokenizer=body.params.get("tokenizer") or body.model_name,
-                nfs_server=nfs_server,
-                nfs_path=nfs_path,
-                nfs_mount_path=nfs_mount,
+                volumes=bench_vols[0],
+                volume_mounts=bench_vols[1],
             )
         )
     elif body.external_target:
@@ -846,6 +819,12 @@ async def preview_benchmark(
                 db, uuid.UUID(body.cluster_id) if body.cluster_id else None, body.serving_overrides
             ),
         )
+        try:
+            eph.storages = await _ephemeral_storages(
+                db, base, uuid.UUID(body.cluster_id) if body.cluster_id else None, namespace
+            )
+        except ValueError:
+            return {"manifests": [], "note": "storage_unresolved"}
         run.model_name = base.model_name
         if kind == "performance":
             serve_argv = engine_serve_argv(eph, VLLM_PORT)
@@ -895,8 +874,8 @@ async def preview_benchmark(
         else:
             target_base = settings.litellm_base_url.rstrip("/")
             api_key = body.api_key or settings.litellm_admin_api_key
-        cl_nfs_server, cl_nfs_path, cl_nfs_mount = await _cluster_nfs_defaults(
-            db, uuid.UUID(body.cluster_id) if body.cluster_id else None
+        bench_vols = await bench_volumes(
+            db, uuid.UUID(body.cluster_id) if body.cluster_id else None, run.k8s_namespace, body.params
         )
         manifests.append(
             _build_bench_job(
@@ -905,9 +884,7 @@ async def preview_benchmark(
                 target_base=target_base,
                 api_key=api_key,
                 image_override=body.image or None,
-                cluster_default_nfs_server=cl_nfs_server,
-                cluster_default_nfs_path=cl_nfs_path,
-                cluster_default_nfs_mount_path=cl_nfs_mount,
+                bench_vols=bench_vols,
             )
         )
 
