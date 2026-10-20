@@ -171,3 +171,72 @@ async def test_pvc_phases_maps_and_tolerates_failures():
     broken = MagicMock(list_pvcs=AsyncMock(side_effect=RuntimeError("forbidden")))
     with patch.object(storage_store, "k8s_for_cluster", AsyncMock(return_value=broken)):
         assert await storage_store.pvc_phases(None, CLUSTER, "prod") is None
+
+
+def _scalars(rows):
+    return MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=rows))))
+
+
+def _db(*result_sets):
+    """db whose successive execute() calls return the given row lists."""
+    return MagicMock(execute=AsyncMock(side_effect=[_scalars(r) for r in result_sets]))
+
+
+def _entry(sid, bid, mount="/m"):
+    return {"storage_id": sid, "mount_path": mount, "read_only": True, "volume_name": "st-x",
+            "resolved": {"binding_id": bid}}
+
+
+async def test_usage_index_covers_recipes_deployments_pools_and_clusters():
+    rid, did, cid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    recipe = types.SimpleNamespace(
+        id=rid, name="r1", storages=[], pd_config={"decode": {"storages": [{"storage_id": SID}]}}
+    )
+    dep = types.SimpleNamespace(
+        id=did, model_name="m", cluster_id=CLUSTER, namespace="prod",
+        storages=[_entry(SID, "b1", "/a")],
+        pd_config={"prefill": {"storages": [_entry(SID, "b2", "/b")]}},
+    )
+    cluster = types.SimpleNamespace(id=cid, name="c1", bench_storage_id=uuid.UUID(SID2))
+    no_bench = types.SimpleNamespace(id=uuid.uuid4(), name="c2", bench_storage_id=None)
+    idx = await storage_store.usage_index(_db([recipe], [dep], [cluster, no_bench]))
+
+    assert idx[SID]["recipes"] == [{"id": str(rid), "name": "r1"}]
+    assert len(idx[SID]["deployments"]) == 1
+    item = idx[SID]["deployments"][0]
+    assert item["id"] == str(did) and item["model_name"] == "m"
+    assert item["binding_ids"] == {"b1", "b2"}
+    assert item["cluster_id"] == CLUSTER and item["namespace"] == "prod"
+    assert [e["mount_path"] for e in item["entries"]] == ["/a", "/b"]
+    assert idx[SID2]["clusters"] == [{"id": str(cid), "name": "c1"}]
+    assert idx[SID2]["recipes"] == [] and idx[SID2]["deployments"] == []
+    assert set(idx) == {SID, SID2}
+
+
+async def test_check_known_raises_with_missing_ids():
+    with patch.object(storage_store, "load_storages", AsyncMock(return_value={SID: _storage()})):
+        await storage_store.check_known(None, [{"storage_id": SID}])
+        with pytest.raises(UnknownStorageError) as e:
+            await storage_store.check_known(None, [{"storage_id": SID}, {"storage_id": SID2}])
+    assert e.value.ids == [SID2]
+
+
+async def test_match_claims_maps_claim_to_storage_id():
+    rows = [binding(claim_name="a", storage_id=uuid.UUID(SID)), binding(claim_name="b", storage_id=uuid.UUID(SID2))]
+    assert await storage_store.match_claims(_db(rows), CLUSTER, "prod", ["a", "b"]) == {"a": SID, "b": SID2}
+    assert await storage_store.match_claims(None, CLUSTER, "prod", []) == {}
+
+
+async def test_list_pvcs_timed_raises_timeout():
+    import asyncio
+
+    async def slow(_ns):
+        await asyncio.sleep(1)
+
+    k8s = MagicMock(list_pvcs=slow)
+    with (
+        patch.object(storage_store, "k8s_for_cluster", AsyncMock(return_value=k8s)),
+        patch.object(storage_store, "PVC_LOOKUP_TIMEOUT", 0.01),
+        pytest.raises(TimeoutError),
+    ):
+        await storage_store.list_pvcs_timed(None, CLUSTER, "prod")
