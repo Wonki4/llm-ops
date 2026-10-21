@@ -1907,7 +1907,7 @@
     "runtimeHostIpc": "hostIPC (--ipc=host)",
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "Extra resources",
-    "runtimeExtraResourcesHint": "One vendor/name=qty per line (e.g. rdma/ib=1)",
+    "runtimeExtraResourcesHint": "One vendor/name=qty per line (e.g. rdma/rdma_shared_device_a=1)",
     "startup": "Startup",
     "startupEnable": "Startup probe",
     "startupPdHint": "P/D pools get a startup probe by default.",

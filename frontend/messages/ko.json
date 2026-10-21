@@ -1907,7 +1907,7 @@
     "runtimeHostIpc": "hostIPC (--ipc=host)",
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "추가 리소스",
-    "runtimeExtraResourcesHint": "줄마다 vendor/name=수량 (예: rdma/ib=1)",
+    "runtimeExtraResourcesHint": "줄마다 vendor/name=수량 (예: rdma/rdma_shared_device_a=1)",
     "startup": "Startup",
     "startupEnable": "Startup 프로브 사용",
     "startupPdHint": "P/D 풀은 Startup 프로브가 기본으로 붙습니다.",

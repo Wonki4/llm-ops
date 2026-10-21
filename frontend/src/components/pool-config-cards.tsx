@@ -224,7 +224,7 @@ export function PoolConfigCards({
         </div>
         <Field id={id("extra-resources")} label={t("runtimeExtraResources")} hint={t("runtimeExtraResourcesHint")}>
           <Area
-            id={id("extra-resources")} rows={2} value={extraResText} placeholder="rdma/ib=1"
+            id={id("extra-resources")} rows={2} value={extraResText} placeholder="rdma/rdma_shared_device_a=1"
             onChange={(v) => { setExtraResText(v); setRuntime({ extra_resources: linesToMap(v) ?? {} }); }}
           />
         </Field>
