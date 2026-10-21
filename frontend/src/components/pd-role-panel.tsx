@@ -76,7 +76,7 @@ const MAP_FIELDS: { key: MapKey; label: "pdExtrasEnv" | "pdExtrasLabels" | "pdEx
   { key: "env", label: "pdExtrasEnv", placeholder: "VLLM_NIXL_SIDE_CHANNEL_HOST=fieldRef:status.podIP" },
   { key: "labels", label: "pdExtrasLabels", placeholder: "llm-d.ai/guide={{model_name}}" },
   { key: "annotations", label: "pdExtrasAnnotations", placeholder: "k8s.v1.cni.cncf.io/networks=multi-nic-compute" },
-  { key: "resources", label: "pdExtrasResources", placeholder: "rdma/ib=1" },
+  { key: "resources", label: "pdExtrasResources", placeholder: "rdma/rdma_shared_device_a=1" },
 ];
 
 /**

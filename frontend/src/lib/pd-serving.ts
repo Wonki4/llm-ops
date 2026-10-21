@@ -77,7 +77,7 @@ export function defaultPdExtras(role: PdRole, pd: PdConfig): PdExtras {
     // llm-d.ai/guide groups both pools of the serving (same value on prefill and decode).
     labels: { "llm-d.ai/role": role, "llm-d.ai/guide": PD_GUIDE_LABEL },
     annotations: {},
-    resources: { "rdma/ib": "1" },
+    resources: { "rdma/rdma_shared_device_a": "1" },
   };
 }
 
