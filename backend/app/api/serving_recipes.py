@@ -16,6 +16,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import pd_router
+from app.services.clusters import default_namespace, validate_namespace
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
 from app.services.model_deployment_manifests import build_all
@@ -106,8 +107,13 @@ class PreviewRecipeBody(RecipeBody):
 
     name: str = ""
     cluster_id: str | None = None  # None = portal default cluster
-    namespace: str = "default"
+    namespace: str | None = None  # None/blank = the cluster's default namespace
     model_name: str | None = None  # None = the recipe name
+
+    @field_validator("namespace")
+    @classmethod
+    def _check_namespace(cls, v: str | None) -> str | None:
+        return validate_namespace(v)
 
 
 PREVIEW_INGRESS_HOST = "<ingress-host>"
@@ -231,7 +237,7 @@ async def preview_recipe(
         id=uuid.uuid4(),
         model_name=(body.model_name or body.name or "preview").strip(),
         cluster_id=cluster_uuid,
-        namespace=body.namespace.strip() or "default",
+        namespace=body.namespace or await default_namespace(db, cluster_uuid),
         replicas=1,
         ingress_host=PREVIEW_INGRESS_HOST,
         ingress_path="/",

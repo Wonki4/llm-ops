@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { Loader2, Plus, Trash2, Network, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
@@ -11,10 +12,25 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
 import { Card, CardContent } from "@/components/ui/card";
+import { ServingScopeFilter, useClusterName, useServingScope } from "@/components/serving-scope-filter";
+import { inScope } from "@/lib/serving-scope";
 
 export default function LlmdPage() {
+  // useSearchParams (the scope filter) needs a Suspense boundary for static prerendering.
+  return (
+    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+      <LlmdStacks />
+    </Suspense>
+  );
+}
+
+function LlmdStacks() {
   const t = useTranslations("llmd");
-  const { data: stacks, isLoading } = useLlmdStacks();
+  const ts = useTranslations("serving");
+  const { data: allStacks, isLoading } = useLlmdStacks();
+  const [scope, setScope] = useServingScope();
+  const clusterName = useClusterName();
+  const stacks = allStacks?.filter((s) => inScope(scope, s));
   const deleteMut = useDeleteLlmdStack();
 
   const handleDelete = (e: React.MouseEvent, s: LlmdStackSummary) => {
@@ -39,7 +55,10 @@ export default function LlmdPage() {
         </Button>
       </div>
 
-      <ServingDeployTabs />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ServingDeployTabs />
+        <ServingScopeFilter scope={scope} onChange={setScope} items={allStacks ?? []} />
+      </div>
 
       <Card>
         <CardContent className="pt-6">
@@ -62,7 +81,7 @@ export default function LlmdPage() {
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground mt-0.5 space-x-2 font-mono">
-                    <span>→ {s.target_model_name}</span><span>ns: {s.namespace}</span>
+                    <span>→ {s.target_model_name}</span><span>{clusterName(s.cluster_id)} / {s.namespace}</span>
                   </div>
                   {s.status_message && <p className="text-xs text-muted-foreground mt-1">{s.status_message}</p>}
                 </div>
@@ -81,7 +100,7 @@ export default function LlmdPage() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">{t("empty")}</p>
+          <p className="text-sm text-muted-foreground">{allStacks?.length ? ts("scopeEmpty") : t("empty")}</p>
         )}
       </CardContent>
     </Card>

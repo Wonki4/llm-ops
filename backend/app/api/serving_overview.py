@@ -91,6 +91,8 @@ def build_overview(
         entry = {
             "id": str(st.id),
             "name": st.name,
+            "cluster_id": str(st.cluster_id) if getattr(st, "cluster_id", None) else None,
+            "namespace": getattr(st, "namespace", None),
             "selector": info["selector"],
             "servers": [{"kind": x["kind"], "name": x["name"], "namespace": x["namespace"]} for x in info["servers"]],
             **stack_status.get(str(st.id), {}),
@@ -131,6 +133,8 @@ def build_overview(
                 "deployments": [
                     {
                         "id": str(d.id),
+                        "cluster_id": str(d.cluster_id) if getattr(d, "cluster_id", None) else None,
+                        "namespace": getattr(d, "namespace", None),
                         "status": d.status,
                         "ready_replicas": d.ready_replicas,
                         "replicas": d.replicas,

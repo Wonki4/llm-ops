@@ -2002,7 +2002,9 @@
     "pdRouterValuesResetConfirm": "Reset values.yaml to the portal default? Your edits will be lost.",
     "pdRouterToValues": "Edit as values.yaml",
     "deployLitellmName": "LiteLLM model name",
-    "deployLitellmNameHint": "Name in LiteLLM, e.g. Qwen/Qwen3-32B. Blank = the deployment model name. Can be shared with other deployments (load-balanced)."
+    "deployLitellmNameHint": "Name in LiteLLM, e.g. Qwen/Qwen3-32B. Blank = the deployment model name. Can be shared with other deployments (load-balanced).",
+    "deployNamespaceHint": "Blank = the cluster's default namespace ({ns}). The namespace must already exist on the cluster.",
+    "deployNamespaceInvalid": "Not a valid Kubernetes namespace: lowercase letters, digits and '-', starting and ending with a letter or digit, at most 63 characters."
   },
   "serving": {
     "title": "Serving home",
@@ -2035,7 +2037,16 @@
     "unlinkedTitle": "{count} llm-d stack(s) not linked to any server",
     "unlinkedHint": "Their label selector picks no portal deployment or scanned external serving.",
     "unlinkedTarget": "target: {model}",
-    "unlinkedNoSelector": "no selector"
+    "unlinkedNoSelector": "no selector",
+    "scopeCluster": "Cluster",
+    "scopeNamespace": "Namespace",
+    "scopeAllClusters": "All clusters",
+    "scopeAllNamespaces": "All namespaces",
+    "scopePortalCluster": "Portal default",
+    "scopeReset": "Clear",
+    "scopeEmpty": "Nothing runs in this cluster/namespace.",
+    "groupSummary": "{count} servings · {ready} Ready · {gpus} GPU",
+    "groupGpuHint": "GPUs requested by portal deployments (external servings are not counted)."
   },
   "gpuProfiles": {
     "title": "GPU type profiles",
