@@ -21,6 +21,15 @@ def _dep(**kw):
         replicas=2,
         gpu_count=8,
         gpu_resource_key="nvidia.com/gpu",
+        cpu_request=None,
+        cpu_limit=None,
+        memory_request=None,
+        memory_limit=None,
+        node_selector=None,
+        tolerations=None,
+        storages=[],
+        ingress_class="nginx",
+        litellm_model_name=None,
         engine="vllm",
         engine_args={},
         vllm_extra_args=None,
@@ -169,8 +178,29 @@ async def test_pd_ready_registers_via_router_host_when_healthy():
     assert dep.status == "Ready" and dep.litellm_model_id == "m-1"
     kwargs = litellm.create_model.await_args.kwargs
     assert kwargs["api_base"] == "https://glm.example.com"
-    assert kwargs["model_name"] == "glm" and kwargs["litellm_model"] == "openai/glm"
+    # vLLM answers to the full --model value (no --served-model-name set)
+    assert kwargs["model_name"] == "glm" and kwargs["litellm_model"] == "openai//models/glm"
     assert dep.pd_status["router"] == {"ready": True, "reason": None, "api_base": "https://glm.example.com"}
+
+
+async def test_pd_registers_under_litellm_name_and_decode_served_name():
+    dep = _dep(
+        litellm_model_name="zai/GLM-4.6",
+        pd_config={
+            "prefill": {"replicas": 1},
+            "decode": {"replicas": 2, "engine_args": {"served-model-name": "glm-d"}},
+        },
+    )
+    db = _db(stack=_stack(host="glm.example.com"))
+    litellm = MagicMock()
+    litellm.create_model = AsyncMock(return_value={"model_info": {"id": "m-1"}})
+    await rd._reconcile_pd(db, litellm, _k8s(_obs(1, 1), _obs(2, 2)), dep)
+    kwargs = litellm.create_model.await_args.kwargs
+    assert kwargs["model_name"] == "zai/GLM-4.6" and kwargs["litellm_model"] == "openai/glm-d"
+    from app.db.models.custom_model_catalog import CustomModelCatalog
+
+    catalogs = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], CustomModelCatalog)]
+    assert [c.model_name for c in catalogs] == ["zai/GLM-4.6"]
 
 
 async def test_pd_ready_waits_for_router_then_registers_once(monkeypatch):

@@ -10,8 +10,9 @@ Every interval:
 5. When a deployment first reaches Ready, register it with LiteLLM via
    /model/new (using ingress_host as api_base since LiteLLM proxy may live
    in a different cluster) and auto-create a CustomModelCatalog row keyed by
-   model_name. default_*_cost_per_token are left null — admins fill those in
-   later through the existing catalog UI.
+   the LiteLLM name (``litellm_model_name``, else model_name).
+   default_*_cost_per_token are left null — admins fill those in later
+   through the existing catalog UI.
 6. Severity warning/error events fan out to Slack once.
 
 Prefill/decode servings (``serving_mode == "pd"``) are observed per role:
@@ -41,7 +42,8 @@ from app.db.session import async_session_factory
 from app.services import llmd_stacks, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.deployment_status import classify
-from app.services.model_deployment_manifests import k8s_resource_names, serving_api_key
+from app.services.litellm_registration import litellm_name, registration
+from app.services.model_deployment_manifests import k8s_resource_names
 
 logger = logging.getLogger(__name__)
 
@@ -81,23 +83,8 @@ async def _register_with_litellm(
     ``api_base`` overrides the ingress-derived URL (P/D: the router's host).
     Returns the LiteLLM-assigned deployment id, or None if the call failed.
     """
-    if api_base is None:
-        api_base = f"https://{dep.ingress_host}".rstrip("/")
-        if dep.ingress_path and dep.ingress_path != "/":
-            api_base = f"{api_base}{dep.ingress_path.rstrip('/')}"
-    # vLLM exposes the OpenAI-compatible API; route through openai/ in LiteLLM.
-    # P/D: the decode pool answers through the router, so its auth settings apply.
-    auth_source = pd_serving.role_view(dep, "decode").pool if pd_serving.is_pd(dep) else dep
-    served_name = auth_source.model_path.split("/")[-1] or dep.model_name
     try:
-        result = await litellm.create_model(
-            model_name=dep.model_name,
-            litellm_model=f"openai/{served_name}",
-            api_base=api_base,
-            # Register with the serving's own key so LiteLLM can reach it when
-            # the vLLM server has auth enabled (--api-key); "EMPTY" when it's open.
-            api_key=serving_api_key(auth_source.vllm_extra_args, auth_source.env),
-        )
+        result = await litellm.create_model(**registration(dep, api_base))
         info = result.get("model_info") or {}
         return info.get("id") or result.get("id")
     except Exception:
@@ -265,7 +252,7 @@ async def reconcile_once() -> dict:
                         model_id = await _register_with_litellm(litellm, dep)
                         if model_id:
                             dep.litellm_model_id = model_id
-                            await _ensure_catalog(db, dep.model_name, dep.updated_by or "system")
+                            await _ensure_catalog(db, litellm_name(dep), dep.updated_by or "system")
                             await _record_event(
                                 db,
                                 dep,
@@ -356,7 +343,7 @@ async def _reconcile_pd(db: AsyncSession, litellm: LiteLLMClient, k8s, dep: Cust
         model_id = await _register_with_litellm(litellm, dep, api_base=api_base)
         if model_id:
             dep.litellm_model_id = model_id
-            await _ensure_catalog(db, dep.model_name, dep.updated_by or "system")
+            await _ensure_catalog(db, litellm_name(dep), dep.updated_by or "system")
             await _record_event(
                 db,
                 dep,

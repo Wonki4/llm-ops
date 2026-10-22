@@ -1367,6 +1367,28 @@ export function useDeleteModelDeployment() {
   });
 }
 
+/** Rename a deployment in LiteLLM (null = back to model_name); the reconciler re-registers it when Ready. */
+export function useUpdateDeploymentLitellmName(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (litellm_model_name: string | null) =>
+      apiFetch<ModelDeployment>(`/api/model-deployments/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ litellm_model_name }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+/** Register a Ready deployment in LiteLLM again (new entry first, then the old one is dropped). */
+export function useReregisterDeployment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}/litellm-registration`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
 // ─── Benchmark Runs ─────────────────────────────────────────
 
 export function useBenchmarks(filters: {

@@ -24,11 +24,13 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.jobs import reconcile_deployments
 from app.services import llmd_stacks, pd_router, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
+from app.services.litellm_registration import litellm_name, registration
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
@@ -53,8 +55,17 @@ router = APIRouter(prefix="/api/model-deployments", tags=["model-deployments"])
 DEFAULT_VLLM_IMAGE = DEFAULT_IMAGES["vllm"]  # kept for existing references
 
 
+def _litellm_name(v: str | None) -> str | None:
+    """Blank = use model_name. Any text LiteLLM accepts (slashes, capitals) is fine."""
+    v = (v or "").strip()
+    if len(v) > 256:
+        raise ValueError("litellm_model_name must be at most 256 characters")
+    return v or None
+
+
 class CreateDeploymentRequest(BaseModel):
     model_name: str
+    litellm_model_name: str | None = None  # name in LiteLLM; None = model_name; may be shared
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
     namespace: str = "default"
     image: str | None = None  # None → default_image(engine)
@@ -109,6 +120,11 @@ class CreateDeploymentRequest(BaseModel):
     def _no_legacy_pvc(cls, data):
         return reject_legacy_pvc(data)
 
+    @field_validator("litellm_model_name")
+    @classmethod
+    def _check_litellm_name(cls, v: str | None) -> str | None:
+        return _litellm_name(v)
+
     @field_validator("storages")
     @classmethod
     def _check_storages(cls, v):
@@ -127,6 +143,7 @@ class CreateDeploymentRequest(BaseModel):
 
 
 class UpdateDeploymentRequest(BaseModel):
+    litellm_model_name: str | None = None  # null/blank = back to model_name
     image: str | None = None
     replicas: int | None = Field(None, ge=0)
     gpu_count: int | None = Field(None, ge=0)
@@ -154,6 +171,11 @@ class UpdateDeploymentRequest(BaseModel):
     @classmethod
     def _no_legacy_pvc(cls, data):
         return reject_legacy_pvc(data)
+
+    @field_validator("litellm_model_name")
+    @classmethod
+    def _check_litellm_name(cls, v: str | None) -> str | None:
+        return _litellm_name(v)
 
     @field_validator("storages")
     @classmethod
@@ -196,6 +218,7 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
     return {
         "id": str(d.id),
         "model_name": d.model_name,
+        "litellm_model_name": getattr(d, "litellm_model_name", None),
         "cluster_id": str(d.cluster_id) if d.cluster_id else None,
         "recipe_id": str(recipe_id) if recipe_id else None,
         "recipe_name": (recipe_names or {}).get(recipe_id) if recipe_id else None,
@@ -445,8 +468,13 @@ async def get_deployment(
                 **(await llmd_stacks.live_status(db, st)),
             }
         )
+    try:
+        litellm_model = registration(dep)["litellm_model"]
+    except Exception:
+        litellm_model = None  # a row that no longer renders; the UI just omits the line
     return {
         **_serialize(dep, await _recipe_names(db, [dep])),
+        "litellm_model": litellm_model,  # what LiteLLM sends the server (openai/<served name>)
         "llmd_stacks": linked,
         "router_stack": await _router_stack_summary(db, dep),
         "storage_stale": await stale_storage_ids(db, dep),
@@ -606,6 +634,7 @@ async def create_deployment(
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=body.model_name,
+        litellm_model_name=body.litellm_model_name,
         cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
         namespace=body.namespace,
         image=body.image or default_image(body.engine),
@@ -659,16 +688,37 @@ async def create_deployment(
     return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
 
 
+def _registration_key(dep: CustomModelDeployment) -> dict | None:
+    """What /model/new would get, minus the P/D router URL (an update never changes it)."""
+    try:
+        return registration(dep, api_base="<router>" if pd_serving.is_pd(dep) else None)
+    except Exception:
+        return None
+
+
+async def _unregister(litellm: LiteLLMClient, dep: CustomModelDeployment) -> None:
+    """Drop the deployment's LiteLLM entry (best-effort) and forget its id."""
+    try:
+        await litellm.delete_model(dep.litellm_model_id)
+    except Exception:
+        logger.warning("LiteLLM /model/delete failed for %s (%s)", dep.model_name, dep.litellm_model_id)
+    dep.litellm_model_id = None
+
+
 @router.put("/{deployment_id}")
 async def update_deployment(
     deployment_id: str,
     body: UpdateDeploymentRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Update mutable fields and reapply K8s manifests (rolls Deployment).
 
     Update covers both upgrade (image / args) and scale (replicas, gpu_count).
+    When what LiteLLM is told changes (its name, the served name, the key or
+    the URL), the old LiteLLM entry is removed after the apply succeeds and
+    the reconciler registers the new one on the next Ready transition.
     """
     result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
     dep = result.scalar_one_or_none()
@@ -677,6 +727,7 @@ async def update_deployment(
 
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     updates = body.model_dump(exclude_unset=True)
+    registered_as = _registration_key(dep)
     previous = list(dep.storages or [])
     previous_pd = dict(dep.pd_config or {}) if dep.pd_config else None
     for field, value in updates.items():
@@ -715,7 +766,50 @@ async def update_deployment(
         logger.exception("K8s apply failed for %s", dep.model_name)
         raise HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
 
+    if dep.litellm_model_id and registered_as is not None and _registration_key(dep) != registered_as:
+        await _unregister(litellm, dep)
+
     return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
+
+
+@router.post("/{deployment_id}/litellm-registration")
+async def reregister_deployment(
+    deployment_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+) -> dict:
+    """Register a Ready deployment in LiteLLM again, with what it should be told now.
+
+    Fixes entries registered under a wrong name. The new entry is created
+    first; the old one is removed only after that succeeded.
+    """
+    result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
+    dep = result.scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    if dep.status != "Ready":
+        raise HTTPException(
+            status_code=409, detail=f"Deployment is {dep.status}; only a Ready deployment can be registered"
+        )
+    api_base = None
+    if pd_serving.is_pd(dep):
+        api_base, reason = await reconcile_deployments._router_target(db, dep)
+        if api_base is None:
+            raise HTTPException(status_code=409, detail=f"Router not ready: {reason}")
+
+    model_id = await reconcile_deployments._register_with_litellm(litellm, dep, api_base=api_base)
+    if not model_id:
+        raise HTTPException(status_code=502, detail="LiteLLM /model/new failed; check logs")
+    if dep.litellm_model_id:
+        await _unregister(litellm, dep)
+    dep.litellm_model_id = str(model_id)
+    await reconcile_deployments._ensure_catalog(db, litellm_name(dep), user.user_id)
+    await reconcile_deployments._record_event(
+        db, dep, "LitellmRegistered", "info", None, None, f"Re-registered as LiteLLM model id={model_id}"
+    )
+    await db.flush()
+    return _serialize(dep)
 
 
 @router.delete("/{deployment_id}")

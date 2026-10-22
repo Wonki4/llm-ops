@@ -697,6 +697,10 @@ export interface ModelDeployment {
   ready_replicas: number;
   service_cluster_ip: string | null;
   litellm_model_id: string | null;
+  /** Name in LiteLLM; null = model_name. Deployments may share one (LiteLLM load-balances them). */
+  litellm_model_name: string | null;
+  /** Detail endpoint: what LiteLLM sends the server (`openai/<served name>`). */
+  litellm_model?: string | null;
   last_synced_at: string | null;
   created_by: string | null;
   updated_by: string | null;
@@ -1039,6 +1043,8 @@ export interface RecipeDraftResponse {
 // Body for POST /api/model-deployments (recipe serving fields + instance fields).
 export interface CreateDeploymentBody {
   model_name: string;
+  /** Name in LiteLLM; blank/null = model_name. */
+  litellm_model_name?: string | null;
   cluster_id: string | null;
   /** Recipe this deployment is launched from (informational; stored on the row). */
   recipe_id?: string | null;
