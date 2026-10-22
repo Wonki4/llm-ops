@@ -18,6 +18,7 @@ import type { ModelDeployment, ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LitellmRegistrationCard } from "@/components/litellm-registration-card";
 
 function StatusBadge({ status }: { status: string }) {
   const variant =
@@ -174,6 +175,8 @@ export default function DeploymentDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      <LitellmRegistrationCard dep={dep} />
 
       {/* Config */}
       <Card>

@@ -30,6 +30,7 @@ export function DeployFromRecipeDialog({
 
   const isPd = recipe?.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
+  const [litellmName, setLitellmName] = useState("");
   const [namespace, setNamespace] = useState("default");
   const [clusterId, setClusterId] = useState<string>("");
   const [ingressHost, setIngressHost] = useState("");
@@ -98,6 +99,7 @@ export function DeployFromRecipeDialog({
       : null;
     const body: CreateDeploymentBody = {
       model_name: modelName.trim(),
+      litellm_model_name: litellmName.trim() || null,
       cluster_id: clusterId || null,
       recipe_id: recipe.id,
       namespace: namespace.trim() || "default",
@@ -152,6 +154,13 @@ export function DeployFromRecipeDialog({
         {isPd && <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground" data-testid="deploy-pd-note">{t("deployPdNote")}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("deployModelName")} span2><Input value={modelName} onChange={(e) => setModelName(e.target.value)} /></Field>
+          <Field label={t("deployLitellmName")} span2>
+            <Input
+              id="deploy-litellm-name" className="font-mono" value={litellmName} placeholder={modelName.trim() || undefined}
+              onChange={(e) => setLitellmName(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">{t("deployLitellmNameHint")}</p>
+          </Field>
           <Field label={t("deployNamespace")}><Input value={namespace} onChange={(e) => setNamespace(e.target.value)} /></Field>
           <Field label={t("deployCluster")}>
             <select

@@ -170,6 +170,17 @@ def _positional_model(cli: list) -> str | None:
     return None
 
 
+def served_and_model_arg(cli: list) -> tuple[str | None, str | None]:
+    """``(served name, model argument)`` of a serving launch line.
+
+    The model argument is --model, the `serve` positional or --model-path. The
+    served name is what clients must send as ``model`` (vLLM 404s anything
+    else): --served-model-name wins, else the model argument.
+    """
+    model_arg = _arg_value(cli, "--model") or _positional_model(cli) or _arg_value(cli, "--model-path")
+    return _arg_value(cli, "--served-model-name") or model_arg, model_arg
+
+
 def external_bench_facts(spec: dict) -> dict:
     """What the bench job needs to know about an external serving's clone.
 
@@ -180,12 +191,7 @@ def external_bench_facts(spec: dict) -> dict:
     expose it so the bench Job mounts the same weights for tokenizer loading.
     """
     cli = serving_cli(spec["container"])
-    model_arg = (
-        _arg_value(cli, "--model")
-        or _positional_model(cli)
-        or _arg_value(cli, "--model-path")
-    )
-    served = _arg_value(cli, "--served-model-name") or model_arg
+    served, model_arg = served_and_model_arg(cli)
     if not served:
         raise ValueError(
             "no model found in serving command — looked for --model, "

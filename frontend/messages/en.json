@@ -856,7 +856,18 @@
     "pdIngressClass": "ingress class",
     "pdResources": "Resources",
     "pdStorage": "Storage",
-    "pdPlacement": "Placement"
+    "pdPlacement": "Placement",
+    "litellmSection": "LiteLLM registration",
+    "litellmName": "LiteLLM model name",
+    "litellmNameHint": "The name callers use in LiteLLM. Blank = the deployment model name. Deployments sharing a name are load-balanced by LiteLLM.",
+    "litellmNameSave": "Save",
+    "litellmRenameConfirm": "Register this deployment in LiteLLM as \"{name}\"? The current LiteLLM entry is removed now and the new name is registered once the deployment is Ready again (usually within a minute). Keys and teams that reference the old name need updating.",
+    "litellmRenameSuccess": "Saved. The new name is registered when the deployment is Ready.",
+    "litellmServedAs": "LiteLLM sends the server",
+    "litellmReregister": "Re-register in LiteLLM",
+    "litellmReregisterConfirm": "Register this deployment in LiteLLM again with its current settings? A new entry is created first, then the old one is removed.",
+    "litellmReregisterSuccess": "Re-registered in LiteLLM.",
+    "litellmReregisterNeedsReady": "Only a Ready deployment can be registered."
   },
   "adminUsers": {
     "pageTitle": "User Management",
@@ -1989,7 +2000,9 @@
     "pdRouterValuesHint": "Used as written; '{{model_name}}' works; image/matchLabels auto-filled.",
     "pdRouterValuesReset": "Reset to default",
     "pdRouterValuesResetConfirm": "Reset values.yaml to the portal default? Your edits will be lost.",
-    "pdRouterToValues": "Edit as values.yaml"
+    "pdRouterToValues": "Edit as values.yaml",
+    "deployLitellmName": "LiteLLM model name",
+    "deployLitellmNameHint": "Name in LiteLLM, e.g. Qwen/Qwen3-32B. Blank = the deployment model name. Can be shared with other deployments (load-balanced)."
   },
   "serving": {
     "title": "Serving home",
