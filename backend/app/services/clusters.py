@@ -1,5 +1,6 @@
 """Resolve a K8sClient for a registered cluster (or the portal default)."""
 
+import re
 import uuid
 
 import yaml
@@ -11,6 +12,20 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.services import crypto
 
 LOCAL_DEST_SERVER = "https://kubernetes.default.svc"
+_DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
+
+
+def validate_namespace(value: str | None) -> str | None:
+    """Blank = None (the cluster default applies); otherwise a K8s namespace name (RFC 1123 label)."""
+    value = (value or "").strip()
+    if not value:
+        return None
+    if not _DNS_LABEL.match(value):
+        raise ValueError(
+            f"namespace '{value}' is not a valid Kubernetes name: lowercase letters, digits and '-', "
+            "starting and ending with a letter or digit, at most 63 characters"
+        )
+    return value
 
 
 async def _cluster_row(db: AsyncSession, cluster_id: uuid.UUID) -> CustomK8sCluster | None:
@@ -67,3 +82,15 @@ async def argocd_placement_for(
         host = await _cluster_row(db, target.argocd_host_cluster_id) or target
     ns = host.argocd_namespace or settings.argocd_namespace
     return _client_for_row(host), ns, dest
+
+
+async def default_namespace(db: AsyncSession, cluster_id: uuid.UUID | str | None) -> str:
+    """The namespace a deploy uses when none is given: the cluster's own, else the portal setting."""
+    from app.config import settings
+
+    if cluster_id:
+        cid = cluster_id if isinstance(cluster_id, uuid.UUID) else uuid.UUID(str(cluster_id))
+        row = await _cluster_row(db, cid)
+        if row is not None and row.namespace:
+            return row.namespace
+    return settings.k8s_default_namespace

@@ -1004,7 +1004,8 @@ export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_i
 // POST /api/admin/serving-recipes/preview: an unsaved recipe rendered for a deploy target.
 export type ServingRecipePreviewBody = ServingRecipeInput & {
   cluster_id: string | null;
-  namespace: string;
+  /** null = the cluster's default namespace. */
+  namespace: string | null;
   model_name: string | null;
 };
 
@@ -1048,7 +1049,8 @@ export interface CreateDeploymentBody {
   cluster_id: string | null;
   /** Recipe this deployment is launched from (informational; stored on the row). */
   recipe_id?: string | null;
-  namespace: string;
+  /** null = the cluster's default namespace (resolved by the backend). */
+  namespace: string | null;
   image: string;
   replicas: number;
   gpu_count: number;
@@ -1095,6 +1097,8 @@ export interface LinkedServer {
 export interface LinkedLlmdStack {
   id: string;
   name: string;
+  /** Serving overview: the stack's cluster (null = portal default). */
+  cluster_id?: string | null;
   namespace?: string;
   selector: Record<string, string>;
   servers?: { kind: "portal" | "external"; name: string; namespace: string }[];
@@ -1114,6 +1118,8 @@ export interface ServingOverviewRow {
   recipes: { id: string; name: string; engine: ServingEngine }[];
   deployments: {
     id: string; status: string; ready_replicas: number; replicas: number; engine: ServingEngine; litellm_model_id: string | null;
+    cluster_id: string | null;
+    namespace: string;
     recipe_id?: string | null;
     gpu_type?: string | null;
     serving_mode?: ServingMode;

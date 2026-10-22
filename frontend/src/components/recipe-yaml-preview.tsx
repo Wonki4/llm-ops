@@ -5,7 +5,7 @@ import { Copy, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useK8sClusters, usePreviewServingRecipe } from "@/hooks/use-api";
+import { useDefaultNamespace, useK8sClusters, usePreviewServingRecipe } from "@/hooks/use-api";
 import type { ServingRecipeInput, ServingRecipePreviewBody } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,17 +34,18 @@ export function RecipeYamlPanel({
   const { data: clusters } = useK8sClusters();
 
   const [clusterId, setClusterId] = useState("");
-  const [namespace, setNamespace] = useState("default");
+  const [namespace, setNamespace] = useState("");
   const [modelName, setModelName] = useState("");
   // What gets rendered; text fields apply on Enter / "Render again", the cluster on change.
-  const [target, setTarget] = useState<Target>({ clusterId: "", namespace: "default", modelName: "" });
+  const [target, setTarget] = useState<Target>({ clusterId: "", namespace: "", modelName: "" });
   const [selected, setSelected] = useState(0);
+  const defaultNs = useDefaultNamespace(clusterId);
 
   const body: ServingRecipePreviewBody | null = recipe
     ? {
         ...recipe,
         cluster_id: target.clusterId || null,
-        namespace: target.namespace.trim() || "default",
+        namespace: target.namespace.trim() || null,
         model_name: target.modelName.trim() || null,
       }
     : null;
@@ -89,7 +90,10 @@ export function RecipeYamlPanel({
         </div>
         <div className="space-y-1">
           <Label htmlFor="preview-namespace" className="text-[11px] font-normal text-muted-foreground">{t("deployNamespace")}</Label>
-          <Input id="preview-namespace" className={small} value={namespace} onChange={(e) => setNamespace(e.target.value)} onKeyDown={onEnter} />
+          <Input
+            id="preview-namespace" className={small} value={namespace} placeholder={defaultNs}
+            onChange={(e) => setNamespace(e.target.value)} onKeyDown={onEnter}
+          />
         </div>
         <div className="space-y-1">
           <Label htmlFor="preview-model-name" className="text-[11px] font-normal text-muted-foreground">{t("previewModelName")}</Label>

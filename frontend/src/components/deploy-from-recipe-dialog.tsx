@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateDeployment, useGpuNodes, useGpuProfiles, useK8sClusters } from "@/hooks/use-api";
+import { useCreateDeployment, useDefaultNamespace, useGpuNodes, useGpuProfiles, useK8sClusters } from "@/hooks/use-api";
 import type { CreateDeploymentBody, PdConfig, ServingRecipe } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
+import { isValidNamespace } from "@/lib/k8s-names";
 import { mapToLines, resolvePlacementPreview, tolerationsToLines } from "@/lib/placement";
 
 export function DeployFromRecipeDialog({
@@ -31,7 +32,7 @@ export function DeployFromRecipeDialog({
   const isPd = recipe?.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
   const [litellmName, setLitellmName] = useState("");
-  const [namespace, setNamespace] = useState("default");
+  const [namespace, setNamespace] = useState("");
   const [clusterId, setClusterId] = useState<string>("");
   const [ingressHost, setIngressHost] = useState("");
   const [ingressPath, setIngressPath] = useState("/");
@@ -50,6 +51,11 @@ export function DeployFromRecipeDialog({
 
   const open = !!recipe;
   const clusterKey = clusterId || null;
+  // Blank = the cluster's default namespace; the backend resolves it the same way.
+  const defaultNs = useDefaultNamespace(clusterId);
+  const nsTyped = namespace.trim();
+  const nsInvalid = !!nsTyped && !isValidNamespace(nsTyped);
+  const effectiveNs = nsTyped || defaultNs;
   const { data: profilesData } = useGpuProfiles(clusterKey, open);
   const nodes = useGpuNodes(clusterKey, open);
   const profiles = useMemo(() => (profilesData?.profiles ?? []).filter((p) => p.enabled), [profilesData]);
@@ -86,6 +92,10 @@ export function DeployFromRecipeDialog({
       toast.error(t("deployRequired"));
       return;
     }
+    if (nsInvalid) {
+      toast.error(t("deployNamespaceInvalid"));
+      return;
+    }
     if (gpuTypeMissing) {
       toast.error(t("deployGpuTypeRequired"));
       return;
@@ -102,7 +112,7 @@ export function DeployFromRecipeDialog({
       litellm_model_name: litellmName.trim() || null,
       cluster_id: clusterId || null,
       recipe_id: recipe.id,
-      namespace: namespace.trim() || "default",
+      namespace: nsTyped || null,
       image: recipe.image,
       replicas: isPd ? decodeReplicas : replicas,
       gpu_count: recipe.gpu_count,
@@ -161,7 +171,15 @@ export function DeployFromRecipeDialog({
             />
             <p className="text-xs text-muted-foreground">{t("deployLitellmNameHint")}</p>
           </Field>
-          <Field label={t("deployNamespace")}><Input value={namespace} onChange={(e) => setNamespace(e.target.value)} /></Field>
+          <Field label={t("deployNamespace")}>
+            <Input
+              id="deploy-namespace" className="font-mono" value={namespace} placeholder={defaultNs} aria-invalid={nsInvalid}
+              onChange={(e) => setNamespace(e.target.value)}
+            />
+            <p className={nsInvalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"} data-testid="deploy-namespace-hint">
+              {nsInvalid ? t("deployNamespaceInvalid") : t("deployNamespaceHint", { ns: defaultNs })}
+            </p>
+          </Field>
           <Field label={t("deployCluster")}>
             <select
               id="deploy-cluster"
@@ -230,14 +248,14 @@ export function DeployFromRecipeDialog({
             <StorageResolutionPreview
               storageIds={recipeStorageIds(recipe)}
               clusterId={clusterId || null}
-              namespace={namespace.trim() || "default"}
+              namespace={effectiveNs}
               onBlockedChange={setStorageBlocked}
             />
           )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={createDep.isPending}>{tc("cancel")}</Button>
-          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked}>{t("deploySubmit")}</Button>
+          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked || nsInvalid}>{t("deploySubmit")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

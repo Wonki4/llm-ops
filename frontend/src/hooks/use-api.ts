@@ -1507,14 +1507,22 @@ export interface CreateK8sClusterBody {
 
 export type UpdateK8sClusterBody = Partial<CreateK8sClusterBody>;
 
+type K8sClustersResponse = { clusters: K8sClusterSummary[]; default_namespace: string };
+
+const k8sClustersQuery = {
+  queryKey: ["k8s-clusters"],
+  queryFn: () => apiFetch<K8sClustersResponse>("/api/admin/k8s-clusters"),
+};
+
 export function useK8sClusters() {
-  return useQuery({
-    queryKey: ["k8s-clusters"],
-    queryFn: () =>
-      apiFetch<{ clusters: K8sClusterSummary[] }>("/api/admin/k8s-clusters").then(
-        (r) => r.clusters,
-      ),
-  });
+  return useQuery({ ...k8sClustersQuery, select: (r: K8sClustersResponse) => r.clusters });
+}
+
+/** The namespace a deploy to `clusterId` uses when none is typed: the cluster's, else the portal default (`""` = portal default cluster). */
+export function useDefaultNamespace(clusterId: string): string {
+  const { data } = useQuery({ ...k8sClustersQuery });
+  const cluster = data?.clusters.find((c) => c.id === clusterId);
+  return cluster?.namespace || data?.default_namespace || "default";
 }
 
 export function useCreateK8sCluster() {

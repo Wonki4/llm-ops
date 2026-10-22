@@ -81,6 +81,14 @@ def test_row_joins_every_stage():
     assert r["litellm_registered"] is True
 
 
+def test_deployments_and_stacks_carry_their_cluster_and_namespace():
+    cid = uuid.uuid4()
+    rows = _rows([_dep(cluster_id=cid, namespace="team-a")], [_stack(cluster_id=None, namespace="llm")], [], [], [])
+    d, st = rows[0]["deployments"][0], rows[0]["llmd_stacks"][0]
+    assert (d["cluster_id"], d["namespace"]) == (str(cid), "team-a")
+    assert (st["cluster_id"], st["namespace"]) == (None, "llm")
+
+
 def test_models_without_deployment_still_listed_and_sorted():
     zeta = _stack(
         name="zeta-stack",

@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, ChevronRight, Loader2, ScrollText, Server } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -11,6 +11,9 @@ import {
   useModelDeployments,
   useUnregisterExternalServing,
 } from "@/hooks/use-api";
+import type { ModelDeployment } from "@/types";
+import { ServingScopeFilter, useClusterName, useServingScope } from "@/components/serving-scope-filter";
+import { clusterKey, inScope } from "@/lib/serving-scope";
 import { ExternalServingRegisterDialog } from "@/components/external-serving-register-dialog";
 import { Badge } from "@/components/ui/badge";
 import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
@@ -43,8 +46,46 @@ function externalRecipeHref(s: ExternalServing) {
   return `/admin/recipes/new?${qs.toString()}`;
 }
 
+/** GPUs a portal deployment requests in total (P/D: both pools). */
+function deploymentGpus(d: ModelDeployment): number {
+  if (d.serving_mode !== "pd") return d.gpu_count * d.replicas;
+  return (["prefill", "decode"] as const).reduce((sum, role) => {
+    const pool = d.pd_config?.[role];
+    return sum + (pool?.gpu_count ?? d.gpu_count) * (pool?.replicas ?? 1);
+  }, 0);
+}
+
+type Group = { key: string; clusterId: string | null; namespace: string; deployments: ModelDeployment[]; servings: ExternalServing[] };
+
+/** Portal deployments and external servings bucketed by cluster → namespace. */
+function groupByScope(deployments: ModelDeployment[], servings: ExternalServing[], clusterName: (id: string | null) => string): Group[] {
+  const groups = new Map<string, Group>();
+  const bucket = (clusterId: string | null, namespace: string) => {
+    const key = `${clusterKey(clusterId)}/${namespace}`;
+    if (!groups.has(key)) groups.set(key, { key, clusterId, namespace, deployments: [], servings: [] });
+    return groups.get(key)!;
+  };
+  deployments.forEach((d) => bucket(d.cluster_id, d.namespace).deployments.push(d));
+  servings.forEach((s) => bucket(s.cluster_id, s.namespace).servings.push(s));
+  return [...groups.values()].sort(
+    (a, b) => clusterName(a.clusterId).localeCompare(clusterName(b.clusterId)) || a.namespace.localeCompare(b.namespace),
+  );
+}
+
 export default function DeploymentsPage() {
+  // useSearchParams (the scope filter) needs a Suspense boundary for static prerendering.
+  return (
+    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+      <DeploymentsList />
+    </Suspense>
+  );
+}
+
+function DeploymentsList() {
   const t = useTranslations("adminDeployments");
+  const ts = useTranslations("serving");
+  const [scope, setScope] = useServingScope();
+  const clusterName = useClusterName();
   const { data: deployments, isLoading } = useModelDeployments();
   const { data: external, isLoading: externalLoading } = useExternalServings();
   const unregister = useUnregisterExternalServing();
@@ -53,9 +94,16 @@ export default function DeploymentsPage() {
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
 
   const loading = isLoading || externalLoading;
-  const servings = external?.servings ?? [];
+  const allServings = external?.servings ?? [];
   const scanErrors = external?.errors ?? [];
-  const isEmpty = (!deployments || deployments.length === 0) && servings.length === 0;
+  const scopeItems = [...(deployments ?? []), ...allServings];
+  const groups = groupByScope(
+    (deployments ?? []).filter((d) => inScope(scope, d)),
+    allServings.filter((s) => inScope(scope, s)),
+    clusterName,
+  );
+  const isEmpty = scopeItems.length === 0;
+  const scopeEmpty = !isEmpty && groups.length === 0;
 
   return (
     <div className="space-y-6">
@@ -64,7 +112,10 @@ export default function DeploymentsPage() {
         <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
       </div>
 
-      <ServingDeployTabs />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <ServingDeployTabs />
+        <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} />
+      </div>
 
       {scanErrors.length > 0 && (
         <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 px-4 py-3 text-sm">
@@ -81,10 +132,10 @@ export default function DeploymentsPage() {
         <CardContent>
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
-          ) : isEmpty ? (
+          ) : isEmpty || scopeEmpty ? (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
               <Server className="size-10 text-muted-foreground mb-3" />
-              <p className="text-muted-foreground">{t("empty")}</p>
+              <p className="text-muted-foreground">{isEmpty ? t("empty") : ts("scopeEmpty")}</p>
             </div>
           ) : (
             <div className="rounded-md border">
@@ -102,7 +153,20 @@ export default function DeploymentsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {(deployments ?? []).map((d) => (
+                  {groups.map((g) => {
+                    const ready = g.deployments.filter((d) => d.status === "Ready").length + g.servings.filter((s) => s.status === "Ready").length;
+                    const gpus = g.deployments.reduce((sum, d) => sum + deploymentGpus(d), 0);
+                    return (
+                      <Fragment key={g.key}>
+                        <TableRow className="bg-muted/40 hover:bg-muted/40" data-testid="scope-group">
+                          <TableCell colSpan={8} className="py-1.5">
+                            <span className="font-mono text-xs font-medium">{clusterName(g.clusterId)} / {g.namespace}</span>
+                            <span className="ml-3 text-xs text-muted-foreground" title={ts("groupGpuHint")}>
+                              {ts("groupSummary", { count: g.deployments.length + g.servings.length, ready, gpus })}
+                            </span>
+                          </TableCell>
+                        </TableRow>
+                  {g.deployments.map((d) => (
                     <TableRow
                       key={d.id}
                       className="cursor-pointer hover:bg-muted/50"
@@ -134,7 +198,7 @@ export default function DeploymentsPage() {
                       <TableCell className="text-right tabular-nums">
                         {d.serving_mode === "pd" && d.pd_summary ? d.pd_summary : `${d.ready_replicas}/${d.replicas}`}
                       </TableCell>
-                      <TableCell className="text-muted-foreground text-xs">—</TableCell>
+                      <TableCell className="font-mono text-xs">{clusterName(d.cluster_id)}</TableCell>
                       <TableCell className="font-mono text-xs">{d.namespace}</TableCell>
                       <TableCell className="font-mono text-xs max-w-[200px] truncate" title={d.image}>{d.image}</TableCell>
                       <TableCell>
@@ -156,7 +220,7 @@ export default function DeploymentsPage() {
                       </TableCell>
                     </TableRow>
                   ))}
-                  {servings.map((s) => {
+                  {g.servings.map((s) => {
                     const key = externalKey(s);
                     const expanded = expandedKey === key;
                     return (
@@ -235,6 +299,9 @@ export default function DeploymentsPage() {
                             </TableCell>
                           </TableRow>
                         )}
+                      </Fragment>
+                    );
+                  })}
                       </Fragment>
                     );
                   })}

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.clients.k8s import probe_cluster
+from app.config import settings
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
@@ -198,7 +199,11 @@ async def list_clusters(
             CustomK8sCluster.is_default.desc(), CustomK8sCluster.created_at.desc()
         )
     )
-    return {"clusters": [_serialize(c) for c in result.scalars().all()]}
+    return {
+        "clusters": [_serialize(c) for c in result.scalars().all()],
+        # Deploys to the portal's own cluster (no cluster_id) that name no namespace land here.
+        "default_namespace": settings.k8s_default_namespace,
+    }
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

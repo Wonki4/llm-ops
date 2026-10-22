@@ -4,11 +4,13 @@ PR-A scope: create, list, get, delete. Status only reflects whatever the
 worker has last synced — the worker is added in PR-B.
 """
 
+import json
 import logging
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,7 +28,7 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
 from app.services import llmd_stacks, pd_router, pd_serving
-from app.services.clusters import k8s_for_cluster
+from app.services.clusters import default_namespace, k8s_for_cluster, validate_namespace
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
@@ -67,7 +69,7 @@ class CreateDeploymentRequest(BaseModel):
     model_name: str
     litellm_model_name: str | None = None  # name in LiteLLM; None = model_name; may be shared
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
-    namespace: str = "default"
+    namespace: str | None = None  # None/blank = the cluster's default namespace
     image: str | None = None  # None → default_image(engine)
     replicas: int = Field(1, ge=0)
     gpu_count: int = Field(1, ge=0)
@@ -124,6 +126,11 @@ class CreateDeploymentRequest(BaseModel):
     @classmethod
     def _check_litellm_name(cls, v: str | None) -> str | None:
         return _litellm_name(v)
+
+    @field_validator("namespace")
+    @classmethod
+    def _check_namespace(cls, v: str | None) -> str | None:
+        return validate_namespace(v)
 
     @field_validator("storages")
     @classmethod
@@ -611,6 +618,28 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
     dep.router_stack_created = True
 
 
+def _apply_error(e: Exception, dep: CustomModelDeployment) -> HTTPException:
+    """The HTTP error for a failed K8s apply: the namespace cases get their own message."""
+    if isinstance(e, ApiException):
+        try:
+            details = (json.loads(e.body or "{}") or {}).get("details") or {}
+        except (TypeError, ValueError):
+            details = {}
+        if e.status == 404 and details.get("kind") == "namespaces":
+            return HTTPException(
+                status_code=400,
+                detail=f"Namespace '{dep.namespace}' does not exist on this cluster; create it first",
+            )
+        if e.status == 403:
+            return HTTPException(
+                status_code=502,
+                detail=f"The portal is not allowed to create resources in namespace '{dep.namespace}' (403 Forbidden); "
+                "check its RBAC on that namespace",
+            )
+    logger.exception("K8s apply failed for %s", dep.model_name)
+    return HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_deployment(
     body: CreateDeploymentRequest,
@@ -626,6 +655,7 @@ async def create_deployment(
 
     k8s = await k8s_for_cluster(db, body.cluster_id)
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+    namespace = body.namespace or await default_namespace(db, cluster_uuid)
     try:
         gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
     except UnknownGpuTypeError as e:
@@ -636,7 +666,7 @@ async def create_deployment(
         model_name=body.model_name,
         litellm_model_name=body.litellm_model_name,
         cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
-        namespace=body.namespace,
+        namespace=namespace,
         image=body.image or default_image(body.engine),
         replicas=body.replicas,
         gpu_count=body.gpu_count,
@@ -678,9 +708,8 @@ async def create_deployment(
         await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception:
-        logger.exception("K8s apply failed for %s", dep.model_name)
-        raise HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
+    except Exception as e:
+        raise _apply_error(e, dep)
 
     if pd_serving.is_pd(dep):
         await _attach_router(db, dep, body, user.user_id)
@@ -762,9 +791,8 @@ async def update_deployment(
         await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image, owner=owner))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception:
-        logger.exception("K8s apply failed for %s", dep.model_name)
-        raise HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
+    except Exception as e:
+        raise _apply_error(e, dep)
 
     if dep.litellm_model_id and registered_as is not None and _registration_key(dep) != registered_as:
         await _unregister(litellm, dep)

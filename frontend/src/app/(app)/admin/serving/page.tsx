@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import Link from "next/link";
 import { CheckCircle2, Workflow } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -7,6 +8,8 @@ import { useTranslations } from "next-intl";
 import { useServingOverview } from "@/hooks/use-api";
 import type { ServingOverviewRow } from "@/types";
 import { ModelStatusBadge } from "@/components/model-status-badge";
+import { ServingScopeFilter, useServingScope } from "@/components/serving-scope-filter";
+import { inScope, isScoped } from "@/lib/serving-scope";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -40,10 +43,34 @@ function NextStep({ href, label }: { href: string; label: string }) {
 }
 
 export default function ServingHomePage() {
+  // useSearchParams (the scope filter) needs a Suspense boundary for static prerendering.
+  return (
+    <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
+      <ServingHome />
+    </Suspense>
+  );
+}
+
+function ServingHome() {
   const t = useTranslations("serving");
   const { data, isLoading } = useServingOverview();
-  const rows = data?.models;
-  const unlinked = data?.unlinked_stacks ?? [];
+  const [scope, setScope] = useServingScope();
+  const scoped = isScoped(scope);
+  const scopeItems = [
+    ...(data?.models ?? []).flatMap((r) => [...r.deployments, ...r.llmd_stacks]),
+    ...(data?.unlinked_stacks ?? []),
+  ];
+  // Scoped: keep only the deployments/stacks in scope, and only models that still have one.
+  const rows = scoped
+    ? data?.models
+        .map((r) => ({
+          ...r,
+          deployments: r.deployments.filter((d) => inScope(scope, d)),
+          llmd_stacks: r.llmd_stacks.filter((st) => inScope(scope, st)),
+        }))
+        .filter((r) => r.deployments.length > 0 || r.llmd_stacks.length > 0)
+    : data?.models;
+  const unlinked = (data?.unlinked_stacks ?? []).filter((st) => inScope(scope, st));
 
   const stats = {
     models: rows?.length ?? 0,
@@ -58,6 +85,8 @@ export default function ServingHomePage() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Workflow className="size-5" />{t("title")}</h1>
         <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
       </div>
+
+      <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {(["models", "ready", "benchmarked", "catalogued"] as const).map((k) => (
@@ -74,7 +103,7 @@ export default function ServingHomePage() {
         <div className="h-40 animate-pulse rounded-lg bg-muted" />
       ) : !rows || rows.length === 0 ? (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          {t("empty")} <Link href="/admin/recipes/new" className="underline">{t("emptyCta")}</Link>
+          {scoped ? t("scopeEmpty") : <>{t("empty")} <Link href="/admin/recipes/new" className="underline">{t("emptyCta")}</Link></>}
         </div>
       ) : (
         <div className="rounded-lg border">
