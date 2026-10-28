@@ -1,12 +1,8 @@
 """API Key management endpoints."""
 
-import asyncio
 import logging
-import time
 
 from fastapi import APIRouter, Depends, HTTPException
-from httpx import HTTPStatusError
-from jose import jwt
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,46 +22,13 @@ from app.services.personal_access import (
     has_grant,
     key_models_allowed,
 )
+from app.services.portal_keys import KEY_JWT_SECRET, generate_sk_jwt, issue_portal_key, reconstruct_sk_key
 
 router = APIRouter(prefix="/api/keys", tags=["keys"])
 
-_KEY_JWT_SECRET = "litellm-portal-key-sign"  # signing secret for key JWTs
-
-
-async def _next_key_id(db: AsyncSession) -> int:
-    """Get next sequential key ID starting from 10000."""
-    result = await db.execute(
-        text("SELECT COALESCE(MAX(key_seq), 9999) + 1 FROM custom_key_sequence")
-    )
-    next_id = result.scalar()
-    if next_id is None:
-        next_id = 10000
-    await db.execute(
-        text("INSERT INTO custom_key_sequence (key_seq) VALUES (:seq)"),
-        {"seq": next_id},
-    )
-    return next_id
-
-
-def _generate_sk_jwt(key_id: int, team_id: str | None, user_id: str, iat: int | None = None) -> str:
-    """Generate sk- prefixed JWT key with sub containing stringified payload.
-
-    Personal (team-less) keys carry ``prjId: null`` and ``keyType: "USR"``;
-    consumers of the claim (the budget MCP) treat a null project as "no team".
-    """
-    import json as _json
-    if iat is None:
-        iat = int(time.time())
-    inner = {
-        "keyId": key_id,
-        "prjId": team_id,
-        "keyType": "PRJ" if team_id else "USR",
-        "regUserId": user_id,
-        "iat": iat,
-    }
-    payload = {"sub": _json.dumps(inner, separators=(",", ":"))}
-    token = jwt.encode(payload, _KEY_JWT_SECRET, algorithm="HS256")
-    return f"sk-{token}"
+# Kept under their historical private names for existing importers/tests.
+_KEY_JWT_SECRET = KEY_JWT_SECRET
+_generate_sk_jwt = generate_sk_jwt
 
 
 class CreateKeyRequest(BaseModel):
@@ -76,22 +39,31 @@ class CreateKeyRequest(BaseModel):
     budget_duration: str | None = Field(None, description="e.g. '30d', '7d', '1h'")
 
 
-async def _personal_key_guard(
-    body: CreateKeyRequest, user: CustomUser, litellm: LiteLLMClient, db: AsyncSession, litellm_db: AsyncSession
-) -> None:
-    """Personal keys need the beta switch on, a grant on the user row, and a
-    key model list inside that grant (LiteLLM would 403 at call time anyway)."""
+async def require_personal_access(db: AsyncSession, litellm_db: AsyncSession, user_id: str):
+    """403 unless personal keys are on (Beta) and the user row carries a grant.
+
+    Returns the user row (``models``, ``max_budget``).
+    """
     if not await personal_keys_beta_enabled(db):
         raise HTTPException(status_code=403, detail="개인 키(Beta)가 꺼져 있습니다. 관리자에게 문의하세요.")
     row = (
         await litellm_db.execute(
             text('SELECT models, max_budget FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
-            {"user_id": user.user_id},
+            {"user_id": user_id},
         )
     ).mappings().first()
-    grant = list(row["models"] or []) if row else []
-    if not has_grant(grant):
+    if not has_grant(list(row["models"] or []) if row else []):
         raise HTTPException(status_code=403, detail="관리자가 개인 키 권한을 부여해야 합니다.")
+    return row
+
+
+async def _personal_key_guard(
+    body: CreateKeyRequest, user: CustomUser, litellm: LiteLLMClient, db: AsyncSession, litellm_db: AsyncSession
+) -> None:
+    """Personal keys need the beta switch on, a grant on the user row, and a
+    key model list inside that grant (LiteLLM would 403 at call time anyway)."""
+    row = await require_personal_access(db, litellm_db, user.user_id)
+    grant = list(row["models"] or []) if row else []
     if body.models:
         groups = access_groups_from_model_info(await litellm.get_model_info())
         outside = key_models_allowed(body.models, grant, access_groups=groups)
@@ -117,67 +89,25 @@ async def create_key(
     if personal:
         await _personal_key_guard(body, user, litellm, db, litellm_db)
 
-    # Read default TPM/RPM: prefer team-scoped values, fall back to global defaults.
-    # Personal keys have no team override, so only the global defaults apply.
-    team_tpm_key = f"team:{body.team_id}:default_tpm_limit"
-    team_rpm_key = f"team:{body.team_id}:default_rpm_limit"
-    settings_result = await db.execute(
-        text(
-            "SELECT key, value FROM custom_portal_settings "
-            "WHERE key IN ('default_tpm_limit', 'default_rpm_limit', :team_tpm, :team_rpm)"
-        ),
-        {"team_tpm": team_tpm_key, "team_rpm": team_rpm_key},
+    metadata: dict = {"display_alias": body.key_alias}
+    if personal:
+        # Tracking marker for spend logs / key lists. (LiteLLM key `tags` are an
+        # Enterprise feature — /key/generate 403s on them — so metadata it is.)
+        metadata["key_type"] = PERSONAL_KEY_TYPE
+
+    sk_key, result = await issue_portal_key(
+        litellm,
+        db,
+        user_id=user.user_id,
+        team_id=body.team_id,
+        metadata=metadata,
+        models=body.models,
+        max_budget=body.max_budget,
+        budget_duration=body.budget_duration,
     )
-    portal_settings = {r["key"]: int(r["value"]) for r in settings_result.mappings()}
-    tpm_limit = portal_settings.get(team_tpm_key, portal_settings.get("default_tpm_limit", 100000))
-    rpm_limit = portal_settings.get(team_rpm_key, portal_settings.get("default_rpm_limit", 1000))
-
-    max_retries = 3
-    last_error = None
-
-    for attempt in range(max_retries):
-        key_id = await _next_key_id(db)
-        iat = int(time.time())
-        sk_key = _generate_sk_jwt(key_id, body.team_id, user.user_id, iat=iat)
-        metadata: dict = {"sk_key_id": key_id, "sk_iat": iat, "display_alias": body.key_alias}
-        if personal:
-            # Tracking marker for spend logs / key lists. (LiteLLM key `tags` are an
-            # Enterprise feature — /key/generate 403s on them — so metadata it is.)
-            metadata["key_type"] = PERSONAL_KEY_TYPE
-
-        try:
-            result = await litellm.generate_key(
-                user_id=user.user_id,
-                team_id=body.team_id,
-                key_alias=f"{user.user_id}-{key_id}",
-                models=body.models,
-                max_budget=body.max_budget,
-                budget_duration=body.budget_duration,
-                key=sk_key,
-                tpm_limit=tpm_limit,
-                rpm_limit=rpm_limit,
-                metadata=metadata,
-            )
-            # Return key without sk- prefix (sensitive prefix must not be exposed)
-            result["key"] = sk_key.removeprefix("sk-")
-            return result
-        except HTTPStatusError as e:
-            if e.response.status_code >= 500:
-                last_error = e
-                logger.error("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e, exc_info=True)
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1 * (attempt + 1))
-                continue
-            raise
-        except Exception as e:
-            last_error = e
-            logger.warning("Key generation failed (attempt %d/%d): %s", attempt + 1, max_retries, e)
-            if attempt < max_retries - 1:
-                await asyncio.sleep(1 * (attempt + 1))
-                continue
-            raise
-
-    raise HTTPException(status_code=502, detail=f"Key generation failed after {max_retries} attempts: {last_error}")
+    # Return key without sk- prefix (sensitive prefix must not be exposed)
+    result["key"] = sk_key.removeprefix("sk-")
+    return result
 
 
 @router.get("")
@@ -255,13 +185,10 @@ async def reveal_key(
     if row["user_id"] != user.user_id:
         raise HTTPException(status_code=403, detail="You can only reveal your own keys")
 
-    metadata = row["metadata"] or {}
-    sk_key_id = metadata.get("sk_key_id")
-    sk_iat = metadata.get("sk_iat")
-    if sk_key_id is None or sk_iat is None:
+    sk_key = reconstruct_sk_key(row["user_id"], row["team_id"], row["metadata"])
+    if sk_key is None:
         raise HTTPException(status_code=404, detail="이 키는 재구성 정보가 없습니다. (이전에 생성된 키)")
 
-    sk_key = _generate_sk_jwt(sk_key_id, row["team_id"], row["user_id"], iat=sk_iat)
     # Strip sk- prefix for user-facing display
     user_key = sk_key.removeprefix("sk-")
     return {"key": user_key}
