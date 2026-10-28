@@ -24,7 +24,7 @@ services:
   # Keycloak (authentication)
   # ═══════════════════════════════════════════
   keycloak:
-    image: quay.io/keycloak/keycloak:26.0
+    image: quay.io/keycloak/keycloak:26.3.3
     container_name: litellm_keycloak
     command: start-dev --import-realm --hostname=http://localhost:8082 --hostname-strict=true
     environment:
@@ -108,6 +108,12 @@ services:
       APP_KUBECONFIG_PATH: "${APP_KUBECONFIG_PATH:-}"
       APP_K8S_DEFAULT_NAMESPACE: "${APP_K8S_DEFAULT_NAMESPACE:-default}"
       APP_EXTERNAL_API_KEY: "${APP_EXTERNAL_API_KEY:-}"
+      # Gateway Keycloak SSO: an app server exchanges the user's token through its
+      # <app>-gw client (aud=litellm-gateway) and sends that to the gateway, which
+      # swaps it for the user's SSO key via /api/external/token-auth.
+      APP_GATEWAY_SSO_ENABLED: "${APP_GATEWAY_SSO_ENABLED:-true}"
+      APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
+      APP_GATEWAY_ALLOWED_AZP: '${APP_GATEWAY_ALLOWED_AZP:-["litellm-portal-gw"]}'
     env_file:
       - .env
     volumes:
@@ -165,6 +171,9 @@ services:
       # Keyless trusted-system auth (resolved via the management backend).
       APP_BACKEND_BASE_URL: "http://backend:8000"
       APP_BACKEND_API_KEY: "${APP_EXTERNAL_API_KEY:-}"
+      # Keycloak SSO: tokens with this `iss` are swapped for the user's SSO key.
+      # Must equal the backend's issuer (APP_KEYCLOAK_BASE_URL + /realms/<realm>).
+      APP_KEYCLOAK_ISSUER: "${APP_GATEWAY_KEYCLOAK_ISSUER:-http://localhost:8082/realms/litellm}"
     depends_on:
       litellm:
         condition: service_healthy

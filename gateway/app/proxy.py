@@ -5,10 +5,13 @@ SDK users have a single inference endpoint.  Streaming (SSE) responses are
 relayed in real time.
 """
 
+import json
+
 import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import Response, StreamingResponse
 
+from app import sso
 from app.config import settings
 from app.trusted_system import resolve_system_key
 
@@ -97,12 +100,22 @@ def _has_credential(headers: dict[str, str]) -> bool:
     return any(name.lower() in _CREDENTIAL_HEADERS and value.strip() for name, value in headers.items())
 
 
-def _unauthorized() -> Response:
+def _bearer_token(value: str) -> str:
+    """The token of a ``Bearer`` authorization value, else ''."""
+    scheme, _, token = value.strip().partition(" ")
+    return token.strip() if scheme.lower() == "bearer" else ""
+
+
+def _auth_error(status_code: int, message: str) -> Response:
     return Response(
-        content=b'{"error":{"message":"Unauthorized system","type":"auth_error"}}',
-        status_code=401,
+        content=json.dumps({"error": {"message": message, "type": "auth_error"}}).encode(),
+        status_code=status_code,
         media_type="application/json",
     )
+
+
+def _unauthorized() -> Response:
+    return _auth_error(401, "Unauthorized system")
 
 
 def _response_headers(headers: httpx.Headers) -> dict[str, str]:
@@ -117,7 +130,8 @@ def _response_headers(headers: httpx.Headers) -> dict[str, str]:
 async def proxy_inference(request: Request, path: str) -> Response:
     """Transparent reverse proxy to LiteLLM for all ``/v1/*`` endpoints.
 
-    * Forwards the ``Authorization`` header (LiteLLM virtual key) as-is.
+    * Forwards the ``Authorization`` header (LiteLLM virtual key) as-is,
+      or swaps a forwarded Keycloak token for the user's SSO key.
     * Detects ``text/event-stream`` responses and relays SSE chunks in
       real time via :class:`StreamingResponse`.
     * Non-streaming responses are read in full and returned directly.
@@ -131,6 +145,23 @@ async def proxy_inference(request: Request, path: str) -> Response:
     # ── Forward headers & body ───────────────────────────────────
     incoming = dict(request.headers)
     fwd_headers = _forward_headers(incoming)
+
+    # ── Keycloak SSO auth ────────────────────────────────────────
+    # A web app forwarded its user's Keycloak access token: swap it for the
+    # user's (or the selected team's) SSO key. The Keycloak token and the
+    # team selector never reach LiteLLM, and the SSO key is the only
+    # credential forwarded.
+    bearer = _bearer_token(incoming.get("authorization", ""))
+    if bearer and sso.is_enabled() and sso.looks_like_keycloak_token(bearer):
+        team_header = settings.team_header.lower()
+        team_id = incoming.get(team_header, "").strip() or None
+        try:
+            key = await sso.resolve_user_key(bearer, team_id)
+        except sso.SsoAuthError as e:
+            return _auth_error(e.status_code, e.message)
+        for name in [n for n in fwd_headers if n.lower() in _CREDENTIAL_HEADERS or n.lower() == team_header]:
+            del fwd_headers[name]
+        fwd_headers["authorization"] = f"Bearer {_ensure_sk(key)}"
 
     # ── Keyless trusted-system auth ──────────────────────────────
     # No LiteLLM credential, but a system id + shared secret were presented:

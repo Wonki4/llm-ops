@@ -36,17 +36,23 @@ class TokenPayload:
     realm_roles: list[str] | None = None
     client_roles: list[str] | None = None
     groups: list[str] | None = None
+    exp: int | None = None  # expiry (epoch seconds)
+    azp: str | None = None  # Keycloak client the token was issued to
 
 
-async def verify_token(token: str) -> TokenPayload:
-    """Verify and decode a Keycloak JWT access token."""
+async def verify_token(token: str, audience: str | None = None) -> TokenPayload:
+    """Verify and decode a Keycloak JWT access token.
+
+    ``audience`` defaults to the portal's own (``settings.jwt_audience``); the
+    inference gateway's SSO path passes ``settings.gateway_token_audience``.
+    """
     try:
         jwks = await _get_jwks()
         payload = jwt.decode(
             token,
             jwks,
             algorithms=["RS256"],
-            audience=settings.jwt_audience,
+            audience=audience or settings.jwt_audience,
             issuer=settings.keycloak_issuer,
             options={"verify_at_hash": False},
         )
@@ -79,4 +85,6 @@ async def verify_token(token: str) -> TokenPayload:
         realm_roles=realm_roles,
         client_roles=client_roles,
         groups=groups,
+        exp=payload.get("exp"),
+        azp=payload.get("azp"),
     )

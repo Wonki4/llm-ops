@@ -9,10 +9,14 @@ from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.keys import require_personal_access
+from app.auth.jwt import verify_token
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
 from app.db.models import CustomTrustedSystem
 from app.db.session import get_db, get_litellm_db
+from app.services.sso_keys import get_or_issue_sso_key
+from app.services.user_provisioning import auto_provision_user, canonical_user_id, upsert_portal_user
 
 
 def hash_system_secret(secret: str) -> str:
@@ -235,3 +239,67 @@ async def system_auth(
         system_id=system.system_id,
         name=system.name,
     )
+
+
+class TokenAuthRequest(BaseModel):
+    token: str  # the caller's Keycloak access token, forwarded by the gateway
+    team_id: str | None = None  # None → the user's personal SSO key
+
+
+class TokenAuthResponse(BaseModel):
+    litellm_key: str
+    user_id: str
+    team_id: str | None
+    expires_at: int | None  # the token's `exp`; the gateway never caches past it
+
+
+@router.post("/token-auth", response_model=TokenAuthResponse)
+async def token_auth(
+    body: TokenAuthRequest,
+    _key: str = Depends(verify_external_api_key),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
+) -> TokenAuthResponse:
+    """Swap a user's Keycloak access token for their gateway SSO key.
+
+    Called by the inference gateway when a web app forwards the user's token.
+    The token must be valid for ``settings.gateway_token_audience`` (and, when
+    configured, issued to an allowed client). Token problems are a uniform 401;
+    missing personal access or team membership is a 403 with a reason.
+    """
+    if not settings.gateway_sso_enabled:
+        raise HTTPException(status_code=404, detail="Gateway SSO is disabled")
+
+    try:
+        token = await verify_token(body.token, audience=settings.gateway_token_audience)
+    except ValueError as e:
+        logger.warning("Gateway SSO token rejected: %s", e)
+        raise HTTPException(status_code=401, detail="Invalid token") from e
+    if settings.gateway_allowed_azp and token.azp not in settings.gateway_allowed_azp:
+        logger.warning("Gateway SSO token from disallowed client azp=%s", token.azp)
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    user_id = canonical_user_id(token)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # A user may reach the gateway before ever opening the portal.
+    await upsert_portal_user(db, token)
+    await auto_provision_user(db, litellm_db, user_id, token.email or "")
+
+    team_id = (body.team_id or "").strip() or None
+    if team_id is None:
+        await require_personal_access(db, litellm_db, user_id)
+    else:
+        member = (
+            await litellm_db.execute(
+                text('SELECT 1 FROM "LiteLLM_TeamMembership" WHERE user_id = :user_id AND team_id = :team_id'),
+                {"user_id": user_id, "team_id": team_id},
+            )
+        ).first()
+        if member is None:
+            raise HTTPException(status_code=403, detail="해당 팀의 멤버가 아닙니다.")
+
+    key = await get_or_issue_sso_key(litellm, db, litellm_db, user_id=user_id, team_id=team_id)
+    return TokenAuthResponse(litellm_key=key, user_id=user_id, team_id=team_id, expires_at=token.exp)
