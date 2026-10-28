@@ -9,7 +9,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from jose import jwt as jose_jwt
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.session import (
@@ -24,6 +23,7 @@ from app.auth.session import (
 )
 from app.config import settings
 from app.db.session import get_db, get_litellm_db
+from app.services.user_provisioning import auto_provision_user as _auto_provision_user
 
 logger = logging.getLogger(__name__)
 
@@ -84,92 +84,6 @@ async def login(return_to: str = "/teams") -> Response:
         path="/",
     )
     return response
-
-
-async def _resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
-    """Resolve default teams: base team (all users) + prefix-matched teams."""
-    import json as _json
-
-    team_ids: list[str] = []
-
-    # 1. Base team — assigned to ALL new users
-    base_result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
-    )
-    base_team = base_result.scalar()
-    if base_team:
-        team_ids.append(base_team)
-
-    # 2. Prefix rules — additional teams based on user ID prefix
-    rules_result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_rules'")
-    )
-    rules_raw = rules_result.scalar()
-    if rules_raw:
-        rules: list[dict] = _json.loads(rules_raw)
-        upper_id = user_id.upper()
-        for rule in rules:
-            if upper_id.startswith(rule.get("prefix", "").upper()):
-                for t in rule.get("teams", []):
-                    if t not in team_ids:
-                        team_ids.append(t)
-                break  # first matching rule only
-
-    # Fallback to default_team_id (supports comma-separated multiple IDs)
-    fallback_result = await db.execute(
-        text("SELECT value FROM custom_portal_settings WHERE key = 'default_team_id'")
-    )
-    fallback = fallback_result.scalar()
-    if fallback:
-        return [t.strip() for t in fallback.split(",") if t.strip()]
-    return []
-
-
-async def _auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:
-    """Create user in LiteLLM_UserTable and add to default teams if not exists."""
-    # Check if user already exists
-    result = await litellm_db.execute(
-        text('SELECT user_id FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
-        {"user_id": user_id},
-    )
-    if result.scalar_one_or_none() is not None:
-        return  # Already exists
-
-    # Resolve teams for this user
-    team_ids = await _resolve_default_teams(db, user_id)
-
-    # Create user
-    await litellm_db.execute(
-        text(
-            'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
-            "VALUES (:user_id, :email, :teams, 0, NULL) "
-            "ON CONFLICT (user_id) DO NOTHING"
-        ),
-        {"user_id": user_id, "email": email, "teams": team_ids},
-    )
-    logger.info("Auto-provisioned user: %s", user_id)
-
-    # Add to each team
-    for team_id in team_ids:
-        await litellm_db.execute(
-            text(
-                'UPDATE "LiteLLM_TeamTable" '
-                "SET members = array_append(members, :user_id) "
-                "WHERE team_id = :team_id AND NOT (:user_id = ANY(COALESCE(members, ARRAY[]::text[])))"
-            ),
-            {"user_id": user_id, "team_id": team_id},
-        )
-        await litellm_db.execute(
-            text(
-                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
-                "VALUES (:user_id, :team_id, 0) "
-                "ON CONFLICT DO NOTHING"
-            ),
-            {"user_id": user_id, "team_id": team_id},
-        )
-        logger.info("Added user %s to team %s", user_id, team_id)
-
-    await litellm_db.commit()
 
 
 @router.get("/callback")

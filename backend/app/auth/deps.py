@@ -2,14 +2,13 @@ import logging
 
 from fastapi import Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import TokenPayload, verify_token
 from app.auth.session import SessionData, refresh_session_if_needed
-from app.config import settings
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
+from app.services.user_provisioning import upsert_portal_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -41,46 +40,7 @@ async def get_current_user(
     token: TokenPayload = Depends(get_current_token),
     db: AsyncSession = Depends(get_db),
 ) -> CustomUser:
-    uid = token.preferred_username.upper() if token.preferred_username else ""
-    result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
-    user = result.scalar_one_or_none()
-
-    if not user:
-        all_roles = (token.realm_roles or []) + (token.client_roles or [])
-        user_groups = token.groups or []
-        is_super = (
-            settings.super_user_role in all_roles
-            or bool(settings.admin_groups and set(user_groups) & set(settings.admin_groups))
-        )
-
-        from sqlalchemy import text as _text
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
-        from app.db.models.custom_user import CustomUser as _CU
-        stmt = pg_insert(_CU).values(
-            user_id=uid,
-            email=token.email,
-            display_name=token.name,
-            global_role=GlobalRole.SUPER_USER if is_super else GlobalRole.USER,
-        ).on_conflict_do_nothing(index_elements=["user_id"])
-        await db.execute(stmt)
-        await db.flush()
-
-        # Re-fetch to get the ORM object
-        result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
-        user = result.scalar_one()
-    else:
-        all_roles = (token.realm_roles or []) + (token.client_roles or [])
-        user_groups = token.groups or []
-        is_super = (
-            settings.super_user_role in all_roles
-            or bool(settings.admin_groups and set(user_groups) & set(settings.admin_groups))
-        )
-        new_role = GlobalRole.SUPER_USER if is_super else user.global_role
-        if user.global_role != new_role:
-            user.global_role = new_role
-            await db.flush()
-
-    return user
+    return await upsert_portal_user(db, token)
 
 
 def require_super_user(user: CustomUser = Depends(get_current_user)) -> CustomUser:
