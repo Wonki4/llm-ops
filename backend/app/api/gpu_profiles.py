@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
 from app.clients.k8s import K8sNotConfigured
+from app.config import settings
 from app.db.models.custom_gpu_profile import CustomGpuProfile
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
@@ -26,8 +27,6 @@ from app.services.gpu_profiles import DEFAULT_GPU_RESOURCE_KEY, profile_label_ke
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["gpu-profiles"])
-
-NODE_SCAN_TIMEOUT = 5.0
 
 
 class GpuProfileBody(BaseModel):
@@ -197,11 +196,13 @@ async def list_gpu_nodes(
     nodes: list[dict] = []
     try:
         k8s = await k8s_for_cluster(db, cid)
-        nodes = await asyncio.wait_for(k8s.list_gpu_nodes(label_key, resource_keys), timeout=NODE_SCAN_TIMEOUT)
+        nodes = await asyncio.wait_for(
+            k8s.list_gpu_nodes(label_key, resource_keys), timeout=settings.gpu_node_scan_timeout
+        )
     except K8sNotConfigured as e:
         errors.append(str(e))
     except TimeoutError:
-        errors.append(f"node scan timed out after {NODE_SCAN_TIMEOUT:g}s")
+        errors.append(f"node scan timed out after {settings.gpu_node_scan_timeout:g}s")
     except Exception as e:  # noqa: BLE001 - discovery is best-effort
         logger.warning("GPU node scan failed for cluster %s: %s", cluster_id, e)
         errors.append(str(e) or type(e).__name__)

@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
     k8s_default_namespace: str = "default"
+    # GPU profile node scan (LIST nodes + LIST pods in all namespaces); grows with cluster size.
+    # Keep below the ingress read timeout (commonly 60s).
+    gpu_node_scan_timeout: float = 30.0
 
     # Image used to run `vllm bench serve` for performance benchmarks when the
     # target isn't a portal-managed serving deployment (which reuses its own image).
