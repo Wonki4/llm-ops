@@ -71,3 +71,12 @@ async def test_list_gpu_nodes_multiple_resource_keys_and_quantities():
         out = await K8sClient().list_gpu_nodes("gpu-type", ["nvidia.com/gpu", "nvidia.com/mig-3g.40gb"])
     assert out[0]["allocatable"] == {"nvidia.com/gpu": 0, "nvidia.com/mig-3g.40gb": 2}
     assert out[0]["requested"] == {"nvidia.com/gpu": 0, "nvidia.com/mig-3g.40gb": 1}
+
+
+async def test_list_gpu_nodes_filters_pods_server_side():
+    p1, p2 = _k8s_with([], [])
+    with p1, p2 as core_api:
+        await K8sClient().list_gpu_nodes("gpu-type", ["nvidia.com/gpu"])
+    core_api.return_value.list_pod_for_all_namespaces.assert_awaited_once_with(
+        field_selector="spec.nodeName!=,status.phase!=Succeeded,status.phase!=Failed"
+    )
