@@ -139,7 +139,7 @@ Every app gets two clients. The portal itself is set up this way in
 | Type | public (SPA) or confidential | **confidential**, secret only on the app server |
 | Flows | standard flow (+ PKCE), as today | standard, implicit, direct access grants and service accounts all **off** |
 | Token exchange | off | **Standard token exchange: on** (`standard.token.exchange.enabled=true`) |
-| Client scopes | the app's usual ones | default `profile`, `email` (the backend needs `preferred_username` and `email`); `fullScopeAllowed=false` |
+| Client scopes | the app's usual ones, **including `basic`** (puts `sub` in the token, needed for account pinning) | default `basic`, `profile`, `email` (the backend needs `sub`, `preferred_username`, `email`); `fullScopeAllowed=false` |
 | Mappers | Audience → included client audience `<app>-gw` (access token only) | Audience → included custom audience `litellm-gateway` (access token only) |
 
 Then add `<app>-gw` to `APP_GATEWAY_ALLOWED_AZP` on the backend
@@ -206,6 +206,83 @@ No code change is needed for the token-exchange model. The backend already
 checks `aud` and `azp`. The model only changes which clients can obtain
 such a token.
 
+## Keycloak account pinning (`sub`)
+
+**Problem.** The portal identifies a person only by `preferred_username`
+upper-cased (사번), for example `USER001`. Keys, team membership, personal
+grant, budget, spend and the portal role (`global_role`, which is never
+demoted) are all keyed on that id. Whoever later holds the same username
+inherits all of it. Ways that can happen:
+
+- A 사번 is reused for a new hire after the old account was deleted.
+- `editUsernameAllowed` is turned on, letting someone rename themselves to a
+  deleted 사번.
+- The `preferred_username` mapper is pointed at a user-editable attribute.
+- A future LDAP or IdP federation renames or reuses accounts upstream.
+
+**Design.** `custom_users.keycloak_sub` records the Keycloak account id
+(`sub`, immutable, never reused) first seen for each user id. All checks
+live in `upsert_portal_user`, which both the portal (`deps.get_current_user`)
+and the gateway (`token-auth`) go through.
+
+- **New user:** the row is inserted with the token's `sub`.
+- **Existing row with NULL:** an atomic first claim (`UPDATE … WHERE
+  keycloak_sub IS NULL`). Of two concurrent first logins only one pins; the
+  loser re-reads the row and is compared with the winner.
+- **Same `sub`:** pass, with no write.
+- **Different `sub`:** the mismatch is logged as an error with both subs and
+  the `azp`. Under `enforce` the request is rejected:
+  - portal: 403 "계정 확인이 필요합니다. 관리자에게 문의하세요."
+  - `token-auth`: the uniform 401 "Invalid token"
+- **Token without `sub`:**
+  - `enforce` rejects it.
+  - `record` skips the check.
+  - `jwt.verify_token` no longer substitutes the username for a missing
+    `sub`.
+- **No unique index on `sub`.** One account under two user ids (a username
+  rename) takes nothing from anyone, and a unique index would only lock that
+  person out.
+
+**Mode:** `APP_KEYCLOAK_SUB_PINNING`, one of `off | record | enforce`.
+
+| Where | Value | Why |
+|---|---|---|
+| code default, helm | `record` | |
+| dev/stg/prd overlays | `record` | |
+| compose | `off` | Every Keycloak container re-create re-imports the realm with new account ids. |
+
+Rollout:
+
+1. Run `record`. Check that login tokens carry `sub` (`basic` client scope).
+   Watch the log for `Keycloak sub mismatch`; each hit is a reused or
+   re-mapped id to clean up.
+2. Switch to `enforce`.
+3. Remember that a row's first login after the column exists becomes its
+   owner. Clean up departed employees' ids before or during `record`.
+
+**`sub` requires the `basic` client scope.** Keycloak 25+ emits `sub`
+only through that scope.
+
+- The repo realm's `litellm-portal` lacked it, and its tokens had no `sub`.
+  Both realm clients now list it.
+- Every app login client in production needs it too. The
+  token-exchange clients already put `sub` in the exchanged token.
+
+**Admin release.** `DELETE /api/admin/users/{user_id}/keycloak-sub` (super
+user) sets the pin to NULL; the next login pins whoever logs in.
+
+- When the id goes to a different person, first remove the previous owner's
+  keys, teams and personal grant.
+- After a realm rebuild that changes every `sub` (a new Keycloak, re-imported
+  users), release all pins at once:
+
+  ```sql
+  UPDATE custom_users SET keycloak_sub = NULL;
+  ```
+
+- The admin user detail (`GET /api/admin/users/{id}`) now returns
+  `keycloak_sub`. There is no UI button yet.
+
 ## Revocation and lifetimes
 
 - Disabling a user in Keycloak does not kill tokens already issued. Each
@@ -230,7 +307,10 @@ such a token.
      portal stack itself does not need them.
 3. Production realm lifespan: `accessTokenLifespan` is 1800 s in the repo
    realm; ~300 s is recommended.
-4. Out of scope, still open:
+4. Turn `APP_KEYCLOAK_SUB_PINNING` to `enforce` per environment after a
+   clean `record` period (see "Keycloak account pinning"). Optional: an admin
+   UI button for the release endpoint.
+5. Out of scope, still open:
    - CORS: not planned, by design.
    - Per-app SSO keys keyed by `azp`. Today one user shares one SSO key
      across apps, so per-app spend is not separable.
@@ -276,3 +356,16 @@ Token-exchange E2E (Keycloak 26.3.3, realm imported from the repo, backend
 | 11 | exchanged token, beta team (non-member) | 403 "해당 팀의 멤버가 아닙니다." |
 | 12 | exchanged token, bad signature | 401 |
 | 13 | exchanged token, `stream: true` | SSE chunks relayed |
+
+Sub pinning E2E (2026-10-28, migration `051_user_keycloak_sub` applied on
+start, backend `APP_KEYCLOAK_SUB_PINNING=enforce`, realm with `basic`):
+
+| # | Request | Result |
+|---|---|---|
+| 1 | portal token | carries `sub` = Keycloak user id |
+| 2–4 | user001 `/api/me`, then gateway via exchange | 200, 200; `USER001` pinned to that `sub` |
+| 5 | delete user001 in Keycloak, create a new user001 (new `sub`) | — |
+| 6 | new person `/api/me` | **403** "계정 확인이 필요합니다…" |
+| 7 | new person → gateway (exchanged) | **401**; pin unchanged; two `sub mismatch … rejected` errors (azp `litellm-portal`, `litellm-portal-gw`) |
+| 9 | admin001 `DELETE /api/admin/users/USER001/keycloak-sub` | 200 `unpinned`; the same call as a regular user → 403 |
+| 10–12 | new person `/api/me`, gateway | 200, 200; `USER001` now pinned to the new `sub` |

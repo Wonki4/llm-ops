@@ -8,7 +8,7 @@ from app.auth.jwt import TokenPayload, verify_token
 from app.auth.session import SessionData, refresh_session_if_needed
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
-from app.services.user_provisioning import upsert_portal_user
+from app.services.user_provisioning import IdentityMismatchError, upsert_portal_user
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -40,7 +40,13 @@ async def get_current_user(
     token: TokenPayload = Depends(get_current_token),
     db: AsyncSession = Depends(get_db),
 ) -> CustomUser:
-    return await upsert_portal_user(db, token)
+    try:
+        return await upsert_portal_user(db, token)
+    except IdentityMismatchError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="계정 확인이 필요합니다. 관리자에게 문의하세요.",
+        ) from e
 
 
 def require_super_user(user: CustomUser = Depends(get_current_user)) -> CustomUser:

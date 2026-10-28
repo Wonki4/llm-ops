@@ -29,7 +29,7 @@ async def _get_jwks() -> dict:
 
 @dataclass
 class TokenPayload:
-    sub: str  # Keycloak subject (unique user ID)
+    sub: str | None  # Keycloak subject (immutable account id); None when the token has no `sub`
     preferred_username: str  # 사번
     email: str | None = None
     name: str | None = None
@@ -64,12 +64,11 @@ async def verify_token(token: str, audience: str | None = None) -> TokenPayload:
     if not subject and not preferred_username:
         raise ValueError("Invalid token: missing both 'sub' and 'preferred_username' claims")
 
-    if not subject:
-        subject = preferred_username
+    # Keycloak >= 25 only emits `sub` through the `basic` client scope. Leave it
+    # None rather than borrowing the username: sub pinning must see the truth.
     if not preferred_username:
         preferred_username = subject
 
-    assert subject is not None
     assert preferred_username is not None
 
     # Extract roles from realm_access and resource_access

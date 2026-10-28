@@ -58,6 +58,8 @@ spec:
               value: {{ index .Values.backend.env "APP_GATEWAY_SSO_ENABLED" | default "false" | quote }}
             - name: APP_GATEWAY_TOKEN_AUDIENCE
               value: {{ index .Values.backend.env "APP_GATEWAY_TOKEN_AUDIENCE" | default "litellm-gateway" | quote }}
+            - name: APP_KEYCLOAK_SUB_PINNING
+              value: {{ index .Values.backend.env "APP_KEYCLOAK_SUB_PINNING" | default "record" | quote }}
             - name: APP_SESSION_SECRET_KEY
               value: {{ index .Values.backend.env "APP_SESSION_SECRET_KEY" | quote }}
             - name: APP_FRONTEND_URL

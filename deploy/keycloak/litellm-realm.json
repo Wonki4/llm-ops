@@ -59,6 +59,7 @@
       "fullScopeAllowed": true,
       "defaultClientScopes": [
         "openid",
+        "basic",
         "profile",
         "email",
         "roles"
@@ -129,6 +130,7 @@
         "standard.token.exchange.enabled": "true"
       },
       "defaultClientScopes": [
+        "basic",
         "profile",
         "email"
       ],

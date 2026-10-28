@@ -49,6 +49,8 @@ backend:
     # Inference gateway Keycloak SSO (the gateway itself is deployed separately)
     APP_GATEWAY_SSO_ENABLED: "false"
     APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
+    # Pin user ids to their Keycloak account (off | record | enforce); enforce once tokens carry `sub`
+    APP_KEYCLOAK_SUB_PINNING: "record"
     APP_SESSION_SECRET_KEY: "change-me-in-production-must-be-32-bytes"
     APP_FRONTEND_URL: ""
     APP_CORS_ORIGINS: '["http://localhost:3002"]'
