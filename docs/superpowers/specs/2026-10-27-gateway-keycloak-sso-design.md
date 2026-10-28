@@ -357,7 +357,7 @@ Token-exchange E2E (Keycloak 26.3.3, realm imported from the repo, backend
 | 12 | exchanged token, bad signature | 401 |
 | 13 | exchanged token, `stream: true` | SSE chunks relayed |
 
-Sub pinning E2E (2026-10-28, migration `051_user_keycloak_sub` applied on
+Sub pinning E2E (2026-10-28, migration `054_user_keycloak_sub` applied on
 start, backend `APP_KEYCLOAK_SUB_PINNING=enforce`, realm with `basic`):
 
 | # | Request | Result |

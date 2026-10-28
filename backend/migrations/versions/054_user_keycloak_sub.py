@@ -5,15 +5,15 @@ custom_users:
                 this user id (사번). NULL until the next login records it; an
                 admin resets it to NULL to hand the id to another account.
 
-Revision ID: 051_user_keycloak_sub
-Revises: 050_pd_serving
+Revision ID: 054_user_keycloak_sub
+Revises: 053_litellm_model_name
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "051_user_keycloak_sub"
-down_revision = "050_pd_serving"
+revision = "054_user_keycloak_sub"
+down_revision = "053_litellm_model_name"
 branch_labels = None
 depends_on = None
 
