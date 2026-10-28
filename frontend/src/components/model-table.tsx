@@ -4,6 +4,7 @@ import { Copy, Check } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useLocaleTag } from "@/lib/locale";
+import { copyText } from "@/lib/clipboard";
 import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
@@ -106,13 +107,10 @@ export function ModelTable({
   const [copiedName, setCopiedName] = useState<string | null>(null);
 
   async function copyName(value: string) {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedName(value);
-      setTimeout(() => setCopiedName((c) => (c === value ? null : c)), 1500);
-    } catch {
-      // clipboard unavailable — no-op
-    }
+    // copyText falls back to execCommand on plain HTTP, where navigator.clipboard is undefined.
+    if (!(await copyText(value))) return;
+    setCopiedName(value);
+    setTimeout(() => setCopiedName((c) => (c === value ? null : c)), 1500);
   }
 
   return (

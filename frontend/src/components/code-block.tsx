@@ -3,13 +3,15 @@
 import { useState } from "react";
 import { Check, Copy } from "lucide-react";
 
+import { copyText } from "@/lib/clipboard";
+
 /** Copyable code snippet for the guide page: bordered <pre> with a
  *  copy-to-clipboard button (icon flips to a check for a moment). */
 export function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
-    await navigator.clipboard.writeText(code);
+    if (!(await copyText(code))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
