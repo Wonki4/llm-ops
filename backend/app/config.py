@@ -51,6 +51,13 @@ class Settings(BaseSettings):
 
     external_api_key: str = ""
 
+    # ── Inference gateway Keycloak SSO ──────────────────────────
+    # Web apps forward a user's Keycloak access token to the gateway, which
+    # asks /api/external/token-auth to swap it for that user's SSO key.
+    gateway_sso_enabled: bool = False
+    gateway_token_audience: str = "litellm-gateway"  # `aud` the forwarded token must carry
+    gateway_allowed_azp: list[str] = []  # Keycloak clients allowed to forward tokens; empty = any
+
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
     k8s_default_namespace: str = "default"

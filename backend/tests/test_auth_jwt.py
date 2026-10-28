@@ -56,3 +56,25 @@ async def test_verify_token_wraps_jwt_errors(monkeypatch: pytest.MonkeyPatch):
 
     with pytest.raises(ValueError, match="Invalid token: bad token"):
         await jwt_module.verify_token("dummy")
+
+
+@pytest.mark.asyncio
+async def test_verify_token_audience_defaults_to_portal_and_can_be_overridden(monkeypatch: pytest.MonkeyPatch):
+    async def fake_get_jwks() -> dict:
+        return {"keys": []}
+
+    seen: list[str] = []
+
+    def fake_decode(*args, **kwargs):
+        seen.append(kwargs["audience"])
+        return {"sub": "s", "preferred_username": "u", "exp": 123, "azp": "chat-app"}
+
+    monkeypatch.setattr(jwt_module, "_get_jwks", fake_get_jwks)
+    monkeypatch.setattr(jwt_module.jwt, "decode", fake_decode)
+    monkeypatch.setattr(jwt_module.settings, "jwt_audience", "litellm-portal")
+
+    await jwt_module.verify_token("dummy")
+    token = await jwt_module.verify_token("dummy", audience="litellm-gateway")
+
+    assert seen == ["litellm-portal", "litellm-gateway"]
+    assert token.exp == 123 and token.azp == "chat-app"

@@ -46,6 +46,9 @@ backend:
     APP_KEYCLOAK_IDP_HINT: ""
     APP_KEYCLOAK_SSL_VERIFY: ""
     APP_JWT_AUDIENCE: "litellm-portal"
+    # Inference gateway Keycloak SSO (the gateway itself is deployed separately)
+    APP_GATEWAY_SSO_ENABLED: "false"
+    APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
     APP_SESSION_SECRET_KEY: "change-me-in-production-must-be-32-bytes"
     APP_FRONTEND_URL: ""
     APP_CORS_ORIGINS: '["http://localhost:3002"]'
@@ -123,7 +126,7 @@ keycloak:
   enabled: true
   image:
     repository: quay.io/keycloak/keycloak
-    tag: "26.0"
+    tag: "26.3.3"
     pullPolicy: IfNotPresent
   service:
     type: ClusterIP
