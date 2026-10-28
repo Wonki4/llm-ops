@@ -16,6 +16,9 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Pods bound to a node and still holding resources (LIST pods field selector).
+_ACTIVE_SCHEDULED_PODS = "spec.nodeName!=,status.phase!=Succeeded,status.phase!=Failed"
+
 
 class K8sNotConfigured(RuntimeError):
     """Raised when the portal has no kubeconfig wired up."""
@@ -225,12 +228,16 @@ class K8sClient:
         Read-only (one LIST nodes + one LIST pods). Used by the GPU profile
         discovery endpoint; a node without the label reports ``label_value``
         None so the admin can see what is still unlabelled.
+
+        The pod LIST is filtered server-side to scheduled, non-terminal pods, so
+        finished Job pods (benchmarks etc.) don't bloat the response; the same
+        conditions are re-checked below.
         """
         api_client = await self._api_client()
         try:
             core = client.CoreV1Api(api_client)
             nodes = (await core.list_node()).items
-            pods = (await core.list_pod_for_all_namespaces()).items
+            pods = (await core.list_pod_for_all_namespaces(field_selector=_ACTIVE_SCHEDULED_PODS)).items
             requested: dict[str, dict[str, int]] = {}
             for pod in pods:
                 node_name = pod.spec.node_name
