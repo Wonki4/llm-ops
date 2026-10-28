@@ -114,6 +114,9 @@ services:
       APP_GATEWAY_SSO_ENABLED: "${APP_GATEWAY_SSO_ENABLED:-true}"
       APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
       APP_GATEWAY_ALLOWED_AZP: '${APP_GATEWAY_ALLOWED_AZP:-["litellm-portal-gw"]}'
+      # Every Keycloak re-create re-imports the realm with new account ids (sub),
+      # so local pinning is off; set record/enforce to try it.
+      APP_KEYCLOAK_SUB_PINNING: "${APP_KEYCLOAK_SUB_PINNING:-off}"
     env_file:
       - .env
     volumes:

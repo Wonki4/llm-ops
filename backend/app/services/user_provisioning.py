@@ -9,9 +9,10 @@ the default teams.
 import json
 import logging
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.auth.jwt import TokenPayload
 from app.config import settings
@@ -33,9 +34,22 @@ def _is_super(token: TokenPayload) -> bool:
     )
 
 
+class IdentityMismatchError(Exception):
+    """The token's Keycloak account is not the one pinned to this portal user id."""
+
+    def __init__(self, user_id: str):
+        super().__init__(user_id)
+        self.user_id = user_id
+
+
 async def upsert_portal_user(db: AsyncSession, token: TokenPayload) -> CustomUser:
-    """Return the portal user for ``token``, creating it and syncing the role."""
+    """Return the portal user for ``token``, creating it and syncing the role.
+
+    Raises ``IdentityMismatchError`` when sub pinning is enforced and the
+    token's Keycloak account is not the one pinned to this user id.
+    """
     uid = canonical_user_id(token)
+    pinning = settings.keycloak_sub_pinning
     result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
     user = result.scalar_one_or_none()
     is_super = _is_super(token)
@@ -46,19 +60,58 @@ async def upsert_portal_user(db: AsyncSession, token: TokenPayload) -> CustomUse
             email=token.email,
             display_name=token.name,
             global_role=GlobalRole.SUPER_USER if is_super else GlobalRole.USER,
+            keycloak_sub=token.sub if pinning != "off" else None,
         ).on_conflict_do_nothing(index_elements=["user_id"])
         await db.execute(stmt)
         await db.flush()
 
-        # Re-fetch to get the ORM object
+        # Re-fetch to get the ORM object (a concurrent first login may have won the insert)
         result = await db.execute(select(CustomUser).where(CustomUser.user_id == uid))
-        return result.scalar_one()
+        user = result.scalar_one()
+
+    if pinning != "off":
+        await _check_sub_pin(db, user, token, enforce=pinning == "enforce")
 
     new_role = GlobalRole.SUPER_USER if is_super else user.global_role
     if user.global_role != new_role:
         user.global_role = new_role
         await db.flush()
     return user
+
+
+async def _check_sub_pin(db: AsyncSession, user: CustomUser, token: TokenPayload, *, enforce: bool) -> None:
+    """Pin ``user`` to ``token.sub`` on first sight, then require it to match."""
+    if not token.sub:
+        if enforce:
+            logger.error("Token for %s has no 'sub' (missing `basic` client scope?); rejected", user.user_id)
+            raise IdentityMismatchError(user.user_id)
+        return
+
+    if user.keycloak_sub is None:
+        # Atomic first claim: of two concurrent first logins only one pins.
+        claimed = await db.execute(
+            update(CustomUser)
+            .where(CustomUser.user_id == user.user_id, CustomUser.keycloak_sub.is_(None))
+            .values(keycloak_sub=token.sub)
+            .execution_options(synchronize_session=False)
+        )
+        if claimed.rowcount:
+            set_committed_value(user, "keycloak_sub", token.sub)
+            logger.info("Pinned user %s to Keycloak sub %s", user.user_id, token.sub)
+            return
+        await db.refresh(user, ["keycloak_sub"])
+
+    if user.keycloak_sub != token.sub:
+        logger.error(
+            "Keycloak sub mismatch for user %s: pinned=%s token=%s (azp=%s)%s",
+            user.user_id,
+            user.keycloak_sub,
+            token.sub,
+            token.azp,
+            "; rejected" if enforce else "",
+        )
+        if enforce:
+            raise IdentityMismatchError(user.user_id)
 
 
 async def resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:

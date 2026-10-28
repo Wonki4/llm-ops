@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings
 
 
@@ -57,6 +59,12 @@ class Settings(BaseSettings):
     gateway_sso_enabled: bool = False
     gateway_token_audience: str = "litellm-gateway"  # `aud` the forwarded token must carry
     gateway_allowed_azp: list[str] = []  # token-exchange clients (<app>-gw) allowed; required when enabled
+
+    # Pin each portal user id (사번) to the Keycloak account (`sub`) first seen
+    # for it, so a reused or re-mapped username cannot inherit another person's
+    # role, keys and grants. off: ignore; record: store the sub and log
+    # mismatches; enforce: also reject mismatches and tokens without `sub`.
+    keycloak_sub_pinning: Literal["off", "record", "enforce"] = "record"
 
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features

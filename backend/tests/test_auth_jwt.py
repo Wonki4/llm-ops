@@ -5,7 +5,9 @@ from app.auth import jwt as jwt_module
 
 
 @pytest.mark.asyncio
-async def test_verify_token_uses_preferred_username_when_sub_missing(monkeypatch: pytest.MonkeyPatch):
+async def test_verify_token_leaves_sub_empty_when_missing(monkeypatch: pytest.MonkeyPatch):
+    # Keycloak >= 25 drops `sub` when the client lacks the `basic` scope; the
+    # username must not stand in for it (sub pinning compares real account ids).
     async def fake_get_jwks() -> dict:
         return {"keys": []}
 
@@ -22,7 +24,7 @@ async def test_verify_token_uses_preferred_username_when_sub_missing(monkeypatch
 
     token = await jwt_module.verify_token("dummy")
 
-    assert token.sub == "user001"
+    assert token.sub is None
     assert token.preferred_username == "user001"
     assert token.email == "user001@example.com"
     assert token.realm_roles == ["user"]

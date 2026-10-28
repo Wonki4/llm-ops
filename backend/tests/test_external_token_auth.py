@@ -14,6 +14,7 @@ from app.config import settings
 from app.db.session import get_db, get_litellm_db
 from app.main import app
 from app.services.portal_keys import KEY_JWT_SECRET, generate_sk_jwt
+from app.services.user_provisioning import IdentityMismatchError
 
 API_KEY = "test-external-key"
 HEADERS = {"X-Api-Key": API_KEY}
@@ -155,6 +156,15 @@ async def test_empty_allowlist_fails_closed(sso, monkeypatch, litellm_client):
         resp = await client.post("/api/external/token-auth", json={"token": "t"}, headers=HEADERS)
     assert resp.status_code == 503
     assert sso["verify_calls"] == []
+    litellm_client.generate_key.assert_not_awaited()
+
+
+async def test_pinned_account_mismatch_is_uniform_401(sso, monkeypatch, litellm_client):
+    monkeypatch.setattr(external, "upsert_portal_user", AsyncMock(side_effect=IdentityMismatchError("USER001")))
+    async with sso["wire"](FakeDBs()) as client:
+        resp = await client.post("/api/external/token-auth", json={"token": "t"}, headers=HEADERS)
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "Invalid token"
     litellm_client.generate_key.assert_not_awaited()
 
 
