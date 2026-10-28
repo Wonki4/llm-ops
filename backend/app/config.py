@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # asks /api/external/token-auth to swap it for that user's SSO key.
     gateway_sso_enabled: bool = False
     gateway_token_audience: str = "litellm-gateway"  # `aud` the forwarded token must carry
-    gateway_allowed_azp: list[str] = []  # Keycloak clients allowed to forward tokens; empty = any
+    gateway_allowed_azp: list[str] = []  # token-exchange clients (<app>-gw) allowed; required when enabled
 
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features

@@ -190,7 +190,8 @@ App guidance:
   - Before forwarding, the gateway removes the incoming credential headers and `x-team-id`. The Keycloak token never reaches LiteLLM.
 - **Backend** (`POST /api/external/token-auth`, `X-Api-Key` = `APP_EXTERNAL_API_KEY`):
   - Returns 404 when `APP_GATEWAY_SSO_ENABLED=false`.
-  - Verification: signature, `iss`, `aud == APP_GATEWAY_TOKEN_AUDIENCE` (`litellm-gateway`), and `azp ∈ APP_GATEWAY_ALLOWED_AZP` when the list is non-empty. Every failure gets a uniform 401.
+  - Verification: signature, `iss`, `aud == APP_GATEWAY_TOKEN_AUDIENCE` (`litellm-gateway`), and `azp ∈ APP_GATEWAY_ALLOWED_AZP`. Every failure gets a uniform 401.
+  - The allowlist is required: SSO enabled with an empty `APP_GATEWAY_ALLOWED_AZP` fails closed (503, logged as an error; the gateway answers 503 "Authentication service unavailable").
   - `user_id` is `preferred_username.upper()`, the same canonical id the portal uses.
   - First-time users are upserted and auto-provisioned, as on portal login.
   - Personal calls require the beta switch plus a personal grant (`require_personal_access`). Team calls require a `LiteLLM_TeamMembership` row.
@@ -217,11 +218,9 @@ such a token.
 
 ## Remaining work
 
-1. Set `APP_GATEWAY_ALLOWED_AZP` in each overlay when the first app is
-   onboarded.
-   - It is `[]` in dev/stg/prd today, which means any `azp`. Only exchange
-     clients can obtain `aud=litellm-gateway`, but the allowlist is the
-     second lock.
+1. Set `APP_GATEWAY_ALLOWED_AZP` in each overlay before turning SSO on there.
+   - It is `[]` in dev/stg/prd today, where SSO is off. With SSO on and an
+     empty list, token-auth fails closed (503).
    - Compose sets `["litellm-portal-gw"]`.
    - The helm chart does not template it yet.
 2. Production secrets:
