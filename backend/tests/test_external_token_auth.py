@@ -89,7 +89,7 @@ def sso(monkeypatch, litellm_client):
     """Enable SSO, stub token verification + provisioning, wire fake DBs."""
     monkeypatch.setattr(settings, "external_api_key", API_KEY)
     monkeypatch.setattr(settings, "gateway_sso_enabled", True)
-    monkeypatch.setattr(settings, "gateway_allowed_azp", [])
+    monkeypatch.setattr(settings, "gateway_allowed_azp", ["webapp"])
 
     state = {"token": _token(), "verify_error": None, "verify_calls": []}
 
@@ -146,6 +146,15 @@ async def test_invalid_token_is_401_and_verified_against_gateway_audience(sso, m
     assert resp.status_code == 401
     assert resp.json()["detail"] == "Invalid token"  # uniform: never echo why
     assert sso["verify_calls"] == [("kc-token", "litellm-gateway")]
+    litellm_client.generate_key.assert_not_awaited()
+
+
+async def test_empty_allowlist_fails_closed(sso, monkeypatch, litellm_client):
+    monkeypatch.setattr(settings, "gateway_allowed_azp", [])
+    async with sso["wire"](FakeDBs()) as client:
+        resp = await client.post("/api/external/token-auth", json={"token": "t"}, headers=HEADERS)
+    assert resp.status_code == 503
+    assert sso["verify_calls"] == []
     litellm_client.generate_key.assert_not_awaited()
 
 

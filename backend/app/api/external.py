@@ -264,19 +264,23 @@ async def token_auth(
     """Swap a user's Keycloak access token for their gateway SSO key.
 
     Called by the inference gateway when a web app forwards the user's token.
-    The token must be valid for ``settings.gateway_token_audience`` (and, when
-    configured, issued to an allowed client). Token problems are a uniform 401;
-    missing personal access or team membership is a 403 with a reason.
+    The token must be valid for ``settings.gateway_token_audience`` and issued
+    to an allowed client (``gateway_allowed_azp``). Token problems are a uniform
+    401; missing personal access or team membership is a 403 with a reason.
     """
     if not settings.gateway_sso_enabled:
         raise HTTPException(status_code=404, detail="Gateway SSO is disabled")
+    if not settings.gateway_allowed_azp:
+        # Fail closed: an empty allowlist would accept any client able to get aud=litellm-gateway.
+        logger.error("Gateway SSO is enabled but APP_GATEWAY_ALLOWED_AZP is empty")
+        raise HTTPException(status_code=503, detail="Gateway SSO is not configured")
 
     try:
         token = await verify_token(body.token, audience=settings.gateway_token_audience)
     except ValueError as e:
         logger.warning("Gateway SSO token rejected: %s", e)
         raise HTTPException(status_code=401, detail="Invalid token") from e
-    if settings.gateway_allowed_azp and token.azp not in settings.gateway_allowed_azp:
+    if token.azp not in settings.gateway_allowed_azp:
         logger.warning("Gateway SSO token from disallowed client azp=%s", token.azp)
         raise HTTPException(status_code=401, detail="Invalid token")
 
