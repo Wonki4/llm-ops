@@ -16,7 +16,12 @@ from app.config import settings
 from app.db.models import CustomTrustedSystem
 from app.db.session import get_db, get_litellm_db
 from app.services.sso_keys import get_or_issue_sso_key
-from app.services.user_provisioning import auto_provision_user, canonical_user_id, upsert_portal_user
+from app.services.user_provisioning import (
+    IdentityMismatchError,
+    auto_provision_user,
+    canonical_user_id,
+    upsert_portal_user,
+)
 
 
 def hash_system_secret(secret: str) -> str:
@@ -289,7 +294,10 @@ async def token_auth(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     # A user may reach the gateway before ever opening the portal.
-    await upsert_portal_user(db, token)
+    try:
+        await upsert_portal_user(db, token)
+    except IdentityMismatchError as e:
+        raise HTTPException(status_code=401, detail="Invalid token") from e  # uniform, as for any token problem
     await auto_provision_user(db, litellm_db, user_id, token.email or "")
 
     team_id = (body.team_id or "").strip() or None

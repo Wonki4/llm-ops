@@ -61,6 +61,9 @@ configMapGenerator:
       - APP_GATEWAY_TOKEN_AUDIENCE=litellm-gateway
       # token-exchange clients (<app>-gw), e.g. ["chat-app-gw"]; required once SSO is enabled
       - APP_GATEWAY_ALLOWED_AZP=[]
+      # Pin user ids (사번) to their Keycloak account: record first, enforce once
+      # login tokens carry `sub` (`basic` client scope) and no mismatches are logged
+      - APP_KEYCLOAK_SUB_PINNING=record
       - APP_FRONTEND_URL=https://portal-dev.example.com
       - APP_CORS_ORIGINS=["https://portal-dev.example.com"]
       - APP_SLACK_WEBHOOK_URL=

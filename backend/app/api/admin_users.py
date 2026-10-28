@@ -1,5 +1,6 @@
 """Admin user management endpoints (Super User only)."""
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -19,6 +20,8 @@ from app.services.personal_access import (
     validate_selection,
 )
 from app.services.team_membership import remove_member_from_team
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/users", tags=["admin-users"])
 
@@ -141,7 +144,7 @@ async def get_user_detail(
     """Get detailed info for a user: profile, keys, teams."""
     user_result = await db.execute(
         text(
-            "SELECT user_id, email, display_name, global_role, litellm_user_id, created_at, updated_at "
+            "SELECT user_id, email, display_name, global_role, litellm_user_id, keycloak_sub, created_at, updated_at "
             "FROM custom_users WHERE user_id = :uid"
         ),
         {"uid": user_id},
@@ -244,6 +247,7 @@ async def get_user_detail(
             "display_name": user_row["display_name"],
             "global_role": role_value,
             "litellm_user_id": user_row["litellm_user_id"],
+            "keycloak_sub": user_row["keycloak_sub"],
             "created_at": user_row["created_at"].isoformat() if user_row["created_at"] else None,
             "updated_at": user_row["updated_at"].isoformat() if user_row["updated_at"] else None,
             "spend": float(litellm_user["spend"] or 0) if litellm_user else 0.0,
@@ -426,6 +430,28 @@ async def remove_user_from_team(
 
     await remove_member_from_team(litellm, litellm_db, db, team_id=team_id, user_id=user_id)
     return {"status": "removed", "user_id": user_id, "team_id": team_id}
+
+
+@router.delete("/{user_id}/keycloak-sub")
+async def unpin_keycloak_account(
+    user_id: str,
+    admin: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Release the user id from its pinned Keycloak account (super user only).
+
+    The next login pins it to whichever account logs in. When the id (사번) is
+    being reused for another person, clean up the previous owner's keys, teams
+    and personal grant first.
+    """
+    result = await db.execute(
+        text("UPDATE custom_users SET keycloak_sub = NULL WHERE user_id = :uid RETURNING 1"),
+        {"uid": user_id},
+    )
+    if result.first() is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    logger.warning("Keycloak account pin cleared for %s by %s", user_id, admin.user_id)
+    return {"status": "unpinned", "user_id": user_id}
 
 
 class AssignTeamRequest(BaseModel):

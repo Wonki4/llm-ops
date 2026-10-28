@@ -31,6 +31,8 @@ class CustomUser(CustomBase):
         server_default="user",
     )
     litellm_user_id: Mapped[str | None] = mapped_column(String(256), nullable=True)  # LiteLLM user_id if different
+    # Keycloak account (`sub`) pinned to this user id; see settings.keycloak_sub_pinning
+    keycloak_sub: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     locale: Mapped[str] = mapped_column(String(8), default="ko", server_default="ko")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
