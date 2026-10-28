@@ -88,6 +88,16 @@
           }
         },
         {
+          "name": "exchange-audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "litellm-portal-gw",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        },
+        {
           "name": "client-roles-mapper",
           "protocol": "openid-connect",
           "protocolMapper": "oidc-usermodel-client-role-mapper",
@@ -99,6 +109,38 @@
             "id.token.claim": "true",
             "access.token.claim": "true",
             "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "litellm-portal-gw",
+      "name": "LLM Ops gateway token exchange",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "change-me-portal-gw",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect",
+      "fullScopeAllowed": false,
+      "attributes": {
+        "standard.token.exchange.enabled": "true"
+      },
+      "defaultClientScopes": [
+        "profile",
+        "email"
+      ],
+      "protocolMappers": [
+        {
+          "name": "gateway-audience-mapper",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "litellm-gateway",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
           }
         }
       ]

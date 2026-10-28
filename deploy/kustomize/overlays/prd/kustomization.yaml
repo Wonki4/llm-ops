@@ -119,6 +119,12 @@ configMapGenerator:
       - APP_KEYCLOAK_IDP_HINT=
       - APP_KEYCLOAK_SSL_VERIFY=true
       - APP_JWT_AUDIENCE=litellm-portal
+      # Gateway Keycloak SSO (token -> user's SSO key). Turn on together with
+      # APP_KEYCLOAK_ISSUER in gateway-config below.
+      - APP_GATEWAY_SSO_ENABLED=false
+      - APP_GATEWAY_TOKEN_AUDIENCE=litellm-gateway
+      # token-exchange clients (<app>-gw) allowed to call the gateway, e.g. ["chat-app-gw"]
+      - APP_GATEWAY_ALLOWED_AZP=[]
       - APP_FRONTEND_URL=https://portal.example.com
       - APP_CORS_ORIGINS=["https://portal.example.com"]
       - APP_SLACK_WEBHOOK_URL=https://hooks.slack.com/services/CHANGE_ME
@@ -141,6 +147,9 @@ configMapGenerator:
       - APP_LITELLM_BASE_URL=http://llm-ops-prd.llm-ops-prd.svc:4000
       - APP_SSL_VERIFY_SETTING=
       - APP_BACKEND_BASE_URL=http://prd-backend:8000
+      # Gateway Keycloak SSO: empty = off. To enable set it to the realm issuer
+      # (https://sso.example.com/realms/litellm) and APP_GATEWAY_SSO_ENABLED=true on the backend.
+      - APP_KEYCLOAK_ISSUER=
 
 secretGenerator:
   - name: backend-secrets

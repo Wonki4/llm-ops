@@ -54,6 +54,10 @@ spec:
               value: {{ index .Values.backend.env "APP_KEYCLOAK_SSL_VERIFY" | quote }}
             - name: APP_JWT_AUDIENCE
               value: {{ index .Values.backend.env "APP_JWT_AUDIENCE" | quote }}
+            - name: APP_GATEWAY_SSO_ENABLED
+              value: {{ index .Values.backend.env "APP_GATEWAY_SSO_ENABLED" | default "false" | quote }}
+            - name: APP_GATEWAY_TOKEN_AUDIENCE
+              value: {{ index .Values.backend.env "APP_GATEWAY_TOKEN_AUDIENCE" | default "litellm-gateway" | quote }}
             - name: APP_SESSION_SECRET_KEY
               value: {{ index .Values.backend.env "APP_SESSION_SECRET_KEY" | quote }}
             - name: APP_FRONTEND_URL
