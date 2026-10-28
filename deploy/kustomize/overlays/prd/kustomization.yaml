@@ -123,7 +123,7 @@ configMapGenerator:
       # APP_KEYCLOAK_ISSUER in gateway-config below.
       - APP_GATEWAY_SSO_ENABLED=false
       - APP_GATEWAY_TOKEN_AUDIENCE=litellm-gateway
-      # token-exchange clients (<app>-gw) allowed to call the gateway, e.g. ["chat-app-gw"]
+      # token-exchange clients (<app>-gw), e.g. ["chat-app-gw"]; required once SSO is enabled
       - APP_GATEWAY_ALLOWED_AZP=[]
       - APP_FRONTEND_URL=https://portal.example.com
       - APP_CORS_ORIGINS=["https://portal.example.com"]
