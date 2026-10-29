@@ -29,12 +29,12 @@ _LAUNCH: dict[str, dict] = {
     "vllm": {
         "command": None,
         "model_flag": "--model",
-        "base_args": ["--port", str(SERVING_PORT)],
+        "base_args": [],
     },
     "sglang": {
         "command": ["python3", "-m", "sglang.launch_server"],
         "model_flag": "--model-path",
-        "base_args": ["--host", "0.0.0.0", "--port", str(SERVING_PORT)],
+        "base_args": ["--host", "0.0.0.0"],
     },
 }
 
@@ -61,7 +61,42 @@ def validate_engine_args(args: dict | None) -> dict | None:
             raise ValueError(f"engine_args key {key!r} must match {_ARG_KEY.pattern} (no leading dashes)")
         if not isinstance(value, (str, int, float, bool)):
             raise ValueError(f"engine_args[{key!r}] must be a string, number or boolean")
+    if (args or {}).get("port") not in (None, False, ""):
+        parse_port(args["port"])
     return args
+
+
+def split_port(flags: list[str]) -> tuple[list[str], str | None]:
+    """``flags`` without any ``--port`` (``--port=N`` or ``--port N``), and the last value given."""
+    rest: list[str] = []
+    port: str | None = None
+    i = 0
+    while i < len(flags):
+        a = flags[i]
+        if a.startswith("--port="):
+            port = a[len("--port=") :]
+        elif a == "--port":
+            port = flags[i + 1] if i + 1 < len(flags) else ""
+            i += 1
+        else:
+            rest.append(a)
+        i += 1
+    return rest, port
+
+
+def parse_port(value) -> int:
+    text = str(value).strip()
+    if not text.isdigit() or not 1 <= int(text) <= 65535:
+        raise ValueError(f"--port must be a number between 1 and 65535, got {value!r}")
+    return int(text)
+
+
+def validate_port_flag(extra_args: list[str] | None) -> list[str] | None:
+    """Raise ValueError when the extra args set an invalid ``--port``; else return them."""
+    _, port = split_port(list(extra_args or []))
+    if port is not None:
+        parse_port(port)
+    return extra_args
 
 
 def render_engine_args(args: dict | None) -> list[str]:
@@ -88,16 +123,32 @@ def engine_flags(dep) -> list[str]:
     return render_engine_args(getattr(dep, "engine_args", None)) + list(dep.vllm_extra_args or [])
 
 
+def serving_port(dep) -> int:
+    """The port the server listens on: a ``--port`` in the engine/extra args, else SERVING_PORT.
+
+    The container port, the probes and the Service's targetPort follow it.
+    """
+    _, port = split_port(engine_flags(dep))
+    return SERVING_PORT if port is None else parse_port(port)
+
+
 def container_launch(dep) -> tuple[list[str] | None, list[str]]:
-    """(command, args) for the serving container of a K8s Deployment."""
+    """(command, args) for the serving container of a K8s Deployment.
+
+    ``--port`` renders once, after the model, whether it is the default or the user's.
+    """
     spec = _LAUNCH[engine_of(dep)]
-    args = [spec["model_flag"], dep.model_path, *spec["base_args"], *engine_flags(dep)]
+    flags, _ = split_port(engine_flags(dep))
+    args = [spec["model_flag"], dep.model_path, *spec["base_args"], "--port", str(serving_port(dep)), *flags]
     return spec["command"], args
 
 
 def serve_argv(dep, port: int = SERVING_PORT) -> list[str]:
-    """Full argv that starts the server from a shell (self-serving bench jobs)."""
-    flags = engine_flags(dep)
+    """Full argv that starts the server from a shell (self-serving bench jobs).
+
+    ``port`` is where the bench client connects, so a ``--port`` in the args is dropped.
+    """
+    flags, _ = split_port(engine_flags(dep))
     if engine_of(dep) == "sglang":
         return [
             "python3", "-m", "sglang.launch_server", "--model-path", dep.model_path,

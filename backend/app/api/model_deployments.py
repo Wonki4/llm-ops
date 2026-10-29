@@ -37,7 +37,13 @@ from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
 from app.services.recipe_import import attach_storages, build_recipe_draft
-from app.services.serving_engines import DEFAULT_IMAGES, ServingEngine, default_image, validate_engine_args
+from app.services.serving_engines import (
+    DEFAULT_IMAGES,
+    ServingEngine,
+    default_image,
+    validate_engine_args,
+    validate_port_flag,
+)
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import pvc_access_warnings, recipe_warnings, reject_legacy_pvc
 from app.services.storage_mounts import all_entries, validate_entries
@@ -96,6 +102,11 @@ class CreateDeploymentRequest(BaseModel):
     pd_config: dict | None = None
     runtime: dict | None = None
     router_stack_id: str | None = None  # P/D: link this llm-d stack instead of auto-creating one
+
+    @field_validator("vllm_extra_args")
+    @classmethod
+    def _check_port_flag(cls, v: list[str] | None) -> list[str] | None:
+        return validate_port_flag(v)
 
     @field_validator("engine_args")
     @classmethod
@@ -188,6 +199,11 @@ class UpdateDeploymentRequest(BaseModel):
     @classmethod
     def _check_storages(cls, v):
         return None if v is None else validate_entries(v)
+
+    @field_validator("vllm_extra_args")
+    @classmethod
+    def _check_port_flag(cls, v: list[str] | None) -> list[str] | None:
+        return validate_port_flag(v)
 
     @field_validator("engine_args")
     @classmethod

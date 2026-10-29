@@ -182,7 +182,9 @@ def test_sglang_launch_detected_from_command_not_image():
     assert d["engine"] == "sglang" and d["model_path"] == "Qwen/Qwen3-32B"
     assert d["engine_args"] == {"tp": 4}
     assert "host" not in (d["engine_args"] or {})
-    assert {"code": "port_changed", "detail": "30000 → 8000"} in out["warnings"]
+    # A non-default port is kept as an extra arg (the Service and probes follow it), not warned.
+    assert d["vllm_extra_args"] == ["--port=30000"]
+    assert "port_changed" not in _codes(out)
 
 
 def test_entrypoint_image_without_command_uses_image_name_for_engine():
@@ -288,6 +290,7 @@ def test_resources_extended_key_env_value_from_and_volumes():
                 "env_raw": [
                     {"name": "HF_HOME", "value": "/w/.cache"},
                     {"name": "HF_TOKEN", "valueFrom": {"secretKeyRef": {"name": "hf", "key": "token"}}},
+                    {"name": "POD_IP", "valueFrom": {"fieldRef": {"apiVersion": "v1", "fieldPath": "status.podIP"}}},
                     {"name": "EMPTY", "value": None},
                 ],
                 "volume_mounts": [
@@ -309,7 +312,7 @@ def test_resources_extended_key_env_value_from_and_volumes():
     d = out["draft"]
     assert (d["gpu_resource_key"], d["gpu_count"]) == ("amd.com/gpu", 4)
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("8", "16", "96Gi", "128Gi")
-    assert d["env"] == {"HF_HOME": "/w/.cache", "EMPTY": ""}
+    assert d["env"] == {"HF_HOME": "/w/.cache", "POD_IP": "fieldRef:status.podIP", "EMPTY": ""}
     assert d["pvc_mounts"] == [{"claim_name": "model-pvc", "mount_path": "/w", "read_only": False}]
     assert d["node_selector"] == {"kubernetes.io/arch": "amd64"}
     assert d["tolerations"] == [{"key": "gpu", "operator": "Exists"}]

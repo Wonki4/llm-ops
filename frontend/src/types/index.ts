@@ -1012,6 +1012,8 @@ export interface ProbeSpec {
   period_seconds?: number;
   timeout_seconds?: number;
   failure_threshold?: number;
+  /** Kubernetes only accepts 1 on liveness and startup probes. */
+  success_threshold?: number;
 }
 
 /** `liveness: null` = no liveness probe (default); `{}` = liveness on with defaults. */

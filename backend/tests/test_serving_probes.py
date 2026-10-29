@@ -37,6 +37,10 @@ def test_validate_none_and_empty():
     assert validate_probes({"readiness": None, "liveness": None}) is None
 
 
+def test_validate_allows_readiness_success_threshold_above_one():
+    assert validate_probes({"readiness": {"success_threshold": 2}}) == {"readiness": {"success_threshold": 2}}
+
+
 def test_validate_drops_unset_fields_and_keeps_liveness_opt_in():
     out = validate_probes({"readiness": {"initial_delay_seconds": 5, "path": None}, "liveness": {}})
     assert out == {"readiness": {"initial_delay_seconds": 5}, "liveness": {}}
@@ -51,6 +55,9 @@ def test_validate_drops_unset_fields_and_keeps_liveness_opt_in():
         {"liveness": {"timeout_seconds": 601}},
         {"readiness": {"failure_threshold": -1}},
         {"readiness": {"initial_delay_seconds": "soon"}},
+        {"readiness": {"success_threshold": 0}},
+        {"liveness": {"success_threshold": 2}},
+        {"startup": {"success_threshold": 2}},
     ],
 )
 def test_validate_rejects_bad_values(bad):
@@ -72,15 +79,16 @@ def test_effective_probes_defaults_and_merge():
 # ─── rendering ────────────────────────────────────────────────────────────────
 
 
-def test_render_default_matches_the_historical_hardcoded_probe():
+def test_render_default_readiness_probe():
     out = render_probes(_dep())
     assert out == {
         "readinessProbe": {
             "httpGet": {"path": "/health", "port": 8000},
-            "initialDelaySeconds": 60,
-            "periodSeconds": 10,
-            "timeoutSeconds": 5,
-            "failureThreshold": 30,
+            "initialDelaySeconds": 10,
+            "periodSeconds": 15,
+            "timeoutSeconds": 3,
+            "failureThreshold": 3,
+            "successThreshold": 1,
         }
     }
     assert "livenessProbe" not in out
@@ -93,20 +101,21 @@ def test_render_custom_readiness_and_liveness():
     out = render_probes(dep)
     assert out["readinessProbe"]["initialDelaySeconds"] == 5
     assert out["readinessProbe"]["periodSeconds"] == 5
-    assert out["readinessProbe"]["failureThreshold"] == 30  # untouched default
+    assert out["readinessProbe"]["failureThreshold"] == 3  # untouched default
     assert out["livenessProbe"] == {
         "httpGet": {"path": "/health", "port": 8000},
-        "initialDelaySeconds": 120,
-        "periodSeconds": 30,
-        "timeoutSeconds": 5,
+        "initialDelaySeconds": 10,
+        "periodSeconds": 15,
+        "timeoutSeconds": 3,
         "failureThreshold": 6,
+        "successThreshold": 1,
     }
 
 
 def test_rows_without_the_column_render_defaults():
     dep = _dep()
     del dep.probes
-    assert render_probes(dep)["readinessProbe"]["initialDelaySeconds"] == 60
+    assert render_probes(dep)["readinessProbe"]["initialDelaySeconds"] == 10
 
 
 def test_build_deployment_uses_row_probes_for_both_engines():
@@ -114,7 +123,7 @@ def test_build_deployment_uses_row_probes_for_both_engines():
         dep = _dep(engine=engine, probes={"liveness": {}})
         c = build_deployment(dep)["spec"]["template"]["spec"]["containers"][0]
         assert c["readinessProbe"]["httpGet"] == {"path": "/health", "port": 8000}
-        assert c["livenessProbe"]["initialDelaySeconds"] == 120
+        assert c["livenessProbe"]["initialDelaySeconds"] == 10
 
 
 # ─── import (reverse) ─────────────────────────────────────────────────────────
@@ -127,9 +136,16 @@ def test_probe_from_k8s_http_and_unsupported():
             "initialDelaySeconds": 7,
             "periodSeconds": 3,
             "failureThreshold": 2,
+            "successThreshold": 2,
         }
     )
-    assert spec == {"path": "/ready", "initial_delay_seconds": 7, "period_seconds": 3, "failure_threshold": 2}
+    assert spec == {
+        "path": "/ready",
+        "initial_delay_seconds": 7,
+        "period_seconds": 3,
+        "failure_threshold": 2,
+        "success_threshold": 2,
+    }
     assert warn is None
     assert probe_from_k8s({"exec": {"command": ["true"]}}) == (None, "probe_unsupported")
     assert probe_from_k8s(None) == (None, None)
@@ -156,10 +172,10 @@ def test_import_round_trips_probes_through_build_deployment():
     out = build_recipe_draft(spec)
     assert out["warnings"] == []
     assert out["draft"]["probes"] == {
-        "readiness": {"path": "/health", "initial_delay_seconds": 5, "period_seconds": 10, "timeout_seconds": 5,
-                      "failure_threshold": 30},
-        "liveness": {"path": "/live", "initial_delay_seconds": 120, "period_seconds": 30, "timeout_seconds": 5,
-                     "failure_threshold": 3},
+        "readiness": {"path": "/health", "initial_delay_seconds": 5, "period_seconds": 15, "timeout_seconds": 3,
+                      "failure_threshold": 3, "success_threshold": 1},
+        "liveness": {"path": "/live", "initial_delay_seconds": 10, "period_seconds": 15, "timeout_seconds": 3,
+                     "failure_threshold": 3, "success_threshold": 1},
     }
 
 
@@ -167,3 +183,16 @@ def test_import_without_probes_leaves_field_empty():
     spec = {"name": "x", "namespace": "ns", "labels": {}, "replicas": 1, "container": {"image": "img", "command": [],
             "args": ["--model", "/w/m"], "env": [], "resources": {}, "ports": []}, "volumes": []}
     assert build_recipe_draft(spec)["draft"]["probes"] is None
+
+
+# ─── env ──────────────────────────────────────────────────────────────────────
+
+
+def test_aggregated_env_renders_field_refs():
+    dep = _dep(env={"PYTHONHASHSEED": "0", "POD_IP": "fieldRef:status.podIP", "ODD": "fieldRef:"})
+    env = build_deployment(dep)["spec"]["template"]["spec"]["containers"][0]["env"]
+    assert env == [
+        {"name": "PYTHONHASHSEED", "value": "0"},
+        {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}},
+        {"name": "ODD", "value": "fieldRef:"},
+    ]

@@ -16,14 +16,16 @@ def test_engine_columns_exist_on_both_tables():
         assert cols["engine_args"].nullable is True
 
 
-from app.services.model_deployment_manifests import build_deployment
+from app.services.model_deployment_manifests import build_deployment, build_service
 from app.services.serving_engines import (
     container_launch,
     default_image,
     engine_of,
     render_engine_args,
     serve_argv,
+    serving_port,
     validate_engine_args,
+    validate_port_flag,
 )
 
 
@@ -152,3 +154,45 @@ def test_serving_snapshot_records_engine():
     assert snap["engine"] == "sglang"
     assert snap["engine_args"] == {"tp-size": 2}
     assert _serving_snapshot(_dep())["engine"] == "vllm"
+
+
+# ─── custom --port ────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("extra", [["--port=9000"], ["--port", "9000"], ["--port=7000", "--port=9000"]])
+def test_port_flag_moves_container_probes_and_service(extra):
+    dep = _dep(vllm_extra_args=["--max-num-seqs=8", *extra], probes={"liveness": {}})
+    assert serving_port(dep) == 9000
+    _, args = container_launch(dep)
+    assert args == ["--model", "/models/m", "--port", "9000", "--max-num-seqs=8"]
+    c = build_deployment(dep)["spec"]["template"]["spec"]["containers"][0]
+    assert c["ports"] == [{"containerPort": 9000, "name": "http"}]
+    assert c["readinessProbe"]["httpGet"]["port"] == 9000
+    assert c["livenessProbe"]["httpGet"]["port"] == 9000
+    assert build_service(dep)["spec"]["ports"][0] == {"name": "http", "port": 80, "targetPort": 9000, "protocol": "TCP"}
+
+
+def test_port_from_engine_args_and_sglang_keeps_host():
+    dep = _dep(engine="sglang", engine_args={"port": 30000})
+    assert serving_port(dep) == 30000
+    _, args = container_launch(dep)
+    assert args == ["--model-path", "/models/m", "--host", "0.0.0.0", "--port", "30000"]
+
+
+def test_default_port_without_flag():
+    dep = _dep()
+    assert serving_port(dep) == 8000
+    assert build_service(dep)["spec"]["ports"][0]["targetPort"] == 8000
+
+
+def test_serve_argv_drops_user_port_for_the_bench_port():
+    dep = _dep(vllm_extra_args=["--port=9000", "--max-num-seqs=8"])
+    assert serve_argv(dep, port=8000) == ["vllm", "serve", "/models/m", "--port", "8000", "--max-num-seqs=8"]
+
+
+@pytest.mark.parametrize("bad", [["--port=abc"], ["--port=0"], ["--port=70000"], ["--port"]])
+def test_invalid_port_flag_rejected(bad):
+    with pytest.raises(ValueError):
+        validate_port_flag(bad)
+    with pytest.raises(ValueError):
+        validate_engine_args({"port": bad[0].partition("=")[2] or "x"})

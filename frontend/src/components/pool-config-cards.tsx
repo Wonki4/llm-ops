@@ -164,7 +164,7 @@ export function PoolConfigCards({
           engine={engine} values={value.engine_args} idPrefix={id("arg")}
           onChange={(key, v) => onChange({ engine_args: withEngineArg(value.engine_args, key, v) })}
         />
-        <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : undefined}>
+        <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : t("extraArgsPortHint")}>
           <Area
             id={id("args")} value={argsText}
             placeholder={engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
@@ -204,7 +204,7 @@ export function PoolConfigCards({
         )}
       </CollapsibleSection>
 
-      <CollapsibleSection title={t("env")} summary={envCount ? t("summaryCount", { count: envCount }) : t("summaryNone")}>
+      <CollapsibleSection title={t("env")} summary={envCount ? t("summaryCount", { count: envCount }) : t("summaryNone")} hint={t("envHint")}>
         <Area
           id={id("env")} value={envText} placeholder={"HF_HOME=/models/.cache\nVLLM_LOGGING_LEVEL=INFO"}
           onChange={(v) => { setEnvText(v); onChange({ env: linesToMap(v) }); }}
@@ -253,19 +253,21 @@ export function PoolConfigCards({
 
 /** Mirrors backend serving_probes defaults; shown as placeholders so an empty field reads as "default". */
 export const READINESS_DEFAULTS: Required<ProbeSpec> = {
-  path: "/health", initial_delay_seconds: 60, period_seconds: 10, timeout_seconds: 5, failure_threshold: 30,
+  path: "/health", initial_delay_seconds: 10, period_seconds: 15, timeout_seconds: 3, failure_threshold: 3, success_threshold: 1,
 };
 export const LIVENESS_DEFAULTS: Required<ProbeSpec> = {
-  path: "/health", initial_delay_seconds: 120, period_seconds: 30, timeout_seconds: 5, failure_threshold: 3,
+  path: "/health", initial_delay_seconds: 10, period_seconds: 15, timeout_seconds: 3, failure_threshold: 3, success_threshold: 1,
 };
 /** The P/D default (STARTUP_DEFAULTS_PD); aggregated servings only get a startup probe when enabled. */
 export const STARTUP_DEFAULTS: Required<ProbeSpec> = {
-  path: "/health", initial_delay_seconds: 15, period_seconds: 30, timeout_seconds: 5, failure_threshold: 120,
+  path: "/health", initial_delay_seconds: 10, period_seconds: 15, timeout_seconds: 3, failure_threshold: 120, success_threshold: 1,
 };
-const PROBE_NUMERIC: (keyof ProbeSpec)[] = ["initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold"];
+const PROBE_NUMERIC: (keyof ProbeSpec)[] = [
+  "initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold", "success_threshold",
+];
 const PROBE_LABEL: Record<keyof ProbeSpec, string> = {
   path: "probePath", initial_delay_seconds: "probeInitialDelay", period_seconds: "probePeriod",
-  timeout_seconds: "probeTimeout", failure_threshold: "probeFailureThreshold",
+  timeout_seconds: "probeTimeout", failure_threshold: "probeFailureThreshold", success_threshold: "probeSuccessThreshold",
 };
 
 function ProbeFields({
@@ -284,7 +286,7 @@ function ProbeFields({
     <div className={ROW_GRID}>
       <div className="text-xs leading-4 text-muted-foreground sm:pt-6">{title}</div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-        <div className="col-span-2 space-y-0.5 sm:col-span-1">
+        <div className="col-span-full space-y-0.5">
           <Label htmlFor={id("path")} className="text-[11px] font-normal text-muted-foreground">{t("probePath")}</Label>
           <Input
             id={id("path")} className="font-mono" placeholder={defaults.path}
@@ -296,6 +298,7 @@ function ProbeFields({
             <Label htmlFor={id(k)} className="text-[11px] font-normal text-muted-foreground">{t(PROBE_LABEL[k])}</Label>
             <Input
               id={id(k)} type="number" min={k === "initial_delay_seconds" ? 0 : 1} step={1}
+              max={k === "success_threshold" && kind !== "readiness" ? 1 : undefined}
               placeholder={String(defaults[k])}
               value={spec?.[k] ?? ""} onChange={(e) => onChange(k, e.target.value)}
             />

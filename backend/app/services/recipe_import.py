@@ -20,7 +20,7 @@ import re
 import shlex
 from typing import Any
 
-from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT
+from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT, parse_port
 from app.services.serving_probes import probe_from_k8s
 
 # Program tokens that precede the engine's own flags. Anything here is dropped
@@ -33,8 +33,8 @@ _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _NUMBER = re.compile(r"^-?\d+(\.\d+)?([eE][-+]?\d+)?$")
 _INT = re.compile(r"^-?\d+$")
 
-# Flags the portal owns: it always rebinds the server to SERVING_PORT on all
-# interfaces, so these are stripped from the imported args.
+# Flags the portal renders itself: --host is stripped from the imported args;
+# a non-default --port comes back as an extra-args line (see build_recipe_draft).
 _PORTAL_FLAGS = {"port", "host"}
 
 # Standard (non-extended) compute resources. Any other limit key is treated as
@@ -266,8 +266,15 @@ def _env(container: dict, warnings: list[dict]) -> dict[str, str] | None:
         name = item.get("name")
         if not name:
             continue
-        if item.get("valueFrom") is not None:
-            indirect.append(name)
+        value_from = item.get("valueFrom") or item.get("value_from")
+        if value_from is not None:
+            # A pod field (e.g. status.podIP) has a form spelling; secrets/configmaps do not.
+            field_ref = value_from.get("fieldRef") or value_from.get("field_ref") or {}
+            field_path = field_ref.get("fieldPath") or field_ref.get("field_path")
+            if field_path:
+                env[name] = f"fieldRef:{field_path}"
+            else:
+                indirect.append(name)
             continue
         env[name] = "" if item.get("value") is None else str(item["value"])
     if container.get("envFrom") or container.get("env_from"):
@@ -323,10 +330,10 @@ def attach_storages(draft: dict, warnings: list[dict], claim_to_storage: dict[st
     draft["storages"] = storages
 
 
-def _probes(container: dict, warnings: list[dict]) -> dict | None:
+def _probes(container: dict, warnings: list[dict], port: int = SERVING_PORT) -> dict | None:
     out: dict = {}
     for kind in ("readiness", "liveness", "startup"):
-        spec, code = probe_from_k8s(container.get(f"{kind}_probe"))
+        spec, code = probe_from_k8s(container.get(f"{kind}_probe"), port)
         if code:
             _warn(warnings, code, kind)
         if spec is not None:
@@ -337,7 +344,7 @@ def _probes(container: dict, warnings: list[dict]) -> dict | None:
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 
-def _detect_pd(spec: dict, engine_args: dict, warnings: list[dict]) -> None:
+def _detect_pd(spec: dict, engine_args: dict, warnings: list[dict]) -> bool:
     """A prefill/decode pool imports as an aggregated draft of its vLLM base.
 
     ``--kv-transfer-config`` is portal-managed in P/D mode (it would be rejected
@@ -354,6 +361,8 @@ def _detect_pd(spec: dict, engine_args: dict, warnings: list[dict]) -> None:
             role = None
     if kv is not None or role:
         _warn(warnings, "pd_detected", f"{role or 'unknown'}" + (f" ({kv})" if kv is not None else ""))
+        return True
+    return False
 
 
 def build_recipe_draft(spec: dict) -> dict:
@@ -374,12 +383,19 @@ def build_recipe_draft(spec: dict) -> dict:
     model_path = _take_model_path(engine, engine_args, positional_model, warnings)
     if positionals:
         _warn(warnings, "positional_dropped", " ".join(positionals))
+    pd = _detect_pd(spec, engine_args, warnings)
     port = engine_args.pop("port", None)
+    serving_port = SERVING_PORT
     if port is not None and str(port) != str(SERVING_PORT):
-        _warn(warnings, "port_changed", f"{port} → {SERVING_PORT}")
+        try:
+            if pd:  # a P/D pool's port is P/D plumbing, not the aggregated server's
+                raise ValueError(port)
+            serving_port = parse_port(port)
+            extra.append(f"--port={serving_port}")  # the Service and probes follow it
+        except ValueError:
+            _warn(warnings, "port_changed", f"{port} → {SERVING_PORT}")
     for key in _PORTAL_FLAGS:
-        engine_args.pop(key, None)  # the portal always rebinds host/port itself
-    _detect_pd(spec, engine_args, warnings)
+        engine_args.pop(key, None)
 
     draft: dict[str, Any] = {
         "name": spec.get("name") or "",
@@ -394,7 +410,7 @@ def build_recipe_draft(spec: dict) -> dict:
     _resources(container, draft, warnings)
     draft["env"] = _env(container, warnings)
     _volumes(spec, container, draft, warnings)
-    draft["probes"] = _probes(container, warnings)
+    draft["probes"] = _probes(container, warnings, serving_port)
     draft["node_selector"] = dict(spec.get("node_selector") or {}) or None
     draft["tolerations"] = list(spec.get("tolerations") or []) or None
 
@@ -405,7 +421,7 @@ def build_recipe_draft(spec: dict) -> dict:
     if spec.get("affinity"):
         _warn(warnings, "affinity_dropped")
     ports = [p.get("containerPort") for p in (container.get("ports") or []) if p.get("containerPort")]
-    if ports and SERVING_PORT not in ports and port is None:
+    if ports and serving_port not in ports and port is None:
         _warn(warnings, "port_changed", f"{ports[0]} → {SERVING_PORT}")
     if not image:
         _warn(warnings, "image_missing")
