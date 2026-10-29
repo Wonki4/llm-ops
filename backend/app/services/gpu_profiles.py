@@ -21,13 +21,16 @@ from typing import Any
 DEFAULT_GPU_LABEL_KEY = "gpu-type"
 DEFAULT_GPU_RESOURCE_KEY = "nvidia.com/gpu"
 
-_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{0,63}$")
+# Kubernetes label-value characters (case-sensitive), so a node's GPU label
+# value — e.g. NVIDIA-A100-SXM4-80GB — can serve as the type name as-is; a
+# bare gpu_type on a cluster without profiles is used as that label value.
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 def validate_profile_name(name: str) -> str:
     name = (name or "").strip()
     if not _NAME.match(name):
-        raise ValueError("gpu_type must match ^[a-z0-9][a-z0-9.-]*$ (max 64 chars)")
+        raise ValueError("gpu_type must match ^[A-Za-z0-9][A-Za-z0-9._-]*$ (max 64 chars)")
     return name
 
 
