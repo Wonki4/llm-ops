@@ -41,6 +41,9 @@ export function PoolConfigCards({
   const [nsText, setNsText] = useState(() => mapToLines(value.node_selector));
   const [tolText, setTolText] = useState(() => tolerationsToLines(value.tolerations));
   const [extraResText, setExtraResText] = useState(() => mapToLines(value.runtime?.extra_resources ?? null));
+  const [extraPortsText, setExtraPortsText] = useState(() =>
+    Object.entries(value.runtime?.extra_ports ?? {}).map(([k, v]) => `${k}=${v}`).join("\n"),
+  );
   const runtime: RuntimeOptions = value.runtime ?? {};
 
   const text = (k: "image" | "model_path" | "gpu_resource_key") => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -61,7 +64,8 @@ export function PoolConfigCards({
   }
   function setRuntime(patch: Partial<RuntimeOptions>) {
     const next: RuntimeOptions = { ...runtime, ...patch };
-    const empty = !next.shm_size_gi && !next.host_ipc && !next.privileged && !Object.keys(next.extra_resources ?? {}).length;
+    const empty = !next.shm_size_gi && !next.host_ipc && !next.privileged
+      && !Object.keys(next.extra_resources ?? {}).length && !Object.keys(next.extra_ports ?? {}).length;
     onChange({ runtime: empty ? null : next });
   }
 
@@ -76,6 +80,7 @@ export function PoolConfigCards({
     runtime.host_ipc && "hostIPC",
     runtime.privileged && "privileged",
     ...Object.entries(runtime.extra_resources ?? {}).map(([k, v]) => `${k}=${v}`),
+    ...Object.entries(runtime.extra_ports ?? {}).map(([k, v]) => `${k}:${v}`),
   ].filter(Boolean).join(" · ");
   const placementSummary = [
     value.gpu_resource_key !== "nvidia.com/gpu" && value.gpu_resource_key,
@@ -226,6 +231,16 @@ export function PoolConfigCards({
           <Area
             id={id("extra-resources")} rows={2} value={extraResText} placeholder="rdma/rdma_shared_device_a=1"
             onChange={(v) => { setExtraResText(v); setRuntime({ extra_resources: linesToMap(v) ?? {} }); }}
+          />
+        </Field>
+        <Field id={id("extra-ports")} label={t("runtimeExtraPorts")} hint={t("runtimeExtraPortsHint")}>
+          <Area
+            id={id("extra-ports")} rows={2} value={extraPortsText} placeholder={"metrics=9100\nkv-events=5556"}
+            onChange={(v) => {
+              setExtraPortsText(v);
+              const ports = Object.entries(linesToMap(v) ?? {}).map(([k, p]) => [k, Number(p)] as const);
+              setRuntime({ extra_ports: Object.fromEntries(ports) });
+            }}
           />
         </Field>
       </CollapsibleSection>

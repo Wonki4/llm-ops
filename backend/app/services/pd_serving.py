@@ -76,11 +76,36 @@ class Runtime(BaseModel):
     host_ipc: bool = False
     privileged: bool = False
     extra_resources: dict[str, str] = {}
+    # Extra containerPorts (TCP) on the serving container: ``{"kv-events": 5556}``.
+    extra_ports: dict[str, int] = {}
 
     @field_validator("extra_resources")
     @classmethod
     def _resource_keys(cls, v):
         return _resource_entries(v, "extra_resources")
+
+    @field_validator("extra_ports")
+    @classmethod
+    def _port_entries(cls, v):
+        for name, port in (v or {}).items():
+            if not is_port_name(name) or name in RESERVED_PORT_NAMES:
+                raise ValueError(
+                    f"extra_ports name {name!r} must be a K8s port name (<=15 chars of a-z, 0-9, '-', "
+                    f"with a letter) and not one of {sorted(RESERVED_PORT_NAMES)}"
+                )
+            if not 1 <= port <= 65535:
+                raise ValueError(f"extra_ports[{name!r}] must be between 1 and 65535, got {port}")
+        return v
+
+
+# Port names the portal itself puts on the serving container.
+RESERVED_PORT_NAMES = frozenset({"http", "nixl"})
+_PORT_NAME = re.compile(r"^(?!-)(?!.*--)[a-z0-9-]{1,15}(?<!-)$")
+
+
+def is_port_name(name: str) -> bool:
+    """A K8s IANA_SVC_NAME: lower-case alphanumerics and '-', at least one letter."""
+    return bool(_PORT_NAME.match(name or "")) and any(c.isalpha() for c in name)
 
 
 def _resource_entries(v: dict[str, str], what: str) -> dict[str, str]:
@@ -341,8 +366,9 @@ def validate_runtime(value: dict | None) -> dict | None:
     if value is None:
         return None
     out = Runtime.model_validate(value).model_dump(exclude_none=True)
-    if not out.get("extra_resources"):
-        out.pop("extra_resources", None)
+    for k in ("extra_resources", "extra_ports"):
+        if not out.get(k):
+            out.pop(k, None)
     for k in ("host_ipc", "privileged"):
         if out.get(k) is False:
             out.pop(k, None)

@@ -1925,6 +1925,8 @@
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "추가 리소스",
     "runtimeExtraResourcesHint": "줄마다 vendor/name=수량 (예: rdma/rdma_shared_device_a=1)",
+    "runtimeExtraPorts": "추가 포트",
+    "runtimeExtraPortsHint": "줄마다 이름=포트 (예: metrics=9100). 서빙 컨테이너에 TCP 포트로 선언됩니다. 이름은 소문자·숫자·-로 15자 이내이며 http, nixl은 쓸 수 없습니다. --kv-events-config 포트는 따로 적지 않아도 자동으로 붙습니다.",
     "startup": "Startup",
     "startupEnable": "Startup 프로브 사용",
     "startupPdHint": "P/D 풀은 Startup 프로브가 기본으로 붙습니다.",

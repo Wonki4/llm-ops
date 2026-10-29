@@ -613,3 +613,10 @@ def test_pd_pools_declare_kv_event_ports():
             {"containerPort": 5556, "name": "kv-events", "protocol": "TCP"},
             {"containerPort": 5559, "name": "kv-replay", "protocol": "TCP"},
         ]
+
+
+def test_pd_pool_runtime_extra_ports():
+    deps = _by_name(build_pd_deployments(_dep(runtime={"extra_ports": {"metrics": 9100}}), sidecar_image="sc:v1"))
+    for name in ("glm-prefill-deployment", "glm-decode-deployment"):
+        ports = deps[name]["spec"]["template"]["spec"]["containers"][0]["ports"]
+        assert ports[2:] == [{"containerPort": 9100, "name": "metrics", "protocol": "TCP"}]

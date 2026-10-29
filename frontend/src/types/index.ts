@@ -945,6 +945,8 @@ export interface RuntimeOptions {
   host_ipc?: boolean;
   privileged?: boolean;
   extra_resources?: Record<string, string>;
+  /** Extra TCP containerPorts on the serving container, by port name. */
+  extra_ports?: Record<string, number>;
 }
 
 export interface PdRoleStatus {
