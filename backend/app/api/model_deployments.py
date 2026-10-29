@@ -44,6 +44,7 @@ from app.services.serving_engines import (
     validate_port_flag,
 )
 from app.services.serving_probes import validate_probes
+from app.services.serving_rollout import check_rollout
 from app.services.storage_fields import pvc_access_warnings, recipe_warnings, reject_legacy_pvc
 from app.services.storage_mounts import all_entries, validate_entries
 from app.services.storage_store import (
@@ -714,6 +715,10 @@ async def create_deployment(
     if pd_serving.is_pd(dep):
         await _apply_pool_profiles(db, dep, default_gpu_type=body.gpu_type)
     apply_profile(dep, gpu_profile, gpu_label_key)
+    try:
+        check_rollout(dep)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     db.add(dep)
     await db.flush()
     await db.refresh(dep)
@@ -770,7 +775,18 @@ async def update_deployment(
         raise HTTPException(status_code=404, detail="Deployment not found")
 
     k8s = await k8s_for_cluster(db, dep.cluster_id)
-    updates = body.model_dump(exclude_unset=True)
+    return await _apply_update(db, k8s, litellm, dep, body.model_dump(exclude_unset=True), user)
+
+
+async def _apply_update(
+    db: AsyncSession,
+    k8s: K8sClient,
+    litellm: LiteLLMClient,
+    dep: CustomModelDeployment,
+    updates: dict,
+    user: CustomUser,
+) -> dict:
+    """Set ``updates`` on the row, validate, reapply the manifests; shared by PUT and re-apply."""
     registered_as = _registration_key(dep)
     previous = list(dep.storages or [])
     previous_pd = dict(dep.pd_config or {}) if dep.pd_config else None
@@ -785,6 +801,10 @@ async def update_deployment(
             raise HTTPException(status_code=400, detail=str(e))
     else:
         dep.pd_config = None
+    try:
+        check_rollout(dep)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     entries = updates["storages"] if updates.get("storages") is not None else previous
     await _resolve_storages(db, dep, entries, previous=previous, previous_pd=previous_pd)
     if pd_serving.is_pd(dep) and ("gpu_type" in updates or "pd_config" in updates):
