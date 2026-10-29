@@ -743,8 +743,8 @@
   },
   "adminUsage": {
     "pageTitle": "Usage",
-    "pageDescription": "Per-user usage across every team, aggregated from daily spend.",
-    "searchPlaceholder": "Search by user, email, team...",
+    "pageDescription": "Daily spend broken down by user → key → model group, including usage of deleted keys.",
+    "searchPlaceholder": "Search by user or email...",
     "teamAll": "All Teams",
     "reset": "Reset",
     "usagePresetToday": "Today",
@@ -754,9 +754,7 @@
     "usageStart": "Start",
     "usageEnd": "End",
     "usageEmpty": "No usage data for the selected filters.",
-    "noTeam": "No team",
     "colUser": "User",
-    "colTeam": "Team",
     "colRequests": "Requests",
     "colTokens": "Tokens",
     "colInput": "Input (cache rd)",
@@ -771,7 +769,9 @@
     "viewTable": "Table",
     "viewCalendar": "Calendar",
     "calendarToday": "Today",
-    "calendarMonthTotal": "Month total"
+    "calendarMonthTotal": "Month total",
+    "colKeys": "Keys",
+    "noUser": "No user"
   },
   "adminDeployments": {
     "pageTitle": "Serving Deployments",
@@ -1357,10 +1357,13 @@
     "budgetPreset365": "1 year",
     "budgetPresetPermanent": "Permanent",
     "colModel": "Model",
-    "colModelGroup": "Model group",
     "groupByModel": "Model",
     "groupByModelGroup": "Model group",
-    "usageByModelEmpty": "No model usage in this period."
+    "usageByKeyEmpty": "No key usage in this period.",
+    "keyUnknown": "Unknown key",
+    "keyBadgePersonal": "Personal",
+    "keyBadgeSso": "SSO",
+    "keyBadgeDeleted": "Deleted"
   },
   "auth": {
     "loginSubtitle": "Sign in with your employee ID",

@@ -371,14 +371,45 @@ export interface TeamUsageResponse {
   totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
 }
 
-// ─── Admin Usage (global, per user×team) ──────────────────────
+// ─── Usage breakdown: user → key → model group ───────────────
 
-export interface AdminUsageRow extends UsageTokenBreakdown {
-  user_id: string;
-  email: string | null;
-  display_name: string | null;
+export interface UsageModelRow extends UsageTokenBreakdown {
+  model: string;
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+}
+
+export interface UsageKeyRow extends UsageTokenBreakdown {
+  /** Hashed key token (LiteLLM_VerificationToken.token). */
+  api_key: string;
+  /** Portal alias, else LiteLLM's key alias/name; null when the key is unknown. */
+  alias: string | null;
   team_id: string | null;
   team_alias: string | null;
+  personal: boolean;
+  sso: boolean;
+  /** "deleted": key removed but its usage kept; "unknown": key in neither key table. */
+  state: "active" | "deleted" | "unknown";
+  total_tokens: number;
+  api_requests: number;
+  spend: number;
+  models: UsageModelRow[];
+}
+
+export interface UsageByKeyResponse {
+  user_id: string | null;
+  keys: UsageKeyRow[];
+}
+
+// ─── Admin Usage (global, per user) ───────────────────────────
+
+export interface AdminUsageRow extends UsageTokenBreakdown {
+  /** null collects usage that carries no user. */
+  user_id: string | null;
+  email: string | null;
+  display_name: string | null;
+  key_count: number;
   total_tokens: number;
   api_requests: number;
   spend: number;

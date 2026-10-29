@@ -261,59 +261,6 @@ async def test_change_member_budget_omits_unset_limits(admin_client: AsyncClient
 
 
 @pytest.mark.asyncio
-async def test_member_usage_group_by_model_group_uses_coalesce(admin_client: AsyncClient, mock_litellm, mock_db):
-    """group_by=model_group buckets by the public group, falling back to model
-    (COALESCE(NULLIF(model_group,''), model)) so there are no (unknown) rows."""
-    from app.db.session import get_litellm_db
-    from app.main import app
-
-    captured: list[str] = []
-
-    async def fake_execute(statement, params=None):
-        captured.append(str(statement))
-        if len(captured) == 1:
-            return _FakeMappingsResult([{"token": "sk-x"}])  # member's keys
-        return _FakeMappingsResult([])  # grouped rows
-
-    mock_db.execute = fake_execute
-    app.dependency_overrides[get_litellm_db] = lambda: mock_db
-
-    resp = await admin_client.get(
-        "/api/teams/team-1/usage/user002/by-model"
-        "?start_date=2026-01-01&end_date=2026-12-31&group_by=model_group"
-    )
-
-    assert resp.status_code == 200, resp.text
-    assert any("COALESCE(NULLIF(model_group, '')" in s for s in captured), captured
-
-
-@pytest.mark.asyncio
-async def test_member_usage_default_groups_by_plain_model(admin_client: AsyncClient, mock_litellm, mock_db):
-    """Default (group_by=model) groups by the raw model column, not model_group."""
-    from app.db.session import get_litellm_db
-    from app.main import app
-
-    captured: list[str] = []
-
-    async def fake_execute(statement, params=None):
-        captured.append(str(statement))
-        if len(captured) == 1:
-            return _FakeMappingsResult([{"token": "sk-x"}])
-        return _FakeMappingsResult([])
-
-    mock_db.execute = fake_execute
-    app.dependency_overrides[get_litellm_db] = lambda: mock_db
-
-    resp = await admin_client.get(
-        "/api/teams/team-1/usage/user002/by-model?start_date=2026-01-01&end_date=2026-12-31"
-    )
-
-    assert resp.status_code == 200, resp.text
-    grouped_sql = captured[1]
-    assert "GROUP BY model " in grouped_sql and "COALESCE" not in grouped_sql, grouped_sql
-
-
-@pytest.mark.asyncio
 async def test_team_usage_returns_token_breakdown(admin_client: AsyncClient, mock_litellm, mock_db):
     """Usage rows/totals/series split tokens into input/output + cache-read."""
     from app.db.session import get_litellm_db
@@ -321,6 +268,8 @@ async def test_team_usage_returns_token_breakdown(admin_client: AsyncClient, moc
 
     async def fake_execute(statement, params=None):
         sql = str(statement)
+        if "LiteLLM_DeletedVerificationToken" in sql:
+            return _FakeMappingsResult([])
         if "LiteLLM_VerificationToken" in sql:
             return _FakeMappingsResult([{"token": "sk-x", "user_id": "user002"}])
         if "GROUP BY api_key" in sql:
@@ -367,40 +316,6 @@ async def test_team_usage_returns_token_breakdown(admin_client: AsyncClient, moc
 
 
 @pytest.mark.asyncio
-async def test_member_usage_by_model_returns_token_breakdown(admin_client: AsyncClient, mock_litellm, mock_db):
-    from app.db.session import get_litellm_db
-    from app.main import app
-
-    async def fake_execute(statement, params=None):
-        sql = str(statement)
-        if "LiteLLM_VerificationToken" in sql:
-            return _FakeMappingsResult([{"token": "sk-x"}])
-        return _FakeMappingsResult(
-            [
-                {
-                    "label": "gpt-4o",
-                    "total_tokens": 1100,
-                    "input_tokens": 1000,
-                    "output_tokens": 100,
-                    "cache_read_tokens": 400,
-                    "api_requests": 3,
-                    "spend": 0.5,
-                }
-            ]
-        )
-
-    mock_db.execute = fake_execute
-    app.dependency_overrides[get_litellm_db] = lambda: mock_db
-
-    resp = await admin_client.get(
-        "/api/teams/team-1/usage/user002/by-model?start_date=2026-01-01&end_date=2026-12-31"
-    )
-    assert resp.status_code == 200, resp.text
-    mm = resp.json()["models"][0]
-    assert (mm["input_tokens"], mm["output_tokens"], mm["cache_read_tokens"]) == (1000, 100, 400)
-
-
-@pytest.mark.asyncio
 async def test_team_usage_member_sees_only_own_usage(user_client: AsyncClient, mock_litellm, mock_db):
     """A regular team member can open the usage tab, scoped to their own keys."""
     from app.db.session import get_litellm_db
@@ -410,6 +325,8 @@ async def test_team_usage_member_sees_only_own_usage(user_client: AsyncClient, m
         sql = str(statement)
         if "LiteLLM_TeamTable" in sql:
             return _FakeMappingsResult([{"admins": ["someone-else"], "members": ["user001", "user002"]}])
+        if "LiteLLM_DeletedVerificationToken" in sql:
+            return _FakeMappingsResult([])
         if "LiteLLM_VerificationToken" in sql:
             return _FakeMappingsResult(
                 [
@@ -473,6 +390,8 @@ async def test_team_usage_team_admin_sees_all_members(user_client: AsyncClient, 
         sql = str(statement)
         if "LiteLLM_TeamTable" in sql:
             return _FakeMappingsResult([{"admins": ["user001"], "members": ["user001", "user002"]}])
+        if "LiteLLM_DeletedVerificationToken" in sql:
+            return _FakeMappingsResult([])
         if "LiteLLM_VerificationToken" in sql:
             return _FakeMappingsResult(
                 [
@@ -516,28 +435,3 @@ async def test_team_usage_team_admin_sees_all_members(user_client: AsyncClient, 
     assert body["totals"]["total_tokens"] == 300
 
 
-@pytest.mark.asyncio
-async def test_member_usage_by_model_self_allowed_others_forbidden(user_client: AsyncClient, mock_litellm, mock_db):
-    from app.db.session import get_litellm_db
-    from app.main import app
-
-    async def fake_execute(statement, params=None):
-        sql = str(statement)
-        if "LiteLLM_TeamTable" in sql:
-            return _FakeMappingsResult([{"admins": [], "members": ["user001", "user002"]}])
-        if "LiteLLM_VerificationToken" in sql:
-            return _FakeMappingsResult([{"token": "sk-mine"}])
-        return _FakeMappingsResult([])
-
-    mock_db.execute = fake_execute
-    app.dependency_overrides[get_litellm_db] = lambda: mock_db
-
-    ok = await user_client.get(
-        "/api/teams/team-1/usage/user001/by-model?start_date=2026-01-01&end_date=2026-12-31"
-    )
-    assert ok.status_code == 200, ok.text
-
-    denied = await user_client.get(
-        "/api/teams/team-1/usage/user002/by-model?start_date=2026-01-01&end_date=2026-12-31"
-    )
-    assert denied.status_code == 403, denied.text

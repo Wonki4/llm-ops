@@ -7,7 +7,7 @@ import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { InputTokens } from "@/components/input-tokens";
-import { MemberModelUsage } from "@/components/member-model-usage";
+import { TeamMemberKeyUsage } from "@/components/key-usage-breakdown";
 import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
@@ -997,7 +997,7 @@ function UsageTab({ teamId }: { teamId: string }) {
                     {isOpen && (
                       <TableRow className="hover:bg-transparent">
                         <TableCell colSpan={5} className="bg-muted/30 p-0">
-                          <MemberModelUsage
+                          <TeamMemberKeyUsage
                             teamId={teamId}
                             userId={m.user_id}
                             startDate={startDate}
