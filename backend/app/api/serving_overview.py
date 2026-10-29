@@ -8,10 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_external_serving import CustomExternalServing
-from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_catalog import CustomModelCatalog
 from app.db.models.custom_model_deployment import CustomModelDeployment
@@ -19,7 +17,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import llmd_stacks
-from app.services.clusters import k8s_for_cluster
+from app.services.clusters import scan_scopes
 from app.services.external_servings import scan_clusters
 from app.services.llmd_links import external_server, link_stacks, portal_server
 from app.services.pd_serving import pd_status_summary
@@ -180,13 +178,15 @@ def build_overview(
     return {"models": rows, "unlinked_stacks": unlinked}
 
 
-async def _scan_external(db: AsyncSession) -> list[dict]:
-    """Best-effort cluster scan for non-portal servings; [] when nothing is reachable."""
+async def _scan_external(db: AsyncSession, registrations: list, stacks: list) -> list[dict]:
+    """Best-effort scan for non-portal servings; [] when nothing is reachable.
+
+    The representative cluster's namespace plus the namespaces registrations and
+    llm-d stacks live in (see ``clusters.scan_scopes``).
+    """
     try:
-        targets: list = [(None, "default", K8sClient())]
-        for row in (await db.execute(select(CustomK8sCluster))).scalars().all():
-            targets.append((str(row.id), row.name, await k8s_for_cluster(db, row.id)))
-        servings, _errors = await scan_clusters(targets)
+        extra = [(r.cluster_id, r.namespace) for r in registrations] + [(s.cluster_id, s.namespace) for s in stacks]
+        servings, _errors = await scan_clusters(await scan_scopes(db, extra))
         return servings
     except Exception as e:  # noqa: BLE001 — the board must render without a cluster
         logger.info("serving overview: external scan skipped: %s", e)
@@ -214,7 +214,7 @@ async def serving_overview(
     recipes = list((await db.execute(select(CustomServingRecipe))).scalars().all())
     catalog = list((await db.execute(select(CustomModelCatalog))).scalars().all())
     registrations = list((await db.execute(select(CustomExternalServing))).scalars().all())
-    external = await _scan_external(db)
+    external = await _scan_external(db, registrations, stacks)
     # ArgoCD sync/health per stack (best-effort, one read each).
     status = {str(st.id): await llmd_stacks.live_status(db, st) for st in stacks}
     return build_overview(deployments, stacks, runs, recipes, catalog, external, registrations, status)

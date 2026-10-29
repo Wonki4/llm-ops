@@ -20,7 +20,6 @@ from app.clients.k8s import K8sClient, K8sNotConfigured, get_k8s_client  # noqa:
 from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.config import settings
 from app.db.models.custom_external_serving import CustomExternalServing
-from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
@@ -28,7 +27,7 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
 from app.services import llmd_stacks, pd_router, pd_serving
-from app.services.clusters import default_namespace, k8s_for_cluster, validate_namespace
+from app.services.clusters import default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
@@ -330,15 +329,15 @@ async def list_external_servings(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Live-scan all clusters for vLLM/SGLang deployments not managed by the portal."""
-    targets: list[tuple[str | None, str, K8sClient]] = [(None, "default", K8sClient())]
-    clusters = (await db.execute(select(CustomK8sCluster))).scalars().all()
-    for row in clusters:
-        targets.append((str(row.id), row.name, await k8s_for_cluster(db, row.id)))
+    """Live-scan for vLLM/SGLang deployments not managed by the portal.
 
-    servings, errors = await scan_clusters(targets)
-
+    Looks in the representative cluster's namespace plus wherever a registration
+    lives (so a registered serving never drops off the list), not cluster-wide.
+    """
     regs = (await db.execute(select(CustomExternalServing))).scalars().all()
+    scopes = await scan_scopes(db, [(r.cluster_id, r.namespace) for r in regs])
+    servings, errors = await scan_clusters(scopes)
+
     reg_map = {(str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r for r in regs}
     for s in servings:
         r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))

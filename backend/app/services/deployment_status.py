@@ -9,7 +9,7 @@ def classify(observed: dict, desired_replicas: int) -> tuple[str, str | None]:
     """Return (status, message) from a K8s deployment status payload.
 
     ``observed`` = {"ready": int, "available": int, "conditions": [...]} as
-    produced by K8sClient.read_deployment_status / list_deployments_all.
+    produced by K8sClient.read_deployment_status / list_deployments.
     """
     ready = observed.get("ready", 0)
     available = observed.get("available", 0)

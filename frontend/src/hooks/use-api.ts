@@ -1289,7 +1289,7 @@ export interface ExternalServing {
 
 export interface ExternalServingsResponse {
   servings: ExternalServing[];
-  errors: { cluster: string; message: string }[];
+  errors: { cluster: string; namespace?: string; message: string }[];
 }
 
 /** Reverse-parse a live non-portal Deployment into recipe form values (nothing is saved). */

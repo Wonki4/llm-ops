@@ -2,6 +2,7 @@
 
 import re
 import uuid
+from collections.abc import Iterable
 
 import yaml
 from sqlalchemy import select
@@ -94,3 +95,46 @@ async def default_namespace(db: AsyncSession, cluster_id: uuid.UUID | str | None
         if row is not None and row.namespace:
             return row.namespace
     return settings.k8s_default_namespace
+
+
+# (cluster_id, cluster name, client, namespace): one namespaced LIST of an external-serving scan.
+ScanScope = tuple[str | None, str, K8sClient, str]
+
+
+async def scan_scopes(
+    db: AsyncSession,
+    extra: Iterable[tuple[uuid.UUID | str | None, str | None]] = (),
+    *,
+    representative: bool = True,
+) -> list[ScanScope]:
+    """Where an external-serving scan looks, instead of every namespace of every cluster.
+
+    The representative cluster (``is_default``) in its own namespace, or the portal
+    kubeconfig in ``k8s_default_namespace`` when none is marked; plus each
+    ``(cluster_id, namespace)`` in ``extra`` (registrations, stacks…). Deduplicated;
+    an extra on a cluster that no longer exists, or without a namespace, is skipped.
+    """
+    from app.config import settings
+
+    rows = {str(r.id): r for r in (await db.execute(select(CustomK8sCluster))).scalars().all()}
+    clients: dict[str | None, K8sClient] = {}
+    out: list[ScanScope] = []
+
+    def add(cid: str | None, namespace: str) -> None:
+        if any(s[0] == cid and s[3] == namespace for s in out):
+            return
+        if cid not in clients:
+            clients[cid] = K8sClient() if cid is None else _client_for_row(rows[cid])
+        out.append((cid, "default" if cid is None else rows[cid].name, clients[cid], namespace))
+
+    if representative:
+        rep = next((r for r in rows.values() if r.is_default), None)
+        if rep is not None:
+            add(str(rep.id), rep.namespace or settings.k8s_default_namespace)
+        else:
+            add(None, settings.k8s_default_namespace)
+    for cluster_id, namespace in extra:
+        cid = str(cluster_id) if cluster_id else None
+        if namespace and (cid is None or cid in rows):
+            add(cid, namespace)
+    return out

@@ -39,7 +39,7 @@ def _extract_model_path(args: list[str]) -> str | None:
 
 
 def to_external_serving(dep: dict) -> dict | None:
-    """Shape one list_deployments_all item into an external serving, or None."""
+    """Shape one list_deployments item into an external serving, or None."""
     if dep.get("labels", {}).get(LABEL_OWNER) in PORTAL_OWNERS:
         return None
     detected = _detect_engine(dep.get("containers", []))
@@ -64,32 +64,37 @@ def to_external_serving(dep: dict) -> dict | None:
 
 
 async def scan_clusters(
-    targets: list[tuple[str | None, str, Any]], timeout: float = 5.0
+    targets: list[tuple[str | None, str, Any, str]], timeout: float = 5.0
 ) -> tuple[list[dict], list[dict]]:
-    """Scan (cluster_id, cluster_name, k8s_client) targets in parallel.
+    """Scan (cluster_id, cluster_name, k8s_client, namespace) targets in parallel.
 
-    Returns (servings, errors). A missing default kubeconfig is silently
-    skipped; timeouts and connection errors become per-cluster error entries
-    so one broken cluster never blanks the page.
+    Each target is one namespaced LIST (see ``clusters.scan_scopes``). Returns
+    (servings, errors). A missing default kubeconfig is silently skipped;
+    timeouts and connection errors become per-target error entries so one
+    broken cluster never blanks the page.
     """
 
-    async def _scan(k8s: Any) -> list[dict]:
-        raw = await asyncio.wait_for(k8s.list_deployments_all(), timeout=timeout)
+    async def _scan(k8s: Any, namespace: str) -> list[dict]:
+        raw = await asyncio.wait_for(k8s.list_deployments(namespace), timeout=timeout)
         return [s for s in (to_external_serving(d) for d in raw) if s is not None]
 
-    results = await asyncio.gather(*(_scan(k8s) for _, _, k8s in targets), return_exceptions=True)
+    results = await asyncio.gather(*(_scan(k8s, ns) for _, _, k8s, ns in targets), return_exceptions=True)
 
     servings: list[dict] = []
     errors: list[dict] = []
-    for (cluster_id, cluster_name, _), result in zip(targets, results):
+    for (cluster_id, cluster_name, _, namespace), result in zip(targets, results):
         if isinstance(result, K8sNotConfigured):
             continue
         if isinstance(result, TimeoutError | asyncio.TimeoutError):
-            errors.append({"cluster": cluster_name, "message": f"scan timed out after {timeout:g}s"})
+            errors.append(
+                {"cluster": cluster_name, "namespace": namespace, "message": f"scan timed out after {timeout:g}s"}
+            )
             continue
         if isinstance(result, BaseException):
-            logger.warning("External serving scan failed for %s: %s", cluster_name, result)
-            errors.append({"cluster": cluster_name, "message": str(result) or type(result).__name__})
+            logger.warning("External serving scan failed for %s/%s: %s", cluster_name, namespace, result)
+            errors.append(
+                {"cluster": cluster_name, "namespace": namespace, "message": str(result) or type(result).__name__}
+            )
             continue
         for s in result:
             s["cluster_id"] = cluster_id

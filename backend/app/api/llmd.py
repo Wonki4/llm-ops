@@ -16,15 +16,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
-from app.clients.k8s import K8sClient
 from app.config import settings
-from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import llmd_stacks
-from app.services.clusters import argocd_placement_for, k8s_for_cluster
+from app.services.clusters import argocd_placement_for, k8s_for_cluster, scan_scopes
 from app.services.external_servings import scan_clusters
 from app.services.llmd_links import external_server, link_stacks, portal_server
 from app.services.llmd_manifests import default_llmd_values, direct_service_name
@@ -169,10 +167,9 @@ async def applied_values(
     deployments = list((await db.execute(select(CustomModelDeployment))).scalars().all())
     servers = [portal_server(d) for d in deployments]
     try:
-        targets: list = [(None, "default", K8sClient())]
-        for row in (await db.execute(select(CustomK8sCluster))).scalars().all():
-            targets.append((str(row.id), row.name, await k8s_for_cluster(db, row.id)))
-        servings, _errs = await scan_clusters(targets)
+        # The stack's InferencePool only selects pods in its own namespace.
+        scopes = await scan_scopes(db, [(stack.cluster_id, stack.namespace)], representative=False)
+        servings, _errs = await scan_clusters(scopes)
         servers += [external_server(sv, None) for sv in servings]
     except Exception as e:  # noqa: BLE001 — linkage is best-effort without a cluster
         logger.info("llm-d linked-servers scan skipped for %s: %s", stack.name, e)
