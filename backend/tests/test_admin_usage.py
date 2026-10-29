@@ -29,10 +29,16 @@ async def test_admin_usage_rows_and_totals_include_breakdown(admin_client: Async
             return _FakeMappingsResult([{"team_id": "team-1", "team_alias": "Alpha"}])
         if "custom_users" in sql:
             return _FakeMappingsResult([])
+        if "LiteLLM_DeletedVerificationToken" in sql:
+            return _FakeMappingsResult([])
+        if "LiteLLM_VerificationToken" in sql:
+            return _FakeMappingsResult(
+                [{"token": "sk-x", "user_id": "user002", "team_id": "team-1", "metadata": {}}]
+            )
         return _FakeMappingsResult(
             [
                 {
-                    "team_id": "team-1",
+                    "api_key": "sk-x",
                     "user_id": "user002",
                     "total_tokens": 165000,
                     "input_tokens": 120000,
@@ -51,6 +57,7 @@ async def test_admin_usage_rows_and_totals_include_breakdown(admin_client: Async
     assert resp.status_code == 200, resp.text
     body = resp.json()
     row = body["rows"][0]
+    assert (row["user_id"], row["key_count"]) == ("user002", 1)
     assert (row["input_tokens"], row["output_tokens"], row["cache_read_tokens"]) == (120000, 45000, 30000)
     totals = body["totals"]
     assert (totals["input_tokens"], totals["output_tokens"], totals["cache_read_tokens"]) == (120000, 45000, 30000)

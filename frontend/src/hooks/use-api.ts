@@ -31,6 +31,7 @@ import type {
   AdminUserDetail,
   AdminUsageResponse,
   AdminUsageDailyResponse,
+  UsageByKeyResponse,
   Announcement,
   CreateAnnouncementRequest,
   UpdateAnnouncementRequest,
@@ -179,43 +180,24 @@ export function useTeamUsage(
   });
 }
 
-export interface TeamMemberModelUsage {
-  model: string;
-  total_tokens: number;
-  input_tokens: number;
-  output_tokens: number;
-  cache_read_tokens: number;
-  api_requests: number;
-  spend: number;
-}
-
-export interface TeamMemberModelUsageResponse {
-  user_id: string;
-  models: TeamMemberModelUsage[];
-}
-
-/** Usage breakdown for a single team member over a date range, grouped by
- *  model (default) or model group. */
-export function useTeamMemberUsageByModel(
+/** One team member's usage within the team, per key then per model group. */
+export function useTeamMemberUsageByKey(
   teamId: string,
   userId: string,
   startDate: string,
   endDate: string,
-  groupBy: "model" | "model_group" = "model",
-  enabled: boolean = true,
 ) {
   const params = new URLSearchParams();
   params.set("start_date", startDate);
   params.set("end_date", endDate);
-  params.set("group_by", groupBy);
 
   return useQuery({
-    queryKey: ["teams", teamId, "usage", "by-model", userId, { startDate, endDate, groupBy }] as const,
+    queryKey: ["teams", teamId, "usage", "by-key", userId, { startDate, endDate }] as const,
     queryFn: () =>
-      apiFetch<TeamMemberModelUsageResponse>(
-        `/api/teams/${teamId}/usage/${encodeURIComponent(userId)}/by-model?${params.toString()}`,
+      apiFetch<UsageByKeyResponse>(
+        `/api/teams/${teamId}/usage/${encodeURIComponent(userId)}/by-key?${params.toString()}`,
       ),
-    enabled: enabled && !!teamId && !!userId && !!startDate && !!endDate,
+    enabled: !!teamId && !!userId && !!startDate && !!endDate,
   });
 }
 
@@ -1048,13 +1030,13 @@ export function useAdminUsers(
   });
 }
 
-/** Global per-(user, team) usage over a date range (super user only). */
+/** Global per-user usage over a date range (super user only). */
 export function useAdminUsage(
   startDate: string,
   endDate: string,
   teamId: string,
   search: string,
-  sortBy: "user_id" | "team" | "total_tokens" | "api_requests" | "spend",
+  sortBy: "user_id" | "key_count" | "total_tokens" | "api_requests" | "spend",
   sortDir: "asc" | "desc",
   page: number,
   pageSize: number,
@@ -1072,6 +1054,27 @@ export function useAdminUsage(
   return useQuery({
     queryKey: ["admin-usage", { startDate, endDate, teamId, search, sortBy, sortDir, page, pageSize }],
     queryFn: () => apiFetch<AdminUsageResponse>(`/api/admin/usage?${params.toString()}`),
+    enabled: !!startDate && !!endDate,
+  });
+}
+
+/** One user's usage per key, then per model group (super user only).
+ *  `userId` null is the bucket of usage that carries no user. */
+export function useAdminUserUsageByKey(
+  userId: string | null,
+  startDate: string,
+  endDate: string,
+  teamId: string,
+) {
+  const params = new URLSearchParams();
+  params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  if (userId) params.set("user_id", userId);
+  if (teamId) params.set("team_id", teamId);
+
+  return useQuery({
+    queryKey: ["admin-usage", "by-key", userId, { startDate, endDate, teamId }],
+    queryFn: () => apiFetch<UsageByKeyResponse>(`/api/admin/usage/by-key?${params.toString()}`),
     enabled: !!startDate && !!endDate,
   });
 }

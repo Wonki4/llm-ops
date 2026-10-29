@@ -743,8 +743,8 @@
   },
   "adminUsage": {
     "pageTitle": "사용량",
-    "pageDescription": "일별 사용량을 집계한 전체 팀·사용자별 사용량입니다.",
-    "searchPlaceholder": "사용자, 이메일, 팀으로 검색...",
+    "pageDescription": "일별 사용량을 사용자 → 키 → 모델 그룹 순으로 집계합니다. 삭제된 키의 사용량도 포함됩니다.",
+    "searchPlaceholder": "사용자, 이메일로 검색...",
     "teamAll": "전체 팀",
     "reset": "초기화",
     "usagePresetToday": "오늘",
@@ -754,9 +754,7 @@
     "usageStart": "시작",
     "usageEnd": "종료",
     "usageEmpty": "선택한 조건에 해당하는 사용량 데이터가 없습니다.",
-    "noTeam": "팀 없음",
     "colUser": "사용자",
-    "colTeam": "팀",
     "colRequests": "요청 수",
     "colTokens": "토큰",
     "colInput": "입력 (캐시)",
@@ -771,7 +769,9 @@
     "viewTable": "표",
     "viewCalendar": "달력",
     "calendarToday": "오늘",
-    "calendarMonthTotal": "이번 달 합계"
+    "calendarMonthTotal": "이번 달 합계",
+    "colKeys": "키",
+    "noUser": "사용자 없음"
   },
   "adminDeployments": {
     "pageTitle": "서빙 디플로이먼트",
@@ -1357,10 +1357,13 @@
     "budgetPreset365": "1년",
     "budgetPresetPermanent": "영구",
     "colModel": "모델",
-    "colModelGroup": "모델 그룹",
     "groupByModel": "모델",
     "groupByModelGroup": "모델 그룹",
-    "usageByModelEmpty": "이 기간 모델 사용 내역이 없습니다."
+    "usageByKeyEmpty": "이 기간 키 사용 내역이 없습니다.",
+    "keyUnknown": "알 수 없는 키",
+    "keyBadgePersonal": "개인",
+    "keyBadgeSso": "SSO",
+    "keyBadgeDeleted": "삭제됨"
   },
   "auth": {
     "loginSubtitle": "사번으로 로그인하세요",

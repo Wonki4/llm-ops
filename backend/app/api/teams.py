@@ -17,6 +17,7 @@ from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
 from app.services.member_budget_boost import apply_member_budget_boost, serialize_boost
 from app.services.team_membership import remove_member_from_team
+from app.services.usage_breakdown import key_directory, nest_by_key, usage_by_key_and_model
 
 import json
 import logging
@@ -628,12 +629,10 @@ async def team_usage_by_member(
     sort_column = _USAGE_SORT_COLUMNS[sort_by]
 
     # Map this team's keys -> owning user_id so usage is attributed per member
-    # (DailyUserSpend has no team_id; we scope by the team's api_keys).
-    keys_result = await litellm_db.execute(
-        text('SELECT token, user_id FROM "LiteLLM_VerificationToken" WHERE team_id = :team_id'),
-        {"team_id": team_id},
-    )
-    token_to_user = {r["token"]: r["user_id"] for r in keys_result.mappings()}
+    # (DailyUserSpend has no team_id; we scope by the team's api_keys). Deleted
+    # keys count too — their usage stays in the team's history.
+    directory = await key_directory(litellm_db, team_id=team_id)
+    token_to_user = {tok: info.user_id for tok, info in directory.items()}
     if access != "admin":
         # Regular members only see their own usage.
         token_to_user = {tok: uid for tok, uid in token_to_user.items() if uid == user.user_id}
@@ -748,83 +747,35 @@ async def team_usage_by_member(
     return {"members": members, "series": series, "totals": totals}
 
 
-@router.get("/{team_id}/usage/{user_id}/by-model")
-async def team_member_usage_by_model(
+@router.get("/{team_id}/usage/{user_id}/by-key")
+async def team_member_usage_by_key(
     team_id: str,
     user_id: str,
     start_date: str,
     end_date: str,
-    group_by: str = "model",
     user: CustomUser = Depends(get_current_user),
     litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """Per-model usage (requests / tokens / spend) for one member within a team.
+    """One member's usage within a team, per key and then per model group.
 
     Same source and scoping as the team usage endpoint (LiteLLM_DailyUserSpend,
-    restricted to this team's keys), narrowed to the given member. `start_date`/
-    `end_date` are inclusive `YYYY-MM-DD`. Team admins and super users may view
-    any member; regular members only themselves.
-
-    `group_by` controls the breakdown:
-      - "model" (default): the underlying model recorded in each spend row.
-      - "model_group": the public model-group name, falling back to the model
-        when a row has no group recorded (LiteLLM leaves it empty for some
-        routes), so there are no "(unknown)" buckets.
-    The grouped label is always returned in the `model` field.
+    restricted to this team's keys — deleted ones included), narrowed to the
+    member's keys. Keys and their model groups are ordered by spend.
+    `start_date`/`end_date` are inclusive `YYYY-MM-DD`. Team admins and super
+    users may view any member; regular members only themselves.
     """
     access = await get_team_access(user, team_id, litellm_db)
     if access != "admin" and user_id != user.user_id:
         raise HTTPException(
             status_code=403,
-            detail="Members can only view their own model usage",
+            detail="Members can only view their own usage",
         )
 
-    # This team's keys owned by the member (usage is attributed via api_key).
-    keys_result = await litellm_db.execute(
-        text(
-            'SELECT token FROM "LiteLLM_VerificationToken" '
-            "WHERE team_id = :team_id AND user_id = :user_id"
-        ),
-        {"team_id": team_id, "user_id": user_id},
-    )
-    tokens = [r["token"] for r in keys_result.mappings()]
-    if not tokens:
-        return {"user_id": user_id, "models": []}
-
-    # Whitelisted grouping expression (never interpolate raw user input).
-    group_expr = (
-        "COALESCE(NULLIF(model_group, ''), model)"
-        if group_by == "model_group"
-        else "model"
-    )
-    rows = await litellm_db.execute(
-        text(
-            f"SELECT {group_expr} AS label, "
-            "       SUM(prompt_tokens + completion_tokens) AS total_tokens, "
-            "       SUM(prompt_tokens) AS input_tokens, "
-            "       SUM(completion_tokens) AS output_tokens, "
-            "       SUM(cache_read_input_tokens) AS cache_read_tokens, "
-            "       SUM(api_requests) AS api_requests, "
-            "       SUM(spend) AS spend "
-            'FROM "LiteLLM_DailyUserSpend" '
-            "WHERE api_key = ANY(:tokens) AND date >= :start AND date <= :end "
-            f"GROUP BY {group_expr} ORDER BY spend DESC"
-        ),
-        {"tokens": tokens, "start": start_date, "end": end_date},
-    )
-    models = [
-        {
-            "model": r["label"] or "(unknown)",
-            "total_tokens": int(r["total_tokens"] or 0),
-            "input_tokens": int(r["input_tokens"] or 0),
-            "output_tokens": int(r["output_tokens"] or 0),
-            "cache_read_tokens": int(r["cache_read_tokens"] or 0),
-            "api_requests": int(r["api_requests"] or 0),
-            "spend": float(r["spend"] or 0),
-        }
-        for r in rows.mappings()
-    ]
-    return {"user_id": user_id, "models": models}
+    directory = await key_directory(litellm_db, team_id=team_id, user_id=user_id)
+    if not directory:
+        return {"user_id": user_id, "keys": []}
+    rows = await usage_by_key_and_model(litellm_db, start=start_date, end=end_date, tokens=list(directory))
+    return {"user_id": user_id, "keys": nest_by_key(rows, directory, {})}
 
 
 class ChangeRoleRequest(BaseModel):

@@ -7,7 +7,7 @@ import { useLocaleTag } from "@/lib/locale";
 
 import { useAdminUsage } from "@/hooks/use-api";
 import { InputTokens } from "@/components/input-tokens";
-import { MemberModelUsage } from "@/components/member-model-usage";
+import { AdminUserKeyUsage } from "@/components/key-usage-breakdown";
 import { UsageCalendar } from "@/components/usage-calendar";
 import { presetRange, type UsagePreset } from "@/lib/usage";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import {
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300] as const;
 const DEFAULT_PAGE_SIZE = 50;
 
-type SortField = "user_id" | "team" | "total_tokens" | "api_requests" | "spend";
+type SortField = "user_id" | "key_count" | "total_tokens" | "api_requests" | "spend";
 
 export default function AdminUsagePage() {
   const t = useTranslations("adminUsage");
@@ -63,7 +63,7 @@ export default function AdminUsagePage() {
     setPage(1);
   };
 
-  // Click a calendar day → drill into that day's per-user×team rows in the table.
+  // Click a calendar day → drill into that day's per-user rows in the table.
   const handlePickDay = (day: string) => {
     setPreset("custom");
     setStartDate(day);
@@ -242,7 +242,7 @@ export default function AdminUsagePage() {
         </div>
       )}
 
-      {/* Per user×team table */}
+      {/* Per-user table (expand: keys → model groups) */}
       {isLoading ? (
         <div className="flex items-center justify-center py-16">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -263,9 +263,9 @@ export default function AdminUsagePage() {
                       {t("colUser")}{sortMark("user_id")}
                     </button>
                   </TableHead>
-                  <TableHead>
-                    <button type="button" className="hover:text-foreground" onClick={() => toggleSort("team")}>
-                      {t("colTeam")}{sortMark("team")}
+                  <TableHead className="text-right">
+                    <button type="button" className="hover:text-foreground" onClick={() => toggleSort("key_count")}>
+                      {t("colKeys")}{sortMark("key_count")}
                     </button>
                   </TableHead>
                   <TableHead className="text-right">
@@ -288,34 +288,28 @@ export default function AdminUsagePage() {
               </TableHeader>
               <TableBody>
                 {data.rows.map((r) => {
-                  const rowKey = `${r.team_id ?? "_"}::${r.user_id}`;
-                  const canExpand = !!r.team_id;
+                  const rowKey = r.user_id ?? "__no_user__";
                   const isOpen = expanded === rowKey;
                   return (
                     <Fragment key={rowKey}>
                       <TableRow
-                        className={canExpand ? "cursor-pointer hover:bg-muted/50" : ""}
-                        onClick={() => canExpand && setExpanded(isOpen ? null : rowKey)}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => setExpanded(isOpen ? null : rowKey)}
                       >
                         <TableCell>
                           <span className="inline-flex items-center gap-1">
-                            {canExpand && (
-                              <ChevronRight className={`size-3.5 transition-transform ${isOpen ? "rotate-90" : ""}`} />
-                            )}
-                            <span className="flex flex-col">
-                              <span className="font-medium">{r.display_name || r.email || r.user_id}</span>
-                              <span className="text-xs text-muted-foreground font-mono">{r.user_id}</span>
-                            </span>
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <span className="flex flex-col">
-                            <span>{r.team_alias || t("noTeam")}</span>
-                            {r.team_id && (
-                              <span className="text-xs text-muted-foreground font-mono">{r.team_id}</span>
+                            <ChevronRight className={`size-3.5 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                            {r.user_id ? (
+                              <span className="flex flex-col">
+                                <span className="font-medium">{r.display_name || r.email || r.user_id}</span>
+                                <span className="text-xs text-muted-foreground font-mono">{r.user_id}</span>
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">{t("noUser")}</span>
                             )}
                           </span>
                         </TableCell>
+                        <TableCell className="text-right tabular-nums">{r.key_count.toLocaleString(localeTag)}</TableCell>
                         <TableCell className="text-right tabular-nums">{r.api_requests.toLocaleString(localeTag)}</TableCell>
                         <TableCell className="text-right">
                           <InputTokens input={r.input_tokens} cacheRead={r.cache_read_tokens} />
@@ -323,14 +317,14 @@ export default function AdminUsagePage() {
                         <TableCell className="text-right tabular-nums">{r.output_tokens.toLocaleString(localeTag)}</TableCell>
                         <TableCell className="text-right tabular-nums">${r.spend.toFixed(2)}</TableCell>
                       </TableRow>
-                      {isOpen && r.team_id && (
+                      {isOpen && (
                         <TableRow className="hover:bg-transparent">
                           <TableCell colSpan={6} className="bg-muted/30 p-0">
-                            <MemberModelUsage
-                              teamId={r.team_id}
+                            <AdminUserKeyUsage
                               userId={r.user_id}
                               startDate={startDate}
                               endDate={endDate}
+                              teamId={teamId}
                             />
                           </TableCell>
                         </TableRow>
