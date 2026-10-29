@@ -76,7 +76,13 @@ class K8sClient:
         return client.ApiClient()
 
     async def create_or_patch(self, namespace: str, manifests: list[dict]) -> None:
-        """Apply a list of K8s manifests. Creates new resources, patches existing."""
+        """Apply a list of K8s manifests: create what is missing, update what exists.
+
+        Deployments are *replaced*, so a field the portal no longer renders (an env
+        var, a node-selector key, the preStop hook) really goes away; a merge patch
+        would leave it in place. Services and Ingresses keep the merge patch: a
+        Service's clusterIP is immutable and a replace would have to carry it.
+        """
         api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
@@ -87,7 +93,14 @@ class K8sClient:
                 name = manifest["metadata"]["name"]
                 ns = manifest["metadata"].get("namespace", namespace)
                 if kind == "Deployment":
-                    await self._upsert(apps.read_namespaced_deployment, apps.create_namespaced_deployment, apps.patch_namespaced_deployment, name, ns, manifest)
+                    await self._upsert(
+                        apps.read_namespaced_deployment,
+                        apps.create_namespaced_deployment,
+                        apps.replace_namespaced_deployment,
+                        name,
+                        ns,
+                        manifest,
+                    )
                 elif kind == "Service":
                     await self._upsert(core.read_namespaced_service, core.create_namespaced_service, core.patch_namespaced_service, name, ns, manifest)
                 elif kind == "Ingress":
@@ -98,7 +111,8 @@ class K8sClient:
             await api_client.close()
 
     @staticmethod
-    async def _upsert(read_fn, create_fn, patch_fn, name: str, namespace: str, manifest: dict) -> None:
+    async def _upsert(read_fn, create_fn, update_fn, name: str, namespace: str, manifest: dict) -> None:
+        """``update_fn`` is the replace or patch call for an object that already exists."""
         try:
             await read_fn(name=name, namespace=namespace)
             exists = True
@@ -108,7 +122,7 @@ class K8sClient:
             else:
                 raise
         if exists:
-            await patch_fn(name=name, namespace=namespace, body=manifest)
+            await update_fn(name=name, namespace=namespace, body=manifest)
         else:
             await create_fn(namespace=namespace, body=manifest)
 
@@ -140,7 +154,9 @@ class K8sClient:
             await api_client.close()
 
     async def read_deployment_status(self, namespace: str, name: str) -> dict[str, Any]:
-        """Return {'ready': int, 'desired': int, 'available': int, 'conditions': [...]}.
+        """Return {'ready', 'desired', 'available', 'updated', 'total', 'generation',
+        'observed_generation', 'conditions'} — the rollout fields let ``classify``
+        report Updating until every pod runs the current template.
 
         Raises ApiException(404) when the deployment doesn't exist.
         """
@@ -152,6 +168,10 @@ class K8sClient:
                 "ready": int(dep.status.ready_replicas or 0),
                 "desired": int(dep.spec.replicas or 0),
                 "available": int(dep.status.available_replicas or 0),
+                "updated": int(dep.status.updated_replicas or 0),
+                "total": int(dep.status.replicas or 0),
+                "generation": dep.metadata.generation,
+                "observed_generation": dep.status.observed_generation,
                 "conditions": [{"type": c.type, "status": c.status, "reason": c.reason, "message": c.message} for c in (dep.status.conditions or [])],
             }
         finally:

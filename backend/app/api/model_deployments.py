@@ -8,6 +8,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from kubernetes_asyncio.client.exceptions import ApiException
@@ -912,6 +913,25 @@ async def _recipe_for(db: AsyncSession, dep: CustomModelDeployment, recipe_id: s
     return recipe
 
 
+async def _proposed(db: AsyncSession, dep: CustomModelDeployment, recipe: CustomServingRecipe) -> tuple[dict, Any]:
+    """``(values, proposed_row)``: the recipe's values with the deployment's GPU profile
+    folded into the placement (base and P/D pools) exactly as ``_apply_update`` will,
+    so the diff compares what would be stored, not the recipe's bare selector."""
+    values = recipe_reapply.recipe_values(recipe, dep)
+    proposed = recipe_reapply.proposed_row(dep, values)
+    if pd_serving.is_pd(proposed):
+        await _apply_pool_profiles(db, proposed, default_gpu_type=dep.gpu_type)
+    if dep.gpu_type:
+        try:
+            gpu_profile, gpu_label_key = await resolve_gpu_type(db, dep.cluster_id, dep.gpu_type)
+        except UnknownGpuTypeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        apply_profile(proposed, gpu_profile, gpu_label_key)
+    for field in ("node_selector", "tolerations", "gpu_resource_key", "pd_config"):
+        values[field] = getattr(proposed, field)
+    return values, proposed
+
+
 @router.get("/{deployment_id}/recipe-diff")
 async def recipe_diff(
     deployment_id: str,
@@ -922,8 +942,7 @@ async def recipe_diff(
     """What re-applying the recipe would change, and what the rollout needs."""
     dep = await _deployment_or_404(db, deployment_id)
     recipe = await _recipe_for(db, dep, recipe_id)
-    values = recipe_reapply.recipe_values(recipe, dep)
-    proposed = recipe_reapply.proposed_row(dep, values)
+    values, proposed = await _proposed(db, dep, recipe)
     try:
         check_rollout(proposed)
         blocked = None
@@ -959,8 +978,9 @@ async def reapply_recipe(
     dep = await _deployment_or_404(db, deployment_id)
     recipe = await _recipe_for(db, dep, body.recipe_id)
     k8s = await k8s_for_cluster(db, dep.cluster_id)
-    values = recipe_reapply.recipe_values(recipe, dep)
-    changed = [c["field"] for c in recipe_reapply.changes(dep, values)]
+    resolved, _ = await _proposed(db, dep, recipe)
+    changed = [c["field"] for c in recipe_reapply.changes(dep, resolved)]
+    values = recipe_reapply.recipe_values(recipe, dep)  # _apply_update folds the profile in itself
     if dep.gpu_type:
         values["gpu_type"] = dep.gpu_type
     dep.recipe_id = recipe.id
