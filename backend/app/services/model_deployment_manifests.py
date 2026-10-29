@@ -9,7 +9,7 @@ Pure functions, no side effects.
 """
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
-from app.services import pd_serving
+from app.services import pd_serving, serving_rollout
 from app.services.serving_engines import (
     SERVING_PORT,
     container_launch,
@@ -164,6 +164,9 @@ def build_container(
         container["command"] = command
     if _runtime(dep).get("privileged"):
         container["securityContext"] = {"privileged": True}
+    hook = serving_rollout.lifecycle(_runtime(dep))
+    if hook:
+        container["lifecycle"] = hook
     return container
 
 
@@ -187,6 +190,7 @@ def build_pod_spec(
         pod_spec["tolerations"] = list(tols)
     if _runtime(dep).get("host_ipc"):
         pod_spec["hostIPC"] = True
+    pod_spec["terminationGracePeriodSeconds"] = serving_rollout.termination_grace_seconds(_runtime(dep))
     return pod_spec
 
 
@@ -199,6 +203,7 @@ def _deployment(
     replicas: int,
     pod_spec: dict,
     *,
+    strategy: dict,
     pod_annotations: dict | None = None,
 ) -> dict:
     template_meta: dict = {"labels": pod_labels_}
@@ -211,6 +216,7 @@ def _deployment(
         "spec": {
             "replicas": replicas,
             "selector": {"matchLabels": selector},
+            "strategy": strategy,
             "template": {"metadata": template_meta, "spec": pod_spec},
         },
     }
@@ -241,6 +247,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         pod_labels(dep, owner),
         dep.replicas,
         build_pod_spec(dep, [container], volumes),
+        strategy=serving_rollout.strategy(_runtime(dep)),
     )
 
 
@@ -310,6 +317,7 @@ def build_pd_deployments(
                 labels_on_pod,
                 spec.replicas,
                 build_pod_spec(pool, [container], volumes, init_containers=init),
+                strategy=serving_rollout.strategy(_runtime(pool)),
                 pod_annotations=spec.pod_annotations,
             )
         )
