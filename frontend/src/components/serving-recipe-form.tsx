@@ -12,7 +12,7 @@ import type { PdConfig, PdFramework, PdRoleOverride, PoolConfig, ServingEngine, 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DEFAULT_ENGINE_ARGS, ENGINES, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, missingToolCallParser } from "@/lib/serving-engines";
+import { DEFAULT_ENGINE_ARGS, DEFAULT_ENV, DEFAULT_EXTRA_ARGS, ENGINES, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, missingToolCallParser } from "@/lib/serving-engines";
 import { Field } from "@/components/engine-args-fields";
 import { PoolConfigCards } from "@/components/pool-config-cards";
 import { PdRolePanel } from "@/components/pd-role-panel";
@@ -28,7 +28,7 @@ const BLANK: ServingRecipeInput = {
   name: "", description: null, model_path: "", image: "", gpu_count: 1,
   gpu_resource_key: "nvidia.com/gpu", cpu_request: null, cpu_limit: null,
   memory_request: null, memory_limit: null, node_selector: null, tolerations: null,
-  storages: [], vllm_extra_args: null, env: null,
+  storages: [], vllm_extra_args: [...DEFAULT_EXTRA_ARGS.vllm], env: { ...DEFAULT_ENV },
   // Startup + liveness on (empty spec = backend defaults): liveness only starts once startup has passed.
   engine: "vllm", engine_args: DEFAULT_ENGINE_ARGS.vllm, probes: { liveness: {}, startup: {} }, gpu_type: null,
   serving_mode: "aggregated", pd_config: null, runtime: { shm_size_gi: 1 },
@@ -143,9 +143,13 @@ export function ServingRecipeForm({
       if (f.engine === next) return f;
       const otherDefault = ENGINE_DEFAULT_IMAGE[f.engine];
       const image = !f.image.trim() || f.image === otherDefault ? ENGINE_DEFAULT_IMAGE[next] : f.image;
-      // Structured args are engine-specific (reset to the engine's defaults); free-text extra args are the user's and stay.
+      // Structured args are engine-specific (reset to the engine's defaults). Free-text extra args are the user's
+      // and stay, except the old engine's default lines, which give way to the new engine's.
       const engineArgs = DEFAULT_ENGINE_ARGS[next];
-      return { ...f, engine: next, engine_args: engineArgs ? { ...engineArgs } : null, image };
+      const oldDefaults = new Set(DEFAULT_EXTRA_ARGS[f.engine]);
+      const kept = (f.vllm_extra_args ?? []).filter((a) => !oldDefaults.has(a));
+      const extra = [...kept, ...DEFAULT_EXTRA_ARGS[next].filter((a) => !kept.includes(a))];
+      return { ...f, engine: next, engine_args: engineArgs ? { ...engineArgs } : null, vllm_extra_args: extra.length ? extra : null, image };
     });
     setPoolNonce((n) => ({ ...n, base: n.base + 1 }));
   }

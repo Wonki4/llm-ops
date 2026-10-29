@@ -2,8 +2,8 @@
 
 Recipes and deployments carry an optional ``probes`` JSON blob::
 
-    {"readiness": {"path": "/health", "initial_delay_seconds": 60, ...},
-     "liveness":  {"path": "/health", "initial_delay_seconds": 120, ...}}
+    {"readiness": {"path": "/health", "initial_delay_seconds": 10, ...},
+     "liveness":  {"path": "/health", "initial_delay_seconds": 10, ...}}
 
 Every field is optional: a missing readiness block (or missing fields in it)
 falls back to the defaults the portal always used; a missing liveness block
@@ -21,20 +21,23 @@ from app.services.serving_engines import SERVING_PORT
 
 READINESS_DEFAULTS: dict = {
     "path": "/health",
-    "initial_delay_seconds": 60,
-    "period_seconds": 10,
-    "timeout_seconds": 5,
-    "failure_threshold": 30,
+    "initial_delay_seconds": 10,
+    "period_seconds": 15,
+    "timeout_seconds": 3,
+    "failure_threshold": 3,
+    "success_threshold": 1,
 }
 
-# Conservative: only restart a server that has been unresponsive for a while
-# after a generous warm-up, so a slow model load never looks like a hang.
+# Short on purpose: a slow model load is covered by the startup probe, and
+# Kubernetes holds liveness back until startup has passed. A liveness probe
+# without a startup probe would restart a server still loading its weights.
 LIVENESS_DEFAULTS: dict = {
     "path": "/health",
-    "initial_delay_seconds": 120,
-    "period_seconds": 30,
-    "timeout_seconds": 5,
+    "initial_delay_seconds": 10,
+    "period_seconds": 15,
+    "timeout_seconds": 3,
     "failure_threshold": 3,
+    "success_threshold": 1,
 }
 
 
@@ -44,6 +47,7 @@ class ProbeSpec(BaseModel):
     period_seconds: int | None = Field(None, ge=1, le=3600)
     timeout_seconds: int | None = Field(None, ge=1, le=600)
     failure_threshold: int | None = Field(None, ge=1, le=1000)
+    success_threshold: int | None = Field(None, ge=1, le=100)
 
     @field_validator("path")
     @classmethod
@@ -61,16 +65,25 @@ class ProbesSpec(BaseModel):
     liveness: ProbeSpec | None = None
     startup: ProbeSpec | None = None
 
+    @field_validator("liveness", "startup")
+    @classmethod
+    def _single_success(cls, v: ProbeSpec | None) -> ProbeSpec | None:
+        # Kubernetes rejects any other successThreshold on liveness and startup probes.
+        if v is not None and v.success_threshold not in (None, 1):
+            raise ValueError("liveness/startup success_threshold must be 1")
+        return v
 
-# P/D servers load weights for minutes: the llm-d guide probes /v1/models every
-# 30 s for up to 60 min before giving up. Used as the default startup probe for
-# P/D pools; aggregated servings get no startup probe unless the recipe sets one.
+
+# Servers load weights for minutes: probe every 15 s for up to 30 min before
+# giving up. Used as the default startup probe for P/D pools; aggregated
+# servings get no startup probe unless the recipe sets one.
 STARTUP_DEFAULTS_PD: dict = {
     "path": "/health",
-    "initial_delay_seconds": 15,
-    "period_seconds": 30,
-    "timeout_seconds": 5,
+    "initial_delay_seconds": 10,
+    "period_seconds": 15,
+    "timeout_seconds": 3,
     "failure_threshold": 120,
+    "success_threshold": 1,
 }
 
 
@@ -116,6 +129,7 @@ def _k8s_probe(spec: dict, port: int = SERVING_PORT) -> dict:
         "periodSeconds": spec["period_seconds"],
         "timeoutSeconds": spec["timeout_seconds"],
         "failureThreshold": spec["failure_threshold"],
+        "successThreshold": spec["success_threshold"],
     }
 
 
@@ -136,12 +150,12 @@ def render_probes(dep, *, port: int = SERVING_PORT, startup_default: dict | None
     return out
 
 
-def probe_from_k8s(probe: dict | None) -> tuple[dict | None, str | None]:
+def probe_from_k8s(probe: dict | None, serving_port: int = SERVING_PORT) -> tuple[dict | None, str | None]:
     """Reverse of ``_k8s_probe`` for the recipe importer.
 
     Returns ``(spec, warning_code)``. Non-HTTP probes cannot be expressed and
     yield ``(None, "probe_unsupported")``; a probe on another port is kept but
-    flagged, since the portal always probes the serving port.
+    flagged, since the portal always probes the serving port (``serving_port``).
     """
     if not probe:
         return None, None
@@ -154,9 +168,10 @@ def probe_from_k8s(probe: dict | None) -> tuple[dict | None, str | None]:
         ("periodSeconds", "period_seconds"),
         ("timeoutSeconds", "timeout_seconds"),
         ("failureThreshold", "failure_threshold"),
+        ("successThreshold", "success_threshold"),
     ):
         if probe.get(k8s_key) is not None:
             spec[key] = int(probe[k8s_key])
     port = http.get("port")
-    warning = "probe_port_changed" if port not in (None, SERVING_PORT, str(SERVING_PORT), "http") else None
+    warning = "probe_port_changed" if port not in (None, serving_port, str(serving_port), "http") else None
     return spec, warning

@@ -48,7 +48,9 @@ async def test_recipe_draft_parses_live_deployment(client_for_user, super_user, 
     assert body["draft"]["model_path"] == "/models/llama"
     assert body["draft"]["engine_args"] == {"tensor-parallel-size": 2}
     assert body["draft"]["gpu_count"] == 2
-    assert {"code": "port_changed", "detail": "8080 → 8000"} in body["warnings"]
+    # The live port is kept as an extra arg (the Service and probes follow it).
+    assert body["draft"]["vllm_extra_args"] == ["--port=8080"]
+    assert all(w["code"] != "port_changed" for w in body["warnings"])
     assert body["source"]["deployment_name"] == "ext-vllm"
     k8s.read_deployment.assert_awaited_once_with("team-a", "ext-vllm")
 

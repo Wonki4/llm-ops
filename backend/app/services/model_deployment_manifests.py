@@ -10,7 +10,7 @@ Pure functions, no side effects.
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services import pd_serving
-from app.services.serving_engines import SERVING_PORT, container_launch, engine_of
+from app.services.serving_engines import SERVING_PORT, container_launch, engine_of, serving_port
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
 
@@ -207,10 +207,10 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         name=engine_of(dep),
         args=args,
         command=command,
-        env=[{"name": k, "value": str(v)} for k, v in (dep.env or {}).items()],
+        env=[pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()],
         gpu_count=dep.gpu_count,
-        ports=[{"containerPort": VLLM_PORT, "name": "http"}],
-        probes=render_probes(dep),
+        ports=[{"containerPort": serving_port(dep), "name": "http"}],
+        probes=render_probes(dep, port=serving_port(dep)),
         volume_mounts=mounts,
     )
     return _deployment(
@@ -307,7 +307,7 @@ def _service(name: str, namespace: str, labels: dict, selector: dict, target_por
 def build_service(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     names = k8s_resource_names(dep)
     labels = _labels(dep, owner)
-    return _service(names["service"], dep.namespace, labels, labels, VLLM_PORT)
+    return _service(names["service"], dep.namespace, labels, labels, serving_port(dep))
 
 
 def build_pd_services(dep: CustomModelDeployment, owner: str = OWNER) -> list[dict]:

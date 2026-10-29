@@ -1755,6 +1755,7 @@
     "memoryLimit": "메모리 제한량",
     "vllmArgs": "추가 인자 (줄바꿈으로 구분)",
     "env": "환경 변수 (KEY=VALUE, 줄바꿈으로 구분)",
+    "envHint": "값을 fieldRef:<경로>로 쓰면 파드 필드를 참조합니다 (예: POD_IP=fieldRef:status.podIP).",
     "nodeSelector": "노드 셀렉터 (KEY=VALUE, 줄바꿈으로 구분)",
     "pvcName": "PVC 이름",
     "pvcMountPath": "PVC 마운트 경로",
@@ -1795,6 +1796,7 @@
     "sectionEngineArgs": "엔진 인자",
     "engineArgsHint": "비우면 엔진 기본값. 목록에 없는 플래그는 추가 인자로.",
     "extraArgs": "추가 인자 (줄바꿈으로 구분)",
+    "extraArgsPortHint": "한 줄이 인자 하나입니다 (값은 --flag=값). --port=번호를 주면 컨테이너 포트·헬스체크·서비스 targetPort가 함께 바뀝니다.",
     "arg": {
       "tensorParallelSize": "텐서 병렬 크기",
       "pipelineParallelSize": "파이프라인 병렬 크기",
@@ -1875,6 +1877,7 @@
     "probePeriod": "주기 (초)",
     "probeTimeout": "타임아웃 (초)",
     "probeFailureThreshold": "실패 허용 횟수",
+    "probeSuccessThreshold": "성공 허용 횟수",
     "gpuType": "GPU 타입",
     "gpuTypeHint": "배포 클러스터의 같은 이름 GPU 프로필로 노드가 정해집니다.",
     "advancedPlacement": "고급: 배치 직접 지정",

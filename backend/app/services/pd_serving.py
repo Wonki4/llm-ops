@@ -527,10 +527,12 @@ def role_args(dep, spec: RoleSpec) -> list[str]:
     ]
 
 
-def _env_item(name: str, value) -> dict:
+def env_item(name: str, value) -> dict:
+    """One container env entry; a ``fieldRef:<path>`` value renders as valueFrom.fieldRef."""
     text = str(value)
-    if text.startswith(FIELD_REF_PREFIX):
-        return {"name": name, "valueFrom": {"fieldRef": {"fieldPath": text[len(FIELD_REF_PREFIX) :].strip()}}}
+    path = text[len(FIELD_REF_PREFIX) :].strip() if text.startswith(FIELD_REF_PREFIX) else ""
+    if path:  # a bare "fieldRef:" stays a literal value rather than an invalid empty fieldPath
+        return {"name": name, "valueFrom": {"fieldRef": {"fieldPath": path}}}
     return {"name": name, "value": text}
 
 
@@ -541,8 +543,8 @@ def role_env(spec: RoleSpec) -> list[dict]:
     where ``fieldRef:<path>`` values render as valueFrom.
     """
     if spec.explicit:
-        return [_env_item(k, v) for k, v in spec.env.items()]
-    items = [{"name": k, "value": str(v)} for k, v in spec.env.items() if k != NIXL_HOST_ENV]
+        return [env_item(k, v) for k, v in spec.env.items()]
+    items = [env_item(k, v) for k, v in spec.env.items() if k != NIXL_HOST_ENV]
     items.append({"name": NIXL_HOST_ENV, "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}})
     items = [i for i in items if i["name"] != "VLLM_NIXL_SIDE_CHANNEL_PORT"]
     items.append({"name": "VLLM_NIXL_SIDE_CHANNEL_PORT", "value": str(spec.nixl_port)})
@@ -567,7 +569,7 @@ def sidecar_container(image: str, spec: dict | None = None) -> dict:
         "securityContext": {"allowPrivilegeEscalation": False, "runAsNonRoot": True},
     }
     if spec.get("env"):
-        container["env"] = [_env_item(k, v) for k, v in spec["env"].items()]
+        container["env"] = [env_item(k, v) for k, v in spec["env"].items()]
     for kind in ("requests", "limits"):
         if spec.get(kind):
             container["resources"][kind] = {k: str(v) for k, v in spec[kind].items()}

@@ -25,6 +25,21 @@ export const DEFAULT_ENGINE_ARGS: Record<ServingEngine, EngineArgs | null> = {
 };
 
 /**
+ * Free-text extra-args lines a new recipe starts with (swapped for the new engine's when switching engine).
+ * One line is one argv element, so a valued flag is `--flag=value`. SGLang already gets `--host 0.0.0.0` from the portal.
+ */
+export const DEFAULT_EXTRA_ARGS: Record<ServingEngine, string[]> = {
+  vllm: ["--host=0.0.0.0", "--kv-cache-metrics", "--enable-prompt-tokens-details"],
+  sglang: [],
+};
+
+/**
+ * Env a new recipe starts with: a fixed hash seed keeps prefix-cache block hashes stable across pods;
+ * POD_IP is the pod's own IP (`fieldRef:<path>` renders as valueFrom.fieldRef).
+ */
+export const DEFAULT_ENV: Record<string, string> = { PYTHONHASHSEED: "0", POD_IP: "fieldRef:status.podIP" };
+
+/**
  * vLLM refuses to start with --enable-auto-tool-choice but no --tool-call-parser.
  * True when a pool would hit that (the parser may also come from the free-text extra args).
  */

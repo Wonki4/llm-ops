@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LitellmRegistrationCard } from "@/components/litellm-registration-card";
+import { LIVENESS_DEFAULTS, READINESS_DEFAULTS, STARTUP_DEFAULTS } from "@/components/pool-config-cards";
 
 function StatusBadge({ status }: { status: string }) {
   const variant =
@@ -35,15 +36,16 @@ function Field({ label, children, mono }: { label: string; children: React.React
   );
 }
 
-/** `GET /health · delay 60s · every 10s · timeout 5s · fail ×30` with portal defaults filled in. */
-function probeSummary(spec: ProbeSpec | null, defaultPath: string, d: [number, number, number, number]): string {
+/** `GET /health · delay 10s · every 15s · timeout 3s · fail ×3 · success ×1` with portal defaults filled in. */
+function probeSummary(spec: ProbeSpec | null, d: Required<ProbeSpec>): string {
   const p = spec ?? {};
   return [
-    `GET ${p.path ?? defaultPath}`,
-    `delay ${p.initial_delay_seconds ?? d[0]}s`,
-    `every ${p.period_seconds ?? d[1]}s`,
-    `timeout ${p.timeout_seconds ?? d[2]}s`,
-    `fail ×${p.failure_threshold ?? d[3]}`,
+    `GET ${p.path ?? d.path}`,
+    `delay ${p.initial_delay_seconds ?? d.initial_delay_seconds}s`,
+    `every ${p.period_seconds ?? d.period_seconds}s`,
+    `timeout ${p.timeout_seconds ?? d.timeout_seconds}s`,
+    `fail ×${p.failure_threshold ?? d.failure_threshold}`,
+    `success ×${p.success_threshold ?? d.success_threshold}`,
   ].join(" · ");
 }
 
@@ -210,12 +212,12 @@ export default function DeploymentDetailPage() {
           </div>
           {dep.serving_mode !== "pd" && (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
+            <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, READINESS_DEFAULTS)}</Field>
             <Field label={t("probeLiveness")} mono>
-              {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, "/health", [120, 30, 5, 3])}
+              {dep.probes?.liveness == null ? t("probeOff") : probeSummary(dep.probes.liveness, LIVENESS_DEFAULTS)}
             </Field>
             <Field label={t("probeStartup")} mono>
-              {dep.probes?.startup == null ? t("probeOff") : probeSummary(dep.probes.startup, "/health", [15, 30, 5, 120])}
+              {dep.probes?.startup == null ? t("probeOff") : probeSummary(dep.probes.startup, STARTUP_DEFAULTS)}
             </Field>
           </div>
           )}
@@ -264,8 +266,8 @@ export default function DeploymentDetailPage() {
                         {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
                       </Field>
                       <Field label={t("pdStorage")} mono>{(eff.storages ?? []).length ? (eff.storages ?? []).map((s) => s.mount_path).join(", ") : "-"}</Field>
-                      <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, "/health", [60, 10, 5, 30])}</Field>
-                      <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, "/health", [15, 30, 5, 120])}</Field>
+                      <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, READINESS_DEFAULTS)}</Field>
+                      <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, STARTUP_DEFAULTS)}</Field>
                       <Field label={t("pdPlacement")} mono>
                         {eff.node_selector && Object.keys(eff.node_selector).length > 0
                           ? Object.entries(eff.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")
