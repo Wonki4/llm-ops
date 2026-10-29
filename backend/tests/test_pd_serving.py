@@ -281,9 +281,12 @@ def test_aggregated_output_unchanged_without_runtime():
     )
     m = build_deployment(dep)
     pod = m["spec"]["template"]["spec"]
-    assert list(pod.keys()) == ["containers", "volumes"]
+    # terminationGracePeriodSeconds and the preStop lifecycle are rollout defaults, rendered always.
+    assert list(pod.keys()) == ["containers", "volumes", "terminationGracePeriodSeconds"]
     c = pod["containers"][0]
-    assert list(c.keys()) == ["name", "image", "args", "ports", "resources", "env", "volumeMounts", "readinessProbe"]
+    assert list(c.keys()) == [
+        "name", "image", "args", "ports", "resources", "env", "volumeMounts", "readinessProbe", "lifecycle",
+    ]
     assert c["resources"] == {} and "securityContext" not in c and "hostIPC" not in pod
     assert m["spec"]["selector"]["matchLabels"] == {"llm-ops/managed-by": "llm-ops-portal", "llm-ops/model-name": "glm"}
     assert k8s_resource_names(dep) == {

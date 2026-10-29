@@ -88,3 +88,47 @@ def test_surge_gpus():
     dep = _pd_dep()
     dep.pd_config["decode"]["runtime"] = {"rollout": "replace"}
     assert ro.surge_gpus(dep) == 8
+
+
+# ─── manifest rendering ───────────────────────────────────────────────────────
+
+
+def test_build_deployment_renders_rollout_defaults():
+    from app.services.model_deployment_manifests import build_deployment
+
+    m = build_deployment(_dep())
+    assert m["spec"]["strategy"] == {"type": "RollingUpdate", "rollingUpdate": {"maxSurge": 1, "maxUnavailable": 0}}
+    pod = m["spec"]["template"]["spec"]
+    assert pod["terminationGracePeriodSeconds"] == 120
+    assert pod["containers"][0]["lifecycle"] == {"preStop": {"exec": {"command": ["sh", "-c", "sleep 10"]}}}
+
+
+def test_build_deployment_renders_runtime_rollout_overrides():
+    from app.services.model_deployment_manifests import build_deployment
+
+    runtime = {"rollout": "replace", "termination_grace_seconds": 45, "prestop_sleep_seconds": 0}
+    m = build_deployment(_dep(replicas=2, runtime=runtime))
+    assert m["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 0, "maxUnavailable": 1}
+    pod = m["spec"]["template"]["spec"]
+    assert pod["terminationGracePeriodSeconds"] == 45
+    assert "lifecycle" not in pod["containers"][0]
+
+
+def test_pd_pool_runtime_overrides_rollout():
+    from app.services.model_deployment_manifests import build_pd_deployments
+
+    dep = _pd_dep(runtime={"termination_grace_seconds": 200})
+    dep.pd_config["decode"]["replicas"] = 2
+    dep.pd_config["decode"]["runtime"] = {"rollout": "replace"}
+    prefill, decode = build_pd_deployments(dep)
+    assert prefill["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 1, "maxUnavailable": 0}
+    assert decode["spec"]["strategy"]["rollingUpdate"] == {"maxSurge": 0, "maxUnavailable": 1}
+    # A pool's runtime replaces the base's (pool_row semantics): prefill inherits the
+    # 200 s grace, decode set its own runtime and so gets the default grace.
+    assert prefill["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] == 200
+    assert decode["spec"]["template"]["spec"]["terminationGracePeriodSeconds"] == 120
+    for m in (prefill, decode):
+        pod = m["spec"]["template"]["spec"]
+        assert pod["containers"][0]["lifecycle"]["preStop"]["exec"]["command"] == ["sh", "-c", "sleep 10"]
+    # the decode init sidecar gets no preStop hook
+    assert "lifecycle" not in decode["spec"]["template"]["spec"]["initContainers"][0]
