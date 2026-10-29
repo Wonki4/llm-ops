@@ -196,3 +196,55 @@ def test_invalid_port_flag_rejected(bad):
         validate_port_flag(bad)
     with pytest.raises(ValueError):
         validate_engine_args({"port": bad[0].partition("=")[2] or "x"})
+
+
+# ─── KV-event ports (--kv-events-config) ─────────────────────────────────────
+
+_KV_CFG = (
+    '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://*:5556",'
+    '"replay_endpoint":"tcp://*:5559","topic":"kv@$(POD_IP)@m"}'
+)
+_KV_PORTS = [
+    {"containerPort": 5556, "name": "kv-events", "protocol": "TCP"},
+    {"containerPort": 5559, "name": "kv-replay", "protocol": "TCP"},
+]
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [f"--kv-events-config={_KV_CFG}"],
+        ["--kv-events-config", _KV_CFG],
+        [f"--kv_events_config={_KV_CFG}"],
+        ["--kv-events-config.endpoint=tcp://*:5556", "--kv-events-config.replay_endpoint=tcp://*:5559"],
+    ],
+)
+def test_kv_events_config_adds_container_ports(extra):
+    c = _container(build_deployment(_dep(vllm_extra_args=extra)))
+    assert c["ports"] == [{"containerPort": 8000, "name": "http"}, *_KV_PORTS]
+    svc = build_service(_dep(vllm_extra_args=extra))
+    assert [p["targetPort"] for p in svc["spec"]["ports"]] == [8000]  # subscribers dial the pod IP
+
+
+def test_kv_events_config_from_engine_args():
+    c = _container(build_deployment(_dep(engine_args={"kv-events-config": _KV_CFG})))
+    assert c["ports"][1:] == _KV_PORTS
+
+
+@pytest.mark.parametrize(
+    "cfg",
+    [
+        '{"enable_kv_cache_events":true,"publisher":"zmq"}',  # implicit default endpoint is not declared
+        '{"endpoint":"tcp://epp.ns.svc:5557"}',  # connects out to a central subscriber
+        "not-json",
+    ],
+)
+def test_kv_events_config_without_bound_ports(cfg):
+    c = _container(build_deployment(_dep(vllm_extra_args=[f"--kv-events-config={cfg}"])))
+    assert c["ports"] == [{"containerPort": 8000, "name": "http"}]
+
+
+def test_kv_events_port_clashing_with_serving_port_is_not_duplicated():
+    extra = ["--port=5556", '--kv-events-config={"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}']
+    c = _container(build_deployment(_dep(vllm_extra_args=extra)))
+    assert c["ports"] == [{"containerPort": 5556, "name": "http"}, _KV_PORTS[1]]
