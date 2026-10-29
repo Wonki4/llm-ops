@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
-import type { GpuTypeOption, PoolConfig, ProbeSpec, ProbesSpec, RuntimeOptions, ServingEngine } from "@/types";
+import type { GpuTypeOption, PoolConfig, ProbeSpec, ProbesSpec, RolloutMode, RuntimeOptions, ServingEngine } from "@/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StorageMountsEditor } from "@/components/storage-mounts-editor";
@@ -65,9 +65,12 @@ export function PoolConfigCards({
   function setRuntime(patch: Partial<RuntimeOptions>) {
     const next: RuntimeOptions = { ...runtime, ...patch };
     const empty = !next.shm_size_gi && !next.host_ipc && !next.privileged
-      && !Object.keys(next.extra_resources ?? {}).length && !Object.keys(next.extra_ports ?? {}).length;
+      && !Object.keys(next.extra_resources ?? {}).length && !Object.keys(next.extra_ports ?? {}).length
+      && !next.rollout && next.termination_grace_seconds == null && next.prestop_sleep_seconds == null;
     onChange({ runtime: empty ? null : next });
   }
+  const seconds = (k: "termination_grace_seconds" | "prestop_sleep_seconds") => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setRuntime({ [k]: e.target.value === "" ? null : Number(e.target.value) });
 
   const probes = value.probes ?? {};
   const probeSummary = [
@@ -81,6 +84,9 @@ export function PoolConfigCards({
     runtime.privileged && "privileged",
     ...Object.entries(runtime.extra_resources ?? {}).map(([k, v]) => `${k}=${v}`),
     ...Object.entries(runtime.extra_ports ?? {}).map(([k, v]) => `${k}:${v}`),
+    runtime.rollout === "replace" && "rollout=replace",
+    runtime.termination_grace_seconds != null && `grace=${runtime.termination_grace_seconds}s`,
+    runtime.prestop_sleep_seconds != null && `preStop=${runtime.prestop_sleep_seconds}s`,
   ].filter(Boolean).join(" · ");
   const placementSummary = [
     value.gpu_resource_key !== "nvidia.com/gpu" && value.gpu_resource_key,
@@ -243,6 +249,34 @@ export function PoolConfigCards({
             }}
           />
         </Field>
+        <Field id={id("rollout")} label={t("runtimeRollout")} hint={t("runtimeRolloutHint")}>
+          <select
+            id={id("rollout")}
+            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            value={runtime.rollout ?? ROLLOUT_DEFAULTS.rollout}
+            onChange={(e) => setRuntime({ rollout: e.target.value === "replace" ? "replace" : null })}
+          >
+            <option value="surge">{t("runtimeRolloutSurge")}</option>
+            <option value="replace">{t("runtimeRolloutReplace")}</option>
+          </select>
+        </Field>
+        <Field id={id("termination-grace")} label={t("runtimeTerminationGrace")} hint={t("runtimeGracefulHint")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              id={id("termination-grace")} type="number" min={1} max={3600} className="font-mono"
+              placeholder={String(ROLLOUT_DEFAULTS.termination_grace_seconds)}
+              value={runtime.termination_grace_seconds ?? ""} onChange={seconds("termination_grace_seconds")}
+            />
+            <div className="space-y-1">
+              <Input
+                id={id("prestop-sleep")} type="number" min={0} max={600} className="font-mono"
+                placeholder={String(ROLLOUT_DEFAULTS.prestop_sleep_seconds)} aria-label={t("runtimePrestopSleep")}
+                value={runtime.prestop_sleep_seconds ?? ""} onChange={seconds("prestop_sleep_seconds")}
+              />
+              <p className="text-[11px] text-muted-foreground">{t("runtimePrestopSleep")}</p>
+            </div>
+          </div>
+        </Field>
       </CollapsibleSection>
 
       <CollapsibleSection title={t("advancedPlacement")} summary={placementSummary || t("summaryDefault")} hint={t("advancedPlacementHint")}>
@@ -277,6 +311,19 @@ export const LIVENESS_DEFAULTS: Required<ProbeSpec> = {
 export const STARTUP_DEFAULTS: Required<ProbeSpec> = {
   path: "/health", initial_delay_seconds: 10, period_seconds: 15, timeout_seconds: 3, failure_threshold: 120, success_threshold: 1,
 };
+/** Mirrors backend serving_rollout defaults. */
+export const ROLLOUT_DEFAULTS: { rollout: RolloutMode; termination_grace_seconds: number; prestop_sleep_seconds: number } = {
+  rollout: "surge", termination_grace_seconds: 120, prestop_sleep_seconds: 10,
+};
+/** `surge · grace 120s · preStop 10s` with the defaults filled in. */
+export function rolloutSummary(runtime: RuntimeOptions | null | undefined): string {
+  const r = runtime ?? {};
+  return [
+    r.rollout ?? ROLLOUT_DEFAULTS.rollout,
+    `grace ${r.termination_grace_seconds ?? ROLLOUT_DEFAULTS.termination_grace_seconds}s`,
+    `preStop ${r.prestop_sleep_seconds ?? ROLLOUT_DEFAULTS.prestop_sleep_seconds}s`,
+  ].join(" · ");
+}
 const PROBE_NUMERIC: (keyof ProbeSpec)[] = [
   "initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold", "success_threshold",
 ];
