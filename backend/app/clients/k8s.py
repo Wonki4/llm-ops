@@ -351,16 +351,19 @@ class K8sClient:
         finally:
             await api_client.close()
 
-    async def list_deployments_all(self) -> list[dict]:
-        """List Deployments across all namespaces, shaped for discovery.
+    async def list_deployments(self, namespace: str | None = None) -> list[dict]:
+        """List the Deployments in ``namespace`` (None = every namespace), shaped for discovery.
 
-        One cluster-wide LIST call. Used by the external-serving discovery
-        endpoint; the RBAC ClusterRole already grants deployments list.
+        One LIST call. Used by the external-serving discovery scan, which asks for
+        one namespace at a time; the RBAC ClusterRole already grants deployments list.
         """
         api_client = await self._api_client()
         try:
             apps = client.AppsV1Api(api_client)
-            result = await apps.list_deployment_for_all_namespaces()
+            if namespace:
+                result = await apps.list_namespaced_deployment(namespace=namespace)
+            else:
+                result = await apps.list_deployment_for_all_namespaces()
             items: list[dict] = []
             for dep in result.items:
                 containers = dep.spec.template.spec.containers or []

@@ -41,7 +41,7 @@ def test_classify_failed_on_progress_deadline():
     assert status == "Failed"
 
 
-# ─── list_deployments_all ────────────────────────────────────
+# ─── list_deployments ────────────────────────────────────
 
 
 def _fake_k8s_deployment(name="ext-vllm", namespace="team-a", image="vllm/vllm-openai:v0.6.0",
@@ -59,9 +59,9 @@ def _fake_k8s_deployment(name="ext-vllm", namespace="team-a", image="vllm/vllm-o
     return dep
 
 
-async def test_list_deployments_all_shapes_items():
+async def test_list_deployments_shapes_items_from_one_namespace():
     fake_apps = MagicMock()
-    fake_apps.list_deployment_for_all_namespaces = AsyncMock(
+    fake_apps.list_namespaced_deployment = AsyncMock(
         return_value=types.SimpleNamespace(items=[_fake_k8s_deployment()])
     )
     fake_api_client = MagicMock()
@@ -70,8 +70,10 @@ async def test_list_deployments_all_shapes_items():
     k8s = K8sClient()
     with patch.object(K8sClient, "_api_client", AsyncMock(return_value=fake_api_client)), \
          patch("app.clients.k8s.client.AppsV1Api", return_value=fake_apps):
-        items = await k8s.list_deployments_all()
+        items = await k8s.list_deployments("team-a")
 
+    fake_apps.list_namespaced_deployment.assert_awaited_once_with(namespace="team-a")
+    fake_apps.list_deployment_for_all_namespaces.assert_not_called()
     assert len(items) == 1
     item = items[0]
     assert item["name"] == "ext-vllm"
@@ -134,18 +136,20 @@ def test_missing_model_arg_gives_none_path():
 def _fake_client(deployments=None, error=None):
     fake = MagicMock()
     if error is not None:
-        fake.list_deployments_all = AsyncMock(side_effect=error)
+        fake.list_deployments = AsyncMock(side_effect=error)
     else:
-        fake.list_deployments_all = AsyncMock(return_value=deployments or [])
+        fake.list_deployments = AsyncMock(return_value=deployments or [])
     return fake
 
 
 async def test_scan_clusters_merges_and_tags_cluster():
+    prod = _fake_client([_raw_dep(name="prod-vllm", namespace="ml")])
     targets = [
-        (None, "default", _fake_client([_raw_dep()])),
-        ("cid-1", "prod", _fake_client([_raw_dep(name="prod-vllm", namespace="ml")])),
+        (None, "default", _fake_client([_raw_dep()]), "team-a"),
+        ("cid-1", "prod", prod, "ml"),
     ]
     servings, errors = await scan_clusters(targets)
+    prod.list_deployments.assert_awaited_once_with("ml")
     assert errors == []
     names = {(s["cluster_name"], s["deployment_name"]) for s in servings}
     assert names == {("default", "ext-vllm"), ("prod", "prod-vllm")}
@@ -154,16 +158,16 @@ async def test_scan_clusters_merges_and_tags_cluster():
 
 async def test_scan_clusters_partial_failure_reports_error():
     targets = [
-        (None, "default", _fake_client([_raw_dep()])),
-        ("cid-1", "prod", _fake_client(error=RuntimeError("connection refused"))),
+        (None, "default", _fake_client([_raw_dep()]), "team-a"),
+        ("cid-1", "prod", _fake_client(error=RuntimeError("connection refused")), "ml"),
     ]
     servings, errors = await scan_clusters(targets)
     assert len(servings) == 1
-    assert errors == [{"cluster": "prod", "message": "connection refused"}]
+    assert errors == [{"cluster": "prod", "namespace": "ml", "message": "connection refused"}]
 
 
 async def test_scan_clusters_not_configured_is_silent():
-    targets = [(None, "default", _fake_client(error=K8sNotConfigured("no kubeconfig")))]
+    targets = [(None, "default", _fake_client(error=K8sNotConfigured("no kubeconfig")), "default")]
     servings, errors = await scan_clusters(targets)
     assert servings == [] and errors == []
 
@@ -173,8 +177,8 @@ async def test_scan_clusters_timeout_reports_error():
         await asyncio.sleep(10)
 
     fake = MagicMock()
-    fake.list_deployments_all = MagicMock(side_effect=lambda: _hang())
-    servings, errors = await scan_clusters([("cid-1", "slow", fake)], timeout=0.05)
+    fake.list_deployments = MagicMock(side_effect=lambda ns: _hang())
+    servings, errors = await scan_clusters([("cid-1", "slow", fake, "ml")], timeout=0.05)
     assert servings == []
     assert errors[0]["cluster"] == "slow"
     assert "timed out" in errors[0]["message"]
@@ -203,7 +207,7 @@ def _serving(cluster_id=None, cluster_name="default", name="ext-vllm", namespace
 
 
 async def test_get_external_servings(client_for_user, super_user, mock_db):
-    # execute #1: registered clusters (none) / execute #2: registrations (none)
+    # execute #1: registrations (none) / execute #2: registered clusters (none)
     mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([])])
     with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
         async with client_for_user(super_user) as client:
@@ -225,7 +229,7 @@ async def test_get_external_servings_joins_registration(client_for_user, super_u
     reg.model_name = "llama-3-8b"
     reg.api_base = "https://ext.example.com"
     reg.litellm_model_id = "litellm-abc"
-    mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([reg])])
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([reg]), _exec_result([])])
     with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/model-deployments/external")
@@ -252,47 +256,78 @@ async def test_get_external_servings_requires_super_user(client_for_user, regula
     assert resp.status_code == 403
 
 
-async def test_get_external_servings_scans_registered_clusters(client_for_user, super_user, mock_db):
-    """Registered clusters become scan targets after the portal default, and a
-    registration keyed by the cluster's UUID joins onto that cluster's serving."""
-    cluster_id = uuid.uuid4()
-    cluster_row = MagicMock()
-    cluster_row.id = cluster_id
-    cluster_row.name = "prod"
+async def test_get_external_servings_scans_representative_and_registered_namespaces(
+    client_for_user, super_user, mock_db
+):
+    """Only the representative cluster's namespace plus each registration's namespace is
+    scanned (not every namespace of every cluster); a registration keyed by the
+    cluster's UUID joins onto that cluster's serving."""
+    rep_id, prod_id, other_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
 
+    def _row(cid, name, ns, is_default=False):
+        return types.SimpleNamespace(id=cid, name=name, namespace=ns, is_default=is_default)
+
+    clusters = [_row(rep_id, "main", "serving", True), _row(prod_id, "prod", "default"), _row(other_id, "idle", "x")]
     reg = MagicMock()
     reg.id = uuid.uuid4()
-    reg.cluster_id = cluster_id
+    reg.cluster_id = prod_id
     reg.namespace = "ml"
     reg.deployment_name = "prod-vllm"
     reg.model_name = "qwen-72b"
     reg.api_base = "https://prod.example.com"
     reg.litellm_model_id = "litellm-prod-1"
 
-    mock_db.execute = AsyncMock(side_effect=[_exec_result([cluster_row]), _exec_result([reg])])
+    mock_db.execute = AsyncMock(side_effect=[_exec_result([reg]), _exec_result(clusters)])
 
     captured = {}
 
     async def _fake_scan(targets, timeout=5.0):
         captured["targets"] = targets
-        serving = _serving(cluster_id=str(cluster_id), cluster_name="prod", name="prod-vllm", namespace="ml")
+        serving = _serving(cluster_id=str(prod_id), cluster_name="prod", name="prod-vllm", namespace="ml")
         return [serving], []
 
     with (
-        patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=MagicMock())),
+        patch("app.services.clusters._client_for_row", MagicMock(return_value=MagicMock())),
         patch("app.api.model_deployments.scan_clusters", AsyncMock(side_effect=_fake_scan)),
     ):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/model-deployments/external")
 
     assert resp.status_code == 200
-    targets = captured["targets"]
-    assert len(targets) == 2
-    assert targets[0][0] is None and targets[0][1] == "default"
-    assert targets[1][0] == str(cluster_id) and targets[1][1] == "prod"
+    scopes = [(t[0], t[1], t[3]) for t in captured["targets"]]
+    assert scopes == [(str(rep_id), "main", "serving"), (str(prod_id), "prod", "ml")]
     registration = resp.json()["servings"][0]["registration"]
     assert registration["model_name"] == "qwen-72b"
     assert registration["litellm_model_id"] == "litellm-prod-1"
+
+
+# ─── scan_scopes ─────────────────────────────────────────────
+
+
+async def test_scan_scopes_without_representative_uses_portal_default_namespace():
+    from app.config import settings
+    from app.services.clusters import scan_scopes
+
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=_exec_result([]))
+    scopes = await scan_scopes(db, [(None, "team-a"), (None, settings.k8s_default_namespace), (uuid.uuid4(), "gone")])
+    assert [(s[0], s[1], s[3]) for s in scopes] == [
+        (None, "default", settings.k8s_default_namespace),
+        (None, "default", "team-a"),
+    ]  # duplicates and a deleted cluster are dropped
+
+
+async def test_scan_scopes_representative_false_only_scans_extra():
+    from app.services.clusters import scan_scopes
+
+    cid = uuid.uuid4()
+    row = types.SimpleNamespace(id=cid, name="prod", namespace="default", is_default=True)
+    db = MagicMock()
+    db.execute = AsyncMock(return_value=_exec_result([row]))
+    with patch("app.services.clusters._client_for_row", MagicMock(return_value=MagicMock())) as mk:
+        scopes = await scan_scopes(db, [(cid, "llm"), (str(cid), "llm2")], representative=False)
+    assert [(s[0], s[3]) for s in scopes] == [(str(cid), "llm"), (str(cid), "llm2")]
+    assert mk.call_count == 1  # one client per cluster
 
 
 # ─── POST /external/register ─────────────────────────────────

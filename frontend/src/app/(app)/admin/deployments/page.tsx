@@ -120,7 +120,7 @@ function DeploymentsList() {
       {scanErrors.length > 0 && (
         <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 px-4 py-3 text-sm">
           <AlertTriangle className="size-4 shrink-0 text-yellow-600" />
-          <span>{t("scanErrors", { clusters: scanErrors.map((e) => e.cluster).join(", ") })}</span>
+          <span>{t("scanErrors", { clusters: scanErrors.map((e) => (e.namespace ? `${e.cluster}/${e.namespace}` : e.cluster)).join(", ") })}</span>
         </div>
       )}
 

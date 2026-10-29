@@ -810,7 +810,7 @@
     "createdAt": "Created",
     "colCluster": "Cluster",
     "externalBadge": "External",
-    "externalHint": "Discovered from cluster scan — read-only",
+    "externalHint": "Discovered from cluster scan — read-only. Only the default cluster's default namespace and namespaces with registered servings are scanned.",
     "scanErrors": "Some clusters could not be scanned: {clusters}",
     "register": "Register",
     "registered": "Registered",

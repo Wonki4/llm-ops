@@ -810,7 +810,7 @@
     "createdAt": "생성",
     "colCluster": "클러스터",
     "externalBadge": "External",
-    "externalHint": "클러스터 스캔으로 발견됨 — 조회 전용",
+    "externalHint": "클러스터 스캔으로 발견됨 — 조회 전용. 기본 클러스터의 기본 네임스페이스와 등록된 서빙이 있는 네임스페이스만 스캔합니다.",
     "scanErrors": "일부 클러스터를 스캔하지 못했습니다: {clusters}",
     "register": "등록",
     "registered": "등록됨",
