@@ -332,7 +332,7 @@ export default function ModelDashboardPage() {
                       </p>
                     </div>
                   ) : (
-                    <ModelTable rows={teamRows} />
+                    <ModelTable rows={teamRows} showCopyName />
                   )}
                 </div>
               </>
