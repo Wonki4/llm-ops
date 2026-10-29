@@ -10,7 +10,13 @@ Pure functions, no side effects.
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services import pd_serving
-from app.services.serving_engines import SERVING_PORT, container_launch, engine_of, serving_port
+from app.services.serving_engines import (
+    SERVING_PORT,
+    container_launch,
+    engine_of,
+    serving_port,
+    with_kv_event_ports,
+)
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
 
@@ -209,7 +215,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         command=command,
         env=[pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()],
         gpu_count=dep.gpu_count,
-        ports=[{"containerPort": serving_port(dep), "name": "http"}],
+        ports=with_kv_event_ports([{"containerPort": serving_port(dep), "name": "http"}], args),
         probes=render_probes(dep, port=serving_port(dep)),
         volume_mounts=mounts,
     )
@@ -248,15 +254,19 @@ def build_pd_deployments(
             pd_serving.LABEL_PD_ROLE: role,
             pd_serving.LABEL_ROLE: role,
         }
-        ports = [
-            {"containerPort": spec.port, "name": "http"},
-            {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
-        ]
+        args = pd_serving.role_args(dep, spec)
+        ports = with_kv_event_ports(
+            [
+                {"containerPort": spec.port, "name": "http"},
+                {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
+            ],
+            args,
+        )
         volumes, mounts = _volumes(pool)
         container = build_container(
             pool,
             name="vllm",
-            args=pd_serving.role_args(dep, spec),
+            args=args,
             command=None,
             env=pd_serving.role_env(spec),
             gpu_count=spec.gpu_count,

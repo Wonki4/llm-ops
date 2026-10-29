@@ -9,6 +9,7 @@ only checks key shape and value type so new flags need no server change.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Literal
 
@@ -97,6 +98,61 @@ def validate_port_flag(extra_args: list[str] | None) -> list[str] | None:
     if port is not None:
         parse_port(port)
     return extra_args
+
+
+KV_EVENTS_FLAG = "--kv-events-config"
+# Config key -> container port name for the ZMQ sockets the server binds on the pod.
+_KV_EVENT_PORTS = {"endpoint": "kv-events", "replay_endpoint": "kv-replay"}
+_TCP_ENDPOINT = re.compile(r"^tcp://(?P<host>.+):(?P<port>\d+)$")
+
+
+def _kv_events_config(flags: list[str]) -> dict:
+    """``--kv-events-config`` as a dict: the JSON form (``=``/space) and dotted keys, last wins."""
+    cfg: dict = {}
+    i = 0
+    while i < len(flags):
+        flag, eq, value = flags[i].partition("=")
+        name = flag.replace("_", "-")
+        if name == KV_EVENTS_FLAG or name.startswith(KV_EVENTS_FLAG + "."):
+            if not eq and i + 1 < len(flags):
+                value = flags[i + 1]
+                i += 1
+            if name == KV_EVENTS_FLAG:
+                try:
+                    parsed = json.loads(value)
+                except ValueError:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    cfg.update(parsed)
+            else:
+                cfg[name[len(KV_EVENTS_FLAG) + 1 :].replace("-", "_")] = value
+        i += 1
+    return cfg
+
+
+def kv_event_ports(args: list[str]) -> list[dict]:
+    """Container ports for the KV-event sockets ``--kv-events-config`` binds on the pod.
+
+    Mirrors vLLM: the publisher ``endpoint`` binds only on a wildcard host (``tcp://*:5556``),
+    otherwise it connects out and needs no pod port; ``replay_endpoint`` always binds.
+    Only tcp endpoints written in the config count (the engine's implicit default does not).
+    """
+    cfg = _kv_events_config(args)
+    out: list[dict] = []
+    for key, port_name in _KV_EVENT_PORTS.items():
+        m = _TCP_ENDPOINT.match(str(cfg.get(key) or "").strip())
+        if not m or (key == "endpoint" and "*" not in m["host"] and "::" not in m["host"]):
+            continue
+        port = int(m["port"])
+        if 1 <= port <= 65535:
+            out.append({"containerPort": port, "name": port_name, "protocol": "TCP"})
+    return out
+
+
+def with_kv_event_ports(ports: list[dict], args: list[str]) -> list[dict]:
+    """``ports`` plus the KV-event ports, skipping any number already declared."""
+    taken = {p["containerPort"] for p in ports}
+    return ports + [p for p in kv_event_ports(args) if p["containerPort"] not in taken]
 
 
 def render_engine_args(args: dict | None) -> list[str]:

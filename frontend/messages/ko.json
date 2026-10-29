@@ -1796,7 +1796,7 @@
     "sectionEngineArgs": "엔진 인자",
     "engineArgsHint": "비우면 엔진 기본값. 목록에 없는 플래그는 추가 인자로.",
     "extraArgs": "추가 인자 (줄바꿈으로 구분)",
-    "extraArgsPortHint": "한 줄이 인자 하나입니다 (값은 --flag=값). --port=번호를 주면 컨테이너 포트·헬스체크·서비스 targetPort가 함께 바뀝니다.",
+    "extraArgsPortHint": "한 줄이 인자 하나입니다 (값은 --flag=값). --port=번호를 주면 컨테이너 포트·헬스체크·서비스 targetPort가 함께 바뀝니다. --kv-events-config의 endpoint·replay_endpoint 포트(예: tcp://*:5556)는 kv-events·kv-replay 컨테이너 포트로 추가됩니다.",
     "arg": {
       "tensorParallelSize": "텐서 병렬 크기",
       "pipelineParallelSize": "파이프라인 병렬 크기",

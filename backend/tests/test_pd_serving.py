@@ -602,3 +602,14 @@ def test_router_values_without_values_yaml_equal_the_previous_render():
         serving_mode="pd",
         pd_router=router,
     )
+
+
+def test_pd_pools_declare_kv_event_ports():
+    cfg = '{"enable_kv_cache_events":true,"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}'
+    deps = build_pd_deployments(_dep(vllm_extra_args=[f"--kv-events-config={cfg}"]), sidecar_image="sc:v1")
+    for m in deps:
+        ports = m["spec"]["template"]["spec"]["containers"][0]["ports"]
+        assert ports[2:] == [
+            {"containerPort": 5556, "name": "kv-events", "protocol": "TCP"},
+            {"containerPort": 5559, "name": "kv-replay", "protocol": "TCP"},
+        ]
