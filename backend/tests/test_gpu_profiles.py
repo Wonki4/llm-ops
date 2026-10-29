@@ -45,12 +45,16 @@ def test_schema_columns():
 # ─── names ────────────────────────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("ok", ["a100-80g", "h100", "l40s.mig-3g", "0abc"])
+# Names follow the Kubernetes label-value charset: a node label value (e.g.
+# nvidia.com/gpu.product=NVIDIA-A100-SXM4-80GB) can be used as the name as-is.
+@pytest.mark.parametrize(
+    "ok", ["a100-80g", "h100", "l40s.mig-3g", "0abc", "A100", "a100_80g", "NVIDIA-A100-SXM4-80GB", "x" * 64]
+)
 def test_valid_names(ok):
     assert validate_profile_name(f" {ok} ") == ok
 
 
-@pytest.mark.parametrize("bad", ["", "A100", "-a100", "a 100", "a100_80g", "x" * 65])
+@pytest.mark.parametrize("bad", ["", "-a100", "_a100", ".a100", "a 100", "a100/80g", "a100=80g", "x" * 65])
 def test_invalid_names(bad):
     with pytest.raises(ValueError):
         validate_profile_name(bad)

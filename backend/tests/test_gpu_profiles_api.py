@@ -55,6 +55,18 @@ async def test_create_profile_201_and_409(client_for_user, super_user, mock_db):
     assert resp.status_code == 409
 
 
+async def test_create_profile_named_after_uppercase_node_label(client_for_user, super_user, mock_db):
+    """The node scan's "create profile" fills the name with the label value as-is."""
+    label = "NVIDIA-A100-SXM4-80GB"
+    mock_db.execute = AsyncMock(return_value=_result(scalar=None))
+    async with client_for_user(super_user) as client:
+        resp = await client.post(
+            "/api/admin/k8s-clusters/default/gpu-profiles", json={**_BODY, "name": label, "label_value": label}
+        )
+    assert resp.status_code == 201, resp.text
+    assert (resp.json()["name"], resp.json()["label_value"]) == (label, label)
+
+
 async def test_create_profile_rejects_bad_name_and_cluster_id(client_for_user, super_user, mock_db):
     async with client_for_user(super_user) as client:
         resp = await client.post("/api/admin/k8s-clusters/default/gpu-profiles", json={**_BODY, "name": "A100 80G"})
@@ -180,6 +192,20 @@ async def test_create_deployment_resolves_profile_into_placement(client_for_user
     assert dep.gpu_resource_key == "nvidia.com/mig-3g.40gb"
     assert dep.tolerations == [{"key": "gpu", "operator": "Exists", "effect": "NoSchedule"}]
     assert resp.json()["gpu_type"] == "a100-80g"
+
+
+async def test_create_deployment_with_uppercase_gpu_type(client_for_user, super_user, mock_db):
+    label = "NVIDIA-A100-SXM4-80GB"
+    profile = _profile(name=label, label_value=label)
+    mock_db.execute = AsyncMock(side_effect=[_result(scalar=None), _result(all_rows=[profile])])
+    k8s = MagicMock()
+    k8s.create_or_patch = AsyncMock()
+    with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)):
+        async with client_for_user(super_user) as client:
+            resp = await client.post("/api/model-deployments", json={**_DEPLOY, "gpu_type": label})
+    assert resp.status_code == 201, resp.text
+    dep = mock_db.add.call_args.args[0]
+    assert dep.gpu_type == label and dep.node_selector == {"gpu-type": label}
 
 
 async def test_create_deployment_without_profiles_keeps_explicit_placement(client_for_user, super_user, mock_db):
