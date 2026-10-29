@@ -78,6 +78,10 @@ class Runtime(BaseModel):
     extra_resources: dict[str, str] = {}
     # Extra containerPorts (TCP) on the serving container: ``{"kv-events": 5556}``.
     extra_ports: dict[str, int] = {}
+    # Rollout / graceful termination (see serving_rollout): unset = the portal defaults.
+    rollout: Literal["surge", "replace"] | None = None
+    termination_grace_seconds: int | None = Field(None, ge=1, le=3600)
+    prestop_sleep_seconds: int | None = Field(None, ge=0, le=600)
 
     @field_validator("extra_resources")
     @classmethod
