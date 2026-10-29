@@ -14,8 +14,8 @@ from app.services.serving_engines import (
     SERVING_PORT,
     container_launch,
     engine_of,
+    kv_event_ports,
     serving_port,
-    with_kv_event_ports,
 )
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
@@ -112,6 +112,20 @@ def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDep
 
 def _runtime(dep) -> dict:
     return dict(getattr(dep, "runtime", None) or {})
+
+
+def _container_ports(portal: list[dict], row, args: list[str]) -> list[dict]:
+    """The portal's ports, then the runtime's ``extra_ports``, then the KV-event sockets
+    from ``--kv-events-config``; the first claim on a port number or name wins."""
+    out = list(portal)
+    extra = [
+        {"containerPort": int(port), "name": name, "protocol": "TCP"}
+        for name, port in (_runtime(row).get("extra_ports") or {}).items()
+    ]
+    for p in (*extra, *kv_event_ports(args)):
+        if all(p["containerPort"] != q["containerPort"] and p["name"] != q.get("name") for q in out):
+            out.append(p)
+    return out
 
 
 def _volumes(dep: CustomModelDeployment) -> tuple[list, list]:
@@ -215,7 +229,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         command=command,
         env=[pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()],
         gpu_count=dep.gpu_count,
-        ports=with_kv_event_ports([{"containerPort": serving_port(dep), "name": "http"}], args),
+        ports=_container_ports([{"containerPort": serving_port(dep), "name": "http"}], dep, args),
         probes=render_probes(dep, port=serving_port(dep)),
         volume_mounts=mounts,
     )
@@ -255,11 +269,12 @@ def build_pd_deployments(
             pd_serving.LABEL_ROLE: role,
         }
         args = pd_serving.role_args(dep, spec)
-        ports = with_kv_event_ports(
+        ports = _container_ports(
             [
                 {"containerPort": spec.port, "name": "http"},
                 {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
             ],
+            pool,
             args,
         )
         volumes, mounts = _volumes(pool)

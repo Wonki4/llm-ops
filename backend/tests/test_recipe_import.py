@@ -421,3 +421,27 @@ def test_pd_pool_imports_as_base_with_pd_detected_warning():
     assert next(w for w in build_recipe_draft(_manifest_to_spec(prefill))["warnings"] if w["code"] == "pd_detected")[
         "detail"
     ].startswith("prefill")
+
+
+def test_other_container_ports_import_as_runtime_extra_ports():
+    ports = [
+        {"containerPort": 8000, "name": "http"},
+        {"containerPort": 9100, "name": "metrics"},
+        {"containerPort": 9200, "name": "Bad_Name"},
+        {"containerPort": 9300, "name": "dns", "protocol": "UDP"},
+    ]
+    out = build_recipe_draft(_spec(args=["--model", "/m"], container={"ports": ports}))
+    assert out["draft"]["runtime"] == {"extra_ports": {"metrics": 9100, "port-9200": 9200}}
+
+
+def test_kv_event_ports_are_not_imported_twice():
+    cfg = '{"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}'
+    ports = [{"containerPort": 8000}, {"containerPort": 5556, "name": "kv-events"}, {"containerPort": 5559}]
+    out = build_recipe_draft(_spec(args=["--model", "/m", f"--kv-events-config={cfg}"], container={"ports": ports}))
+    assert "runtime" not in out["draft"]
+
+
+def test_runtime_extra_ports_round_trip():
+    dep = _dep(runtime={"extra_ports": {"metrics": 9100}})
+    out = build_recipe_draft(_manifest_to_spec(build_deployment(dep)))
+    assert out["draft"]["runtime"] == {"extra_ports": {"metrics": 9100}}

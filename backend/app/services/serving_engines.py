@@ -149,12 +149,6 @@ def kv_event_ports(args: list[str]) -> list[dict]:
     return out
 
 
-def with_kv_event_ports(ports: list[dict], args: list[str]) -> list[dict]:
-    """``ports`` plus the KV-event ports, skipping any number already declared."""
-    taken = {p["containerPort"] for p in ports}
-    return ports + [p for p in kv_event_ports(args) if p["containerPort"] not in taken]
-
-
 def render_engine_args(args: dict | None) -> list[str]:
     """``{"tp-size": 4, "trust-remote-code": True}`` → ``["--tp-size", "4", "--trust-remote-code"]``.
 

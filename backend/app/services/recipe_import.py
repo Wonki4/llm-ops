@@ -20,7 +20,8 @@ import re
 import shlex
 from typing import Any
 
-from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT, parse_port
+from app.services.pd_serving import RESERVED_PORT_NAMES, is_port_name
+from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT, kv_event_ports, parse_port
 from app.services.serving_probes import probe_from_k8s
 
 # Program tokens that precede the engine's own flags. Anything here is dropped
@@ -341,6 +342,20 @@ def _probes(container: dict, warnings: list[dict], port: int = SERVING_PORT) -> 
     return out or None
 
 
+def _extra_ports(container: dict, skip: set[int]) -> dict[str, int] | None:
+    """The container's other TCP ports as runtime ``extra_ports`` (an unusable name becomes ``port-<n>``)."""
+    out: dict[str, int] = {}
+    for p in container.get("ports") or []:
+        num = p.get("containerPort") or p.get("container_port")
+        if not isinstance(num, int) or num in skip or (p.get("protocol") or "TCP") != "TCP":
+            continue
+        name = p.get("name") or ""
+        if not is_port_name(name) or name in RESERVED_PORT_NAMES or name in out:
+            name = f"port-{num}"
+        out.setdefault(name, num)
+    return out or None
+
+
 # ─── Entry point ─────────────────────────────────────────────────────────────
 
 
@@ -425,6 +440,17 @@ def build_recipe_draft(spec: dict) -> dict:
         _warn(warnings, "port_changed", f"{ports[0]} → {SERVING_PORT}")
     if not image:
         _warn(warnings, "image_missing")
+    if not pd:  # a P/D pool's other ports (NIXL…) are P/D plumbing
+        skip = {serving_port}
+        if port is None and ports and serving_port not in ports:
+            skip.add(ports[0])  # the server port replaced above (port_changed)
+        if port is not None and str(port).isdigit():
+            skip.add(int(port))
+        argv = [*(container.get("command") or []), *(container.get("args") or [])]
+        skip |= {p["containerPort"] for p in kv_event_ports(argv)}  # re-derived from the args on render
+        extra_ports = _extra_ports(container, skip)
+        if extra_ports:
+            draft["runtime"] = {"extra_ports": extra_ports}
 
     return {
         "draft": draft,

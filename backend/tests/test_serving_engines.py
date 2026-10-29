@@ -248,3 +248,34 @@ def test_kv_events_port_clashing_with_serving_port_is_not_duplicated():
     extra = ["--port=5556", '--kv-events-config={"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}']
     c = _container(build_deployment(_dep(vllm_extra_args=extra)))
     assert c["ports"] == [{"containerPort": 5556, "name": "http"}, _KV_PORTS[1]]
+
+
+def test_runtime_extra_ports_render_before_kv_event_ports():
+    dep = _dep(
+        runtime={"extra_ports": {"metrics": 9100, "kv-events": 5556}},
+        vllm_extra_args=['--kv-events-config={"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}'],
+    )
+    assert _container(build_deployment(dep))["ports"] == [
+        {"containerPort": 8000, "name": "http"},
+        {"containerPort": 9100, "name": "metrics", "protocol": "TCP"},
+        {"containerPort": 5556, "name": "kv-events", "protocol": "TCP"},
+        {"containerPort": 5559, "name": "kv-replay", "protocol": "TCP"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "extra_ports",
+    [{"http": 9000}, {"nixl": 9000}, {"Metrics": 9000}, {"a-very-long-port-name": 9000}, {"123": 9000}, {"m": 0}],
+)
+def test_runtime_extra_ports_rejects_bad_entries(extra_ports):
+    from app.services.pd_serving import validate_runtime
+
+    with pytest.raises(ValueError):
+        validate_runtime({"extra_ports": extra_ports})
+
+
+def test_runtime_extra_ports_empty_is_dropped():
+    from app.services.pd_serving import validate_runtime
+
+    assert validate_runtime({"extra_ports": {}}) is None
+    assert validate_runtime({"extra_ports": {"metrics": "9100"}}) == {"extra_ports": {"metrics": 9100}}

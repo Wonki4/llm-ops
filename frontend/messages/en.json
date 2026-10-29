@@ -1925,6 +1925,8 @@
     "runtimePrivileged": "privileged",
     "runtimeExtraResources": "Extra resources",
     "runtimeExtraResourcesHint": "One vendor/name=qty per line (e.g. rdma/rdma_shared_device_a=1)",
+    "runtimeExtraPorts": "Extra ports",
+    "runtimeExtraPortsHint": "One name=port per line (e.g. metrics=9100), declared as TCP ports on the serving container. Names are up to 15 lower-case letters, digits or -; http and nixl are reserved. --kv-events-config ports are added automatically.",
     "startup": "Startup",
     "startupEnable": "Startup probe",
     "startupPdHint": "P/D pools get a startup probe by default.",
