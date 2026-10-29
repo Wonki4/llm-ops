@@ -26,7 +26,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
-from app.services import llmd_stacks, pd_router, pd_serving
+from app.services import llmd_stacks, pd_router, pd_serving, recipe_reapply, serving_rollout
 from app.services.clusters import default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
@@ -873,6 +873,109 @@ async def reregister_deployment(
     )
     await db.flush()
     return _serialize(dep)
+
+
+# ─── Re-apply a recipe ──────────────────────────────────────────
+
+
+class ReapplyRequest(BaseModel):
+    recipe_id: str | None = None  # None = the deployment's own recipe
+
+
+async def _deployment_or_404(db: AsyncSession, deployment_id: str) -> CustomModelDeployment:
+    result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
+    dep = result.scalar_one_or_none()
+    if not dep:
+        raise HTTPException(status_code=404, detail="Deployment not found")
+    return dep
+
+
+async def _recipe_for(db: AsyncSession, dep: CustomModelDeployment, recipe_id: str | None) -> CustomServingRecipe:
+    """The recipe to apply: the given one, else the deployment's; it must share the serving mode."""
+    rid = recipe_id or (str(dep.recipe_id) if dep.recipe_id else None)
+    if not rid:
+        raise HTTPException(status_code=404, detail="Deployment is not linked to a recipe; pick one")
+    try:
+        key = uuid.UUID(rid)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    recipe = await db.get(CustomServingRecipe, key)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    recipe_mode = getattr(recipe, "serving_mode", None) or "aggregated"
+    dep_mode = dep.serving_mode or "aggregated"
+    if recipe_mode != dep_mode:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Recipe serving mode '{recipe_mode}' differs from the deployment's '{dep_mode}'; redeploy instead",
+        )
+    return recipe
+
+
+@router.get("/{deployment_id}/recipe-diff")
+async def recipe_diff(
+    deployment_id: str,
+    recipe_id: str | None = None,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """What re-applying the recipe would change, and what the rollout needs."""
+    dep = await _deployment_or_404(db, deployment_id)
+    recipe = await _recipe_for(db, dep, recipe_id)
+    values = recipe_reapply.recipe_values(recipe, dep)
+    proposed = recipe_reapply.proposed_row(dep, values)
+    try:
+        check_rollout(proposed)
+        blocked = None
+    except ValueError as e:
+        blocked = str(e)
+    before, after = _registration_key(dep), _registration_key(proposed)
+    return {
+        "recipe": {"id": str(recipe.id), "name": recipe.name},
+        "changes": recipe_reapply.changes(dep, values),
+        "rollout": {
+            "mode": serving_rollout.mode(proposed.runtime),
+            "extra_gpus": serving_rollout.surge_gpus(proposed),
+            "gpu_resource_key": proposed.gpu_resource_key,
+            "blocked": blocked,
+        },
+        "reregister": before is not None and after is not None and before != after,
+    }
+
+
+@router.post("/{deployment_id}/reapply")
+async def reapply_recipe(
+    deployment_id: str,
+    body: ReapplyRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+) -> dict:
+    """Overlay the recipe's serving fields on the deployment and roll it (same path as PUT).
+
+    Instance fields (names, cluster, namespace, replicas, ingress, GPU type) stay;
+    the GPU type's profile is applied again over the recipe's placement.
+    """
+    dep = await _deployment_or_404(db, deployment_id)
+    recipe = await _recipe_for(db, dep, body.recipe_id)
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
+    values = recipe_reapply.recipe_values(recipe, dep)
+    changed = [c["field"] for c in recipe_reapply.changes(dep, values)]
+    if dep.gpu_type:
+        values["gpu_type"] = dep.gpu_type
+    dep.recipe_id = recipe.id
+    out = await _apply_update(db, k8s, litellm, dep, values, user)
+    await reconcile_deployments._record_event(
+        db,
+        dep,
+        "RecipeApplied",
+        "info",
+        None,
+        None,
+        f"Re-applied recipe '{recipe.name}': {', '.join(changed) or 'no field changes'}",
+    )
+    await db.flush()
+    return out
 
 
 @router.delete("/{deployment_id}")
