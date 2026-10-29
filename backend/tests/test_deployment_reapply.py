@@ -187,6 +187,60 @@ async def test_recipe_diff_flags_reregister_when_served_name_changes(client_for_
     assert resp.json()["reregister"] is True
 
 
+async def test_recipe_diff_ignores_the_gpu_profiles_placement(client_for_user, super_user, mock_db):
+    """The deployment carries the profile's node label; the recipe does not. Not a change."""
+    profile = types.SimpleNamespace(
+        name="h100", label_key=None, label_value="h100", gpu_resource_key="nvidia.com/gpu",
+        node_selector=None, tolerations=None, enabled=True,
+    )
+    recipe = _recipe(runtime=None, node_selector=None)
+    dep = _row(
+        gpu_type="h100", node_selector={"gpu.type": "h100"}, image=recipe.image, gpu_count=recipe.gpu_count,
+        memory_request=recipe.memory_request, vllm_extra_args=recipe.vllm_extra_args, env=recipe.env,
+        engine_args=recipe.engine_args, runtime=None,
+    )
+    mock_db.execute = AsyncMock(return_value=_result(dep))
+    mock_db.get = AsyncMock(return_value=recipe)
+    with patch("app.api.model_deployments.resolve_gpu_type", AsyncMock(return_value=(profile, "gpu.type"))):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["changes"] == []
+    assert resp.json()["rollout"]["gpu_resource_key"] == "nvidia.com/gpu"
+
+
+async def test_recipe_diff_pd_identical_recipe_reports_no_changes(client_for_user, super_user, mock_db):
+    """Pools on the row carry baked-in placement and resolved storages; the recipe's are bare."""
+    bare = {"storage_id": SID, "mount_path": "/models", "read_only": True}
+    resolved = {**bare, "volume_name": "v", "resolved": {"type": "pvc"}}
+    recipe = _recipe(
+        runtime=None, serving_mode="pd",
+        pd_config={"prefill": {"gpu_count": 8, "storages": [bare]}, "decode": {"gpu_count": 8}},
+    )
+    dep = _row(
+        serving_mode="pd", image=recipe.image, gpu_count=recipe.gpu_count, memory_request=recipe.memory_request,
+        vllm_extra_args=recipe.vllm_extra_args, env=recipe.env, engine_args=recipe.engine_args, runtime=None,
+        node_selector=None,
+        pd_config={
+            "prefill": {
+                "replicas": 2, "gpu_count": 8, "node_selector": None, "tolerations": None,
+                "gpu_resource_key": "nvidia.com/gpu", "storages": [resolved],
+            },
+            "decode": {
+                "replicas": 1, "gpu_count": 8, "node_selector": None, "tolerations": None,
+                "gpu_resource_key": "nvidia.com/gpu", "storages": [],
+            },
+        },
+    )
+    mock_db.execute = AsyncMock(return_value=_result(dep))
+    mock_db.get = AsyncMock(return_value=recipe)
+    with patch("app.api.model_deployments.resolve_gpu_type", AsyncMock(return_value=(None, "gpu.type"))):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["changes"] == []
+
+
 async def test_recipe_diff_404_without_recipe_and_409_on_other_mode(client_for_user, super_user, mock_db):
     dep = _row(recipe_id=None)
     mock_db.execute = AsyncMock(return_value=_result(dep))

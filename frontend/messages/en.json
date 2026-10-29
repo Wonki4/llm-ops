@@ -882,7 +882,7 @@
     "reapplyReplaceNote": "Rolls without extra GPUs; capacity drops by one replica meanwhile.",
     "reapplyReregisterNote": "What LiteLLM is told (served name or key) changes: the LiteLLM entry is removed right away and registered again once the deployment is Ready; LiteLLM calls fail in between.",
     "reapplySubmit": "Apply",
-    "reapplySuccess": "Recipe applied; Ready once the rollout completes.",
+    "reapplySuccess": "Recipe applied. The rollout runs in the background; the status stays Updating until every pod runs the new settings.",
     "reapplyFailed": "Apply failed",
     "rollout": "Rollout"
   },

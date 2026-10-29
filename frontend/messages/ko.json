@@ -882,7 +882,7 @@
     "reapplyReplaceNote": "추가 GPU 없이 롤아웃합니다. 그동안 용량이 replica 하나만큼 줄어듭니다.",
     "reapplyReregisterNote": "LiteLLM이 보는 이름이나 키가 바뀝니다. 적용 직후 LiteLLM 항목이 삭제되고 배포가 다시 Ready가 되면 다시 등록됩니다. 그 사이에는 LiteLLM 호출이 실패합니다.",
     "reapplySubmit": "적용",
-    "reapplySuccess": "레시피를 적용했습니다. 롤아웃이 끝나면 Ready가 됩니다.",
+    "reapplySuccess": "레시피를 적용했습니다. 롤아웃이 백그라운드에서 진행되며, 모든 파드가 새 설정으로 바뀔 때까지 상태는 Updating으로 표시됩니다.",
     "reapplyFailed": "적용 실패",
     "rollout": "롤아웃"
   },

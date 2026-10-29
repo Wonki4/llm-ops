@@ -64,11 +64,29 @@ def recipe_values(recipe, dep) -> dict:
     return values
 
 
+def _empty(value) -> bool:
+    return value is None or value == {} or value == []
+
+
 def _norm(field: str, value):
-    if value is None or value == {} or value == []:
+    """A comparable form: empties fold to None, resolution keys and default-equivalent
+    settings drop out, so only what the manifest would render differently counts."""
+    if _empty(value):
         return None
     if field == "storages":
         return sorted((str(e.get("storage_id")), e.get("mount_path"), bool(e.get("read_only", True))) for e in value)
+    if field == "runtime":
+        out = {k: v for k, v in value.items() if not _empty(v) and not (k == "rollout" and v == "surge")}
+        return out or None
+    if field == "pd_config":
+        out = {}
+        for key, val in value.items():
+            if key in pd_serving.ROLES:
+                pool = {pk: _norm(pk, pv) for pk, pv in (val or {}).items()}
+                out[key] = {pk: pv for pk, pv in pool.items() if pv is not None}
+            elif not _empty(val):
+                out[key] = val
+        return out
     return value
 
 

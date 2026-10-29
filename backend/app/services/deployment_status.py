@@ -9,7 +9,11 @@ def classify(observed: dict, desired_replicas: int) -> tuple[str, str | None]:
     """Return (status, message) from a K8s deployment status payload.
 
     ``observed`` = {"ready": int, "available": int, "conditions": [...]} as
-    produced by K8sClient.read_deployment_status / list_deployments.
+    produced by K8sClient.read_deployment_status / list_deployments. When
+    the rollout fields are present too (``updated``, ``total``, ``generation``,
+    ``observed_generation``) a rollout in progress is "Updating" even while
+    the old pods keep the deployment fully Ready — the same checks as
+    ``kubectl rollout status``.
     """
     ready = observed.get("ready", 0)
     available = observed.get("available", 0)
@@ -31,6 +35,17 @@ def classify(observed: dict, desired_replicas: int) -> tuple[str, str | None]:
 
     if desired_replicas == 0:
         return "Stopped", "replicas set to 0"
+
+    generation, observed_generation = observed.get("generation"), observed.get("observed_generation")
+    if generation is not None and observed_generation is not None and observed_generation < generation:
+        return "Updating", "Waiting for the rollout to start"
+    updated, total = observed.get("updated"), observed.get("total")
+    if updated is not None:
+        if updated < desired_replicas:
+            return "Updating", f"{updated}/{desired_replicas} pods updated"
+        if total is not None and total > updated:
+            old = total - updated
+            return "Updating", f"{old} old pod{'s' if old != 1 else ''} still running"
 
     if ready >= desired_replicas and available >= desired_replicas:
         return "Ready", None
