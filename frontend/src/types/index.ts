@@ -752,6 +752,24 @@ export interface ModelDeploymentEvent {
   created_at: string | null;
 }
 
+/** One deployment field a recipe re-apply would overwrite (GET …/recipe-diff). */
+export interface RecipeDiffChange {
+  field: string;
+  current: unknown;
+  proposed: unknown;
+}
+
+// GET /api/model-deployments/{id}/recipe-diff — what re-applying the recipe changes
+// and what the rollout needs. `blocked` is the server's reason when the rollout
+// cannot run (a `replace` rollout at one replica).
+export interface RecipeDiff {
+  recipe: { id: string; name: string };
+  changes: RecipeDiffChange[];
+  rollout: { mode: RolloutMode; extra_gpus: number; gpu_resource_key: string; blocked: string | null };
+  /** LiteLLM would be told something else (served name / key): unregister now, re-register on Ready. */
+  reregister: boolean;
+}
+
 /** Registered K8s cluster — masked (never includes the kubeconfig). */
 export interface K8sClusterSummary {
   id: string;
@@ -939,6 +957,9 @@ export interface PdConfig {
   router?: PdRouterConfig;
 }
 
+/** `surge`: new pod first (needs spare GPUs); `replace`: old pod first (replicas ≥ 2, capacity dips). */
+export type RolloutMode = "surge" | "replace";
+
 /** Pod-level knobs that map 1:1 to the docker-run flags people start from. */
 export interface RuntimeOptions {
   shm_size_gi?: number | null;
@@ -947,6 +968,12 @@ export interface RuntimeOptions {
   extra_resources?: Record<string, string>;
   /** Extra TCP containerPorts on the serving container, by port name. */
   extra_ports?: Record<string, number>;
+  /** Unset = surge. */
+  rollout?: RolloutMode | null;
+  /** Unset = 120. */
+  termination_grace_seconds?: number | null;
+  /** Unset = 10; 0 = no preStop hook. */
+  prestop_sleep_seconds?: number | null;
 }
 
 export interface PdRoleStatus {

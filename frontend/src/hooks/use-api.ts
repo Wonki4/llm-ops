@@ -59,6 +59,7 @@ import type {
   PvcPhase,
   ClusterPvc,
   StorageResolution,
+  RecipeDiff,
   RecipeDraftResponse,
   ServingRecipe,
   ServingRecipeCreateBody,
@@ -1388,6 +1389,30 @@ export function useReregisterDeployment(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}/litellm-registration`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+  });
+}
+
+/** What re-applying `recipeId` (null = the deployment's own recipe) would change, and what the rollout needs. */
+export function useRecipeDiff(id: string, recipeId: string | null, enabled: boolean) {
+  const qs = recipeId ? `?recipe_id=${encodeURIComponent(recipeId)}` : "";
+  return useQuery({
+    queryKey: ["model-deployments", id, "recipe-diff", recipeId],
+    queryFn: () => apiFetch<RecipeDiff>(`/api/model-deployments/${id}/recipe-diff${qs}`),
+    enabled: enabled && !!id,
+    retry: false,
+  });
+}
+
+/** Overlay the recipe's serving fields on the deployment and roll it (names, replicas, ingress stay). */
+export function useReapplyDeployment(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (recipe_id: string | null) =>
+      apiFetch<ModelDeployment>(`/api/model-deployments/${id}/reapply`, {
+        method: "POST",
+        body: JSON.stringify({ recipe_id }),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
   });
 }
