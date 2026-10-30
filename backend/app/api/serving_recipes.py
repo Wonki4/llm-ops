@@ -19,6 +19,7 @@ from app.services import pd_router
 from app.services.clusters import default_namespace, validate_namespace
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
+from app.services.manifest_diff import PlainDumper
 from app.services.model_deployment_manifests import build_all
 from app.services.pd_serving import ServingMode, check_kv_events, is_pd, validate_pd_config, validate_runtime
 from app.services.serving_engines import ServingEngine, validate_engine_args, validate_port_flag
@@ -127,13 +128,6 @@ class PreviewRecipeBody(RecipeBody):
 
 
 PREVIEW_INGRESS_HOST = "<ingress-host>"
-
-
-class _PlainDumper(yaml.SafeDumper):
-    """Writes shared dicts (selector labels) out in full instead of as &id/*id aliases."""
-
-    def ignore_aliases(self, data) -> bool:
-        return True
 
 
 def _serialize(r: CustomServingRecipe) -> dict:
@@ -278,7 +272,7 @@ async def preview_recipe(
         {
             "kind": m.get("kind"),
             "name": (m.get("metadata") or {}).get("name"),
-            "yaml": yaml.dump(m, Dumper=_PlainDumper, sort_keys=False, default_flow_style=False),
+            "yaml": yaml.dump(m, Dumper=PlainDumper, sort_keys=False, default_flow_style=False),
         }
         for m in manifests
     ]
