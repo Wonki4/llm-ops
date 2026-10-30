@@ -149,6 +149,62 @@ def kv_event_ports(args: list[str]) -> list[dict]:
     return out
 
 
+def sets_kv_events(flags: list[str]) -> bool:
+    """Whether ``flags`` set ``--kv-events-config`` (the JSON or a dotted key, ``-`` or ``_``)."""
+    for a in flags:
+        name = a.partition("=")[0].replace("_", "-")
+        if name == KV_EVENTS_FLAG or name.startswith(KV_EVENTS_FLAG + "."):
+            return True
+    return False
+
+
+DEFAULT_KV_EVENTS_ENDPOINT = "tcp://*:5556"
+POD_IP_REF = "$(POD_IP)"
+_KV_EVENTS_OPTIONAL = ("replay_endpoint", "buffer_steps", "hwm", "max_queue_size")
+
+
+def kv_events_args(runtime: dict | None, *, port: int, served_name: str) -> list[str]:
+    """``runtime.kv_events`` as one ``--kv-events-config=<json>`` flag (vLLM's ZMQ publisher).
+
+    A blank topic becomes ``kv@$(POD_IP):<port>@<served name>``, the form llm-d's precise
+    prefix-cache scorer reads: ``port`` is where the router reaches the pod and the model
+    is the name requests carry. K8s fills ``$(POD_IP)`` from the container env.
+    """
+    kv = (runtime or {}).get("kv_events")
+    if not kv:
+        return []
+    body: dict = {
+        "enable_kv_cache_events": True,
+        "publisher": "zmq",
+        "endpoint": kv.get("endpoint") or DEFAULT_KV_EVENTS_ENDPOINT,
+    }
+    body.update({k: kv[k] for k in _KV_EVENTS_OPTIONAL if kv.get(k) not in (None, "")})
+    body["topic"] = kv.get("topic") or f"kv@{POD_IP_REF}:{port}@{served_name}"
+    return [f"{KV_EVENTS_FLAG}={json.dumps(body, separators=(',', ':'))}"]
+
+
+def with_pod_ip(env: list[dict], args: list[str]) -> list[dict]:
+    """``env`` plus ``POD_IP`` from the pod status when ``args`` use ``$(POD_IP)`` and env lacks it."""
+    if any(POD_IP_REF in a for a in args) and all(e.get("name") != "POD_IP" for e in env):
+        return [*env, {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}}]
+    return env
+
+
+def flag_value(args: list[str], flag: str) -> str | None:
+    """The value of ``flag`` in an argv list (``--f=v`` or ``--f v``), None when absent."""
+    for i, a in enumerate(args):
+        if a.startswith(flag + "="):
+            return a[len(flag) + 1 :]
+        if a == flag:
+            return args[i + 1] if i + 1 < len(args) else ""
+    return None
+
+
+def served_name(flags: list[str], model_path: str) -> str:
+    """The model name vLLM answers to: the first ``--served-model-name``, else the model path."""
+    return flag_value(flags, "--served-model-name") or model_path
+
+
 def render_engine_args(args: dict | None) -> list[str]:
     """``{"tp-size": 4, "trust-remote-code": True}`` → ``["--tp-size", "4", "--trust-remote-code"]``.
 
@@ -186,10 +242,18 @@ def container_launch(dep) -> tuple[list[str] | None, list[str]]:
     """(command, args) for the serving container of a K8s Deployment.
 
     ``--port`` renders once, after the model, whether it is the default or the user's.
+    vLLM's structured KV events (``runtime.kv_events``) follow it, before the user's flags.
     """
-    spec = _LAUNCH[engine_of(dep)]
+    engine = engine_of(dep)
+    spec = _LAUNCH[engine]
     flags, _ = split_port(engine_flags(dep))
-    args = [spec["model_flag"], dep.model_path, *spec["base_args"], "--port", str(serving_port(dep)), *flags]
+    port = serving_port(dep)
+    kv = (
+        kv_events_args(getattr(dep, "runtime", None), port=port, served_name=served_name(flags, dep.model_path))
+        if engine == "vllm"
+        else []
+    )
+    args = [spec["model_flag"], dep.model_path, *spec["base_args"], "--port", str(port), *kv, *flags]
     return spec["command"], args
 
 

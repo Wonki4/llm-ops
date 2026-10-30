@@ -160,6 +160,11 @@ class CreateDeploymentRequest(BaseModel):
             self.router_stack_id = None
         return self
 
+    @model_validator(mode="after")
+    def _check_kv_events(self):
+        pd_serving.check_kv_events(self)
+        return self
+
 
 class UpdateDeploymentRequest(BaseModel):
     litellm_model_name: str | None = None  # null/blank = back to model_name
@@ -804,6 +809,7 @@ async def _apply_update(
         dep.pd_config = None
     try:
         check_rollout(dep)
+        pd_serving.check_kv_events(dep)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     entries = updates["storages"] if updates.get("storages") is not None else previous
