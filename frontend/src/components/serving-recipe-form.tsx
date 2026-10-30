@@ -422,9 +422,15 @@ function recipeRequestBody(form: ServingRecipeInput, kvExtraText: string): Reque
     }
   }
   // The row keeps the prefill pool's values as its representative copy (required
-  // columns, list views); each pool's own config is what gets rendered.
+  // columns, list views); each pool's own config is what gets rendered. Except the
+  // fields that add up: the loader (effectiveRole) and the backend (role_view) put
+  // the row's extra args, engine args and env under each pool's, so a copy there
+  // doubled prefill's args on every save and leaked them into decode.
   const representative: Partial<PoolConfig> = {};
   for (const k of POOL_KEYS) (representative as Record<string, unknown>)[k] = prefill[k] ?? null;
+  representative.vllm_extra_args = null;
+  representative.engine_args = null;
+  representative.env = null;
   // Each pool always carries its own explicit storage list; the row keeps the prefill pool's list.
   const withStorages = (pool: PdRoleOverride): PdRoleOverride => ({ ...pool, storages: keepStorages(pool.storages) });
   return {
