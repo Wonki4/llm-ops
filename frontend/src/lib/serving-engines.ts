@@ -63,6 +63,7 @@ export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
     { key: "gpu-memory-utilization", type: "float", step: 0.01, min: 0, max: 1, placeholder: "0.9" },
     { key: "max-num-seqs", type: "int", min: 1, placeholder: "256" },
     { key: "max-num-batched-tokens", type: "int", min: 1, placeholder: "8192" },
+    { key: "block-size", type: "int", min: 1, placeholder: "16" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },
     { key: "reasoning-parser", type: "text" },
     { key: "tool-call-parser", type: "text" },
