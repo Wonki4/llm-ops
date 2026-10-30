@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
-import type { GpuTypeOption, PoolConfig, ProbeSpec, ProbesSpec, RolloutMode, RuntimeOptions, ServingEngine } from "@/types";
+import type {
+  GpuTypeOption, KvEventsOptions, PoolConfig, ProbeSpec, ProbesSpec, RolloutMode, RuntimeOptions, ServingEngine,
+} from "@/types";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StorageMountsEditor } from "@/components/storage-mounts-editor";
@@ -66,11 +68,18 @@ export function PoolConfigCards({
     const next: RuntimeOptions = { ...runtime, ...patch };
     const empty = !next.shm_size_gi && !next.host_ipc && !next.privileged
       && !Object.keys(next.extra_resources ?? {}).length && !Object.keys(next.extra_ports ?? {}).length
-      && !next.rollout && next.termination_grace_seconds == null && next.prestop_sleep_seconds == null;
+      && !next.rollout && next.termination_grace_seconds == null && next.prestop_sleep_seconds == null
+      && !next.kv_events;
     onChange({ runtime: empty ? null : next });
   }
   const seconds = (k: "termination_grace_seconds" | "prestop_sleep_seconds") => (e: React.ChangeEvent<HTMLInputElement>) =>
     setRuntime({ [k]: e.target.value === "" ? null : Number(e.target.value) });
+  const kv = runtime.kv_events ?? null;
+  function setKv(patch: Partial<KvEventsOptions>) {
+    setRuntime({ kv_events: { ...(kv ?? {}), ...patch } });
+  }
+  const kvNumber = (k: "buffer_steps" | "hwm" | "max_queue_size") => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setKv({ [k]: e.target.value === "" ? null : Number(e.target.value) });
 
   const probes = value.probes ?? {};
   const probeSummary = [
@@ -88,6 +97,10 @@ export function PoolConfigCards({
     runtime.termination_grace_seconds != null && `grace=${runtime.termination_grace_seconds}s`,
     runtime.prestop_sleep_seconds != null && `preStop=${runtime.prestop_sleep_seconds}s`,
   ].filter(Boolean).join(" · ");
+  const kvSummary = kv
+    ? [kv.endpoint || KV_EVENTS_DEFAULTS.endpoint, kv.replay_endpoint && `replay ${kv.replay_endpoint}`]
+      .filter(Boolean).join(" · ")
+    : t("kvEventsOff");
   const placementSummary = [
     value.gpu_resource_key !== "nvidia.com/gpu" && value.gpu_resource_key,
     ...Object.entries(value.node_selector ?? {}).map(([k, v]) => `${k}=${v}`),
@@ -183,6 +196,55 @@ export function PoolConfigCards({
           />
         </Field>
       </FormSection>
+
+      {/* vLLM only; a value left over from a switch to another engine stays visible so it can be turned off. */}
+      {(engine === "vllm" || kv != null) && (
+        <CollapsibleSection title={t("sectionKvEvents")} summary={kvSummary} hint={t("kvEventsHint")}>
+          <label className="flex items-center gap-2 text-xs font-medium">
+            <input
+              type="checkbox" data-testid={id("kv-enable")} checked={kv != null}
+              onChange={(e) => setRuntime({ kv_events: e.target.checked ? { ...KV_EVENTS_DEFAULTS } : null })}
+            />
+            {t("kvEventsEnable")}
+          </label>
+          {engine !== "vllm" && <p className="text-[11px] text-amber-600">{t("kvEventsVllmOnly")}</p>}
+          {kv != null && (
+            <>
+              <Field id={id("kv-endpoint")} label={t("kvEventsEndpoint")} hint={t("kvEventsEndpointHint")}>
+                <Input
+                  id={id("kv-endpoint")} className="font-mono" placeholder={KV_EVENTS_DEFAULTS.endpoint}
+                  value={kv.endpoint ?? ""} onChange={(e) => setKv({ endpoint: e.target.value })}
+                />
+              </Field>
+              <Field id={id("kv-replay")} label={t("kvEventsReplay")} hint={t("kvEventsReplayHint")}>
+                <Input
+                  id={id("kv-replay")} className="font-mono" placeholder={KV_EVENTS_DEFAULTS.replay_endpoint}
+                  value={kv.replay_endpoint ?? ""} onChange={(e) => setKv({ replay_endpoint: e.target.value || null })}
+                />
+              </Field>
+              <Field id={id("kv-topic")} label={t("kvEventsTopic")} hint={t("kvEventsTopicHint")}>
+                <Input
+                  id={id("kv-topic")} className="font-mono" placeholder="kv@$(POD_IP):<port>@<served-model-name>"
+                  value={kv.topic ?? ""} onChange={(e) => setKv({ topic: e.target.value || null })}
+                />
+              </Field>
+              <Field id={id("kv-buffer-steps")} label={t("kvEventsQueues")} hint={t("kvEventsQueuesHint")}>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {KV_QUEUE_FIELDS.map(({ key, min, placeholder }) => (
+                    <label key={key} className="min-w-0 space-y-1">
+                      <span className={`${inline} font-mono`}>{key}</span>
+                      <Input
+                        id={id(`kv-${key.replaceAll("_", "-")}`)} type="number" min={min} step={1} placeholder={placeholder}
+                        value={kv[key] ?? ""} onChange={kvNumber(key)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            </>
+          )}
+        </CollapsibleSection>
+      )}
 
       <CollapsibleSection title={t("sectionProbes")} summary={probeSummary} hint={t("probesHint")}>
         <ProbeFields
@@ -324,6 +386,14 @@ export function rolloutSummary(runtime: RuntimeOptions | null | undefined): stri
     `preStop ${r.prestop_sleep_seconds ?? ROLLOUT_DEFAULTS.prestop_sleep_seconds}s`,
   ].join(" · ");
 }
+/** What turning KV events on fills in: the llm-d precise prefix-cache guide's sockets. */
+const KV_EVENTS_DEFAULTS = { endpoint: "tcp://*:5556", replay_endpoint: "tcp://*:5559" } as const;
+/** vLLM's KVEventsConfig queue settings; placeholders are vLLM's defaults. */
+const KV_QUEUE_FIELDS: { key: "buffer_steps" | "hwm" | "max_queue_size"; min: number; placeholder: string }[] = [
+  { key: "buffer_steps", min: 1, placeholder: "10000" },
+  { key: "hwm", min: 0, placeholder: "100000" },
+  { key: "max_queue_size", min: 1, placeholder: "100000" },
+];
 const PROBE_NUMERIC: (keyof ProbeSpec)[] = [
   "initial_delay_seconds", "period_seconds", "timeout_seconds", "failure_threshold", "success_threshold",
 ];

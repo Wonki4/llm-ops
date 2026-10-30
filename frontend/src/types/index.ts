@@ -974,6 +974,18 @@ export interface RuntimeOptions {
   termination_grace_seconds?: number | null;
   /** Unset = 10; 0 = no preStop hook. */
   prestop_sleep_seconds?: number | null;
+  /** vLLM KV-cache events (`--kv-events-config`); present = on. */
+  kv_events?: KvEventsOptions | null;
+}
+
+/** vLLM's ZMQ KV-event publisher. Blank topic = `kv@$(POD_IP):<port>@<served model name>`. */
+export interface KvEventsOptions {
+  endpoint?: string;
+  replay_endpoint?: string | null;
+  topic?: string | null;
+  buffer_steps?: number | null;
+  hwm?: number | null;
+  max_queue_size?: number | null;
 }
 
 export interface PdRoleStatus {
