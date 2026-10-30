@@ -6,6 +6,7 @@ worker has last synced — the worker is added in PR-B.
 
 import json
 import logging
+import types
 import uuid
 from datetime import datetime
 from typing import Any
@@ -27,7 +28,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
-from app.services import llmd_stacks, pd_router, pd_serving, recipe_reapply, serving_rollout
+from app.services import llmd_stacks, manifest_diff, pd_router, pd_serving, recipe_reapply, serving_rollout
 from app.services.clusters import default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
@@ -938,6 +939,25 @@ async def _proposed(db: AsyncSession, dep: CustomModelDeployment, recipe: Custom
     return values, proposed
 
 
+async def _proposed_manifests(db: AsyncSession, dep: CustomModelDeployment, values: dict, proposed: Any) -> list[dict]:
+    """What the re-apply would send to K8s: ``proposed`` with the P/D settings normalised and
+    the recipe's storages resolved against the deployment's, as ``_apply_update`` does.
+    ValueError when the re-apply would be refused (an unbound storage, a portal-managed flag)."""
+    row = types.SimpleNamespace(**vars(proposed))
+    if pd_serving.is_pd(row):
+        row.pd_config = pd_serving.validate_pd_config(
+            row.pd_config, engine=row.engine, base_extra_args=row.vllm_extra_args
+        )
+    row.storages = await resolve_entries(
+        db, values["storages"], dep.cluster_id, dep.namespace, previous=list(dep.storages or [])
+    )
+    if pd_serving.is_pd(row):
+        row.pd_config = await resolve_pool_storages(
+            db, row.pd_config, dep.cluster_id, dep.namespace, previous=dict(dep.pd_config) if dep.pd_config else None
+        )
+    return build_all(row, sidecar_image=settings.llmd_sidecar_image)
+
+
 @router.get("/{deployment_id}/recipe-diff")
 async def recipe_diff(
     deployment_id: str,
@@ -945,7 +965,11 @@ async def recipe_diff(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """What re-applying the recipe would change, and what the rollout needs."""
+    """What re-applying the recipe would change, and what the rollout needs.
+
+    ``manifests`` compares the K8s manifests line by line, both sides rendered from
+    the portal's rows (with the same owner label), so only the apply's changes show.
+    """
     dep = await _deployment_or_404(db, deployment_id)
     recipe = await _recipe_for(db, dep, recipe_id)
     values, proposed = await _proposed(db, dep, recipe)
@@ -954,10 +978,18 @@ async def recipe_diff(
         blocked = None
     except ValueError as e:
         blocked = str(e)
+    try:
+        after_manifests = await _proposed_manifests(db, dep, values, proposed)
+        current_manifests = build_all(dep, sidecar_image=settings.llmd_sidecar_image)
+        manifests = manifest_diff.manifest_diffs(current_manifests, after_manifests)
+    except ValueError as e:
+        blocked = blocked or str(e)
+        manifests = []
     before, after = _registration_key(dep), _registration_key(proposed)
     return {
         "recipe": {"id": str(recipe.id), "name": recipe.name},
         "changes": recipe_reapply.changes(dep, values),
+        "manifests": manifests,
         "rollout": {
             "mode": serving_rollout.mode(proposed.runtime),
             "extra_gpus": serving_rollout.surge_gpus(proposed),

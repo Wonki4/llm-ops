@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.services import recipe_reapply as rr
+from app.services.storage_store import UnresolvedStorageError
 from tests.test_storage_recipes_deployments import DEPLOY, _k8s, _phases, _refresh, _resolved, _result
 
 RECIPE_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
@@ -251,6 +252,71 @@ async def test_recipe_diff_404_without_recipe_and_409_on_other_mode(client_for_u
         mock_db.get = AsyncMock(return_value=_recipe(serving_mode="pd", pd_config={"prefill": {}, "decode": {}}))
         resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff?recipe_id={RECIPE_ID}")
         assert resp.status_code == 409 and "serving mode" in resp.text
+
+
+async def test_recipe_diff_renders_each_manifest_side_by_side(client_for_user, super_user, mock_db):
+    dep = _row()
+    recipe = _recipe()
+    mock_db.execute = AsyncMock(return_value=_result(dep))
+    mock_db.get = AsyncMock(return_value=recipe)
+    async with client_for_user(super_user) as client:
+        resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
+    assert resp.status_code == 200, resp.text
+    manifests = resp.json()["manifests"]
+    assert [m["kind"] for m in manifests] == ["Deployment", "Service", "Ingress"]
+    deployment, service, ingress = manifests
+    assert deployment["changed"] > 0
+    assert service["changed"] == 0 and ingress["changed"] == 0  # same owner label on both sides: no noise
+    images = [
+        (r["left"][1].strip(), r["right"][1].strip())
+        for r in deployment["rows"]
+        if r["op"] == "replace" and "vllm/vllm-openai" in r["left"][1]
+    ]
+    assert images == [("image: vllm/vllm-openai:v0.9", "image: vllm/vllm-openai:v0.10")]
+    left = "\n".join(r["left"][1] for r in deployment["rows"] if r["left"])
+    right = "\n".join(r["right"][1] for r in deployment["rows"] if r["right"])
+    assert "8192" in left and "8192" not in right
+    assert "16384" in right and "16384" not in left
+
+
+async def test_recipe_diff_storage_that_does_not_resolve_blocks_without_manifests(client_for_user, super_user, mock_db):
+    """The re-apply would fail on it (400), so the page shows why instead of a half-rendered diff."""
+    dep = _row()
+    recipe = _recipe(runtime=None, storages=[{"storage_id": SID, "mount_path": "/models", "read_only": True}])
+    mock_db.execute = AsyncMock(return_value=_result(dep))
+    mock_db.get = AsyncMock(return_value=recipe)
+    err = UnresolvedStorageError(["weights"])
+    with patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=err)):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["manifests"] == []
+    assert resp.json()["rollout"]["blocked"] == str(err)
+
+
+async def test_recipe_diff_pd_compares_each_pool(client_for_user, super_user, mock_db):
+    recipe = _recipe(
+        runtime=None, serving_mode="pd",
+        pd_config={"prefill": {"gpu_count": 8}, "decode": {"gpu_count": 8, "vllm_extra_args": ["--max-num-seqs=512"]}},
+    )
+    dep = _row(
+        serving_mode="pd", image=recipe.image, gpu_count=recipe.gpu_count, memory_request=recipe.memory_request,
+        vllm_extra_args=recipe.vllm_extra_args, env=recipe.env, engine_args=recipe.engine_args, runtime=None,
+        node_selector=None,
+        pd_config={"prefill": {"replicas": 1, "gpu_count": 8}, "decode": {"replicas": 1, "gpu_count": 8}},
+    )
+    mock_db.execute = AsyncMock(return_value=_result(dep))
+    mock_db.get = AsyncMock(return_value=recipe)
+    with patch("app.api.model_deployments.resolve_gpu_type", AsyncMock(return_value=(None, "gpu.type"))):
+        async with client_for_user(super_user) as client:
+            resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
+    assert resp.status_code == 200, resp.text
+    pools = {m["name"]: m for m in resp.json()["manifests"] if m["kind"] == "Deployment"}
+    assert sorted(pools) == ["llama-decode-deployment", "llama-prefill-deployment"]
+    assert pools["llama-prefill-deployment"]["changed"] == 0
+    decode = pools["llama-decode-deployment"]
+    inserted = [r["right"][1].strip() for r in decode["rows"] if r["op"] != "equal" and r["right"]]
+    assert "- --max-num-seqs=512" in inserted
 
 
 # ─── POST /reapply ────────────────────────────────────────────────────────────
