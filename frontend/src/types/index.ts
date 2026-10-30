@@ -759,12 +759,30 @@ export interface RecipeDiffChange {
   proposed: unknown;
 }
 
+/** One row of a side-by-side YAML diff; a side is `[line number, text]` or null (nothing on that side). */
+export interface ManifestDiffRow {
+  op: "equal" | "replace" | "delete" | "insert";
+  left: [number, string] | null;
+  right: [number, string] | null;
+}
+
+/** A K8s manifest rendered from the deployment (left) and as the re-apply would send it (right). */
+export interface ManifestDiff {
+  kind: string;
+  name: string;
+  /** Rows that are not `equal`; 0 = the manifest stays as it is. */
+  changed: number;
+  rows: ManifestDiffRow[];
+}
+
 // GET /api/model-deployments/{id}/recipe-diff — what re-applying the recipe changes
-// and what the rollout needs. `blocked` is the server's reason when the rollout
-// cannot run (a `replace` rollout at one replica).
+// and what the rollout needs. `blocked` is the server's reason when the re-apply
+// would be refused (a `replace` rollout at one replica, a storage that does not
+// resolve); `manifests` is empty when the proposed side cannot be rendered.
 export interface RecipeDiff {
   recipe: { id: string; name: string };
   changes: RecipeDiffChange[];
+  manifests: ManifestDiff[];
   rollout: { mode: RolloutMode; extra_gpus: number; gpu_resource_key: string; blocked: string | null };
   /** LiteLLM would be told something else (served name / key): unregister now, re-register on Ready. */
   reregister: boolean;
