@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, RefreshCw, ScrollText, Trash2, Server, AlertTriangle } from "lucide-react";
@@ -20,7 +19,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LitellmRegistrationCard } from "@/components/litellm-registration-card";
-import { ReapplyFromRecipeDialog } from "@/components/reapply-from-recipe-dialog";
 import { LIVENESS_DEFAULTS, READINESS_DEFAULTS, STARTUP_DEFAULTS, rolloutSummary } from "@/components/pool-config-cards";
 
 function StatusBadge({ status }: { status: string }) {
@@ -93,7 +91,6 @@ export default function DeploymentDetailPage() {
   const { data: dep, isLoading } = useModelDeployment(id);
   const { data: events } = useModelDeploymentEvents(id);
   const deleteMut = useDeleteModelDeployment();
-  const [reapplyOpen, setReapplyOpen] = useState(false);
 
   const fmt = (d: string | null) => (d ? parseServerDate(d).toLocaleString(localeTag) : "-");
 
@@ -147,10 +144,11 @@ export default function DeploymentDetailPage() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setReapplyOpen(true)} data-testid="reapply-button">
-              <RefreshCw className="size-3.5" />{t("reapplyButton")}
+            <Button asChild variant="outline" size="sm" data-testid="reapply-button">
+              <Link href={`/admin/deployments/${dep.id}/reapply`}>
+                <RefreshCw className="size-3.5" />{t("reapplyButton")}
+              </Link>
             </Button>
-            <ReapplyFromRecipeDialog dep={dep} open={reapplyOpen} onClose={() => setReapplyOpen(false)} />
             <Button asChild variant="outline" size="sm">
               <Link href={`/admin/recipes/new?from=deployment&id=${dep.id}`}>
                 <ScrollText className="size-3.5" />{t("saveAsRecipe")}
