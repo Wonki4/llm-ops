@@ -392,6 +392,17 @@ cards; each pool tab has a "copy from the other pool" button. Deployment
 detail shows image, model, resources, storage, probes, placement and launch
 args per pool.
 
+**Fix 2026-10-30 — the representative copy leaves out the additive fields.**
+Both the form loader (`effectiveRole`) and the renderer (`role_view`) still
+put the row's extra args, engine args and env under each pool's (extra args
+concatenated, the dicts merged by key). With the row holding a copy of the
+prefill pool, every save of a P/D recipe doubled prefill's extra args, and
+decode was rendered with prefill's extra args, engine args and env. A P/D
+save now writes those three row fields as null, so each pool renders exactly
+its own. Recipes saved before the fix still carry the copy: they are cleaned
+by hand (remove the duplicated lines and prefill-only entries in each pool
+tab, save, then "re-apply from recipe" on their deployments).
+
 ## Verification (2026-10-06, minikube `portal-test`, no GPU)
 
 - Recipe `pd-mock` (image `mock-vllm:cpu`, gpu 0, prefill 1×, decode 1× with `max-num-seqs=512`, `runtime.shm_size_gi=1`) deployed as `pd-mock`:
