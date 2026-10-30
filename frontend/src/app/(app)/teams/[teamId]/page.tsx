@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
+import { copyText } from "@/lib/clipboard";
 import { InputTokens } from "@/components/input-tokens";
 import { TeamMemberKeyUsage } from "@/components/key-usage-breakdown";
 import { presetRange, type UsagePreset } from "@/lib/usage";
@@ -1964,17 +1965,10 @@ export default function TeamDetailPage({
                               onClick={() => {
                                 revealKeyMutation.mutate(key.token, {
                                   onSuccess: async (res) => {
-                                    try {
-                                      await navigator.clipboard.writeText(res.key);
-                                    } catch {
-                                      const ta = document.createElement("textarea");
-                                      ta.value = res.key;
-                                      ta.style.position = "fixed";
-                                      ta.style.opacity = "0";
-                                      document.body.appendChild(ta);
-                                      ta.select();
-                                      document.execCommand("copy");
-                                      document.body.removeChild(ta);
+                                    // Copied after the reveal round trip, which the browser may refuse; report it honestly.
+                                    if (!(await copyText(res.key))) {
+                                      toast.error(t("keyCopyFail"));
+                                      return;
                                     }
                                     setCopiedKeyId(key.token);
                                     toast.success(t("keyCopied"));

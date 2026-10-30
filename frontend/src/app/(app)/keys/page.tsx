@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { useMyKeys, useMyTeams, useDeleteKey, useRevealKey, useMe } from "@/hooks/use-api";
+import { copyText } from "@/lib/clipboard";
 import { ModelLimitOverrides } from "@/components/model-limit-overrides";
 import {
   Card,
@@ -327,17 +328,11 @@ export default function AllKeysPage() {
                         onClick={() => {
                           revealKeyMutation.mutate(key.token, {
                             onSuccess: async (res) => {
-                              try {
-                                await navigator.clipboard.writeText(res.key);
-                              } catch {
-                                const ta = document.createElement("textarea");
-                                ta.value = res.key;
-                                ta.style.position = "fixed";
-                                ta.style.opacity = "0";
-                                document.body.appendChild(ta);
-                                ta.select();
-                                document.execCommand("copy");
-                                document.body.removeChild(ta);
+                              // The copy runs after the reveal round trip; the browser can refuse it
+                              // by then (slow response, Safari), so only report what really happened.
+                              if (!(await copyText(res.key))) {
+                                toast.error(t("copyError"));
+                                return;
                               }
                               setCopiedKeyId(key.token);
                               toast.success(t("copySuccess"));
