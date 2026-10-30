@@ -27,9 +27,19 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.services.serving_engines import SERVING_PORT, engine_of, render_engine_args, validate_engine_args
+from app.services.serving_engines import (
+    DEFAULT_KV_EVENTS_ENDPOINT,
+    SERVING_PORT,
+    engine_of,
+    flag_value,
+    kv_events_args,
+    render_engine_args,
+    served_name,
+    sets_kv_events,
+    validate_engine_args,
+)
 from app.services.serving_probes import validate_probes
 
 Role = Literal["prefill", "decode"]
@@ -71,6 +81,39 @@ DEFAULT_PREFIX_TOKENS_TO_MATCH = 131072
 # ─── schema ───────────────────────────────────────────────────────────────────
 
 
+_ZMQ_ENDPOINT = re.compile(r"^(tcp|ipc|inproc)://\S+$")
+
+
+class KvEvents(BaseModel):
+    """vLLM's ZMQ KV-cache event publisher (``--kv-events-config``); present = on."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint: str = DEFAULT_KV_EVENTS_ENDPOINT
+    replay_endpoint: str | None = None
+    topic: str | None = None  # blank = kv@$(POD_IP):<port>@<served model name>
+    buffer_steps: int | None = Field(None, ge=1)
+    hwm: int | None = Field(None, ge=0)  # ZMQ high-water mark; 0 = unlimited
+    max_queue_size: int | None = Field(None, ge=1)
+
+    @field_validator("endpoint", mode="before")
+    @classmethod
+    def _default_endpoint(cls, v):
+        return (v.strip() if isinstance(v, str) else v) or DEFAULT_KV_EVENTS_ENDPOINT
+
+    @field_validator("replay_endpoint", "topic", mode="before")
+    @classmethod
+    def _blank_is_none(cls, v):
+        return (v.strip() or None) if isinstance(v, str) else v
+
+    @field_validator("endpoint", "replay_endpoint")
+    @classmethod
+    def _zmq_endpoint(cls, v):
+        if v is not None and not _ZMQ_ENDPOINT.match(v):
+            raise ValueError(f"KV event endpoint {v!r} must look like tcp://*:5556")
+        return v
+
+
 class Runtime(BaseModel):
     shm_size_gi: int | None = Field(None, ge=1, le=4096)
     host_ipc: bool = False
@@ -82,6 +125,7 @@ class Runtime(BaseModel):
     rollout: Literal["surge", "replace"] | None = None
     termination_grace_seconds: int | None = Field(None, ge=1, le=3600)
     prestop_sleep_seconds: int | None = Field(None, ge=0, le=600)
+    kv_events: KvEvents | None = None
 
     @field_validator("extra_resources")
     @classmethod
@@ -117,16 +161,6 @@ def _resource_entries(v: dict[str, str], what: str) -> dict[str, str]:
         if not key or "/" not in key or not str(val).strip():
             raise ValueError(f"{what} entries must be '<vendor>/<name>': '<quantity>' (got {key!r})")
     return v
-
-
-def flag_value(args: list[str], flag: str) -> str | None:
-    """The value of ``flag`` in an argv list (``--f=v`` or ``--f v``), None when absent."""
-    for i, a in enumerate(args):
-        if a.startswith(flag + "="):
-            return a[len(flag) + 1 :]
-        if a == flag:
-            return args[i + 1] if i + 1 < len(args) else ""
-    return None
 
 
 class PdExtras(BaseModel):
@@ -379,6 +413,41 @@ def validate_runtime(value: dict | None) -> dict | None:
     return out or None
 
 
+def _kv_event_pools(dep) -> list[tuple[str, dict | None, list[str]]]:
+    """``(role, runtime, flags)`` per pool: aggregated is one pool named ``""``.
+
+    A pool's runtime replaces the base's (``pool_row``); its flags add to the base's.
+    """
+    runtime = getattr(dep, "runtime", None)
+    flags = render_engine_args(getattr(dep, "engine_args", None)) + list(getattr(dep, "vllm_extra_args", None) or [])
+    if not is_pd(dep):
+        return [("", runtime, flags)]
+    out = []
+    for role in ROLES:
+        ov = dict(pd_config_of(dep).get(role) or {})
+        pool_flags = [
+            *flags,
+            *render_engine_args(ov.get("engine_args")),
+            *(ov.get("vllm_extra_args") or []),
+            *((ov.get("pd_extras") or {}).get("args") or []),
+        ]
+        out.append((role, ov["runtime"] if ov.get("runtime") is not None else runtime, pool_flags))
+    return out
+
+
+def check_kv_events(dep) -> None:
+    """ValueError when a pool turns on ``runtime.kv_events`` but is not vLLM, or its
+    engine/extra args also set ``--kv-events-config`` (two sources for one flag)."""
+    for role, runtime, flags in _kv_event_pools(dep):
+        if not (runtime or {}).get("kv_events"):
+            continue
+        where = f"{role}: " if role else ""
+        if engine_of(dep) != "vllm":
+            raise ValueError(f"{where}KV events (runtime.kv_events) are only supported on vLLM")
+        if sets_kv_events(flags):
+            raise ValueError(f"{where}--kv-events-config is set in the args and in the KV events section; remove one")
+
+
 # ─── per-role view ────────────────────────────────────────────────────────────
 
 
@@ -539,11 +608,16 @@ def role_args(dep, spec: RoleSpec) -> list[str]:
     """``--model <path> --port <p> --kv-transfer-config <json> <engine args> <extra args>``.
 
     A pool with P/D settings carries ``--port`` / ``--kv-transfer-config`` in them
-    (already in ``extra_args``), so only the model comes first.
+    (already in ``extra_args``), so only the model comes first. The pool's structured
+    KV events (``runtime.kv_events``) come before the engine args.
     """
     model = spec.pool.model_path if spec.pool is not None else dep.model_path
+    flags = [*render_engine_args(spec.engine_args), *spec.extra_args]
+    # The router reaches prefill pods on vLLM's port and decode pods through the sidecar.
+    router_port = spec.port if spec.role == "prefill" else SIDECAR_PORT
+    kv = kv_events_args(getattr(spec.pool, "runtime", None), port=router_port, served_name=served_name(flags, model))
     if spec.explicit:
-        return ["--model", model, *render_engine_args(spec.engine_args), *spec.extra_args]
+        return ["--model", model, *kv, *flags]
     cfg = pd_config_of(dep)
     return [
         "--model",
@@ -552,8 +626,8 @@ def role_args(dep, spec: RoleSpec) -> list[str]:
         str(spec.port),
         "--kv-transfer-config",
         kv_transfer_config(spec.role, cfg.get("kv_transfer_extra")),
-        *render_engine_args(spec.engine_args),
-        *spec.extra_args,
+        *kv,
+        *flags,
     ]
 
 

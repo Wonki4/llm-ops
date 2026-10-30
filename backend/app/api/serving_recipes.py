@@ -20,7 +20,7 @@ from app.services.clusters import default_namespace, validate_namespace
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
 from app.services.model_deployment_manifests import build_all
-from app.services.pd_serving import ServingMode, is_pd, validate_pd_config, validate_runtime
+from app.services.pd_serving import ServingMode, check_kv_events, is_pd, validate_pd_config, validate_runtime
 from app.services.serving_engines import ServingEngine, validate_engine_args, validate_port_flag
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
@@ -82,6 +82,11 @@ class RecipeBody(BaseModel):
             )
         else:
             self.pd_config = None
+        return self
+
+    @model_validator(mode="after")
+    def _check_kv_events(self):
+        check_kv_events(self)
         return self
 
     @field_validator("vllm_extra_args")

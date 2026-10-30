@@ -16,6 +16,7 @@ from app.services.serving_engines import (
     engine_of,
     kv_event_ports,
     serving_port,
+    with_pod_ip,
 )
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
@@ -233,7 +234,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         name=engine_of(dep),
         args=args,
         command=command,
-        env=[pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()],
+        env=with_pod_ip([pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()], args),
         gpu_count=dep.gpu_count,
         ports=_container_ports([{"containerPort": serving_port(dep), "name": "http"}], dep, args),
         probes=render_probes(dep, port=serving_port(dep)),
@@ -290,7 +291,7 @@ def build_pd_deployments(
             name="vllm",
             args=args,
             command=None,
-            env=pd_serving.role_env(spec),
+            env=with_pod_ip(pd_serving.role_env(spec), args),
             gpu_count=spec.gpu_count,
             ports=ports,
             probes=render_probes(pool, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
