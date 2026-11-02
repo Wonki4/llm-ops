@@ -163,6 +163,28 @@ def _resource_entries(v: dict[str, str], what: str) -> dict[str, str]:
     return v
 
 
+# llm-d's P/D guides run vLLM as root with IPC_LOCK (pinning memory for RDMA / NIXL) and
+# SYS_RESOURCE (raising the memlock limit). A pool's P/D settings may change it; one that
+# sets neither a user nor a capability renders no securityContext.
+DEFAULT_SECURITY_CONTEXT = {"run_as_user": 0, "capabilities": ["IPC_LOCK", "SYS_RESOURCE"]}
+_CAPABILITY = re.compile(r"[A-Z][A-Z0-9_]*")
+
+
+class PdSecurityContext(BaseModel):
+    """One pool's vLLM container securityContext (P/D settings)."""
+
+    run_as_user: int | None = Field(None, ge=0)
+    capabilities: list[str] = []  # Linux capabilities to add, e.g. IPC_LOCK
+
+    @field_validator("capabilities")
+    @classmethod
+    def _capabilities(cls, v):
+        for cap in v:
+            if not _CAPABILITY.fullmatch(cap):
+                raise ValueError(f"capability {cap!r} must be an upper-case Linux capability name such as IPC_LOCK")
+        return list(dict.fromkeys(v))
+
+
 class PdExtras(BaseModel):
     """One pool's P/D settings: the plumbing the portal used to inject (``--port``,
     ``--kv-transfer-config``, ``llm-d.ai/role``, NIXL side-channel port) plus
@@ -175,6 +197,8 @@ class PdExtras(BaseModel):
     labels: dict[str, str] = {}
     annotations: dict[str, str] = {}
     resources: dict[str, str] = {}
+    # None (absent) = DEFAULT_SECURITY_CONTEXT, so rows from before get it too.
+    security_context: PdSecurityContext | None = None
 
     @field_validator("env")
     @classmethod
@@ -486,6 +510,7 @@ class RoleSpec:
     pod_labels: dict[str, str] = field(default_factory=dict)
     pod_annotations: dict[str, str] = field(default_factory=dict)
     pd_resources: dict[str, str] = field(default_factory=dict)
+    security_context: dict = field(default_factory=dict)  # the vLLM container's, K8s shape
 
     def resources(self) -> dict:
         """The CPU/memory values to render (role, else base) for ``_resources``."""
@@ -600,8 +625,24 @@ def role_view(dep, role: Role) -> RoleSpec:
         pod_labels=_fill_name(extras.get("labels"), dep),
         pod_annotations=_fill_name(extras.get("annotations"), dep),
         pd_resources=dict(extras.get("resources") or {}),
+        security_context=container_security_context(extras),
     )
     return RoleSpec(**{**spec.__dict__, "pool": pool_row(dep, role, spec)})
+
+
+def container_security_context(extras: dict) -> dict:
+    """The pool's vLLM securityContext from its P/D settings' ``security_context``, the
+    llm-d default when they have none: ``{runAsUser, capabilities: {add}}``, each part
+    only when set."""
+    sc = extras.get("security_context")
+    if sc is None:
+        sc = DEFAULT_SECURITY_CONTEXT
+    out: dict = {}
+    if sc.get("run_as_user") is not None:
+        out["runAsUser"] = int(sc["run_as_user"])
+    if sc.get("capabilities"):
+        out["capabilities"] = {"add": list(sc["capabilities"])}
+    return out
 
 
 def role_args(dep, spec: RoleSpec) -> list[str]:

@@ -1,4 +1,4 @@
-import type { ModelDeployment, PdConfig, PdExtras, PdFramework, PdRoleOverride, PoolConfig, SidecarSpec } from "@/types";
+import type { ModelDeployment, PdConfig, PdExtras, PdFramework, PdRoleOverride, PdSecurityContext, PoolConfig, SidecarSpec } from "@/types";
 import { engineArgsToFlags } from "@/lib/serving-engines";
 
 export type PdRole = "prefill" | "decode";
@@ -17,6 +17,12 @@ export const PD_GUIDE_LABEL = "{{model_name}}";
 /** P/D frameworks the portal can deploy with; the backend's PdFramework literal must list the same values. */
 export const PD_FRAMEWORKS: { value: PdFramework; label: string }[] = [{ value: "llm-d", label: "llm-d" }];
 export const DEFAULT_PD_FRAMEWORK: PdFramework = "llm-d";
+/**
+ * The vLLM container's securityContext a pool gets when its P/D settings have none
+ * (mirrors backend pd_serving.DEFAULT_SECURITY_CONTEXT): root, IPC_LOCK to pin memory
+ * for RDMA / NIXL, SYS_RESOURCE to raise the memlock limit.
+ */
+export const DEFAULT_PD_SECURITY_CONTEXT: PdSecurityContext = { run_as_user: 0, capabilities: ["IPC_LOCK", "SYS_RESOURCE"] };
 
 /**
  * What a pool's "P/D settings" start with when a recipe switches to P/D: the
@@ -78,6 +84,7 @@ export function defaultPdExtras(role: PdRole, pd: PdConfig): PdExtras {
     labels: { "llm-d.ai/role": role, "llm-d.ai/guide": PD_GUIDE_LABEL },
     annotations: {},
     resources: { "rdma/rdma_shared_device_a": "1" },
+    security_context: { ...DEFAULT_PD_SECURITY_CONTEXT, capabilities: [...(DEFAULT_PD_SECURITY_CONTEXT.capabilities ?? [])] },
   };
 }
 

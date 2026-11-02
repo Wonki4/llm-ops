@@ -921,6 +921,14 @@ export interface PdExtras {
   labels?: Record<string, string>;
   annotations?: Record<string, string>;
   resources?: Record<string, string>;
+  /** The vLLM container's securityContext; absent = root + IPC_LOCK / SYS_RESOURCE (llm-d default). */
+  security_context?: PdSecurityContext | null;
+}
+
+export interface PdSecurityContext {
+  run_as_user?: number | null;
+  /** Linux capabilities to add, e.g. IPC_LOCK. */
+  capabilities?: string[];
 }
 
 /** The decode pool's routing sidecar (initContainer); a blank image uses the portal's sidecar image. */
