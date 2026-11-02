@@ -21,6 +21,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClusterSettingsTab } from "@/components/cluster-settings-tab";
 import { GpuProfilesCard } from "@/components/gpu-profiles-card";
+import { PodLabelsCard } from "@/components/pod-labels-card";
 
 export default function PortalSettingsPage() {
   const t = useTranslations("settings");
@@ -497,6 +498,7 @@ export default function PortalSettingsPage() {
         <TabsContent value="clusters" className="mt-4">
           <ClusterSettingsTab />
           <GpuProfilesCard />
+          <PodLabelsCard />
         </TabsContent>
       </Tabs>
     </div>
