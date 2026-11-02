@@ -9,7 +9,7 @@ Pure functions, no side effects.
 """
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
-from app.services import pd_serving, serving_rollout
+from app.services import common_labels, pd_serving, serving_rollout
 from app.services.serving_engines import (
     SERVING_PORT,
     container_launch,
@@ -81,6 +81,17 @@ def pod_labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]
     """Labels stamped on the serving pods: the selector labels plus llm-d's
     ``llm-d.ai/model`` so an llm-d router can target this deployment."""
     return {**_labels(dep, owner), LABEL_LLMD_MODEL: dep.model_name}
+
+
+def common_pod_labels(dep: CustomModelDeployment, gpu_type: str | None) -> dict[str, str]:
+    """The portal's common pod labels from the rules ``dep`` was last applied with
+    (``dep.common_labels``), for a pool on ``gpu_type``. Never part of a selector."""
+    rules = getattr(dep, "common_labels", None)
+    if not rules:
+        return {}
+    return common_labels.render(
+        rules, model_name=pd_serving.serving_name(dep), namespace=dep.namespace, gpu_type=gpu_type
+    )
 
 
 def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment) -> dict:
@@ -227,6 +238,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     """The aggregated (single-pool) Deployment."""
     names = k8s_resource_names(dep)
     labels = _labels(dep, owner)
+    common = common_pod_labels(dep, getattr(dep, "gpu_type", None))
     command, args = container_launch(dep)
     volumes, mounts = _volumes(dep)
     container = build_container(
@@ -243,9 +255,9 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     return _deployment(
         names["deployment"],
         dep.namespace,
+        {**common, **labels},
         labels,
-        labels,
-        pod_labels(dep, owner),
+        {**common, **pod_labels(dep, owner)},
         dep.replicas,
         build_pod_spec(dep, [container], volumes),
         strategy=serving_rollout.strategy(_runtime(dep)),
@@ -269,8 +281,10 @@ def build_pd_deployments(
         spec = pd_serving.role_view(dep, role)
         pool = spec.pool
         selector = {**base_labels, pd_serving.LABEL_PD_ROLE: role}
-        # The pool's P/D extra labels first, so the portal-owned ones always win.
+        common = common_pod_labels(dep, spec.gpu_type)
+        # Common labels, then the pool's P/D extra labels, then the portal-owned ones: later wins.
         labels_on_pod = {
+            **common,
             **spec.pod_labels,
             **pod_labels(dep, owner),
             pd_serving.LABEL_PD_ROLE: role,
@@ -313,7 +327,7 @@ def build_pd_deployments(
             _deployment(
                 names[f"{role}_deployment"],
                 dep.namespace,
-                selector,
+                {**common, **selector},
                 selector,
                 labels_on_pod,
                 spec.replicas,
