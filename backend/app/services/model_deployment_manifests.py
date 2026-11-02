@@ -297,6 +297,8 @@ def build_pd_deployments(
             probes=render_probes(pool, port=spec.port, startup_default=STARTUP_DEFAULTS_PD),
             volume_mounts=mounts,
         )
+        if spec.security_context:  # root + IPC_LOCK / SYS_RESOURCE unless the pool's P/D settings say otherwise
+            container["securityContext"] = {**container.get("securityContext", {}), **spec.security_context}
         if spec.pd_resources:  # P/D extras (e.g. rdma/ib): requested and limited like runtime extra_resources
             res = container["resources"]
             for key, qty in spec.pd_resources.items():

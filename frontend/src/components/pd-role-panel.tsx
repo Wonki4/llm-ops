@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Area, Field } from "@/components/engine-args-fields";
 import { FormCard, FormSection } from "@/components/form-section";
 import { PoolConfigCards } from "@/components/pool-config-cards";
-import { poolOf, type PdRole } from "@/lib/pd-serving";
+import { DEFAULT_PD_SECURITY_CONTEXT, poolOf, type PdRole } from "@/lib/pd-serving";
 import { linesToList, linesToMap, listToLines, mapToLines } from "@/lib/placement";
 
 /**
@@ -81,25 +81,42 @@ const MAP_FIELDS: { key: MapKey; label: "pdExtrasEnv" | "pdExtrasLabels" | "pdEx
 
 /**
  * The pool's P/D-only settings (env, launch args, pod labels/annotations,
- * extra resources), stored apart from its general config and layered on top
- * of it when the manifests render. Text areas keep their own string state.
+ * extra resources, the vLLM securityContext), stored apart from its general config
+ * and layered on top of it when the manifests render. Text areas keep their own
+ * string state. A pool without a securityContext shows (and gets) the llm-d default.
  */
 function PdExtrasSection({
   role, value, onChange,
 }: { role: PdRole; value: PdExtras; onChange: (next: PdExtras) => void }) {
   const t = useTranslations("servingRecipes");
   const id = (k: string) => `pd-${role}-extras-${k}`;
-  const [text, setText] = useState<Record<MapKey | "args", string>>(() => ({
+  const security = value.security_context ?? DEFAULT_PD_SECURITY_CONTEXT;
+  const [text, setText] = useState<Record<MapKey | "args" | "runAsUser" | "capabilities", string>>(() => ({
     env: mapToLines(value.env ?? null),
     labels: mapToLines(value.labels ?? null),
     annotations: mapToLines(value.annotations ?? null),
     resources: mapToLines(value.resources ?? null),
     args: listToLines(value.args ?? null),
+    runAsUser: security.run_as_user == null ? "" : String(security.run_as_user),
+    capabilities: (security.capabilities ?? []).join(", "),
   }));
 
   function setMap(key: MapKey, raw: string) {
     setText((s) => ({ ...s, [key]: raw }));
     onChange({ ...value, [key]: linesToMap(raw) ?? {} });
+  }
+
+  // Blank user and no capabilities = no securityContext (stored explicitly, so it stays off).
+  function setSecurity(patch: { runAsUser?: string; capabilities?: string }) {
+    const next = { runAsUser: text.runAsUser, capabilities: text.capabilities, ...patch };
+    setText((s) => ({ ...s, ...patch }));
+    onChange({
+      ...value,
+      security_context: {
+        run_as_user: next.runAsUser.trim() === "" ? null : Number(next.runAsUser),
+        capabilities: next.capabilities.split(/[\s,]+/).map((c) => c.trim().toUpperCase()).filter(Boolean),
+      },
+    });
   }
 
   return (
@@ -121,6 +138,20 @@ function PdExtrasSection({
           <Area id={id(f.key)} rows={2} value={text[f.key]} placeholder={f.placeholder} onChange={(v) => setMap(f.key, v)} />
         </Field>
       ))}
+      <Field id={id("run-as-user")} label={t("pdExtrasRunAsUser")}>
+        <Input
+          id={id("run-as-user")} type="number" min={0} step={1} className="w-28"
+          value={text.runAsUser}
+          onChange={(e) => setSecurity({ runAsUser: e.target.value })}
+        />
+      </Field>
+      <Field id={id("capabilities")} label={t("pdExtrasCapabilities")} hint={t("pdExtrasCapabilitiesHint")}>
+        <Input
+          id={id("capabilities")} className="font-mono text-xs"
+          value={text.capabilities} placeholder="IPC_LOCK, SYS_RESOURCE"
+          onChange={(e) => setSecurity({ capabilities: e.target.value })}
+        />
+      </Field>
     </FormSection>
   );
 }

@@ -403,6 +403,35 @@ its own. Recipes saved before the fix still carry the copy: they are cleaned
 by hand (remove the duplicated lines and prefill-only entries in each pool
 tab, save, then "re-apply from recipe" on their deployments).
 
+## Revision 2026-11-02 — vLLM securityContext
+
+The vLLM container of every P/D pool runs as llm-d's P/D guides run it:
+
+```yaml
+securityContext:
+  runAsUser: 0
+  capabilities:
+    add: [IPC_LOCK, SYS_RESOURCE]   # pin memory for RDMA / NIXL; raise the memlock limit
+```
+
+- Stored in the pool's P/D settings as `pd_extras.security_context`
+  (`{run_as_user: int >= 0 | null, capabilities: [upper-case names]}`,
+  capabilities de-duplicated). **Absent = the default above**, so pools saved
+  before (and pools without P/D settings) get it on their next apply; set it
+  to change it, or leave both parts empty (`{"capabilities": []}`, kept by the
+  normalisation) to render no securityContext.
+- Only the vLLM container. The decode routing sidecar keeps its own non-root
+  context; aggregated servings get none. A pool with `runtime.privileged`
+  keeps `privileged: true` next to these fields.
+- Form: the P/D settings section gets "run as user" and "added capabilities";
+  a pool without the setting shows the default, a new P/D recipe is seeded
+  with it, the capabilities are upper-cased on input.
+- Existing P/D deployments change pod template on their next apply (re-apply
+  or any update), i.e. a rolling restart. A namespace whose Pod Security level
+  refuses root or added capabilities rejects the new pods: the rollout stalls
+  until the pool's setting is cleared or the namespace allows it (with `surge`
+  the old pods keep serving; with `replace` one replica is down meanwhile).
+
 ## Verification (2026-10-06, minikube `portal-test`, no GPU)
 
 - Recipe `pd-mock` (image `mock-vllm:cpu`, gpu 0, prefill 1×, decode 1× with `max-num-seqs=512`, `runtime.shm_size_gi=1`) deployed as `pd-mock`:
