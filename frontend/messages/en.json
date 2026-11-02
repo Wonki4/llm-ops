@@ -1875,7 +1875,7 @@
       "env_value_from": "Env vars sourced from Secrets/ConfigMaps cannot be copied; set them by hand:",
       "env_from_dropped": "envFrom (whole Secret/ConfigMap) is not supported and was dropped.",
       "subpath_dropped": "PVC mount used subPath, which the recipe cannot express:",
-      "shm_volume_dropped": "A memory-backed /dev/shm volume was dropped; multi-GPU NCCL may need it:",
+      "shm_volume_dropped": "A memory-backed volume could not be carried over (no sizeLimit, or not at /dev/shm); if multi-GPU NCCL needs it, set Shared memory:",
       "volume_unsupported": "Volumes other than a PVC are not supported and were dropped:",
       "unregistered_pvc": "Skipped a PVC with no storage binding. Add a binding under Storage and import again:",
       "pvc_unmounted": "The PVC is not mounted in the serving container; set a mount path:",

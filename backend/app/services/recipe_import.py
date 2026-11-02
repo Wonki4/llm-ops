@@ -16,6 +16,7 @@ Pure functions, no I/O.
 from __future__ import annotations
 
 import json
+import math
 import re
 import shlex
 from typing import Any
@@ -285,6 +286,23 @@ def _env(container: dict, warnings: list[dict]) -> dict[str, str] | None:
     return env or None
 
 
+_QUANTITY = re.compile(r"(\d+(?:\.\d+)?)(Ki|Mi|Gi|Ti|Pi|Ei|k|M|G|T|P|E)?")
+# Byte multipliers: decimal k, M, G… and binary Ki, Mi, Gi…
+_QUANTITY_UNIT = {
+    None: 1,
+    **{u: 10 ** (3 * i) for i, u in enumerate("kMGTPE", 1)},
+    **{f"{u}i": 2 ** (10 * i) for i, u in enumerate("KMGTPE", 1)},
+}
+
+
+def _size_gi(quantity) -> int | None:
+    """A K8s memory quantity in whole Gi, rounded up (at least 1); None when unreadable."""
+    m = _QUANTITY.fullmatch(str(quantity or "").strip())
+    if not m:
+        return None
+    return max(1, math.ceil(float(m.group(1)) * _QUANTITY_UNIT[m.group(2)] / 2**30))
+
+
 def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> None:
     mounts = {m.get("name"): m for m in (container.get("volume_mounts") or container.get("volumeMounts") or [])}
     pvc_mounts: list[dict] = []
@@ -310,8 +328,13 @@ def _volumes(spec: dict, container: dict, out: dict, warnings: list[dict]) -> No
         kinds = [k for k in vol if k != "name"]
         kind = kinds[0] if kinds else "unknown"
         if kind == "emptyDir" and (vol.get("emptyDir") or {}).get("medium") == "Memory":
-            # /dev/shm for NCCL: the portal does not add it, so flag it loudly.
-            _warn(warnings, "shm_volume_dropped", name)
+            # /dev/shm for NCCL: the portal renders it from runtime.shm_size_gi; without a
+            # size (or mounted elsewhere) it cannot be carried over, so flag it loudly.
+            size = _size_gi(vol["emptyDir"].get("sizeLimit"))
+            if size is not None and (mounts.get(name) or {}).get("mountPath") == "/dev/shm":
+                out["runtime"] = {**(out.get("runtime") or {}), "shm_size_gi": size}
+            else:
+                _warn(warnings, "shm_volume_dropped", name)
         else:
             unsupported.append(f"{name} ({kind})")
     out["pvc_mounts"] = pvc_mounts
@@ -450,7 +473,7 @@ def build_recipe_draft(spec: dict) -> dict:
         skip |= {p["containerPort"] for p in kv_event_ports(argv)}  # re-derived from the args on render
         extra_ports = _extra_ports(container, skip)
         if extra_ports:
-            draft["runtime"] = {"extra_ports": extra_ports}
+            draft["runtime"] = {**(draft.get("runtime") or {}), "extra_ports": extra_ports}
 
     return {
         "draft": draft,

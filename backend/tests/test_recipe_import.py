@@ -2,6 +2,8 @@
 
 import types
 
+import pytest
+
 from app.services.model_deployment_manifests import build_deployment
 from app.services.recipe_import import build_recipe_draft, parse_flags
 from tests._storage import legacy_entry
@@ -445,3 +447,38 @@ def test_runtime_extra_ports_round_trip():
     dep = _dep(runtime={"extra_ports": {"metrics": 9100}})
     out = build_recipe_draft(_manifest_to_spec(build_deployment(dep)))
     assert out["draft"]["runtime"] == {"extra_ports": {"metrics": 9100}}
+
+
+def _shm_spec(size_limit: str | None, mount_path: str = "/dev/shm", ports=None):
+    empty_dir = {"medium": "Memory", **({"sizeLimit": size_limit} if size_limit else {})}
+    container = {"volume_mounts": [{"name": "dshm", "mountPath": mount_path}]}
+    if ports:
+        container["ports"] = ports
+    return _spec(args=["--model", "/m"], container=container, volumes=[{"name": "dshm", "emptyDir": empty_dir}])
+
+
+@pytest.mark.parametrize(
+    "size, gi", [("2000Gi", 2000), ("2Ti", 2048), ("1536Mi", 2), ("512Mi", 1), ("16G", 15), ("1073741824", 1)]
+)
+def test_shm_volume_with_a_size_imports_as_the_shm_setting(size, gi):
+    out = build_recipe_draft(_shm_spec(size))
+    assert out["draft"]["runtime"] == {"shm_size_gi": gi}
+    assert "shm_volume_dropped" not in {w["code"] for w in out["warnings"]}
+
+
+def test_shm_size_sits_next_to_extra_ports():
+    ports = [{"containerPort": 8000, "name": "http"}, {"containerPort": 9100, "name": "metrics"}]
+    out = build_recipe_draft(_shm_spec("64Gi", ports=ports))
+    assert out["draft"]["runtime"] == {"extra_ports": {"metrics": 9100}, "shm_size_gi": 64}
+
+
+@pytest.mark.parametrize("size, mount", [(None, "/dev/shm"), ("lots", "/dev/shm"), ("64Gi", "/scratch")])
+def test_memory_volume_without_a_usable_size_or_not_at_dev_shm_is_still_flagged(size, mount):
+    out = build_recipe_draft(_shm_spec(size, mount_path=mount))
+    assert "runtime" not in out["draft"]
+    assert {w["code"]: w.get("detail") for w in out["warnings"]}["shm_volume_dropped"] == "dshm"
+
+
+def test_runtime_shm_round_trip():
+    out = build_recipe_draft(_manifest_to_spec(build_deployment(_dep(runtime={"shm_size_gi": 2000}))))
+    assert out["draft"]["runtime"] == {"shm_size_gi": 2000}
