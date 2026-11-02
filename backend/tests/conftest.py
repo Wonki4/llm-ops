@@ -149,6 +149,19 @@ def mock_db() -> AsyncMock:
     return session
 
 
+@pytest.fixture(autouse=True)
+def _no_common_pod_labels():
+    """Deploy, re-apply and recipe preview read the common pod label rules from portal
+    settings; a test that does not patch its own sees none (its mock DB would answer
+    that query with the rows it set up for something else)."""
+    rules = AsyncMock(return_value={})
+    with (
+        patch("app.api.model_deployments.load_label_rules", rules),
+        patch("app.api.serving_recipes.load_label_rules", rules),
+    ):
+        yield
+
+
 # ─── Test Client Factory ─────────────────────────────────────
 
 

@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.services.llmd_manifests import stack_selector
-from app.services.model_deployment_manifests import pod_labels
+from app.services.model_deployment_manifests import common_pod_labels, pod_labels
 
 
 def selector_matches(selector: dict, labels: dict) -> bool:
@@ -31,7 +31,7 @@ def portal_server(dep: Any) -> dict:
         "namespace": dep.namespace,
         "status": dep.status,
         "serving_mode": getattr(dep, "serving_mode", None) or "aggregated",
-        "labels": pod_labels(dep),
+        "labels": {**common_pod_labels(dep, getattr(dep, "gpu_type", None)), **pod_labels(dep)},
     }
 
 

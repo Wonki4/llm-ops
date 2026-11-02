@@ -30,6 +30,7 @@ from app.db.session import get_db
 from app.jobs import reconcile_deployments
 from app.services import llmd_stacks, manifest_diff, pd_router, pd_serving, recipe_reapply, serving_rollout
 from app.services.clusters import default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
+from app.services.common_labels import load_rules as load_label_rules
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
@@ -714,6 +715,7 @@ async def create_deployment(
         serving_mode=body.serving_mode,
         pd_config=body.pd_config,
         runtime=body.runtime,
+        common_labels=await load_label_rules(db) or None,
         status="Pending",
         created_by=user.user_id,
         updated_by=user.user_id,
@@ -940,10 +942,12 @@ async def _proposed(db: AsyncSession, dep: CustomModelDeployment, recipe: Custom
 
 
 async def _proposed_manifests(db: AsyncSession, dep: CustomModelDeployment, values: dict, proposed: Any) -> list[dict]:
-    """What the re-apply would send to K8s: ``proposed`` with the P/D settings normalised and
-    the recipe's storages resolved against the deployment's, as ``_apply_update`` does.
+    """What the re-apply would send to K8s: ``proposed`` with the P/D settings normalised,
+    the recipe's storages resolved against the deployment's, as ``_apply_update`` does, and
+    the common pod label rules in settings now.
     ValueError when the re-apply would be refused (an unbound storage, a portal-managed flag)."""
     row = types.SimpleNamespace(**vars(proposed))
+    row.common_labels = await load_label_rules(db) or None
     if pd_serving.is_pd(row):
         row.pd_config = pd_serving.validate_pd_config(
             row.pd_config, engine=row.engine, base_extra_args=row.vllm_extra_args
@@ -1021,6 +1025,10 @@ async def reapply_recipe(
     values = recipe_reapply.recipe_values(recipe, dep)  # _apply_update folds the profile in itself
     if dep.gpu_type:
         values["gpu_type"] = dep.gpu_type
+    # The common pod labels as set now (create and re-apply take them; a plain update keeps the copy).
+    values["common_labels"] = await load_label_rules(db) or None
+    if values["common_labels"] != (dep.common_labels or None):
+        changed.append("common_labels")
     dep.recipe_id = recipe.id
     out = await _apply_update(db, k8s, litellm, dep, values, user)
     await reconcile_deployments._record_event(

@@ -2,7 +2,7 @@
 
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.deps import get_current_user, require_super_user
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
+from app.services import common_labels
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -155,3 +156,41 @@ async def update_hidden_teams(
         )
     await db.commit()
     return {"hidden_teams": base, "hidden_teams_strict": strict}
+
+
+class PodLabelsBody(BaseModel):
+    # {label key: value}; the value is fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}.
+    labels: dict[str, str] = {}
+
+
+@router.get("/pod-labels")
+async def get_pod_labels(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """The common pod labels every serving pod gets (Super User only)."""
+    return {"labels": await common_labels.load_rules(db)}
+
+
+@router.put("/pod-labels")
+async def update_pod_labels(
+    body: PodLabelsBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Replace the common pod labels (Super User only). Deployments take them on their
+    next create or re-apply; running pods keep theirs until then."""
+    try:
+        rules = common_labels.validate_rules(body.labels)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    await db.execute(
+        text(
+            "INSERT INTO custom_portal_settings (key, value, updated_by) "
+            "VALUES (:key, :value, :updated_by) "
+            "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+        ),
+        {"key": common_labels.SETTINGS_KEY, "value": json.dumps(rules), "updated_by": user.user_id},
+    )
+    await db.commit()
+    return {"labels": rules}

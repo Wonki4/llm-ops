@@ -17,6 +17,7 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import pd_router
 from app.services.clusters import default_namespace, validate_namespace
+from app.services.common_labels import load_rules as load_label_rules
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
 from app.services.manifest_diff import PlainDumper
@@ -247,6 +248,7 @@ async def preview_recipe(
         ingress_path="/",
         ingress_class="nginx",
         status="Pending",
+        common_labels=await load_label_rules(db) or None,
         **fields,
     )
     unresolved: list[str] = []

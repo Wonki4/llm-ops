@@ -71,6 +71,9 @@ class CustomModelDeployment(CustomBase):
     )
     pd_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     runtime: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    # The portal's common pod label rules ({key: value template}) as of the last
+    # create / re-apply; null = none. See services/common_labels.
+    common_labels: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # P/D only: {"prefill": {desired, ready, available, status, message}, "decode": {...}}
     pd_status: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # P/D only: the llm-d router stack that fronts both pools; created with the
