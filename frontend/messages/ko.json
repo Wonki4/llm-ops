@@ -2137,6 +2137,27 @@
     "save": "저장",
     "cancel": "취소"
   },
+  "podLabels": {
+    "title": "서빙 파드 공통 라벨",
+    "description": "모든 서빙 파드(일반 배포, P/D의 prefill·decode 풀)에 붙는 라벨입니다. 키는 여기서 정하고, 값은 고정 문자열이나 배포 정보로 채워지는 자리표시자로 씁니다.",
+    "placeholdersHint": "자리표시자:",
+    "placeholderModelName": "모델 이름",
+    "placeholderNamespace": "네임스페이스",
+    "placeholderGpuType": "GPU 타입 (P/D는 풀별)",
+    "reservedHint": "llm-ops/ 와 llm-d.ai/ 로 시작하는 키는 포털이 쓰므로 정할 수 없습니다. 값은 K8s 라벨 규칙(63자, 영숫자·-_.)에 맞게 채워지고, 맞지 않는 문자는 -로 바뀝니다.",
+    "keyLabel": "라벨 키",
+    "valueLabel": "라벨 값",
+    "keyPlaceholder": "키 (예: team)",
+    "valuePlaceholder": "값 (예: ml-platform, {example})",
+    "empty": "공통 라벨이 없습니다.",
+    "addButton": "라벨 추가",
+    "remove": "삭제",
+    "keyRequired": "키를 입력하세요",
+    "duplicateKey": "키가 겹칩니다",
+    "saveSuccess": "공통 라벨을 저장했습니다",
+    "saveFailed": "저장하지 못했습니다",
+    "applyNote": "새 배포와 “레시피에서 다시 적용”부터 붙습니다. 이미 떠 있는 배포는 다시 적용할 때 파드가 롤링 재시작되며 바뀝니다."
+  },
   "storages": {
     "title": "스토리지",
     "subtitle": "클러스터·네임스페이스마다 실제 PVC 또는 NFS에 연결해 두고, 레시피에서는 스토리지 이름만 고릅니다.",

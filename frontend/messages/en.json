@@ -2137,6 +2137,27 @@
     "save": "Save",
     "cancel": "Cancel"
   },
+  "podLabels": {
+    "title": "Common serving pod labels",
+    "description": "Labels every serving pod gets (regular deployments and the prefill / decode pools of P/D). Keys are set here; a value is fixed text or placeholders filled from the deployment.",
+    "placeholdersHint": "Placeholders:",
+    "placeholderModelName": "model name",
+    "placeholderNamespace": "namespace",
+    "placeholderGpuType": "GPU type (per pool in P/D)",
+    "reservedHint": "Keys starting with llm-ops/ or llm-d.ai/ belong to the portal. Values are fitted to K8s label rules (63 chars, letters, digits, -_.); other characters become -.",
+    "keyLabel": "Label key",
+    "valueLabel": "Label value",
+    "keyPlaceholder": "key (e.g. team)",
+    "valuePlaceholder": "value (e.g. ml-platform, {example})",
+    "empty": "No common labels.",
+    "addButton": "Add label",
+    "remove": "Remove",
+    "keyRequired": "Enter a key",
+    "duplicateKey": "Duplicate key",
+    "saveSuccess": "Saved the common labels",
+    "saveFailed": "Could not save",
+    "applyNote": "New deployments and “Re-apply from recipe” get them. A running deployment changes on its next re-apply, which rolls its pods."
+  },
   "storages": {
     "title": "Storage",
     "subtitle": "Connect each cluster and namespace to a real PVC or NFS export once; recipes then pick only the storage name.",

@@ -828,6 +828,32 @@ export function useUpdateHiddenTeams() {
   });
 }
 
+// ─── Common pod labels ─────────────────────────────────────────
+
+/** label key → value: fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}. */
+export type PodLabelRules = Record<string, string>;
+
+export function usePodLabels() {
+  return useQuery({
+    queryKey: ["pod-labels"],
+    queryFn: () => apiFetch<{ labels: PodLabelRules }>("/api/settings/pod-labels").then((r) => r.labels),
+  });
+}
+
+export function useUpdatePodLabels() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (labels: PodLabelRules) =>
+      apiFetch<{ labels: PodLabelRules }>("/api/settings/pod-labels", {
+        method: "PUT",
+        body: JSON.stringify({ labels }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pod-labels"] });
+    },
+  });
+}
+
 // ─── Redis Catalog ──────────────────────────────────────────────
 
 export function useCatalogList() {
