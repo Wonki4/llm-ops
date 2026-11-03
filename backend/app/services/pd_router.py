@@ -52,8 +52,9 @@ def router_values(dep) -> dict:
             pd_router=router,
         )
     ms = values.setdefault("router", {}).setdefault("modelServers", {})
-    if not ms.get("matchLabels"):
-        ms["matchLabels"] = {LABEL_LLMD_MODEL: dep.model_name}
+    # Always narrowed to this deployment's pods: every deployment made from a recipe shares
+    # its values.yaml, so a selector of its own alone would reach their pods too.
+    ms["matchLabels"] = {**(ms.get("matchLabels") or {}), LABEL_LLMD_MODEL: dep.model_name}
     return values
 
 
@@ -96,8 +97,8 @@ def dump_values(values: dict) -> str:
 
 VALUES_HEADER = """\
 # llm-d router chart values, used as written. {{model_name}} = the model name entered at deploy.
-# Left out, router.epp.image (portal default) and router.modelServers.matchLabels
-# (llm-d.ai/model: <model name>) are filled in by the portal.
+# Left out, router.epp.image is the portal default. router.modelServers.matchLabels always
+# gets llm-d.ai/model: <model name> from the portal, so the router picks only its own pods.
 """
 
 

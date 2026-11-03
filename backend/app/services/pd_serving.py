@@ -709,6 +709,14 @@ def parse_router_values(text: str, name: str) -> dict:
         return {}
     if not isinstance(data, dict):
         raise ValueError("router values.yaml must be a mapping")
+    # The portal adds the deployment's model label under router.modelServers.matchLabels.
+    node, path = data, "router values.yaml"
+    for key in ("router", "modelServers", "matchLabels"):
+        node, path = node.get(key), f"{path}: {key}"
+        if node is None:
+            break
+        if not isinstance(node, dict):
+            raise ValueError(f"{path} must be a mapping")
     return data
 
 

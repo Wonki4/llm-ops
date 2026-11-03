@@ -2045,7 +2045,7 @@
     "pdChartName": "Chart name",
     "pdChartVersion": "Chart version",
     "pdChartHint": "Blank = portal default. Write values.yaml for this version.",
-    "pdRouterValuesHint": "Used as written; '{{model_name}}' works; image/matchLabels auto-filled.",
+    "pdRouterValuesHint": "Used as written; '{{model_name}}' works; image auto-filled; matchLabels always gets llm-d.ai/model (the deployment's model name).",
     "pdRouterValuesReset": "Reset to default",
     "pdRouterValuesResetConfirm": "Reset values.yaml to the portal default? Your edits will be lost.",
     "pdRouterToValues": "Edit as values.yaml",

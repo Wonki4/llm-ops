@@ -607,6 +607,47 @@ def test_router_values_without_values_yaml_equal_the_previous_render():
     )
 
 
+def _with_values_yaml(text: str, **kw):
+    return _dep(**kw, pd_config={**_dep().pd_config, "router": {"values_yaml": text}})
+
+
+def test_router_values_keep_each_deployment_to_its_own_pods():
+    """A recipe's values.yaml with a fixed matchLabels value would select the pods of every
+    deployment made from that recipe; the portal adds the deployment's llm-d.ai/model."""
+    from app.services import pd_router
+
+    text = "router:\n  modelServers:\n    matchLabels:\n      llm-d.ai/guide: pd-disaggregation\n"
+    selectors = [
+        pd_router.router_values(_with_values_yaml(text, model_name=name))["router"]["modelServers"]["matchLabels"]
+        for name in ("glm-a", "glm-b")
+    ]
+    assert selectors == [
+        {"llm-d.ai/guide": "pd-disaggregation", "llm-d.ai/model": "glm-a"},
+        {"llm-d.ai/guide": "pd-disaggregation", "llm-d.ai/model": "glm-b"},
+    ]
+
+
+def test_router_values_model_label_is_the_one_the_pods_carry():
+    """values.yaml cannot point llm-d.ai/model elsewhere; {{model_name}} is K8s-safe
+    (glm-5) while the pods carry the model name as entered (GLM_5)."""
+    from app.services import pd_router
+
+    text = 'router:\n  modelServers:\n    matchLabels:\n      llm-d.ai/model: "{{model_name}}"\n'
+    dep = _with_values_yaml(text, model_name="GLM_5")
+    pod = build_pd_deployments(dep, sidecar_image="sc:v1")[0]["spec"]["template"]["metadata"]["labels"]
+    selector = pd_router.router_values(dep)["router"]["modelServers"]["matchLabels"]
+    assert selector == {"llm-d.ai/model": "GLM_5"} == {"llm-d.ai/model": pod["llm-d.ai/model"]}
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["router: [a]\n", "router:\n  modelServers: x\n", "router:\n  modelServers:\n    matchLabels: [a]\n"],
+)
+def test_router_values_yaml_path_to_match_labels_must_be_mappings(text):
+    with pytest.raises(ValueError, match="must be a mapping"):
+        pd_serving.parse_router_values(text, "m")
+
+
 def test_pd_pools_declare_kv_event_ports():
     cfg = '{"enable_kv_cache_events":true,"endpoint":"tcp://*:5556","replay_endpoint":"tcp://*:5559"}'
     deps = build_pd_deployments(_dep(vllm_extra_args=[f"--kv-events-config={cfg}"]), sidecar_image="sc:v1")
