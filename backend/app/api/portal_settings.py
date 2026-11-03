@@ -159,8 +159,9 @@ async def update_hidden_teams(
 
 
 class PodLabelsBody(BaseModel):
-    # {label key: value}; the value is fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}.
+    # {key: value}; the value is fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}.
     labels: dict[str, str] = {}
+    annotations: dict[str, str] = {}
 
 
 @router.get("/pod-labels")
@@ -168,8 +169,8 @@ async def get_pod_labels(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """The common pod labels every serving pod gets (Super User only)."""
-    return {"labels": await common_labels.load_rules(db)}
+    """The common pod labels and annotations every serving pod gets (Super User only)."""
+    return await common_labels.load_rules(db)
 
 
 @router.put("/pod-labels")
@@ -178,19 +179,24 @@ async def update_pod_labels(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Replace the common pod labels (Super User only). Deployments take them on their
-    next create or re-apply; running pods keep theirs until then."""
+    """Replace the common pod labels and annotations (Super User only). Deployments take
+    them on their next create or re-apply; running pods keep theirs until then."""
     try:
-        rules = common_labels.validate_rules(body.labels)
+        rules = {
+            "labels": common_labels.validate_rules(body.labels),
+            "annotations": common_labels.validate_annotation_rules(body.annotations),
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    await db.execute(
-        text(
-            "INSERT INTO custom_portal_settings (key, value, updated_by) "
-            "VALUES (:key, :value, :updated_by) "
-            "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
-        ),
-        {"key": common_labels.SETTINGS_KEY, "value": json.dumps(rules), "updated_by": user.user_id},
-    )
+    keys = {"labels": common_labels.LABELS_KEY, "annotations": common_labels.ANNOTATIONS_KEY}
+    for kind, value in rules.items():
+        await db.execute(
+            text(
+                "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                "VALUES (:key, :value, :updated_by) "
+                "ON CONFLICT (key) DO UPDATE SET value = :value, updated_by = :updated_by"
+            ),
+            {"key": keys[kind], "value": json.dumps(value), "updated_by": user.user_id},
+        )
     await db.commit()
-    return {"labels": rules}
+    return rules

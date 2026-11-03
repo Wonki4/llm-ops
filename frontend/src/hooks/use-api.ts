@@ -828,25 +828,26 @@ export function useUpdateHiddenTeams() {
   });
 }
 
-// ─── Common pod labels ─────────────────────────────────────────
+// ─── Common pod labels / annotations ───────────────────────────
 
-/** label key → value: fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}. */
+/** key → value: fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}. */
 export type PodLabelRules = Record<string, string>;
+export type PodMetadataRules = { labels: PodLabelRules; annotations: PodLabelRules };
 
 export function usePodLabels() {
   return useQuery({
     queryKey: ["pod-labels"],
-    queryFn: () => apiFetch<{ labels: PodLabelRules }>("/api/settings/pod-labels").then((r) => r.labels),
+    queryFn: () => apiFetch<PodMetadataRules>("/api/settings/pod-labels"),
   });
 }
 
 export function useUpdatePodLabels() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (labels: PodLabelRules) =>
-      apiFetch<{ labels: PodLabelRules }>("/api/settings/pod-labels", {
+    mutationFn: (rules: PodMetadataRules) =>
+      apiFetch<PodMetadataRules>("/api/settings/pod-labels", {
         method: "PUT",
-        body: JSON.stringify({ labels }),
+        body: JSON.stringify(rules),
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pod-labels"] });
