@@ -94,6 +94,17 @@ def common_pod_labels(dep: CustomModelDeployment, gpu_type: str | None) -> dict[
     )
 
 
+def common_pod_annotations(dep: CustomModelDeployment, gpu_type: str | None) -> dict[str, str]:
+    """The portal's common pod annotations from the rules ``dep`` was last applied with
+    (``dep.common_annotations``), for a pool on ``gpu_type``."""
+    rules = getattr(dep, "common_annotations", None)
+    if not rules:
+        return {}
+    return common_labels.render_annotations(
+        rules, model_name=pd_serving.serving_name(dep), namespace=dep.namespace, gpu_type=gpu_type
+    )
+
+
 def _resources(gpu_count: int | None, gpu_resource_key: str, dep: CustomModelDeployment) -> dict:
     # GPU optional — omit the resource entirely when gpu_count == 0 so the pod is
     # CPU-only and schedulable on nodes without GPUs. CPU/memory are optional too.
@@ -216,15 +227,20 @@ def _deployment(
     pod_spec: dict,
     *,
     strategy: dict,
+    annotations: dict | None = None,
     pod_annotations: dict | None = None,
 ) -> dict:
+    # No annotations key when there are none: an existing Deployment renders as before.
+    metadata: dict = {"name": name, "namespace": namespace, "labels": labels}
+    if annotations:
+        metadata["annotations"] = dict(annotations)
     template_meta: dict = {"labels": pod_labels_}
     if pod_annotations:
         template_meta["annotations"] = dict(pod_annotations)
     return {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
-        "metadata": {"name": name, "namespace": namespace, "labels": labels},
+        "metadata": metadata,
         "spec": {
             "replicas": replicas,
             "selector": {"matchLabels": selector},
@@ -239,6 +255,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     names = k8s_resource_names(dep)
     labels = _labels(dep, owner)
     common = common_pod_labels(dep, getattr(dep, "gpu_type", None))
+    annotations = common_pod_annotations(dep, getattr(dep, "gpu_type", None))
     command, args = container_launch(dep)
     volumes, mounts = _volumes(dep)
     container = build_container(
@@ -261,6 +278,8 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         dep.replicas,
         build_pod_spec(dep, [container], volumes),
         strategy=serving_rollout.strategy(_runtime(dep)),
+        annotations=annotations,
+        pod_annotations=annotations,
     )
 
 
@@ -282,6 +301,7 @@ def build_pd_deployments(
         pool = spec.pool
         selector = {**base_labels, pd_serving.LABEL_PD_ROLE: role}
         common = common_pod_labels(dep, spec.gpu_type)
+        annotations = common_pod_annotations(dep, spec.gpu_type)
         # Common labels, then the pool's P/D extra labels, then the portal-owned ones: later wins.
         labels_on_pod = {
             **common,
@@ -333,7 +353,8 @@ def build_pd_deployments(
                 spec.replicas,
                 build_pod_spec(pool, [container], volumes, init_containers=init),
                 strategy=serving_rollout.strategy(_runtime(pool)),
-                pod_annotations=spec.pod_annotations,
+                annotations=annotations,
+                pod_annotations={**annotations, **spec.pod_annotations},  # the pool's own win
             )
         )
     return out
