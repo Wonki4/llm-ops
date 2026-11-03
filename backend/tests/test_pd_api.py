@@ -494,7 +494,11 @@ async def test_deploy_pd_creates_router_from_recipe_values_yaml_and_chart_pins(c
     assert kw["values"] == {
         "router": {
             "epp": {"replicas": 2, "flags": {"v": 3}},
-            "modelServers": {"type": "vllm", "matchLabels": {"llm-d.ai/guide": "glm-5"}},
+            "modelServers": {
+                "type": "vllm",
+                # the deployment's own model label joins whatever the recipe selects on
+                "matchLabels": {"llm-d.ai/guide": "glm-5", "llm-d.ai/model": "GLM_5"},
+            },
         }
     }
     assert (kw["chart_repo"], kw["chart_name"], kw["chart_version"]) == (None, "llm-d-router", "v0.10.1")
@@ -514,7 +518,9 @@ async def test_deploy_pd_router_values_get_match_labels_only_when_missing(client
     assert kw["chart_version"] is None  # no pin: the stack keeps following the portal default
 
 
-@pytest.mark.parametrize("text", ["router: [unclosed", "- a\n- b\n", "just a string"])
+@pytest.mark.parametrize(
+    "text", ["router: [unclosed", "- a\n- b\n", "just a string", "router:\n  modelServers:\n    matchLabels: [a]\n"]
+)
 async def test_deploy_pd_rejects_invalid_router_values_yaml(client_for_user, super_user, mock_db, text):
     body = {**_DEPLOY, "pd_config": {**_DEPLOY["pd_config"], "router": {"values_yaml": text}}}
     async with client_for_user(super_user) as client:

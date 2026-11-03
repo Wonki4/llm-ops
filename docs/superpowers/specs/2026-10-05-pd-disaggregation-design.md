@@ -237,6 +237,15 @@ router:
     targetPorts: [{number: 8000}]
 ```
 
+Revision 2026-11-03: `llm-d.ai/model: <model>` is in `matchLabels` even when a
+recipe's own router values.yaml sets `matchLabels`; it is added to theirs and
+overrides any `llm-d.ai/model` there. Every deployment made from a recipe shares
+its values.yaml, so a fixed selector there (e.g. `llm-d.ai/guide:
+pd-disaggregation`) would otherwise let each router pick the other deployments'
+pods. The value is the model name as entered, the same as the pod label
+(`{{model_name}}` is the K8s-safe form, which can differ). A values.yaml whose
+`router`, `modelServers` or `matchLabels` is not a mapping is refused on save.
+
 `api/model_deployments.create` with `serving_mode == "pd"` and no
 `router_stack_id` calls the llm-d create path (`api/llmd.py` internals
 refactored into a service function `create_stack(db, user, request)`) with
