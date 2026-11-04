@@ -3,7 +3,7 @@
 import logging
 import traceback
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +34,7 @@ from app.api import (
     teams,
 )
 from app.config import settings
+from app.mcp.server import install_mcp
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     # Startup
-    yield
+    async with mcp_server.session_manager.run() if mcp_server else nullcontext():
+        yield
     # Shutdown
 
 
@@ -84,6 +86,9 @@ app.include_router(serving_recipes.router)
 app.include_router(gpu_profiles.router)
 app.include_router(storages.router)
 app.include_router(serving_overview.router)
+
+# Portal admin MCP for super users (Claude Code, Keycloak OAuth); off unless APP_MCP_ENABLED
+mcp_server = install_mcp(app) if settings.mcp_enabled else None
 
 
 @app.exception_handler(Exception)
