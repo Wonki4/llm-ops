@@ -114,6 +114,10 @@ services:
       APP_GATEWAY_SSO_ENABLED: "${APP_GATEWAY_SSO_ENABLED:-true}"
       APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
       APP_GATEWAY_ALLOWED_AZP: '${APP_GATEWAY_ALLOWED_AZP:-["litellm-portal-gw"]}'
+      # Portal admin MCP for super users: claude mcp add --transport http --client-id portal-mcp
+      #   --callback-port 8765 portal http://localhost:8002/mcp   (see docs/portal-admin-mcp.md)
+      APP_MCP_ENABLED: "${APP_MCP_ENABLED:-true}"
+      APP_MCP_PUBLIC_URL: "http://localhost:8002/mcp"
       # Every Keycloak re-create re-imports the realm with new account ids (sub),
       # so local pinning is off; set record/enforce to try it.
       APP_KEYCLOAK_SUB_PINNING: "${APP_KEYCLOAK_SUB_PINNING:-off}"

@@ -58,6 +58,14 @@ spec:
               value: {{ index .Values.backend.env "APP_GATEWAY_SSO_ENABLED" | default "false" | quote }}
             - name: APP_GATEWAY_TOKEN_AUDIENCE
               value: {{ index .Values.backend.env "APP_GATEWAY_TOKEN_AUDIENCE" | default "litellm-gateway" | quote }}
+            - name: APP_MCP_ENABLED
+              value: {{ index .Values.backend.env "APP_MCP_ENABLED" | default "false" | quote }}
+            - name: APP_MCP_PUBLIC_URL
+              value: {{ index .Values.backend.env "APP_MCP_PUBLIC_URL" | quote }}
+            - name: APP_MCP_CLIENT_ID
+              value: {{ index .Values.backend.env "APP_MCP_CLIENT_ID" | default "portal-mcp" | quote }}
+            - name: APP_MCP_TOKEN_AUDIENCE
+              value: {{ index .Values.backend.env "APP_MCP_TOKEN_AUDIENCE" | default "portal-mcp" | quote }}
             - name: APP_KEYCLOAK_SUB_PINNING
               value: {{ index .Values.backend.env "APP_KEYCLOAK_SUB_PINNING" | default "record" | quote }}
             - name: APP_SESSION_SECRET_KEY
