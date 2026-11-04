@@ -31,6 +31,12 @@ INSTRUCTIONS = (
 
 def validate_mcp_settings(s: Settings) -> None:
     """Fail startup on a configuration that would serve the MCP wrongly."""
+    if s.mcp_client_id and s.mcp_client_id == s.keycloak_client_id:
+        # The portal REST API rejects Bearer tokens issued to mcp_client_id even with the MCP off.
+        raise RuntimeError(
+            f"mcp_client_id must differ from keycloak_client_id ({s.keycloak_client_id!r}): "
+            "portal API Bearer callers would be locked out"
+        )
     if not s.mcp_enabled:
         return
     if not s.mcp_public_url:
@@ -40,12 +46,6 @@ def validate_mcp_settings(s: Settings) -> None:
         raise RuntimeError(f"mcp_public_url must be an absolute http(s) URL ending in {MCP_PATH}: {s.mcp_public_url!r}")
     if not s.mcp_client_id or not s.mcp_token_audience:
         raise RuntimeError("mcp_client_id and mcp_token_audience must be set when the MCP is enabled")
-    if s.mcp_client_id == s.keycloak_client_id:
-        # The portal REST API rejects Bearer tokens issued to the MCP client.
-        raise RuntimeError(
-            f"mcp_client_id must differ from keycloak_client_id ({s.keycloak_client_id!r}): "
-            "portal API Bearer callers would be locked out"
-        )
 
 
 def build_mcp_server() -> MCPServer:
