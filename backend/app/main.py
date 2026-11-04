@@ -34,7 +34,7 @@ from app.api import (
     teams,
 )
 from app.config import settings
-from app.mcp.server import install_mcp
+from app.mcp.server import install_mcp, validate_mcp_settings
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,9 @@ app.include_router(gpu_profiles.router)
 app.include_router(storages.router)
 app.include_router(serving_overview.router)
 
-# Portal admin MCP for super users (Claude Code, Keycloak OAuth); off unless APP_MCP_ENABLED
+# Portal admin MCP for super users (Claude Code, Keycloak OAuth); off unless APP_MCP_ENABLED.
+# Validated even when off: the REST API rejects tokens issued to mcp_client_id regardless.
+validate_mcp_settings(settings)
 mcp_server = install_mcp(app) if settings.mcp_enabled else None
 
 

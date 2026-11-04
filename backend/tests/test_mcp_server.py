@@ -2,7 +2,11 @@
 
 import dataclasses
 import json
+import os
+import subprocess
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -65,6 +69,34 @@ def test_validate_accepts_a_good_config():
 
 def test_validate_noop_when_disabled():
     mcp_server_module.validate_mcp_settings(_settings(mcp_enabled=False, mcp_public_url=""))
+
+
+def test_validate_rejects_portal_client_as_mcp_client_even_when_disabled():
+    # The portal REST API rejects Bearer tokens issued to mcp_client_id whether or not the MCP is on.
+    with pytest.raises(RuntimeError, match="keycloak_client_id"):
+        mcp_server_module.validate_mcp_settings(
+            _settings(mcp_enabled=False, mcp_public_url="", mcp_client_id="litellm-portal")
+        )
+
+
+def test_backend_refuses_to_start_with_portal_client_as_mcp_client():
+    env = {
+        **os.environ,
+        "APP_MCP_ENABLED": "false",
+        "APP_MCP_CLIENT_ID": "litellm-portal",
+        "APP_KEYCLOAK_CLIENT_ID": "litellm-portal",
+    }
+    proc = subprocess.run(
+        [sys.executable, "-c", "import app.main"],
+        cwd=Path(__file__).resolve().parents[1],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert proc.returncode != 0
+    assert "keycloak_client_id" in proc.stderr
 
 
 # ─── served app ───────────────────────────────────────────────
