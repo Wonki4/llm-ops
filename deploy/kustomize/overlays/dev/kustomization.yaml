@@ -61,6 +61,13 @@ configMapGenerator:
       - APP_GATEWAY_TOKEN_AUDIENCE=litellm-gateway
       # token-exchange clients (<app>-gw), e.g. ["chat-app-gw"]; required once SSO is enabled
       - APP_GATEWAY_ALLOWED_AZP=[]
+      # Portal admin MCP (/mcp) for super users, Claude Code + Keycloak OAuth. The operator
+      # picks the Keycloak client (see docs/portal-admin-mcp.md): its id (azp) and the
+      # audience its tokens carry. Enabling needs the public URL, e.g. https://<backend-host>/mcp
+      - APP_MCP_ENABLED=false
+      - APP_MCP_PUBLIC_URL=
+      - APP_MCP_CLIENT_ID=portal-mcp
+      - APP_MCP_TOKEN_AUDIENCE=portal-mcp
       # Pin user ids (사번) to their Keycloak account: record first, enforce once
       # login tokens carry `sub` (`basic` client scope) and no mismatches are logged
       - APP_KEYCLOAK_SUB_PINNING=record

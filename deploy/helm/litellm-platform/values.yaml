@@ -49,6 +49,13 @@ backend:
     # Inference gateway Keycloak SSO (the gateway itself is deployed separately)
     APP_GATEWAY_SSO_ENABLED: "false"
     APP_GATEWAY_TOKEN_AUDIENCE: "litellm-gateway"
+    # Portal admin MCP (/mcp) for super users, Claude Code + Keycloak OAuth. The operator
+    # picks the Keycloak client (see docs/portal-admin-mcp.md): its id (azp) and the audience
+    # its tokens carry. Enabling needs the public URL, e.g. https://<ingress.backend.host>/mcp
+    APP_MCP_ENABLED: "false"
+    APP_MCP_PUBLIC_URL: ""
+    APP_MCP_CLIENT_ID: "portal-mcp"
+    APP_MCP_TOKEN_AUDIENCE: "portal-mcp"
     # Pin user ids to their Keycloak account (off | record | enforce); enforce once tokens carry `sub`
     APP_KEYCLOAK_SUB_PINNING: "record"
     APP_SESSION_SECRET_KEY: "change-me-in-production-must-be-32-bytes"
