@@ -2,8 +2,11 @@
 
 포털 super user가 Claude Code(VS Code 확장 또는 CLI)에서 포털의 서빙 정보를 직접 조회할 수 있게
 백엔드가 MCP 서버를 `/mcp`로 제공합니다. 로그인은 Keycloak OAuth(authorization code + PKCE)로
-하고, 설정 파일에는 키·비밀번호·토큰을 넣지 않습니다. Claude Code가 토큰을 OS 키체인에 보관하고
-스스로 갱신합니다.
+하고, 설정 파일에는 키·비밀번호·토큰을 넣지 않습니다. Claude Code가 토큰을 직접 보관하고(macOS는
+키체인, Linux·Remote-SSH 등은 `~/.claude/.credentials.json`) 스스로 갱신합니다.
+
+> 백엔드 Helm chart의 `ingress.mcp`(`portal-mcp.example.com`)는 별도 서비스인 예산 조회 MCP(`mcp/`)이고,
+> 이 문서의 MCP와는 다릅니다. 이 MCP는 백엔드 호스트의 `/mcp`입니다.
 
 - **super user만** 결과를 받습니다. 그 외 사용자는 모든 도구에서 `super user only`만 받습니다.
 - 지금(1단계)은 **조회 전용**입니다. 레시피 작성·배포(2단계), 검증·벤치마크 루프(3단계)는 이후에 추가됩니다.
@@ -15,8 +18,9 @@
 confidential이든). 포털은 설정으로 받은 클라이언트 id와 audience만 확인합니다. 고른 클라이언트는
 다음을 만족해야 합니다.
 
-- [ ] **포털 로그인 클라이언트(`APP_KEYCLOAK_CLIENT_ID`, 기본 `litellm-portal`)와 다른 클라이언트**일 것.
-      같으면 백엔드가 시작하지 않습니다. 포털 REST API는 이 클라이언트로 발급된 토큰(`azp`)을 거절하기 때문입니다.
+- [ ] **MCP 전용 클라이언트**일 것. 포털 REST API는 이 클라이언트로 발급된 토큰(`azp`)을 MCP 설정이 꺼져
+      있어도 401로 거절합니다. 그래서 다른 앱이 이 클라이언트 토큰으로 포털 API를 부르고 있다면 그 앱이 깨집니다.
+      특히 포털 로그인 클라이언트(`APP_KEYCLOAK_CLIENT_ID`, 기본 `litellm-portal`)와 같으면 백엔드가 시작하지 않습니다.
 - [ ] Standard flow 켜기, PKCE `S256` 필수. Implicit flow, direct access grants는 필요 없습니다.
 - [ ] Valid redirect URI: `http://localhost:8765/callback` (Claude Code를 `--callback-port 8765`로 고정).
 - [ ] **offline token 금지**: Client scopes에서 `offline_access`를 optional scope에서 제거합니다.
@@ -46,8 +50,8 @@ confidential이든). 포털은 설정으로 받은 클라이언트 id와 audienc
 - 백엔드 호스트(`ingress.backend.host`, 경로 `/`)로 들어오는 `/mcp`와
   `/.well-known/oauth-protected-resource/mcp`가 그대로 백엔드에 닿아야 합니다. 별도 ingress 설정은 필요 없습니다.
 - 여러 replica에서 sticky session 없이 동작합니다(stateless).
-- 설정이 잘못되면(공개 URL 누락, 경로가 `/mcp`가 아님, 클라이언트 id가 포털 클라이언트와 같음 등)
-  백엔드가 시작할 때 바로 실패합니다.
+- 설정이 잘못되면(공개 URL 누락, 경로가 `/mcp`가 아님 등) 백엔드가 시작할 때 바로 실패합니다.
+  `APP_MCP_CLIENT_ID`가 포털 로그인 클라이언트와 같으면 MCP가 꺼져 있어도 시작하지 않습니다.
 
 ## 3. Claude Code 연결
 
@@ -58,7 +62,7 @@ confidential이든). 포털은 설정으로 받은 클라이언트 id와 audienc
 claude mcp add --transport http --client-id portal-mcp --callback-port 8765 \
   portal https://portal-api.example.com/mcp
 
-# confidential 클라이언트: --client-secret 을 붙이면 시크릿을 물어보고 OS 키체인에 보관합니다
+# confidential 클라이언트: --client-secret 을 붙이면 시크릿을 물어보고 토큰과 같은 곳에 보관합니다
 claude mcp add --transport http --client-id <client-id> --client-secret --callback-port 8765 \
   portal https://portal-api.example.com/mcp
 ```
@@ -73,8 +77,20 @@ claude mcp add --transport http --client-id <client-id> --client-secret --callba
   `claude mcp login portal --no-browser`로 URL을 받아 로그인한 뒤, 브라우저 주소창의 callback URL을
   붙여 넣습니다.
 
-로컬(compose)에서는 `docker compose up -d keycloak backend` 후 URL만 `http://localhost:8002/mcp`로 바꿔
-같은 명령을 쓰고, `admin001`로 로그인합니다.
+로컬(compose)에서는 compose가 MCP를 켜 둡니다(`APP_MCP_ENABLED` 기본 `true`).
+
+```bash
+# 백엔드 이미지에 mcp SDK와 새 코드를 넣으려면 --build 가 필요합니다
+docker compose up -d --build backend
+# Keycloak은 realm이 이미 있으면 import를 건너뜁니다. 샘플 클라이언트 portal-mcp를 넣으려면
+# 컨테이너를 새로 만듭니다(계정 sub가 바뀌므로 로컬은 APP_KEYCLOAK_SUB_PINNING=off 가 기본입니다)
+docker compose up -d --force-recreate keycloak
+
+claude mcp add --transport http --client-id portal-mcp --callback-port 8765 \
+  portal http://localhost:8002/mcp
+```
+
+그다음 `/mcp`에서 `admin001`로 로그인합니다.
 
 ## 4. 도구
 
@@ -108,4 +124,6 @@ claude mcp add --transport http --client-id <client-id> --client-secret --callba
 | `super user only` | 그 사용자가 포털에서 super user인지(포털 로그인 시 판정과 같은 role/group 신호가 토큰에 실리는지) |
 | `계정 확인이 필요합니다. 관리자에게 문의하세요.` | 사용자 id가 다른 Keycloak 계정에 고정되어 있음(`APP_KEYCLOAK_SUB_PINNING`) |
 | Keycloak `Invalid parameter: redirect_uri` | 클라이언트 redirect URI가 `http://localhost:8765/callback`인지, `--callback-port 8765`로 등록했는지 |
+| Claude Code가 `Protected resource ... does not match ...` 오류 | `APP_MCP_PUBLIC_URL`이 `claude mcp add`에 넣은 URL과 정확히 같은지(스킴·호스트·포트·`/mcp`) |
+| Keycloak `Client not found` (로컬) | Keycloak 컨테이너를 `--force-recreate`로 새로 만들었는지 |
 | 로그인 창이 다시 뜸 | SSO 세션 만료(정상 동작) |
