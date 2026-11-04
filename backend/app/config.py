@@ -60,6 +60,15 @@ class Settings(BaseSettings):
     gateway_token_audience: str = "litellm-gateway"  # `aud` the forwarded token must carry
     gateway_allowed_azp: list[str] = []  # token-exchange clients (<app>-gw) allowed; required when enabled
 
+    # ── Portal admin MCP (/mcp) ─────────────────────────────────
+    # Super users connect Claude Code through Keycloak OAuth. The Keycloak
+    # client is the operator's choice; tokens issued to it (`azp`) are only
+    # accepted by the MCP, never by the portal REST API.
+    mcp_enabled: bool = False
+    mcp_client_id: str = "portal-mcp"  # `azp` of MCP tokens; must differ from keycloak_client_id
+    mcp_token_audience: str = "portal-mcp"  # `aud` MCP tokens must carry
+    mcp_public_url: str = ""  # externally reachable MCP URL ending in /mcp; required when enabled
+
     # Pin each portal user id (사번) to the Keycloak account (`sub`) first seen
     # for it, so a reused or re-mapped username cannot inherit another person's
     # role, keys and grants. off: ignore; record: store the sub and log

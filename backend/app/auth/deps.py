@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.jwt import TokenPayload, verify_token
 from app.auth.session import SessionData, refresh_session_if_needed
+from app.config import settings
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 from app.services.user_provisioning import IdentityMismatchError, upsert_portal_user
@@ -29,9 +30,16 @@ async def get_current_token(
 
     if credentials:
         try:
-            return await verify_token(credentials.credentials)
+            token = await verify_token(credentials.credentials)
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+        # MCP tokens can carry the portal audience too (Keycloak's roles scope adds it),
+        # so they are told apart by the client they were issued to.
+        if settings.mcp_client_id and token.azp == settings.mcp_client_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="MCP tokens cannot call the portal API"
+            )
+        return token
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
