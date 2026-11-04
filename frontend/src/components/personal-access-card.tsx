@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
-import { KeyRound, Loader2, Users } from "lucide-react";
+import { KeyRound, Loader2, Users, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { useModels, useUpdatePersonalAccess } from "@/hooks/use-api";
@@ -65,8 +65,14 @@ export function PersonalAccessCard({
           {state === "custom" &&
             grantEntries(profile.models).map((name) => {
               const members = index.get(name);
+              const gone = !!models && !members && !byName.has(name);
               return (
-                <Badge key={name} variant={members ? "outline" : "secondary"} className="gap-1" title={members?.map((m) => m.model_name).join("\n")}>
+                <Badge
+                  key={name}
+                  variant={members ? "outline" : "secondary"}
+                  className={`gap-1 ${gone ? "line-through decoration-muted-foreground/60" : ""}`}
+                  title={gone ? t("personalAccessStaleHint") : members?.map((m) => m.model_name).join("\n")}
+                >
                   {members && <Users className="size-3" />}
                   {name}
                   {members && <span className="text-[10px] text-muted-foreground">×{members.length}</span>}
@@ -139,6 +145,13 @@ function PersonalAccessDialog({
     () => (models ?? []).map((m) => m.model_name).filter((n) => !index.has(n)).sort(),
     [models, index],
   );
+  // Granted names no model or group carries any more (deleted in LiteLLM). They have no
+  // checkbox, and the server refuses unknown names, so they get their own remove buttons.
+  const stale = useMemo(() => {
+    if (!models) return [];
+    const known = new Set([...groups, ...models.map((m) => m.model_name)]);
+    return selected.filter((n) => !known.has(n));
+  }, [models, groups, selected]);
   const q = query.trim().toLowerCase();
   const visible = (name: string) => !q || name.toLowerCase().includes(q);
   const toggle = (name: string, on: boolean) =>
@@ -168,7 +181,7 @@ function PersonalAccessDialog({
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("personalAccessDialogTitle")}</DialogTitle>
           <DialogDescription>{t("personalAccessDialogDescription")}</DialogDescription>
@@ -198,13 +211,47 @@ function PersonalAccessDialog({
 
           {state === "custom" && (
             <div className="space-y-3" data-testid="personal-access-picker">
+              {stale.length > 0 && (
+                <div className="space-y-1.5 rounded-md border border-dashed p-2" data-testid="personal-access-stale">
+                  <div className="flex items-center gap-2">
+                    <div className="text-xs font-medium text-muted-foreground">{t("personalAccessStale")}</div>
+                    {stale.length > 1 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-6 px-2 text-xs text-destructive hover:text-destructive"
+                        onClick={() => setSelected((prev) => prev.filter((n) => !stale.includes(n)))}
+                        data-testid="personal-access-stale-clear"
+                      >
+                        {t("personalAccessStaleRemoveAll")}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t("personalAccessStaleHint")}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {stale.map((name) => (
+                      <Badge key={name} variant="secondary" className="gap-1 font-mono line-through decoration-muted-foreground/60">
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() => toggle(name, false)}
+                          aria-label={t("personalAccessStaleRemove", { name })}
+                          className="no-underline"
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Input placeholder={t("personalAccessSearch")} value={query} onChange={(e) => setQuery(e.target.value)} />
               {groups.length > 0 && (
                 <div className="space-y-1.5">
                   <div className="text-xs font-medium text-muted-foreground">{t("personalAccessGroups")}</div>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  <div className="flex max-h-40 flex-wrap gap-x-4 gap-y-1.5 overflow-y-auto">
                     {groups.filter(visible).map((g) => (
-                      <label key={g} className="flex items-center gap-2 text-sm">
+                      <label key={g} className="flex items-center gap-2 text-sm break-all">
                         <input type="checkbox" checked={selected.includes(g)} onChange={(e) => toggle(g, e.target.checked)} />
                         <Users className="size-3 text-muted-foreground" />
                         {g}
@@ -218,7 +265,7 @@ function PersonalAccessDialog({
                 <div className="text-xs font-medium text-muted-foreground">{t("personalAccessModels")}</div>
                 <div className="flex max-h-48 flex-wrap gap-x-4 gap-y-1.5 overflow-y-auto">
                   {modelNames.filter(visible).map((m) => (
-                    <label key={m} className="flex items-center gap-2 text-sm">
+                    <label key={m} className="flex items-center gap-2 text-sm break-all">
                       <input type="checkbox" checked={selected.includes(m)} onChange={(e) => toggle(m, e.target.checked)} />
                       {m}
                     </label>
