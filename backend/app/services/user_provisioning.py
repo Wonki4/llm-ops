@@ -20,6 +20,9 @@ from app.db.models.custom_user import CustomUser, GlobalRole
 
 logger = logging.getLogger(__name__)
 
+# metadata flag on a LiteLLM user row the portal created before the user's first login
+PREGRANT_MARKER = "portal_pregrant"
+
 
 def canonical_user_id(token: TokenPayload) -> str:
     """The portal's user id for a token: ``preferred_username`` upper-cased."""
@@ -152,28 +155,48 @@ async def resolve_default_teams(db: AsyncSession, user_id: str) -> list[str]:
 
 
 async def auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_id: str, email: str) -> None:
-    """Create user in LiteLLM_UserTable and add to default teams if not exists."""
-    # Check if user already exists
+    """Create user in LiteLLM_UserTable and add to default teams if not exists.
+
+    A row the portal created before the user's first login (an access-group member
+    granted ahead of time, ``metadata.portal_pregrant``) still gets the first-login
+    part once: default teams and the email, then the marker is cleared.
+    """
     result = await litellm_db.execute(
-        text('SELECT user_id FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),
+        text(
+            f"SELECT user_id, metadata->>'{PREGRANT_MARKER}' AS pregrant "
+            'FROM "LiteLLM_UserTable" WHERE user_id = :user_id'
+        ),
         {"user_id": user_id},
     )
-    if result.scalar_one_or_none() is not None:
+    row = result.mappings().first()
+    if row is not None and not row["pregrant"]:
         return  # Already exists
 
     # Resolve teams for this user
     team_ids = await resolve_default_teams(db, user_id)
 
-    # Create user
-    await litellm_db.execute(
-        text(
-            'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
-            "VALUES (:user_id, :email, :teams, 0, NULL) "
-            "ON CONFLICT (user_id) DO NOTHING"
-        ),
-        {"user_id": user_id, "email": email, "teams": team_ids},
-    )
-    logger.info("Auto-provisioned user: %s", user_id)
+    if row is None:
+        await litellm_db.execute(
+            text(
+                'INSERT INTO "LiteLLM_UserTable" (user_id, user_email, teams, spend, max_budget) '
+                "VALUES (:user_id, :email, :teams, 0, NULL) "
+                "ON CONFLICT (user_id) DO NOTHING"
+            ),
+            {"user_id": user_id, "email": email, "teams": team_ids},
+        )
+        logger.info("Auto-provisioned user: %s", user_id)
+    else:
+        await litellm_db.execute(
+            text(
+                'UPDATE "LiteLLM_UserTable" SET '
+                "teams = ARRAY(SELECT DISTINCT unnest(COALESCE(teams, ARRAY[]::text[]) || CAST(:teams AS text[]))), "
+                "user_email = COALESCE(NULLIF(user_email, ''), :email), "
+                f"metadata = COALESCE(metadata, '{{}}'::jsonb) - '{PREGRANT_MARKER}' "
+                "WHERE user_id = :user_id"
+            ),
+            {"user_id": user_id, "email": email, "teams": team_ids},
+        )
+        logger.info("Provisioned pre-granted user on first login: %s", user_id)
 
     # Add to each team
     for team_id in team_ids:

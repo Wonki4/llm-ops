@@ -7,7 +7,12 @@ import pytest
 from app.auth.jwt import TokenPayload
 from app.config import settings
 from app.db.models.custom_user import CustomUser, GlobalRole
-from app.services.user_provisioning import IdentityMismatchError, canonical_user_id, upsert_portal_user
+from app.services.user_provisioning import (
+    IdentityMismatchError,
+    auto_provision_user,
+    canonical_user_id,
+    upsert_portal_user,
+)
 
 
 def _token(**kw) -> TokenPayload:
@@ -166,3 +171,64 @@ async def test_pinning_off_ignores_sub(monkeypatch):
     db = _db(existing)
     assert await upsert_portal_user(db, _token(sub="new-sub")) is existing
     assert _pin_updates(db) == []
+
+
+# ─── auto_provision_user: the LiteLLM user row and default teams ─────────────
+
+
+def _litellm_db(row: dict | None):
+    """The user-row SELECT returns ``row``; every statement is recorded as (sql, params)."""
+    calls: list[tuple[str, dict]] = []
+
+    async def execute(stmt, params=None):
+        calls.append((str(stmt), params or {}))
+        r = MagicMock()
+        r.mappings.return_value.first.return_value = row
+        return r
+
+    db = AsyncMock()
+    db.execute = AsyncMock(side_effect=execute)
+    db.calls = calls
+    return db
+
+
+def _writes(db) -> list[tuple[str, dict]]:
+    return [(s, p) for s, p in db.calls if not s.lstrip().upper().startswith("SELECT")]
+
+
+@pytest.mark.asyncio
+async def test_existing_user_row_is_left_alone(monkeypatch):
+    resolve = AsyncMock(return_value=["team-a"])
+    monkeypatch.setattr("app.services.user_provisioning.resolve_default_teams", resolve)
+    db = _litellm_db({"user_id": "USER001", "pregrant": None})
+    await auto_provision_user(AsyncMock(), db, "USER001", "u@example.com")
+    assert _writes(db) == [] and resolve.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_pregranted_row_gets_default_teams_and_email_on_first_login(monkeypatch):
+    """A row the portal created ahead of the first login (an access-group member who had
+    not signed in yet) still gets what a first login gives: default teams and the email."""
+    monkeypatch.setattr(
+        "app.services.user_provisioning.resolve_default_teams", AsyncMock(return_value=["team-a", "team-b"])
+    )
+    db = _litellm_db({"user_id": "USER001", "pregrant": "true"})
+    await auto_provision_user(AsyncMock(), db, "USER001", "u@example.com")
+    writes = _writes(db)
+    row_update = writes[0]
+    assert row_update[0].lstrip().startswith('UPDATE "LiteLLM_UserTable"')
+    assert "portal_pregrant" in row_update[0]  # the marker is cleared, so this runs once
+    assert row_update[1] == {"user_id": "USER001", "email": "u@example.com", "teams": ["team-a", "team-b"]}
+    joined = [p["team_id"] for s, p in writes if "LiteLLM_TeamMembership" in s]
+    assert joined == ["team-a", "team-b"]
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_missing_row_is_inserted_with_default_teams(monkeypatch):
+    monkeypatch.setattr("app.services.user_provisioning.resolve_default_teams", AsyncMock(return_value=["team-a"]))
+    db = _litellm_db(None)
+    await auto_provision_user(AsyncMock(), db, "USER001", "u@example.com")
+    writes = _writes(db)
+    assert writes[0][0].lstrip().startswith('INSERT INTO "LiteLLM_UserTable"')
+    assert writes[0][1] == {"user_id": "USER001", "email": "u@example.com", "teams": ["team-a"]}

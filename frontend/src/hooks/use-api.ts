@@ -72,6 +72,11 @@ import type {
   CreateDeploymentBody,
   PersonalAccess,
   PersonalAccessBody,
+  AccessGroupList,
+  AccessGroupMember,
+  AccessGroupGrantResult,
+  AccessGroupRevokeResult,
+  ModelPersonalUser,
 } from "@/types";
 
 // ─── Query Keys ──────────────────────────────────────────────
@@ -1118,6 +1123,99 @@ export function useUpdatePersonalAccess(userId: string) {
       qc.invalidateQueries({ queryKey: ["admin-users"] });
     },
   });
+}
+
+// ─── Model access groups (admin) ───────────────────────────────
+
+const ACCESS_GROUPS_URL = "/api/admin/access-groups";
+const accessGroupPath = (group: string) => `${ACCESS_GROUPS_URL}/${encodeURIComponent(group)}`;
+
+export function useAccessGroups() {
+  return useQuery({
+    queryKey: ["access-groups"],
+    queryFn: () => apiFetch<AccessGroupList>(ACCESS_GROUPS_URL),
+  });
+}
+
+export function useAccessGroupMembers(group: string | null) {
+  return useQuery({
+    queryKey: ["access-groups", group, "users"],
+    queryFn: () =>
+      apiFetch<{ group: string; users: AccessGroupMember[] }>(`${accessGroupPath(group ?? "")}/users`).then((r) => r.users),
+    enabled: !!group,
+  });
+}
+
+/** Users whose personal-key grant reaches `model` (directly, via a group, or "all"). */
+export function useModelPersonalUsers(model: string, enabled = true) {
+  return useQuery({
+    queryKey: ["access-groups", "model-users", model],
+    queryFn: () =>
+      apiFetch<{ users: ModelPersonalUser[] }>(`${ACCESS_GROUPS_URL}/model-users?model=${encodeURIComponent(model)}`).then(
+        (r) => r.users,
+      ),
+    enabled: enabled && !!model,
+  });
+}
+
+/** Group changes touch model_info, so the model list (badges, scopes) refreshes too. */
+function useAccessGroupMutation<TBody, TResult>(request: (body: TBody) => Promise<TResult>) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: request,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["access-groups"] });
+      qc.invalidateQueries({ queryKey: queryKeys.models });
+      qc.invalidateQueries({ queryKey: ["admin-users"] });
+    },
+  });
+}
+
+export function useCreateAccessGroup() {
+  return useAccessGroupMutation((body: { name: string; model_names: string[] }) =>
+    apiFetch<{ name: string }>(ACCESS_GROUPS_URL, { method: "POST", body: JSON.stringify(body) }),
+  );
+}
+
+export function useUpdateAccessGroup() {
+  return useAccessGroupMutation(({ group, model_names }: { group: string; model_names: string[] }) =>
+    apiFetch<{ name: string }>(accessGroupPath(group), { method: "PUT", body: JSON.stringify({ model_names }) }),
+  );
+}
+
+export function useDeleteAccessGroup() {
+  return useAccessGroupMutation((group: string) =>
+    apiFetch<{ revoked_users: number; failed_users: string[] }>(accessGroupPath(group), { method: "DELETE" }),
+  );
+}
+
+/** Classify ids against a group without writing (the add dialog's paste preview). */
+export function usePreviewAccessGroupUsers() {
+  return useMutation({
+    mutationFn: ({ group, user_ids }: { group: string; user_ids: string[] }) =>
+      apiFetch<{ results: AccessGroupGrantResult[] }>(`${accessGroupPath(group)}/users`, {
+        method: "POST",
+        body: JSON.stringify({ user_ids, dry_run: true }),
+      }).then((r) => r.results),
+  });
+}
+
+export function useAddAccessGroupUsers() {
+  return useAccessGroupMutation(({ group, user_ids }: { group: string; user_ids: string[] }) =>
+    apiFetch<{ results: AccessGroupGrantResult[] }>(`${accessGroupPath(group)}/users`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids }),
+    }).then((r) => r.results),
+  );
+}
+
+export function useRemoveAccessGroupUsers() {
+  return useAccessGroupMutation(({ group, user_ids }: { group: string; user_ids: string[] }) =>
+    apiFetch<{ results: AccessGroupRevokeResult[] }>(`${accessGroupPath(group)}/users/remove`, {
+      method: "POST",
+      body: JSON.stringify({ user_ids }),
+    }).then((r) => r.results),
+  );
 }
 
 export function useAdminUpdateKeyLimits() {

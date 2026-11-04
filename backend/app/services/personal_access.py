@@ -14,11 +14,16 @@ Pure helpers, no I/O.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 NO_DEFAULT_MODELS = "no-default-models"
 ALL_PROXY_MODELS = "all-proxy-models"
 PERSONAL_KEY_TYPE = "personal"  # metadata.key_type on personal keys (LiteLLM `tags` are Enterprise-only)
+
+# Portal user ids are upper-cased Keycloak usernames.
+USER_ID_RE = re.compile(r"^[A-Z0-9][A-Z0-9._@-]{0,127}$")
+GROUP_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 GrantState = Literal["none", "all", "custom"]
 
@@ -51,6 +56,41 @@ def models_for(state: GrantState, selection: list[str] | None = None) -> list[st
     if not names:
         raise ValueError("custom access needs at least one model or access group")
     return names
+
+
+def add_grant_entry(models: list[str] | None, entry: str) -> list[str] | None:
+    """The user row ``models`` with ``entry`` granted, or None when it already is.
+    An empty or ``no-default-models`` row (no grant) becomes just ``[entry]``."""
+    current = [m for m in (models or []) if m and m != NO_DEFAULT_MODELS]
+    if entry in current:
+        return None
+    return [*current, entry]
+
+
+def remove_grant_entry(models: list[str] | None, entry: str) -> list[str] | None:
+    """The user row ``models`` without ``entry``, or None when it was not granted.
+    Never ``[]`` (LiteLLM's "everything"): nothing left is ``no-default-models``."""
+    if entry not in (models or []):
+        return None
+    rest = [m for m in models if m != entry]
+    return rest if grant_state(rest) != "none" else [NO_DEFAULT_MODELS]
+
+
+def normalize_user_id(raw: str) -> str | None:
+    """A typed or pasted id as the portal's canonical (upper-case) user id; None if it cannot be one."""
+    value = (raw or "").strip().upper()
+    return value if USER_ID_RE.match(value) else None
+
+
+def validate_group_name(name: str, *, model_names: set[str]) -> str:
+    """A new access group's name: plain characters, not a sentinel, not a model's name."""
+    if not GROUP_NAME_RE.match(name or ""):
+        raise ValueError("group name must be letters, digits, '.', '_' or '-' (up to 64, starting alphanumeric)")
+    if name in (NO_DEFAULT_MODELS, ALL_PROXY_MODELS):
+        raise ValueError(f"{name!r} is reserved by LiteLLM")
+    if name in model_names:
+        raise ValueError(f"a model is already named {name!r}; a grant of it would be ambiguous")
+    return name
 
 
 def validate_selection(selection: list[str], *, model_names: set[str], access_groups: set[str]) -> None:

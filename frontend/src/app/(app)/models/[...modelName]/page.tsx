@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { useMe, useModelSummary, useModels, type ModelSummary } from "@/hooks/use-api";
 import { AccessGroupBadges } from "@/components/access-group-badges";
+import { ModelPersonalUsersCard } from "@/components/model-personal-users-card";
 import { Badge } from "@/components/ui/badge";
 import { buildAccessGroupIndex } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
@@ -282,6 +283,8 @@ export default function ModelDetailPage() {
         />
       </div>
 
+      <AdminPersonalUsers modelName={summary.model_name} />
+
       <Tabs defaultValue="info" className="w-full">
         <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
           <TabsTrigger value="info" className="flex-none px-1">모델 정보</TabsTrigger>
@@ -322,6 +325,12 @@ export default function ModelDetailPage() {
   );
 }
 
+
+/** Super users see who can call this model with a personal key. */
+function AdminPersonalUsers({ modelName }: { modelName: string }) {
+  const { data: me } = useMe();
+  return me?.role === "super_user" ? <ModelPersonalUsersCard modelName={modelName} /> : null;
+}
 
 /** "Usable with my personal key" — shown only to users who hold a personal grant covering this model. */
 function PersonalUsableChip({ modelName }: { modelName: string }) {
