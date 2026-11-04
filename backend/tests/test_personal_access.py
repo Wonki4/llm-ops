@@ -51,3 +51,63 @@ def test_access_groups_from_model_info():
         {"model_name": "gpt-4o", "model_info": {}},
     ]
     assert pa.access_groups_from_model_info(rows) == {"beta-models": ["glm", "qwen"], "oss": ["qwen"]}
+
+
+@pytest.mark.parametrize(
+    "models, expected",
+    [
+        (None, ["reasoning"]),
+        ([], ["reasoning"]),  # LiteLLM's "everything" is "never granted" to the portal
+        (["no-default-models"], ["reasoning"]),
+        (["gpt-4o"], ["gpt-4o", "reasoning"]),
+        (["all-proxy-models"], ["all-proxy-models", "reasoning"]),  # kept so the group survives a later revoke
+        (["gpt-4o", "reasoning"], None),  # already there: nothing to write
+    ],
+)
+def test_add_grant_entry(models, expected):
+    assert pa.add_grant_entry(models, "reasoning") == expected
+
+
+@pytest.mark.parametrize(
+    "models, expected",
+    [
+        (["gpt-4o", "reasoning"], ["gpt-4o"]),
+        (["reasoning"], ["no-default-models"]),  # nothing left: an explicit none, never []
+        (["all-proxy-models", "reasoning"], ["all-proxy-models"]),
+        (["gpt-4o"], None),  # not there: nothing to write
+        (None, None),
+    ],
+)
+def test_remove_grant_entry(models, expected):
+    assert pa.remove_grant_entry(models, "reasoning") == expected
+
+
+@pytest.mark.parametrize("raw, expected", [("user001", "USER001"), ("  a.b-c_d@corp ", "A.B-C_D@CORP")])
+def test_normalize_user_id(raw, expected):
+    assert pa.normalize_user_id(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "홍길동", "user 001", "-user", "x" * 129])
+def test_normalize_user_id_rejects(raw):
+    assert pa.normalize_user_id(raw) is None
+
+
+@pytest.mark.parametrize("raw", ["reasoning", "beta-models", "oss.v2_test"])
+def test_validate_group_name_accepts(raw):
+    assert pa.validate_group_name(raw, model_names={"glm"}) == raw
+
+
+@pytest.mark.parametrize(
+    "raw, match",
+    [
+        ("", "group name"),
+        ("has space", "group name"),
+        ("그룹", "group name"),
+        ("glm", "model"),  # a model of that name: the grant would be ambiguous
+        ("all-proxy-models", "reserved"),
+        ("no-default-models", "reserved"),
+    ],
+)
+def test_validate_group_name_rejects(raw, match):
+    with pytest.raises(ValueError, match=match):
+        pa.validate_group_name(raw, model_names={"glm"})

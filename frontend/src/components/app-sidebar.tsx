@@ -15,6 +15,7 @@ import {
   Globe,
   Inbox,
   Key,
+  Layers,
   LayoutDashboard,
   LogOut,
   Megaphone,
@@ -63,6 +64,7 @@ const navigation: NavItem[] = [
   { key: "adminDashboard", href: "/admin/models/dashboard", icon: BarChart3, roles: ["super_user"] },
   { key: "adminBudgets", href: "/admin/budgets", icon: DollarSign, roles: ["super_user"] },
   { key: "adminUsers", href: "/admin/users", icon: UserCog, roles: ["super_user"] },
+  { key: "adminAccessGroups", href: "/admin/access-groups", icon: Layers, roles: ["super_user"] },
   { key: "adminUsage", href: "/admin/usage", icon: BarChart3, roles: ["super_user"] },
   { key: "adminSettings", href: "/admin/settings", icon: Settings, roles: ["super_user"] },
 ];

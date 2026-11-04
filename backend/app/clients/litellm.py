@@ -1,6 +1,7 @@
 """Typed HTTP client wrapper for LiteLLM proxy management API."""
 
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -196,6 +197,21 @@ class LiteLLMClient:
 
     async def delete_model(self, model_id: str) -> dict:
         return await self._request("POST", "/model/delete", json={"id": model_id})
+
+    # ──── Model access groups (model_info.access_groups; DB models only) ────
+    async def create_access_group(self, name: str, model_names: list[str]) -> dict:
+        """``/access_group/new``: tag every DB deployment of ``model_names`` with ``name`` (409 if it exists)."""
+        return await self._request("POST", "/access_group/new", json={"access_group": name, "model_names": model_names})
+
+    async def update_access_group(self, name: str, model_names: list[str]) -> dict:
+        """``/access_group/{name}/update``: the group's DB models become exactly ``model_names``."""
+        return await self._request(
+            "PUT", f"/access_group/{quote(name, safe='')}/update", json={"model_names": model_names}
+        )
+
+    async def delete_access_group(self, name: str) -> dict:
+        """``/access_group/{name}/delete``: untag every DB deployment (config models keep theirs)."""
+        return await self._request("DELETE", f"/access_group/{quote(name, safe='')}/delete")
 
     async def update_model(self, model_id: str, *, litellm_params: dict | None = None) -> dict:
         """Update a deployment's litellm_params (e.g. input/output_cost_per_token)."""

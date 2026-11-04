@@ -477,6 +477,71 @@ export interface AdminUserListResponse {
   page_size: number;
 }
 
+// ─── Model access groups (admin) ───────────────────────────────
+
+/** A group member model; `locked` = a config.yaml deployment carries the group (not editable here). */
+export interface AccessGroupModel {
+  model_name: string;
+  locked: boolean;
+}
+
+export interface AccessGroup {
+  name: string;
+  models: AccessGroupModel[];
+  /** Some member is locked: the group cannot be deleted from the portal. */
+  locked: boolean;
+  /** Users whose personal-key grant names the group. */
+  user_count: number;
+}
+
+/** A model as the group editor sees it; `editable` = it has a DB deployment LiteLLM can tag. */
+export interface AccessGroupCatalogModel {
+  model_name: string;
+  editable: boolean;
+  access_groups: string[];
+}
+
+export interface AccessGroupList {
+  groups: AccessGroup[];
+  models: AccessGroupCatalogModel[];
+}
+
+export interface AccessGroupPerson {
+  user_id: string;
+  display_name: string | null;
+  email: string | null;
+  /** Has signed in to the portal at least once. */
+  logged_in: boolean;
+}
+
+export interface AccessGroupMember extends AccessGroupPerson {
+  personal_access: PersonalAccess;
+  personal_key_count: number;
+}
+
+export type AccessGroupGrantStatus = "added" | "pregranted" | "already" | "invalid" | "error";
+
+export interface AccessGroupGrantResult {
+  input: string;
+  user_id: string | null;
+  status: AccessGroupGrantStatus;
+  logged_in: boolean;
+  display_name: string | null;
+}
+
+export type AccessGroupRevokeStatus = "removed" | "not_member" | "invalid" | "error";
+
+export interface AccessGroupRevokeResult {
+  input: string;
+  user_id: string | null;
+  status: AccessGroupRevokeStatus;
+}
+
+/** A user whose personal grant reaches a model: "direct", "all" and/or group names. */
+export interface ModelPersonalUser extends AccessGroupPerson {
+  via: string[];
+}
+
 export interface AdminUserDetailProfile {
   user_id: string;
   email: string | null;
