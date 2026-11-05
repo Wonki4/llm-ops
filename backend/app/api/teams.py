@@ -193,6 +193,37 @@ def _row_to_team(row: Mapping[str, Any], preview_limit: int = MEMBER_PREVIEW_LIM
     }
 
 
+async def _get_unified_access_groups(litellm_db: AsyncSession, team_ids: list[str]) -> dict[str, list[dict]]:
+    """Unified access groups (``LiteLLM_AccessGroupTable``) each team links via ``access_group_ids``.
+
+    When a team's own ``models`` deny a model, LiteLLM falls back to these groups'
+    ``access_model_names`` (``can_team_access_model``), so their models are the team's too.
+    Returns {team_id: [{access_group_id, access_group_name, models}]}.
+    """
+    if not team_ids:
+        return {}
+    result = await litellm_db.execute(
+        text(
+            "SELECT t.team_id, g.access_group_id, g.access_group_name, g.access_model_names "
+            'FROM "LiteLLM_TeamTable" t '
+            'JOIN "LiteLLM_AccessGroupTable" g ON g.access_group_id = ANY(t.access_group_ids) '
+            "WHERE t.team_id = ANY(:team_ids) "
+            "ORDER BY g.access_group_name"
+        ),
+        {"team_ids": team_ids},
+    )
+    groups: dict[str, list[dict]] = {}
+    for r in result.mappings():
+        groups.setdefault(r["team_id"], []).append(
+            {
+                "access_group_id": r["access_group_id"],
+                "access_group_name": r["access_group_name"],
+                "models": list(r["access_model_names"] or []),
+            }
+        )
+    return groups
+
+
 @router.get("")
 async def list_my_teams(
     user: CustomUser = Depends(get_current_user),
@@ -221,8 +252,10 @@ async def list_my_teams(
         teams = [t for t in teams if t["team_id"] not in strict]
 
     descriptions = await _get_team_descriptions(db, [t["team_id"] for t in teams])
+    unified = await _get_unified_access_groups(litellm_db, [t["team_id"] for t in teams])
     for t in teams:
         t["description"] = descriptions.get(t["team_id"])
+        t["unified_access_groups"] = unified.get(t["team_id"], [])
 
     return {"teams": teams}
 
@@ -382,6 +415,7 @@ async def get_team_detail(
             "budget_duration": row["budget_duration"],
             "budget_reset_at": (row["budget_reset_at"].isoformat() if row["budget_reset_at"] else None),
             "models": list(row["models"] or []),
+            "unified_access_groups": (await _get_unified_access_groups(litellm_db, [team_id])).get(team_id, []),
             "members": all_members[:MEMBER_PREVIEW_LIMIT],
             "admins": all_admins[:MEMBER_PREVIEW_LIMIT],
             "member_count": len(all_members),

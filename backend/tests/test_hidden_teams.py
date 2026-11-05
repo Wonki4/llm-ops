@@ -77,6 +77,7 @@ async def test_member_keeps_default_hidden_team_in_my_teams(regular_user, mock_l
             _R([_team_row("team-1"), _team_row("team-2")]),  # my teams
             _settings_rows(base=["team-1"]),                 # hidden settings
             _R([]),                                          # descriptions
+            _R([]),                                          # unified access groups
         ]
     )
     client = _client(regular_user, mock_litellm, mock_db)
@@ -95,6 +96,7 @@ async def test_strict_hidden_team_gone_from_my_teams(regular_user, mock_litellm,
         side_effect=[
             _R([_team_row("team-1"), _team_row("team-2")]),
             _settings_rows(strict=["team-1"]),
+            _R([]),
             _R([]),
         ]
     )
