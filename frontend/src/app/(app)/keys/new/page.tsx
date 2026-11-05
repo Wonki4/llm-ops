@@ -4,7 +4,7 @@ import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail, useModels, useMe } from "@/hooks/use-api";
-import { buildAccessGroupIndex } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandModelGrants } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
 import { Users, AlertTriangle } from "lucide-react";
 import {
@@ -352,23 +352,40 @@ export default function CreateKeyPage({
               <div className="space-y-2">
                 <Label>{t("labelModels")}</Label>
                 <div className="flex flex-wrap gap-2">
-                  {selectedTeam.models.length > 0 ? (
-                    selectedTeam.models.map((model) => {
-                      const members = accessGroupIndex.get(model);
-                      return members ? (
-                        <Badge
-                          key={model}
-                          variant="outline"
-                          className="gap-1"
-                          title={members.map((m) => m.model_name).join("\n")}
-                        >
-                          <Users className="size-3" />
-                          {t("accessGroupBadge", { group: model, count: members.length })}
-                        </Badge>
-                      ) : (
-                        <Badge key={model} variant="secondary">{model}</Badge>
-                      );
-                    })
+                  {selectedTeam.models.length > 0 || (selectedTeam.unified_access_groups ?? []).length > 0 ? (
+                    <>
+                      {selectedTeam.models.map((model) => {
+                        const members = accessGroupIndex.get(model);
+                        return members ? (
+                          <Badge
+                            key={model}
+                            variant="outline"
+                            className="gap-1"
+                            title={members.map((m) => m.model_name).join("\n")}
+                          >
+                            <Users className="size-3" />
+                            {t("accessGroupBadge", { group: model, count: members.length })}
+                          </Badge>
+                        ) : (
+                          <Badge key={model} variant="secondary">{model}</Badge>
+                        );
+                      })}
+                      {/* Unified access groups (team access_group_ids) */}
+                      {(selectedTeam.unified_access_groups ?? []).map((group) => {
+                        const members = expandModelGrants(group.models, accessGroupIndex, modelsByName);
+                        return (
+                          <Badge
+                            key={`unified:${group.access_group_id}`}
+                            variant="outline"
+                            className="gap-1"
+                            title={members.map((m) => m.name).join("\n")}
+                          >
+                            <Users className="size-3" />
+                            {t("accessGroupBadge", { group: group.access_group_name, count: members.length })}
+                          </Badge>
+                        );
+                      })}
+                    </>
                   ) : (
                     <p className="text-sm text-muted-foreground">{t("noModels")}</p>
                   )}

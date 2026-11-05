@@ -37,10 +37,19 @@ export interface Team {
   budget_duration: string | null;
   budget_reset_at: string | null;
   models: string[];
+  /** LiteLLM unified access groups linked via the team's `access_group_ids`. */
+  unified_access_groups?: UnifiedAccessGroup[];
   members: string[];
   admins: string[];
   member_count?: number;
   admin_count?: number;
+}
+
+export interface UnifiedAccessGroup {
+  access_group_id: string;
+  access_group_name: string;
+  /** Model names (LiteLLM `access_model_names`); may name model access groups too. */
+  models: string[];
 }
 
 export interface DiscoverTeam extends Team {

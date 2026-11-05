@@ -1,4 +1,4 @@
-import type { ModelWithCatalog } from "@/types";
+import type { ModelWithCatalog, Team } from "@/types";
 
 /**
  * LiteLLM model access groups: each model may list `model_info.access_groups`;
@@ -53,6 +53,29 @@ export function expandModelGrants(
       if (seen.has(grant)) continue;
       seen.add(grant);
       out.push({ name: grant, model: modelsByName.get(grant) ?? null, viaGroup: null });
+    }
+  }
+  return out;
+}
+
+/**
+ * A team's models: its own `models` (expanded as above), then the models of
+ * its unified access groups (`access_group_ids`), which LiteLLM falls back to
+ * when the team's own list denies a model. A unified group may name model
+ * access groups too; those expand as well. "All models" is left to the caller.
+ */
+export function expandTeamModels(
+  team: Pick<Team, "models" | "unified_access_groups">,
+  index: AccessGroupIndex,
+  modelsByName: Map<string, ModelWithCatalog>,
+): ExpandedGrant[] {
+  const out = expandModelGrants(team.models, index, modelsByName);
+  const seen = new Set(out.map((g) => g.name));
+  for (const group of team.unified_access_groups ?? []) {
+    for (const g of expandModelGrants(group.models, index, modelsByName)) {
+      if (seen.has(g.name)) continue;
+      seen.add(g.name);
+      out.push({ ...g, viaGroup: g.viaGroup ?? group.access_group_name });
     }
   }
   return out;

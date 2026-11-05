@@ -13,7 +13,7 @@ import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
-import { buildAccessGroupIndex, expandModelGrants, type AccessGroupIndex } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandTeamModels, type AccessGroupIndex } from "@/lib/access-groups";
 import { TeamBoostHistory } from "@/components/team-boost-history";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -357,7 +357,7 @@ function OverviewTab({
   const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
   const hasAllProxyModels = team.models.includes("all-proxy-models");
-  const catalogTeamModels = expandModelGrants(team.models, accessGroupIndex, modelsByName)
+  const catalogTeamModels = expandTeamModels(team, accessGroupIndex, modelsByName)
     .map(({ name, model }) => ({ modelName: name, model }))
     .filter(({ model }) => model?.catalog);
   const scopedModels = catalogTeamModels.slice(0, 5);
@@ -1855,7 +1855,7 @@ export default function TeamDetailPage({
     ? (allModels ?? [])
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }))
-    : expandModelGrants(team.models, accessGroupIndex, modelsByName);
+    : expandTeamModels(team, accessGroupIndex, modelsByName);
 
   return (
     <div className="space-y-6">

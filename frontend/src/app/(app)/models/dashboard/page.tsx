@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import type { ModelStatus, ModelWithCatalog, Team } from "@/types";
-import { buildAccessGroupIndex, expandModelGrants } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandTeamModels } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
 
 // ─── Constants ────────────────────────────────────────────────
@@ -49,11 +49,6 @@ const STATUS_OPTIONS: { value: ModelStatus }[] = [
  * explicit models (LiteLLM treats an empty list as no restriction). */
 function hasAllModels(team: Team): boolean {
   return team.models.includes(ALL_PROXY_MODELS) || team.models.length === 0;
-}
-
-/** The explicit model names a team lists, excluding the all-proxy sentinel. */
-function explicitModels(team: Team): string[] {
-  return team.models.filter((m) => m !== ALL_PROXY_MODELS);
 }
 
 // A resolved row in the model table: the team's model name plus its merged
@@ -111,8 +106,9 @@ export default function ModelDashboardPage() {
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }));
     } else {
-      // Access-group grants expand into their member models (tagged viaGroup).
-      rows = expandModelGrants(explicitModels(selectedTeam), accessGroupIndex, modelsByName);
+      // Access-group grants expand into their member models (tagged viaGroup),
+      // followed by the models of the team's unified access groups.
+      rows = expandTeamModels(selectedTeam, accessGroupIndex, modelsByName);
     }
 
     const q = query.trim().toLowerCase();
@@ -151,7 +147,7 @@ export default function ModelDashboardPage() {
   function teamModelLabel(team: Team): string {
     return hasAllModels(team)
       ? t("byTeam.allModels")
-      : t("byTeam.modelCount", { count: expandModelGrants(explicitModels(team), accessGroupIndex, modelsByName).length });
+      : t("byTeam.modelCount", { count: expandTeamModels(team, accessGroupIndex, modelsByName).length });
   }
   const personalLabel =
     personalState === "all" ? t("byTeam.personalAllModels") : t("byTeam.modelCount", { count: personalRows.length });
