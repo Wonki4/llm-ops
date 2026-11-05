@@ -208,10 +208,34 @@ async def auto_provision_user(db: AsyncSession, litellm_db: AsyncSession, user_i
             ),
             {"user_id": user_id, "team_id": team_id},
         )
+        # The column defaults to {} (an object); jsonb_array_elements would raise on it, so
+        # anything but an array counts as empty.
+        roles = (
+            "CASE WHEN jsonb_typeof(members_with_roles) = 'array' THEN members_with_roles ELSE CAST('[]' AS jsonb) END"
+        )
         await litellm_db.execute(
             text(
-                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend) '
-                "VALUES (:user_id, :team_id, 0) "
+                'UPDATE "LiteLLM_TeamTable" '
+                f"SET members_with_roles = {roles} || CAST(:new_member AS jsonb) "
+                "WHERE team_id = :team_id "
+                f"AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements({roles}) elem WHERE elem->>'user_id' = :user_id)"
+            ),
+            {
+                "new_member": json.dumps([{"role": "user", "user_id": user_id, "user_email": email or None}]),
+                "team_id": team_id,
+                "user_id": user_id,
+            },
+        )
+        # Point the membership at the team's default member budget, as a join approval or an
+        # admin add does. Only a budget row that exists: a stale id would fail the insert (FK).
+        await litellm_db.execute(
+            text(
+                'INSERT INTO "LiteLLM_TeamMembership" (user_id, team_id, spend, budget_id) '
+                "VALUES (:user_id, :team_id, 0, ("
+                '    SELECT b.budget_id FROM "LiteLLM_TeamTable" t '
+                "    JOIN \"LiteLLM_BudgetTable\" b ON b.budget_id = t.metadata->>'team_member_budget_id' "
+                "    WHERE t.team_id = :team_id"
+                ")) "
                 "ON CONFLICT DO NOTHING"
             ),
             {"user_id": user_id, "team_id": team_id},

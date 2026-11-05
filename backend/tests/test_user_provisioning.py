@@ -1,5 +1,6 @@
 """upsert_portal_user: the portal user row behind every Keycloak identity."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -232,3 +233,40 @@ async def test_missing_row_is_inserted_with_default_teams(monkeypatch):
     writes = _writes(db)
     assert writes[0][0].lstrip().startswith('INSERT INTO "LiteLLM_UserTable"')
     assert writes[0][1] == {"user_id": "USER001", "email": "u@example.com", "teams": ["team-a"]}
+
+
+def _membership_insert(db, team_id: str) -> str:
+    (sql,) = [s for s, p in _writes(db) if 'INSERT INTO "LiteLLM_TeamMembership"' in s and p["team_id"] == team_id]
+    return sql
+
+
+@pytest.mark.asyncio
+async def test_default_team_membership_gets_the_team_default_member_budget(monkeypatch):
+    """Like a join approval or an admin add: the membership points at the team's default
+    member budget (metadata.team_member_budget_id), so the default per-member limits apply."""
+    monkeypatch.setattr("app.services.user_provisioning.resolve_default_teams", AsyncMock(return_value=["team-a"]))
+    db = _litellm_db(None)
+    await auto_provision_user(AsyncMock(), db, "USER001", "u@example.com")
+    sql = _membership_insert(db, "team-a")
+    assert "budget_id" in sql.split("VALUES")[0]  # a column of the insert, not left NULL
+    assert "team_member_budget_id" in sql
+    # only a budget row that still exists, so a stale id cannot fail the login (FK)
+    assert '"LiteLLM_BudgetTable"' in sql
+
+
+@pytest.mark.asyncio
+async def test_default_team_member_is_added_to_members_with_roles(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.user_provisioning.resolve_default_teams", AsyncMock(return_value=["team-a", "team-b"])
+    )
+    db = _litellm_db(None)
+    await auto_provision_user(AsyncMock(), db, "USER001", "u@example.com")
+    role_updates = [(s, p) for s, p in _writes(db) if "members_with_roles" in s]
+    assert [p["team_id"] for _, p in role_updates] == ["team-a", "team-b"]
+    for sql, params in role_updates:
+        assert "NOT EXISTS" in sql  # never a duplicate entry
+        # the column defaults to {} (an object): treat anything but an array as empty, since
+        # jsonb_array_elements on an object raises and would fail the whole provisioning
+        assert "jsonb_typeof(members_with_roles) = 'array'" in sql
+        member = json.loads(params["new_member"])
+        assert member == [{"role": "user", "user_id": "USER001", "user_email": "u@example.com"}]
