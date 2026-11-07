@@ -2157,6 +2157,7 @@
     "placeholderModelName": "모델 이름",
     "placeholderNamespace": "네임스페이스",
     "placeholderGpuType": "GPU 타입 (P/D는 풀별)",
+    "placeholderMetricsPort": "풀별 메트릭 수집 포트. 추가 포트에 metrics=9100처럼 지정하면 그 값을 사용하고, 기본값은 엔진 HTTP 포트입니다.",
     "labelsTitle": "라벨",
     "labelsHint": "llm-ops/ 와 llm-d.ai/ 로 시작하는 키는 포털이 쓰므로 정할 수 없습니다. 값은 K8s 라벨 규칙(63자, 영숫자·-_.)에 맞게 채워지고, 맞지 않는 문자는 -로 바뀝니다.",
     "labelsKey": "라벨 키",

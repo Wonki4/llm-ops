@@ -836,7 +836,7 @@ export function useUpdateHiddenTeams() {
 
 // ─── Common pod labels / annotations ───────────────────────────
 
-/** key → value: fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}}. */
+/** key → value: fixed text and/or {{model_name}} / {{namespace}} / {{gpu_type}} / {{metrics_port}}. */
 export type PodLabelRules = Record<string, string>;
 export type PodMetadataRules = { labels: PodLabelRules; annotations: PodLabelRules };
 

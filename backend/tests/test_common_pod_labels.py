@@ -18,7 +18,7 @@ RULES = {"team": "ml-platform", "app": "{{model_name}}", "env": "{{ namespace }}
 
 
 def _render(rules, model_name="qwen3-32b", namespace="prod", gpu_type="H100"):
-    return common_labels.render(rules, model_name=model_name, namespace=namespace, gpu_type=gpu_type)
+    return common_labels.render(rules, model_name=model_name, namespace=namespace, gpu_type=gpu_type, metrics_port=8000)
 
 
 # ─── rules ────────────────────────────────────────────────────────────────────
@@ -77,9 +77,11 @@ ANNOTATIONS = {"owner": "ML Platform <ml@example.com>", "summary": "{{model_name
 
 def test_annotations_fill_placeholders_and_keep_any_text():
     rules = {**ANNOTATIONS, "long": "x" * 300}
-    out = common_labels.render_annotations(rules, model_name="qwen3-32b", namespace="prod", gpu_type="A100 80GB")
+    out = common_labels.render_annotations(
+        rules, model_name="qwen3-32b", namespace="prod", gpu_type="A100 80GB", metrics_port=8000
+    )
     assert out == {**ANNOTATIONS, "summary": "qwen3-32b on A100 80GB in prod", "long": "x" * 300}
-    assert common_labels.render_annotations(None, model_name="m", namespace="n", gpu_type=None) == {}
+    assert common_labels.render_annotations(None, model_name="m", namespace="n", gpu_type=None, metrics_port=8000) == {}
 
 
 def test_validate_annotations_takes_free_text_but_known_placeholders_only():
@@ -114,6 +116,36 @@ def test_aggregated_pods_and_deployment_carry_the_labels():
     # selectors are immutable: never there
     assert deployment["spec"]["selector"]["matchLabels"] == {LABEL_OWNER: OWNER, LABEL_MODEL: "llama"}
     assert "team" not in service["metadata"]["labels"] and "team" not in ingress["metadata"]["labels"]
+
+
+@pytest.mark.parametrize("engine", ["vllm", "sglang"])
+@pytest.mark.parametrize("extra_ports,expected", [({}, "8111"), ({"metrics": 9100}, "9100")])
+def test_metrics_port_follows_the_aggregated_engine(engine, extra_ports, expected):
+    rules = {"monitoring.example/port": "{{metrics_port}}"}
+    dep = _row(
+        engine=engine,
+        engine_args={"port": 8111},
+        runtime={"extra_ports": extra_ports},
+        common_labels=common_labels.validate_rules(rules),
+        common_annotations=common_labels.validate_annotation_rules(rules),
+    )
+    deployment = build_all(dep)[0]
+    meta = deployment["spec"]["template"]["metadata"]
+    assert meta["labels"]["monitoring.example/port"] == meta["annotations"]["monitoring.example/port"] == expected
+    assert portal_server(dep)["labels"]["monitoring.example/port"] == expected
+
+
+@pytest.mark.parametrize(
+    "extra_ports,expected", [({}, "8200"), ({"metrics": 9200}, "9200"), ({"metrics": 5600}, "8200")]
+)
+def test_metrics_port_resolves_per_pd_engine(extra_ports, expected):
+    rules = {"scrape-port": "{{metrics_port}}"}
+    dep = _pd_dep(common_labels=rules, common_annotations=rules, status="Ready")
+    dep.pd_config["decode"]["runtime"] = {"extra_ports": extra_ports}
+    pods = [m["spec"]["template"]["metadata"] for m in build_all(dep) if m["kind"] == "Deployment"]
+    for meta, port in zip(pods, ["8000", expected], strict=True):
+        assert meta["labels"]["scrape-port"] == meta["annotations"]["scrape-port"] == port
+    assert "scrape-port" not in portal_server(dep)["labels"]
 
 
 def test_a_deployment_without_a_copy_of_the_rules_gets_none():
@@ -191,7 +223,10 @@ def _settings_db(mock_db, saved: dict):
 
 async def test_settings_round_trip(client_for_user, super_user, mock_db):
     saved = _settings_db(mock_db, {common_labels.LABELS_KEY: json.dumps({"team": "ml"})})
-    body = {"labels": {"team": "ml", "app": "{{model_name}}"}, "annotations": {"owner": "ML Platform <ml@x.com>"}}
+    body = {
+        "labels": {"team": "ml", "app": "{{model_name}}", "scrape-port": "{{metrics_port}}"},
+        "annotations": {"owner": "ML Platform <ml@x.com>"},
+    }
     async with client_for_user(super_user) as client:
         got = await client.get("/api/settings/pod-labels")
         put = await client.put("/api/settings/pod-labels", json=body)
@@ -313,11 +348,17 @@ async def test_recipe_diff_shows_a_label_change(client_for_user, super_user, moc
 async def test_recipe_preview_shows_the_labels(client_for_user, super_user, mock_db):
     mock_db.execute = AsyncMock(return_value=_result(None))
     recipe = {"name": "llama", "model_path": "/models/llama", "image": "vllm/vllm-openai:v0.9", "namespace": "prod"}
-    copy = {"common_labels": {"env": "{{namespace}}"}, "common_annotations": {"owner": "{{namespace}} team"}}
+    recipe["engine_args"] = {"port": 8111}
+    copy = {
+        "common_labels": {"env": "{{namespace}}", "scrape-port": "{{metrics_port}}"},
+        "common_annotations": {"owner": "{{namespace}} team"},
+    }
     with patch("app.api.serving_recipes.load_deployment_copy", AsyncMock(return_value=copy)):
         async with client_for_user(super_user) as client:
             resp = await client.post("/api/admin/serving-recipes/preview", json=recipe)
     assert resp.status_code == 200, resp.text
     deployment = yaml.safe_load(resp.json()["manifests"][0]["yaml"])
-    assert deployment["spec"]["template"]["metadata"]["labels"]["env"] == "prod"
+    labels = deployment["spec"]["template"]["metadata"]["labels"]
+    assert labels["env"] == "prod"
+    assert labels["scrape-port"] == "8111"
     assert deployment["spec"]["template"]["metadata"]["annotations"] == {"owner": "prod team"}

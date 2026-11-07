@@ -11,8 +11,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services import pd_serving
 from app.services.llmd_manifests import stack_selector
-from app.services.model_deployment_manifests import common_pod_labels, pod_labels
+from app.services.model_deployment_manifests import common_pod_labels, engine_ports, metrics_port, pod_labels
 
 
 def selector_matches(selector: dict, labels: dict) -> bool:
@@ -23,6 +24,20 @@ def selector_matches(selector: dict, labels: dict) -> bool:
 
 
 def portal_server(dep: Any) -> dict:
+    labels = {}
+    if getattr(dep, "common_labels", None):
+        if pd_serving.is_pd(dep):
+            # A logical P/D server can advertise only the labels shared by both pools.
+            pool_labels = []
+            for role in pd_serving.ROLES:
+                spec = pd_serving.role_view(dep, role)
+                port = metrics_port(engine_ports(spec.pool, [], spec))
+                pool_labels.append({**common_pod_labels(dep, spec.gpu_type, port), **spec.pod_labels})
+            prefill, decode = pool_labels
+            labels = {key: value for key, value in prefill.items() if decode.get(key) == value}
+        else:
+            port = metrics_port(engine_ports(dep, []))
+            labels = common_pod_labels(dep, getattr(dep, "gpu_type", None), port)
     return {
         "kind": "portal",
         "id": str(dep.id),
@@ -31,7 +46,7 @@ def portal_server(dep: Any) -> dict:
         "namespace": dep.namespace,
         "status": dep.status,
         "serving_mode": getattr(dep, "serving_mode", None) or "aggregated",
-        "labels": {**common_pod_labels(dep, getattr(dep, "gpu_type", None)), **pod_labels(dep)},
+        "labels": {**labels, **pod_labels(dep)},
     }
 
 
