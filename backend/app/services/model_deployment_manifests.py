@@ -83,25 +83,33 @@ def pod_labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]
     return {**_labels(dep, owner), LABEL_LLMD_MODEL: dep.model_name}
 
 
-def common_pod_labels(dep: CustomModelDeployment, gpu_type: str | None) -> dict[str, str]:
+def common_pod_labels(dep: CustomModelDeployment, gpu_type: str | None, metrics_port: int) -> dict[str, str]:
     """The portal's common pod labels from the rules ``dep`` was last applied with
     (``dep.common_labels``), for a pool on ``gpu_type``. Never part of a selector."""
     rules = getattr(dep, "common_labels", None)
     if not rules:
         return {}
     return common_labels.render(
-        rules, model_name=pd_serving.serving_name(dep), namespace=dep.namespace, gpu_type=gpu_type
+        rules,
+        model_name=pd_serving.serving_name(dep),
+        namespace=dep.namespace,
+        gpu_type=gpu_type,
+        metrics_port=metrics_port,
     )
 
 
-def common_pod_annotations(dep: CustomModelDeployment, gpu_type: str | None) -> dict[str, str]:
+def common_pod_annotations(dep: CustomModelDeployment, gpu_type: str | None, metrics_port: int) -> dict[str, str]:
     """The portal's common pod annotations from the rules ``dep`` was last applied with
     (``dep.common_annotations``), for a pool on ``gpu_type``."""
     rules = getattr(dep, "common_annotations", None)
     if not rules:
         return {}
     return common_labels.render_annotations(
-        rules, model_name=pd_serving.serving_name(dep), namespace=dep.namespace, gpu_type=gpu_type
+        rules,
+        model_name=pd_serving.serving_name(dep),
+        namespace=dep.namespace,
+        gpu_type=gpu_type,
+        metrics_port=metrics_port,
     )
 
 
@@ -137,10 +145,12 @@ def _runtime(dep) -> dict:
     return dict(getattr(dep, "runtime", None) or {})
 
 
-def _container_ports(portal: list[dict], row, args: list[str]) -> list[dict]:
+def engine_ports(row, args: list[str], role: pd_serving.RoleSpec | None = None) -> list[dict]:
     """The portal's ports, then the runtime's ``extra_ports``, then the KV-event sockets
     from ``--kv-events-config``; the first claim on a port number or name wins."""
-    out = list(portal)
+    out = [{"containerPort": role.port if role else serving_port(row), "name": "http"}]
+    if role:
+        out.append({"containerPort": role.nixl_port, "name": "nixl", "protocol": "TCP"})
     extra = [
         {"containerPort": int(port), "name": name, "protocol": "TCP"}
         for name, port in (_runtime(row).get("extra_ports") or {}).items()
@@ -149,6 +159,12 @@ def _container_ports(portal: list[dict], row, args: list[str]) -> list[dict]:
         if all(p["containerPort"] != q["containerPort"] and p["name"] != q.get("name") for q in out):
             out.append(p)
     return out
+
+
+def metrics_port(ports: list[dict]) -> int:
+    """Prefer a declared metrics listener, falling back to the engine HTTP listener."""
+    by_name = {port["name"]: port["containerPort"] for port in ports}
+    return by_name.get("metrics", by_name["http"])
 
 
 def _volumes(dep: CustomModelDeployment) -> tuple[list, list]:
@@ -254,9 +270,11 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
     """The aggregated (single-pool) Deployment."""
     names = k8s_resource_names(dep)
     labels = _labels(dep, owner)
-    common = common_pod_labels(dep, getattr(dep, "gpu_type", None))
-    annotations = common_pod_annotations(dep, getattr(dep, "gpu_type", None))
     command, args = container_launch(dep)
+    ports = engine_ports(dep, args)
+    scrape_port = metrics_port(ports)
+    common = common_pod_labels(dep, getattr(dep, "gpu_type", None), scrape_port)
+    annotations = common_pod_annotations(dep, getattr(dep, "gpu_type", None), scrape_port)
     volumes, mounts = _volumes(dep)
     container = build_container(
         dep,
@@ -265,7 +283,7 @@ def build_deployment(dep: CustomModelDeployment, owner: str = OWNER) -> dict:
         command=command,
         env=with_pod_ip([pd_serving.env_item(k, v) for k, v in (dep.env or {}).items()], args),
         gpu_count=dep.gpu_count,
-        ports=_container_ports([{"containerPort": serving_port(dep), "name": "http"}], dep, args),
+        ports=ports,
         probes=render_probes(dep, port=serving_port(dep)),
         volume_mounts=mounts,
     )
@@ -300,8 +318,11 @@ def build_pd_deployments(
         spec = pd_serving.role_view(dep, role)
         pool = spec.pool
         selector = {**base_labels, pd_serving.LABEL_PD_ROLE: role}
-        common = common_pod_labels(dep, spec.gpu_type)
-        annotations = common_pod_annotations(dep, spec.gpu_type)
+        args = pd_serving.role_args(dep, spec)
+        ports = engine_ports(pool, args, spec)
+        scrape_port = metrics_port(ports)
+        common = common_pod_labels(dep, spec.gpu_type, scrape_port)
+        annotations = common_pod_annotations(dep, spec.gpu_type, scrape_port)
         # Common labels, then the pool's P/D extra labels, then the portal-owned ones: later wins.
         labels_on_pod = {
             **common,
@@ -310,15 +331,6 @@ def build_pd_deployments(
             pd_serving.LABEL_PD_ROLE: role,
             pd_serving.LABEL_ROLE: role,
         }
-        args = pd_serving.role_args(dep, spec)
-        ports = _container_ports(
-            [
-                {"containerPort": spec.port, "name": "http"},
-                {"containerPort": spec.nixl_port, "name": "nixl", "protocol": "TCP"},
-            ],
-            pool,
-            args,
-        )
         volumes, mounts = _volumes(pool)
         container = build_container(
             pool,

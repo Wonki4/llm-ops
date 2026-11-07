@@ -1,6 +1,6 @@
 """Common pod labels and annotations: keys the portal puts on every serving pod, each
 value fixed text or filled from the deployment (``{{model_name}}``, ``{{namespace}}``,
-``{{gpu_type}}``).
+``{{gpu_type}}``, ``{{metrics_port}}``).
 
 The rules live in portal settings (``serving_pod_labels`` / ``serving_pod_annotations``:
 JSON ``{key: value}``). A deployment keeps a copy of the rules it was last applied with
@@ -17,7 +17,7 @@ from sqlalchemy import text
 
 LABELS_KEY = "serving_pod_labels"
 ANNOTATIONS_KEY = "serving_pod_annotations"
-PLACEHOLDERS = ("model_name", "namespace", "gpu_type")
+PLACEHOLDERS = ("model_name", "namespace", "gpu_type", "metrics_port")
 # The portal's own labels (selectors, llm-d's model / role markers).
 RESERVED_PREFIXES = ("llm-ops/", "llm-d.ai/")
 # …and for annotations also what the Deployment controller writes (revision, …).
@@ -89,24 +89,35 @@ def validate_annotation_rules(rules: dict[str, str]) -> dict[str, str]:
     return dict(rules)
 
 
-def _fill(rules: dict | None, model_name: str, namespace: str, gpu_type: str | None) -> dict[str, str]:
-    context = {"model_name": model_name, "namespace": namespace, "gpu_type": gpu_type or ""}
+def _fill(
+    rules: dict | None, model_name: str, namespace: str, gpu_type: str | None, metrics_port: int
+) -> dict[str, str]:
+    context = {
+        "model_name": model_name,
+        "namespace": namespace,
+        "gpu_type": gpu_type or "",
+        "metrics_port": str(metrics_port),
+    }
     return {
         key: _PLACEHOLDER.sub(lambda m: context.get(m.group(1), ""), str(value)) for key, value in (rules or {}).items()
     }
 
 
-def render(rules: dict | None, *, model_name: str, namespace: str, gpu_type: str | None) -> dict[str, str]:
+def render(
+    rules: dict | None, *, model_name: str, namespace: str, gpu_type: str | None, metrics_port: int
+) -> dict[str, str]:
     """The labels ``rules`` give one pool: placeholders filled, then each value cut to a
     valid label value (other characters → '-', at most 63, letters or digits at both ends).
     A placeholder with nothing to fill (no GPU type) is empty; the key stays."""
-    filled = _fill(rules, model_name, namespace, gpu_type)
+    filled = _fill(rules, model_name, namespace, gpu_type, metrics_port)
     return {key: _EDGE.sub("", _NOT_VALUE_CHAR.sub("-", value)[:MAX_VALUE]) for key, value in filled.items()}
 
 
-def render_annotations(rules: dict | None, *, model_name: str, namespace: str, gpu_type: str | None) -> dict[str, str]:
+def render_annotations(
+    rules: dict | None, *, model_name: str, namespace: str, gpu_type: str | None, metrics_port: int
+) -> dict[str, str]:
     """The annotations ``rules`` give one pool: placeholders filled, the text kept as is."""
-    return _fill(rules, model_name, namespace, gpu_type)
+    return _fill(rules, model_name, namespace, gpu_type, metrics_port)
 
 
 async def _load(db, key: str) -> dict[str, str]:

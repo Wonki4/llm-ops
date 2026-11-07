@@ -2157,6 +2157,7 @@
     "placeholderModelName": "model name",
     "placeholderNamespace": "namespace",
     "placeholderGpuType": "GPU type (per pool in P/D)",
+    "placeholderMetricsPort": "The engine HTTP port for each pool. Set an extra port such as metrics=9100 to use a dedicated metrics listener.",
     "labelsTitle": "Labels",
     "labelsHint": "Keys starting with llm-ops/ or llm-d.ai/ belong to the portal. Values are fitted to K8s label rules (63 chars, letters, digits, -_.); other characters become -.",
     "labelsKey": "Label key",

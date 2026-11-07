@@ -22,6 +22,7 @@ const PLACEHOLDERS = [
   ["{{model_name}}", "placeholderModelName"],
   ["{{namespace}}", "placeholderNamespace"],
   ["{{gpu_type}}", "placeholderGpuType"],
+  ["{{metrics_port}}", "placeholderMetricsPort"],
 ] as const;
 
 /** A row's problem the server would not explain as well: a missing or repeated key. */
