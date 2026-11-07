@@ -10,10 +10,16 @@ Two names are involved and they differ on purpose:
   so it is read from the rendered launch line, not guessed from the path.
 """
 
+from typing import Annotated
+from urllib.parse import urlsplit
+
+from pydantic import AfterValidator, HttpUrl
+
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services import pd_serving
 from app.services.benchmark_serving import served_and_model_arg, serving_cli
-from app.services.model_deployment_manifests import build_all, serving_api_key
+from app.services.model_deployment_manifests import serving_api_key
+from app.services.serving_engines import container_launch
 
 
 def litellm_name(dep: CustomModelDeployment) -> str:
@@ -22,17 +28,33 @@ def litellm_name(dep: CustomModelDeployment) -> str:
 
 def served_model_name(dep: CustomModelDeployment) -> str:
     """The ``model`` the serving answers to. P/D: the decode pool's (it answers through the router)."""
-    deployments = [m for m in build_all(dep) if m["kind"] == "Deployment"]
-    serving = next(
-        (
-            m
-            for m in deployments
-            if m["spec"]["template"]["metadata"]["labels"].get(pd_serving.LABEL_PD_ROLE) == "decode"
-        ),
-        deployments[0],
-    )
-    served, _ = served_and_model_arg(serving_cli(serving["spec"]["template"]["spec"]["containers"][0]))
+    if pd_serving.is_pd(dep):
+        command = None
+        args = pd_serving.role_args(dep, pd_serving.role_view(dep, "decode"))
+    else:
+        command, args = container_launch(dep)
+    served, _ = served_and_model_arg(serving_cli({"command": command, "args": args}))
     return served or dep.model_path
+
+
+def _http_base(value: str) -> str:
+    value = value.strip()
+    if not value.lower().startswith(("http://", "https://")) or any(c.isspace() for c in value):
+        raise ValueError("API base must be an absolute HTTP or HTTPS URL")
+    if not urlsplit(value).netloc or "\\" in value:
+        raise ValueError("API base must include a valid hostname")
+    url = HttpUrl(value)
+    if url.username or url.password or url.query is not None or url.fragment is not None:
+        raise ValueError("API base must not contain credentials, a query or a fragment")
+    return value.rstrip("/")
+
+
+ApiBase = Annotated[str, AfterValidator(_http_base)]
+
+
+def with_v1(base: str) -> str:
+    base = base.rstrip("/")
+    return base if urlsplit(base).path.endswith("/v1") else f"{base}/v1"
 
 
 def ingress_api_base(dep: CustomModelDeployment) -> str:
@@ -42,15 +64,19 @@ def ingress_api_base(dep: CustomModelDeployment) -> str:
     return api_base
 
 
-def registration(dep: CustomModelDeployment, api_base: str | None = None) -> dict:
+def openai_registration_fields(model_name: str, served_name: str, api_base: str) -> dict:
+    return {"model_name": model_name, "litellm_model": f"openai/{served_name}", "api_base": api_base}
+
+
+def registration_preview(dep: CustomModelDeployment, api_base: str | None = None) -> dict:
     """The /model/new arguments. ``api_base`` overrides the ingress URL (P/D: the router's host)."""
-    # P/D: the decode pool answers through the router, so its auth settings apply.
+    base = getattr(dep, "litellm_api_base", None) or with_v1(api_base or ingress_api_base(dep))
+    return openai_registration_fields(litellm_name(dep), served_model_name(dep), base)
+
+
+def registration(dep: CustomModelDeployment, api_base: str | None = None) -> dict:
     auth_source = pd_serving.role_view(dep, "decode").pool if pd_serving.is_pd(dep) else dep
     return {
-        "model_name": litellm_name(dep),
-        # vLLM/SGLang expose the OpenAI-compatible API; route through openai/ in LiteLLM.
-        "litellm_model": f"openai/{served_model_name(dep)}",
-        "api_base": api_base or ingress_api_base(dep),
-        # The serving's own key so LiteLLM can reach it when auth is on (--api-key); "EMPTY" when open.
+        **registration_preview(dep, api_base),
         "api_key": serving_api_key(auth_source.vllm_extra_args, auth_source.env),
     }

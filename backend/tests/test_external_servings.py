@@ -5,6 +5,8 @@ import types
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.services.deployment_status import classify
 from app.services.external_servings import scan_clusters, to_external_serving
@@ -357,6 +359,35 @@ async def test_register_external_serving(client_for_user, super_user, mock_db, m
         api_key="EMPTY",
     )
     mock_db.add.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("base", "append", "expected"),
+    [
+        ("http://api.api.com", True, "http://api.api.com/v1"),
+        ("http://api.api.com/v1/", True, "http://api.api.com/v1"),
+        ("https://api.api.com/custom", False, "https://api.api.com/custom"),
+        ("http://v1", True, "http://v1/v1"),
+    ],
+)
+async def test_external_preview_matches_registration(
+    client_for_user, super_user, mock_db, mock_litellm, base, append, expected
+):
+    body = {**REGISTER_BODY, "api_base": base, "append_v1": append, "api_key": "secret"}
+    mock_db.execute = AsyncMock(return_value=_exec_result([]))
+    mock_litellm.create_model = AsyncMock(return_value={"model_info": {"id": "ext"}})
+    async with client_for_user(super_user) as client:
+        preview = await client.post("/api/model-deployments/external/register-preview", json=body)
+        assert preview.status_code == 200, preview.text
+        mock_litellm.create_model.assert_not_called()
+        created = await client.post("/api/model-deployments/external/register", json=body)
+    assert preview.json() == {
+        "model_name": body["model_name"],
+        "litellm_model": "openai/" + body["served_model_name"],
+        "api_base": expected,
+    }
+    assert created.json()["registration"]["api_base"] == expected
+    mock_litellm.create_model.assert_awaited_once_with(**preview.json(), api_key="secret")
 
 
 async def test_register_duplicate_409(client_for_user, super_user, mock_db, mock_litellm):

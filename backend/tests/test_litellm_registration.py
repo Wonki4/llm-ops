@@ -54,7 +54,7 @@ def test_registration_arguments():
     assert reg == {
         "model_name": "meta/Llama-3",
         "litellm_model": "openai//models/llama",
-        "api_base": "https://llama.local/v1x",
+        "api_base": "https://llama.local/v1x/v1",
         "api_key": "EMPTY",
     }
 
@@ -235,3 +235,65 @@ async def test_detail_shows_what_litellm_sends(client_for_user, super_user, mock
     data = resp.json()
     assert data["litellm_model_name"] == "meta/Llama-3"
     assert data["litellm_model"] == "openai//models/llama"
+
+
+@pytest.mark.parametrize(
+    ("path", "override", "expected"),
+    [
+        ("/", None, "https://llama.local/v1"),
+        ("/edge/v1/", None, "https://llama.local/edge/v1"),
+        ("/edge", None, "https://llama.local/edge/v1"),
+        ("/", "http://api.api.com:8181/v1", "http://api.api.com:8181/v1"),
+        ("/", "https://gateway.example/custom", "https://gateway.example/custom"),
+    ],
+)
+async def test_preview_matches_persisted_registration(client_for_user, super_user, mock_db, path, override, expected):
+    body = {
+        **DEPLOY,
+        "ingress_path": path,
+        "litellm_api_base": override,
+        "env": {"VLLM_API_KEY": "secret"},
+        "engine_args": {"served-model-name": "upstream"},
+        "litellm_model_name": "public",
+    }
+    mock_db.execute = AsyncMock(return_value=_result(None))
+    mock_db.refresh = AsyncMock(side_effect=_refresh)
+    a, b, c = _patches(_k8s())
+    with a, b, c:
+        async with client_for_user(super_user) as client:
+            preview = await client.post("/api/model-deployments/registration-preview", json=body)
+            assert preview.status_code == 200, preview.text
+            mock_db.add.assert_not_called()
+            created = await client.post("/api/model-deployments", json=body)
+    assert created.status_code == 201, created.text
+    assert preview.json() == {"model_name": "public", "litellm_model": "openai/upstream", "api_base": expected}
+    assert registration(mock_db.add.call_args.args[0]) == {**preview.json(), "api_key": "secret"}
+
+
+async def test_pd_preview_uses_linked_router_and_decode(client_for_user, super_user, mock_db):
+    from types import SimpleNamespace
+
+    mock_db.execute = AsyncMock(return_value=_result(SimpleNamespace(ingress_host="linked.example")))
+    body = {
+        **DEPLOY,
+        "serving_mode": "pd",
+        "pd_config": {
+            "prefill": {"engine_args": {"served-model-name": "p"}},
+            "decode": {"engine_args": {"served-model-name": "d"}},
+        },
+    }
+    async with client_for_user(super_user) as client:
+        response = await client.post("/api/model-deployments/registration-preview", json=body)
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "model_name": "llama",
+        "litellm_model": "openai/d",
+        "api_base": "https://linked.example/v1",
+    }
+
+
+@pytest.mark.parametrize("bad_url", ["api.api.com/v1", "ftp://api.api.com/v1", "https://example.com/v1?token=x"])
+async def test_registration_rejects_invalid_override(client_for_user, super_user, bad_url):
+    async with client_for_user(super_user) as client:
+        for path in ("/api/model-deployments/registration-preview", "/api/model-deployments"):
+            assert (await client.post(path, json={**DEPLOY, "litellm_api_base": bad_url})).status_code == 422

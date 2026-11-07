@@ -1464,6 +1464,7 @@ export interface RegisterExternalServingBody {
   model_name: string;
   served_model_name: string;
   api_base: string;
+  append_v1?: boolean;
   api_key?: string;
 }
 

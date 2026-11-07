@@ -1220,6 +1220,7 @@ export interface CreateDeploymentBody {
   model_name: string;
   /** Name in LiteLLM; blank/null = model_name. */
   litellm_model_name?: string | null;
+  litellm_api_base?: string | null;
   cluster_id: string | null;
   /** Recipe this deployment is launched from (informational; stored on the row). */
   recipe_id?: string | null;
