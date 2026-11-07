@@ -26,7 +26,7 @@ from app.services.serving_engines import engine_of
 
 def ephemeral_model_name(run_id: uuid.UUID) -> str:
     """DNS-safe base name for a run's temp serving (≤ K8s 63-char budget once
-    `-deployment` / `-service` suffixes are added)."""
+    `-dep` / `-svc` suffixes are added)."""
     return f"bench-{str(run_id)[:12]}"
 
 

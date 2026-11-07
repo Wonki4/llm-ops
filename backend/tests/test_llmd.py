@@ -74,7 +74,7 @@ async def test_create_stack_applies_application(client_for_user, super_user, moc
     assert ing_ns == "team-a"
     ing = manifests[0]
     assert ing["kind"] == "Ingress"
-    assert ing["metadata"]["name"] == "llmd-demo-ingress"
+    assert ing["metadata"]["name"] == "llmd-demo-ing"
     assert ing["spec"]["rules"][0]["host"] == "llmd-demo.llm-d.local"
     assert ing["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] == "llmd-demo-epp"
 
@@ -255,7 +255,7 @@ async def test_delete_stack_removes_ingress(client_for_user, super_user, mock_db
             resp = await client.delete(f"/api/admin/llmd-stacks/{stack.id}")
     assert resp.status_code == 200
     fake_k8s.delete_application.assert_awaited_once()
-    fake_target.delete.assert_awaited_once_with("team-a", {"ingress": "llmd-demo-ingress"})
+    fake_target.delete.assert_awaited_once_with("team-a", {"ingress": "llmd-demo-ing"})
 
 
 def test_serialize_reports_ingress_host():
@@ -322,7 +322,7 @@ async def test_create_stack_with_direct_upserts_service_and_ingress(client_for_u
     assert "sessionAffinity" not in by_kind["Service"]["spec"]
     assert by_kind["Service"]["spec"]["selector"] == {"llm-d.ai/model": "qwen"}
     assert by_kind["Service"]["metadata"]["name"] == "llmd-demo-direct"
-    assert by_kind["Ingress"]["metadata"]["name"] == "llmd-demo-direct-ingress"
+    assert by_kind["Ingress"]["metadata"]["name"] == "llmd-demo-direct-ing"
     assert by_kind["Ingress"]["spec"]["rules"][0]["host"] == "llmd-demo-direct.llm-d.local"
     ing_svc = by_kind["Ingress"]["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]
     assert ing_svc["name"] == "llmd-demo-direct"
@@ -376,7 +376,7 @@ async def test_update_toggle_off_deletes_direct(client_for_user, super_user, moc
             resp = await client.put(f"/api/admin/llmd-stacks/{stack.id}", json={"direct_route_enabled": False})
     assert resp.status_code == 200
     fake_target.delete.assert_awaited_once_with(
-        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ingress"}
+        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ing"}
     )
 
 
@@ -399,7 +399,7 @@ async def test_delete_stack_enabled_removes_direct(client_for_user, super_user, 
     assert resp.status_code == 200
     assert fake_target.delete.await_count == 2
     fake_target.delete.assert_any_await(
-        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ingress"}
+        "team-a", {"service": "llmd-demo-direct", "ingress": "llmd-demo-direct-ing"}
     )
 
 

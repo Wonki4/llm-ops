@@ -71,14 +71,11 @@ function ReapplyFromRecipe() {
   const rollout = data?.rollout;
   const active = manifests.find((m) => diffKey(m) === tab) ?? manifests.find((m) => m.changed > 0) ?? manifests[0];
   const nothingChanges = manifests.length > 0 && manifests.every((m) => m.changed === 0);
-  // P/D has two Deployments (and Services): name them when the kind alone is ambiguous,
-  // by the part between the model name and the kind (`qwen-prefill-deployment` → `prefill`).
   const kindCount = (kind: string) => manifests.filter((m) => m.kind === kind).length;
   const shortName = (m: ManifestDiff) => {
-    const prefix = `${dep.model_name}-`;
-    const suffix = `-${m.kind.toLowerCase()}`;
-    const head = m.name.startsWith(prefix) ? m.name.slice(prefix.length) : m.name;
-    return (head.endsWith(suffix) ? head.slice(0, -suffix.length) : head) || m.name;
+    if (m.name.endsWith("-pf")) return "prefill";
+    if (m.name.endsWith("-dc")) return "decode";
+    return m.name;
   };
 
   function pickRecipe(next: string) {

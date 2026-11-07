@@ -193,8 +193,8 @@ def test_clone_target_port_from_sh_c_command():
 def test_clone_names_labels_replicas_and_service_port():
     manifests = build_external_clone(_spec(), name="bench-abc123")
     dep, svc = manifests
-    assert dep["metadata"]["name"] == "bench-abc123-deployment"
-    assert svc["metadata"]["name"] == "bench-abc123-service"
+    assert dep["metadata"]["name"] == "bench-abc123-dep"
+    assert svc["metadata"]["name"] == "bench-abc123-svc"
     assert dep["spec"]["replicas"] == 1
     sel = svc["spec"]["selector"]
     assert sel == dep["spec"]["template"]["metadata"]["labels"]

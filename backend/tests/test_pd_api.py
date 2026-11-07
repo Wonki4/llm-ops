@@ -174,10 +174,10 @@ async def test_deploy_pd_applies_two_pools_and_creates_router(client_for_user, s
     _ns, manifests = k8s.create_or_patch.await_args.args
     kinds = [(m["kind"], m["metadata"]["name"]) for m in manifests]
     assert kinds == [
-        ("Deployment", "glm-prefill-deployment"),
-        ("Deployment", "glm-decode-deployment"),
-        ("Service", "glm-prefill-service"),
-        ("Service", "glm-decode-service"),
+        ("Deployment", "glm-dep-pf"),
+        ("Deployment", "glm-dep-dc"),
+        ("Service", "glm-svc-pf"),
+        ("Service", "glm-svc-dc"),
     ]
     decode = manifests[1]["spec"]["template"]["spec"]
     assert decode["initContainers"][0]["name"] == "routing-proxy"
@@ -298,10 +298,10 @@ async def test_delete_pd_removes_both_pools_and_auto_created_router(client_for_u
     assert resp.status_code == 200
     _ns, names = k8s.delete.await_args.args
     assert names == {
-        "prefill_deployment": "glm-prefill-deployment",
-        "decode_deployment": "glm-decode-deployment",
-        "prefill_service": "glm-prefill-service",
-        "decode_service": "glm-decode-service",
+        "prefill_deployment": "glm-dep-pf",
+        "decode_deployment": "glm-dep-dc",
+        "prefill_service": "glm-svc-pf",
+        "decode_service": "glm-svc-dc",
     }
     delete_stack.assert_awaited_once()
     assert delete_stack.await_args.args[1] is stack
@@ -368,7 +368,7 @@ async def test_benchmark_pd_targets_the_router_service(client_for_user, super_us
 
     text = json.dumps(manifest)
     assert "http://llmd-glm-router-epp.default.svc.cluster.local:8081" in text
-    assert "glm-decode-service" not in text and "glm-prefill-service" not in text
+    assert "glm-svc-dc" not in text and "glm-svc-pf" not in text
     run = mock_db.add.call_args.args[0]
     assert run.serving_snapshot["serving_mode"] == "pd"
 
@@ -543,7 +543,8 @@ async def test_scale_only_requested_pool(client_for_user, super_user, mock_db, r
             response = await client.put(f"/api/model-deployments/{dep.id}/pools/{role}/replicas", json={"replicas": replicas})
     assert response.status_code == 200, response.text
     assert dep.pd_config == {**config, role: {**config[role], "replicas": replicas}}
-    k8s.scale_deployment.assert_awaited_once_with(dep.namespace, f"glm-{role}-deployment", replicas)
+    pool_name = "glm-dep-pf" if role == "prefill" else "glm-dep-dc"
+    k8s.scale_deployment.assert_awaited_once_with(dep.namespace, pool_name, replicas)
     k8s.create_or_patch.assert_not_awaited()
 
 
@@ -577,4 +578,4 @@ async def test_scale_aggregated_deployment(client_for_user, super_user, mock_db,
     else:
         assert response.status_code == 200, response.text
         assert dep.replicas == 0
-        k8s.scale_deployment.assert_awaited_once_with(dep.namespace, "glm-deployment", 0)
+        k8s.scale_deployment.assert_awaited_once_with(dep.namespace, "glm-dep", 0)

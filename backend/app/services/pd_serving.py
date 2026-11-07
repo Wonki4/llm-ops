@@ -40,6 +40,7 @@ from app.services.serving_engines import (
     sets_kv_events,
     validate_engine_args,
 )
+from app.services.serving_names import resource_name
 from app.services.serving_probes import validate_probes
 
 Role = Literal["prefill", "decode"]
@@ -785,12 +786,11 @@ def _fill_name(values: dict | None, dep) -> dict[str, str]:
 
 def role_resource_names(dep) -> dict[str, str]:
     """``{prefill_deployment, decode_deployment, prefill_service, decode_service}``."""
-    safe = dep.model_name.lower().replace("_", "-").replace(".", "-").replace("/", "-")
-    out: dict[str, str] = {}
-    for role in ROLES:
-        out[f"{role}_deployment"] = f"{safe}-{role}-deployment"
-        out[f"{role}_service"] = f"{safe}-{role}-service"
-    return out
+    return {
+        f"{role}_{kind}": resource_name(dep.model_name, kind, role)
+        for role in ROLES
+        for kind in ("deployment", "service")
+    }
 
 
 def pd_status_summary(status: dict | None) -> str | None:

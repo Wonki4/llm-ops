@@ -71,6 +71,11 @@ def llmd_service_name(stack: CustomLlmdStack) -> str:
     return f"{stack.argo_app_name}-epp"
 
 
+def llmd_ingress_name(stack: CustomLlmdStack, *, direct: bool = False) -> str:
+    stem = direct_service_name(stack) if direct else stack.argo_app_name
+    return f"{stem}-ing"
+
+
 def build_llmd_ingress(
     stack: CustomLlmdStack,
     *,
@@ -113,7 +118,7 @@ def build_llmd_ingress(
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
         "metadata": {
-            "name": f"{stack.argo_app_name}-ingress",
+            "name": llmd_ingress_name(stack),
             "namespace": stack.namespace,
             "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
         },
@@ -225,7 +230,7 @@ def build_direct_ingress(stack: CustomLlmdStack, *, host: str, ingress_class: st
         "apiVersion": "networking.k8s.io/v1",
         "kind": "Ingress",
         "metadata": {
-            "name": f"{stack.argo_app_name}-direct-ingress",
+            "name": llmd_ingress_name(stack, direct=True),
             "namespace": stack.namespace,
             "labels": {"app.kubernetes.io/managed-by": MANAGED_BY},
         },

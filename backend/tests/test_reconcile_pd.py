@@ -57,7 +57,7 @@ def _dep(**kw):
 
 def _k8s(prefill=None, decode=None):
     """K8s mock whose read_deployment_status answers per role (None → 404)."""
-    ready = {"glm-prefill-deployment": prefill, "glm-decode-deployment": decode}
+    ready = {"glm-dep-pf": prefill, "glm-dep-dc": decode}
 
     async def read(ns, name):
         obs = ready[name]

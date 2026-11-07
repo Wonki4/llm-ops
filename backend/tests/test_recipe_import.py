@@ -110,7 +110,7 @@ def test_portal_vllm_manifest_round_trips_without_warnings():
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("4", "8", "32Gi", "64Gi")
     assert d["env"] == dep.env and d["node_selector"] == dep.node_selector and d["tolerations"] == dep.tolerations
     assert d["pvc_mounts"] == [{"claim_name": "weights", "mount_path": "/models", "read_only": False}]
-    assert d["name"] == "qwen-deployment"  # the K8s object name; the UI picks a friendlier default
+    assert d["name"] == "qwen-dep"  # the K8s object name; the UI picks a friendlier default
 
 
 def test_portal_sglang_manifest_round_trips():

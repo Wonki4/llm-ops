@@ -57,7 +57,7 @@ async def test_preview_aggregated_renders_deployment_service_ingress(client_for_
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert [(m["kind"], m["name"]) for m in data["manifests"]] == [
-        ("Deployment", "llama-deployment"), ("Service", "llama-service"), ("Ingress", "llama-ingress"),
+        ("Deployment", "llama-dep"), ("Service", "llama-svc"), ("Ingress", "llama-ing"),
     ]
     assert data["warnings"] == []
     assert res.await_args.args[2:] == (None, "prod")
@@ -79,8 +79,8 @@ async def test_preview_pd_renders_both_pools_and_services(client_for_user, super
     assert resp.status_code == 200, resp.text
     names = [(m["kind"], m["name"]) for m in resp.json()["manifests"]]
     assert names == [
-        ("Deployment", "llama-pd-prefill-deployment"), ("Deployment", "llama-pd-decode-deployment"),
-        ("Service", "llama-pd-prefill-service"), ("Service", "llama-pd-decode-service"),
+        ("Deployment", "llama-pd-dep-pf"), ("Deployment", "llama-pd-dep-dc"),
+        ("Service", "llama-pd-svc-pf"), ("Service", "llama-pd-svc-dc"),
         ("values.yaml", "llama-pd-router"),
     ]
     prefill, decode = _docs(resp)[:2]
