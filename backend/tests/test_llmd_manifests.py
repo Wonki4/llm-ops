@@ -374,3 +374,21 @@ def test_pd_router_values_take_epp_replicas_from_the_router_block():
     assert values["router"]["epp"]["replicas"] == 3
     default = default_llmd_values("glm", epp_registry="r", epp_repository="p", epp_tag="t", serving_mode="pd")
     assert default["router"]["epp"]["replicas"] == 1
+
+
+def test_legacy_long_release_references_chart_epp_name_including_boundary_hyphen():
+    from app.services.llmd_manifests import router_target_url
+
+    prefix = "llmd-" + "r" * 34 + "-"
+    stack = _stack(argo_app_name=prefix + "long-router")
+    actual_service = prefix + "-epp"
+    ingress = build_llmd_ingress(stack, host="router.test", ingress_class="nginx", ingress_path="/")
+    assert ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] == actual_service
+    assert router_target_url(stack) == f"http://{actual_service}.{stack.namespace}.svc.cluster.local:8081"
+
+
+def test_new_releases_with_a_common_long_prefix_render_distinct_epp_names():
+    prefix = "test-serving-" * 5
+    releases = [argo_app_name_for(prefix + variant) for variant in ("prefill", "decode")]
+    assert len(set(releases)) == 2
+    assert all(len(name) <= 40 for name in releases)

@@ -64,14 +64,14 @@ def ingress_api_base(dep: CustomModelDeployment) -> str:
     return api_base
 
 
-def openai_registration_fields(model_name: str, served_name: str, api_base: str) -> dict:
-    return {"model_name": model_name, "litellm_model": f"openai/{served_name}", "api_base": api_base}
+def registration_fields(model_name: str, served_name: str, api_base: str) -> dict:
+    return {"model_name": model_name, "litellm_model": f"hosted_vllm/{served_name}", "api_base": api_base}
 
 
 def registration_preview(dep: CustomModelDeployment, api_base: str | None = None) -> dict:
     """The /model/new arguments. ``api_base`` overrides the ingress URL (P/D: the router's host)."""
     base = getattr(dep, "litellm_api_base", None) or with_v1(api_base or ingress_api_base(dep))
-    return openai_registration_fields(litellm_name(dep), served_model_name(dep), base)
+    return registration_fields(litellm_name(dep), served_model_name(dep), base)
 
 
 def registration(dep: CustomModelDeployment, api_base: str | None = None) -> dict:

@@ -18,7 +18,7 @@ from app.services.serving_engines import (
     serving_port,
     with_pod_ip,
 )
-from app.services.serving_names import resource_name
+from app.services.serving_names import model_label, resource_name
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
 
@@ -64,13 +64,13 @@ def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
 
 def _labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:
     """Selector labels: immutable once a Deployment exists, so never add here."""
-    return {LABEL_OWNER: owner, LABEL_MODEL: dep.model_name}
+    return {LABEL_OWNER: owner, LABEL_MODEL: model_label(dep.model_name)}
 
 
 def pod_labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:
     """Labels stamped on the serving pods: the selector labels plus llm-d's
     ``llm-d.ai/model`` so an llm-d router can target this deployment."""
-    return {**_labels(dep, owner), LABEL_LLMD_MODEL: dep.model_name}
+    return {**_labels(dep, owner), LABEL_LLMD_MODEL: model_label(dep.model_name)}
 
 
 def common_pod_labels(dep: CustomModelDeployment, gpu_type: str | None, metrics_port: int) -> dict[str, str]:

@@ -42,6 +42,7 @@ import type {
   LoadPreset,
   ModelDeployment,
   ModelDeploymentEvent,
+  ManifestPreview,
   K8sClusterSummary,
   ClusterTestResult,
   LlmdStackSummary,
@@ -1387,6 +1388,16 @@ export function useModelDeployment(id: string) {
     queryFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}`),
     enabled: !!id,
     refetchInterval: 15000,
+  });
+}
+
+export function useDeploymentManifests(id: string) {
+  return useQuery({
+    queryKey: ["model-deployments", id, "manifests"],
+    queryFn: ({ signal }) => apiFetch<{ manifests: ManifestPreview[]; missing: string[] }>(
+      `/api/model-deployments/${id}/manifests`, { signal },
+    ),
+    retry: false,
   });
 }
 

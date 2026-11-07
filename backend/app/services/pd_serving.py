@@ -29,6 +29,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.services.common_labels import label_value
 from app.services.serving_engines import (
     DEFAULT_KV_EVENTS_ENDPOINT,
     SERVING_PORT,
@@ -40,7 +41,7 @@ from app.services.serving_engines import (
     sets_kv_events,
     validate_engine_args,
 )
-from app.services.serving_names import resource_name
+from app.services.serving_names import fit_name, model_stem, resource_name
 from app.services.serving_probes import validate_probes
 
 Role = Literal["prefill", "decode"]
@@ -635,7 +636,7 @@ def role_view(dep, role: Role) -> RoleSpec:
         memory_request=pick("memory_request"),
         memory_limit=pick("memory_limit"),
         explicit=explicit,
-        pod_labels=_fill_name(extras.get("labels"), dep),
+        pod_labels={k: label_value(v) for k, v in _fill_name(extras.get("labels"), dep).items()},
         pod_annotations=_fill_name(extras.get("annotations"), dep),
         pd_resources=dict(extras.get("resources") or {}),
         security_context=container_security_context(extras),
@@ -776,7 +777,7 @@ def parse_router_values(text: str, name: str) -> dict:
 
 def serving_name(dep) -> str:
     """The deployment's name as a K8s-safe token (resource-name stem, valid label value)."""
-    return dep.model_name.lower().replace("_", "-").replace(".", "-").replace("/", "-")[:63].strip("-")
+    return fit_name(model_stem(dep.model_name), 63, dep.model_name)
 
 
 def _fill_name(values: dict | None, dep) -> dict[str, str]:

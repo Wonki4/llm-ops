@@ -31,7 +31,7 @@ spec:
             - name: APP_DATABASE_URL
               value: {{ default (printf "postgresql+asyncpg://%s:%s@%s:%s/%s" (include "litellm-platform.databaseUser" .) (include "litellm-platform.databasePassword" .) (include "litellm-platform.databaseHost" .) (include "litellm-platform.databasePort" .) (include "litellm-platform.databaseName" .)) (index .Values.backend.env "APP_DATABASE_URL") | quote }}
             - name: APP_LITELLM_BASE_URL
-              value: {{ default (printf "http://%s:4000" .Values.litellm.internalServiceName) (index .Values.backend.env "APP_LITELLM_BASE_URL") | quote }}
+              value: {{ default (printf "http://%s:4000" (include "litellm-platform.litellmService" .)) (index .Values.backend.env "APP_LITELLM_BASE_URL") | quote }}
             - name: APP_LITELLM_ADMIN_API_KEY
               value: {{ index .Values.backend.env "APP_LITELLM_ADMIN_API_KEY" | quote }}
             - name: APP_KEYCLOAK_SSL_VERIFY

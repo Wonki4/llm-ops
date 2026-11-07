@@ -804,7 +804,7 @@ export interface ModelDeployment {
   litellm_model_id: string | null;
   /** Name in LiteLLM; null = model_name. Deployments may share one (LiteLLM load-balances them). */
   litellm_model_name: string | null;
-  /** Detail endpoint: what LiteLLM sends the server (`openai/<served name>`). */
+  /** Detail endpoint: what LiteLLM sends the server (`<provider>/<served name>`). */
   litellm_model?: string | null;
   last_synced_at: string | null;
   created_by: string | null;

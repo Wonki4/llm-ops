@@ -26,7 +26,7 @@ spec:
             pathType: {{ .Values.ingress.frontend.pathType }}
             backend:
               service:
-                name: {{ include "litellm-platform.fullname" . }}-frontend
+                name: {{ include "litellm-platform.serviceName" (list . "frontend") }}
                 port:
                   number: {{ .Values.frontend.service.port }}
 {{- end }}
@@ -61,7 +61,7 @@ spec:
             pathType: {{ .Values.ingress.backend.pathType }}
             backend:
               service:
-                name: {{ include "litellm-platform.fullname" . }}-backend
+                name: {{ include "litellm-platform.serviceName" (list . "backend") }}
                 port:
                   number: {{ .Values.backend.service.port }}
 {{- end }}
@@ -94,7 +94,7 @@ spec:
             pathType: {{ .Values.ingress.mcp.pathType }}
             backend:
               service:
-                name: {{ include "litellm-platform.fullname" . }}-mcp
+                name: {{ include "litellm-platform.serviceName" (list . "mcp") }}
                 port:
                   number: {{ .Values.mcp.service.port }}
 {{- end }}

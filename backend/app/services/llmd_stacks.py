@@ -233,11 +233,8 @@ def require_valid_name(name: str) -> str:
             status_code=400,
             detail="Stack name must contain letters or digits (a–z, 0–9, hyphen).",
         )
-    if len(app_name) > 53:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Stack name is too long — the resulting app name '{app_name}' exceeds 53 characters.",
-        )
+    if len(name) > 128:
+        raise HTTPException(status_code=400, detail="Stack name exceeds 128 characters.")
     return app_name
 
 

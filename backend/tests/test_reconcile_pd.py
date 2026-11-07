@@ -179,7 +179,7 @@ async def test_pd_ready_registers_via_router_host_when_healthy():
     kwargs = litellm.create_model.await_args.kwargs
     assert kwargs["api_base"] == "https://glm.example.com/v1"
     # vLLM answers to the full --model value (no --served-model-name set)
-    assert kwargs["model_name"] == "glm" and kwargs["litellm_model"] == "openai//models/glm"
+    assert kwargs["model_name"] == "glm" and kwargs["litellm_model"] == "hosted_vllm//models/glm"
     assert dep.pd_status["router"] == {"ready": True, "reason": None, "api_base": "https://glm.example.com"}
 
 
@@ -196,7 +196,7 @@ async def test_pd_registers_under_litellm_name_and_decode_served_name():
     litellm.create_model = AsyncMock(return_value={"model_info": {"id": "m-1"}})
     await rd._reconcile_pd(db, litellm, _k8s(_obs(1, 1), _obs(2, 2)), dep)
     kwargs = litellm.create_model.await_args.kwargs
-    assert kwargs["model_name"] == "zai/GLM-4.6" and kwargs["litellm_model"] == "openai/glm-d"
+    assert kwargs["model_name"] == "zai/GLM-4.6" and kwargs["litellm_model"] == "hosted_vllm/glm-d"
     from app.db.models.custom_model_catalog import CustomModelCatalog
 
     catalogs = [c.args[0] for c in db.add.call_args_list if isinstance(c.args[0], CustomModelCatalog)]

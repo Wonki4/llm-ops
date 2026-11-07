@@ -37,13 +37,13 @@ from app.services.gpu_profiles import apply_profile, match_profile, resolve_plac
 from app.services.litellm_registration import (
     ApiBase,
     litellm_name,
-    openai_registration_fields,
     registration,
+    registration_fields,
     registration_preview,
     with_v1,
 )
 from app.services.llmd_links import portal_server, stacks_for_server
-from app.services.llmd_manifests import stack_selector
+from app.services.llmd_manifests import llmd_ingress_name, stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
 from app.services.recipe_import import attach_storages, build_recipe_draft
 from app.services.serving_engines import (
@@ -82,7 +82,7 @@ def _litellm_name(v: str | None) -> str | None:
 
 
 class CreateDeploymentRequest(BaseModel):
-    model_name: str
+    model_name: str = Field(min_length=1, max_length=256)
     litellm_api_base: ApiBase | None = None
     litellm_model_name: str | None = None  # name in LiteLLM; None = model_name; may be shared
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
@@ -269,7 +269,7 @@ class RegisterExternalServingRequest(BaseModel):
 
     def preview(self) -> dict:
         base = with_v1(self.api_base) if self.append_v1 else self.api_base
-        return openai_registration_fields(self.model_name, self.served_model_name, base)
+        return registration_fields(self.model_name, self.served_model_name, base)
 
 
 def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | None = None) -> dict:
@@ -508,6 +508,52 @@ async def unregister_external_serving(
     return {"deleted": True, "litellm_deleted": litellm_deleted}
 
 
+@router.get("/{deployment_id}/manifests")
+async def deployment_manifests(
+    deployment_id: uuid.UUID,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    dep = await _deployment_or_404(db, str(deployment_id))
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
+    try:
+        resources = await k8s.read_manifests(dep.namespace, k8s_resource_names(dep))
+        if pd_serving.is_pd(dep) and dep.router_stack_id:
+            stack = await db.get(CustomLlmdStack, dep.router_stack_id)
+            if stack is not None:
+                names = {"ingress": llmd_ingress_name(stack)}
+                if stack.direct_route_enabled:
+                    names["direct_ingress"] = llmd_ingress_name(stack, direct=True)
+                router_k8s = await k8s_for_cluster(db, stack.cluster_id)
+                resources.extend(await router_k8s.read_manifests(stack.namespace, names))
+    except K8sNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except ApiException as e:
+        raise HTTPException(status_code=502, detail=f"Could not read Kubernetes resources ({e.status})") from e
+    except (OSError, TimeoutError) as e:
+        raise HTTPException(status_code=502, detail="Could not reach the Kubernetes API") from e
+
+    manifests = []
+    missing = []
+    for kind, name, obj in resources:
+        if obj is None:
+            missing.append(f"{kind}/{name}")
+            continue
+        metadata = dict(obj["metadata"])
+        for key in ("managedFields", "resourceVersion", "uid", "creationTimestamp", "generation"):
+            metadata.pop(key, None)
+        annotations = metadata.get("annotations") or {}
+        if "kubectl.kubernetes.io/last-applied-configuration" in annotations:
+            metadata["annotations"] = {
+                k: v for k, v in annotations.items() if k != "kubectl.kubernetes.io/last-applied-configuration"
+            }
+            if not metadata["annotations"]:
+                del metadata["annotations"]
+        config = {"apiVersion": obj["apiVersion"], "kind": kind, "metadata": metadata, "spec": obj["spec"]}
+        manifests.append({"kind": kind, "name": name, "yaml": manifest_diff.dump(config)})
+    return {"manifests": manifests, "missing": missing}
+
+
 @router.get("/{deployment_id}")
 async def get_deployment(
     deployment_id: str,
@@ -537,7 +583,7 @@ async def get_deployment(
         litellm_model = None  # a row that no longer renders; the UI just omits the line
     return {
         **_serialize(dep, await _recipe_names(db, [dep])),
-        "litellm_model": litellm_model,  # what LiteLLM sends the server (openai/<served name>)
+        "litellm_model": litellm_model,  # provider-prefixed routing identifier
         "llmd_stacks": linked,
         "router_stack": await _router_stack_summary(db, dep),
         "storage_stale": await stale_storage_ids(db, dep),
@@ -642,7 +688,7 @@ async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: Cre
     """Link the P/D serving to an llm-d router: the given stack, an existing
     ``<model>-router``, or a freshly created one (its failure is reported in
     status_message rather than failing the deploy — the pools are already up)."""
-    name = f"{dep.model_name}-router"
+    name = pd_router.stack_name(dep)
     existing = await _existing_router(db, name, body.router_stack_id)
     if existing is not None:
         dep.router_stack_id = existing.id
@@ -707,7 +753,7 @@ async def preview_deployment_registration(
     """Resolve the registration from the draft launch arguments without deploying it."""
     router_base = None
     if pd_serving.is_pd(body):
-        stack = await _existing_router(db, f"{body.model_name}-router", body.router_stack_id)
+        stack = await _existing_router(db, pd_router.stack_name(body), body.router_stack_id)
         host = llmd_stacks.ingress_host(stack) if stack else body.ingress_host
         router_base = f"https://{host}"
     return registration_preview(body, router_base)

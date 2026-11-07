@@ -53,7 +53,7 @@ def test_registration_arguments():
     reg = registration(_agg(litellm_model_name="meta/Llama-3", ingress_host="llama.local", ingress_path="/v1x/"))
     assert reg == {
         "model_name": "meta/Llama-3",
-        "litellm_model": "openai//models/llama",
+        "litellm_model": "hosted_vllm//models/llama",
         "api_base": "https://llama.local/v1x/v1",
         "api_key": "EMPTY",
     }
@@ -168,7 +168,7 @@ async def test_reregister_creates_new_then_drops_old(client_for_user, super_user
     assert order == ["create", "delete:old-id"]
     assert resp.json()["litellm_model_id"] == "new-id"
     kwargs = mock_litellm.create_model.await_args.kwargs
-    assert kwargs["model_name"] == "meta/Llama-3" and kwargs["litellm_model"] == "openai//models/llama"
+    assert kwargs["model_name"] == "meta/Llama-3" and kwargs["litellm_model"] == "hosted_vllm//models/llama"
     from app.db.models.custom_model_catalog import CustomModelCatalog
 
     assert [c.args[0].model_name for c in mock_db.add.call_args_list if isinstance(c.args[0], CustomModelCatalog)] == [
@@ -234,7 +234,7 @@ async def test_detail_shows_what_litellm_sends(client_for_user, super_user, mock
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["litellm_model_name"] == "meta/Llama-3"
-    assert data["litellm_model"] == "openai//models/llama"
+    assert data["litellm_model"] == "hosted_vllm//models/llama"
 
 
 @pytest.mark.parametrize(
@@ -266,7 +266,7 @@ async def test_preview_matches_persisted_registration(client_for_user, super_use
             mock_db.add.assert_not_called()
             created = await client.post("/api/model-deployments", json=body)
     assert created.status_code == 201, created.text
-    assert preview.json() == {"model_name": "public", "litellm_model": "openai/upstream", "api_base": expected}
+    assert preview.json() == {"model_name": "public", "litellm_model": "hosted_vllm/upstream", "api_base": expected}
     assert registration(mock_db.add.call_args.args[0]) == {**preview.json(), "api_key": "secret"}
 
 
@@ -287,7 +287,7 @@ async def test_pd_preview_uses_linked_router_and_decode(client_for_user, super_u
     assert response.status_code == 200, response.text
     assert response.json() == {
         "model_name": "llama",
-        "litellm_model": "openai/d",
+        "litellm_model": "hosted_vllm/d",
         "api_base": "https://linked.example/v1",
     }
 

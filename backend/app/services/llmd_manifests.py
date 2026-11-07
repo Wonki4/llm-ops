@@ -13,6 +13,7 @@ import re
 from typing import TYPE_CHECKING
 
 from app.services.model_deployment_manifests import LABEL_LLMD_MODEL, LABEL_MODEL  # noqa: F401
+from app.services.serving_names import fit_name, model_label
 
 if TYPE_CHECKING:
     from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -20,10 +21,14 @@ if TYPE_CHECKING:
 MANAGED_BY = "llm-ops-portal"  # metadata label only (not in any selector), so safe to rename
 
 
+# Both the standalone router and legacy GIE charts take the first 40 release characters.
+EPP_RELEASE_LIMIT = 40
+
+
 def argo_app_name_for(name: str) -> str:
     """Deterministic, DNS-safe Application name: `llmd-<sanitised name>`."""
     safe = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
-    return f"llmd-{safe}"
+    return fit_name(f"llmd-{safe}", EPP_RELEASE_LIMIT, name)
 
 
 def deep_merge(base: dict, override: dict) -> dict:
@@ -66,9 +71,10 @@ def llmd_service_name(stack: CustomLlmdStack) -> str:
     """The router's entry Service in sidecar mode: ``<release>-epp``.
 
     ArgoCD's Helm release name is the Application name (``argo_app_name``), which
-    build_argo_application pins explicitly, so this name is deterministic.
+    the chart truncates to 40 characters before appending the suffix. Existing
+    Application names may be longer and must keep their original identity.
     """
-    return f"{stack.argo_app_name}-epp"
+    return f"{stack.argo_app_name[:EPP_RELEASE_LIMIT]}-epp"
 
 
 def llmd_ingress_name(stack: CustomLlmdStack, *, direct: bool = False) -> str:
@@ -308,7 +314,7 @@ def default_llmd_values(
     the chart lineage moved to ``llm-d-router-standalone``, which hard-fails on
     the deprecated top-level ``inferenceExtension`` key.)
     """
-    selector = endpoint_selector or (f"{LABEL_LLMD_MODEL}={target_model_name}" if target_model_name else "")
+    selector = endpoint_selector or (f"{LABEL_LLMD_MODEL}={model_label(target_model_name)}" if target_model_name else "")
     epp: dict = {
         "replicas": 1,
         "image": {"registry": epp_registry, "repository": epp_repository, "tag": epp_tag},

@@ -354,7 +354,7 @@ async def test_register_external_serving(client_for_user, super_user, mock_db, m
     assert resp.json()["registration"]["litellm_model_id"] == "litellm-new-1"
     mock_litellm.create_model.assert_awaited_once_with(
         model_name="llama-3-8b",
-        litellm_model="openai//models/llama-3-8b",
+        litellm_model="hosted_vllm//models/llama-3-8b",
         api_base="https://ext-vllm.example.com",
         api_key="EMPTY",
     )
@@ -383,7 +383,7 @@ async def test_external_preview_matches_registration(
         created = await client.post("/api/model-deployments/external/register", json=body)
     assert preview.json() == {
         "model_name": body["model_name"],
-        "litellm_model": "openai/" + body["served_model_name"],
+        "litellm_model": "hosted_vllm/" + body["served_model_name"],
         "api_base": expected,
     }
     assert created.json()["registration"]["api_base"] == expected

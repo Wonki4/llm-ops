@@ -165,6 +165,28 @@ class K8sClient:
         finally:
             await api_client.close()
 
+    async def read_manifests(self, namespace: str, names: dict[str, str]) -> list[tuple[str, str, dict | None]]:
+        """Read this serving's objects as JSON, preserving fields unknown to the client SDK."""
+        async with await self._api_client() as api_client:
+            readers = {
+                "deployment": client.AppsV1Api(api_client).read_namespaced_deployment,
+                "service": client.CoreV1Api(api_client).read_namespaced_service,
+                "ingress": client.NetworkingV1Api(api_client).read_namespaced_ingress,
+            }
+            resources = []
+            for key, name in names.items():
+                kind = key.rsplit("_", 1)[-1]
+                response = await readers[kind](name, namespace, _preload_content=False, _request_timeout=10)
+                async with response:
+                    if response.status == 404:
+                        obj = None
+                    elif response.status == 200:
+                        obj = await response.json()
+                    else:
+                        raise ApiException(status=response.status, reason=response.reason)
+                resources.append((kind.capitalize(), name, obj))
+            return resources
+
     async def read_deployment_status(self, namespace: str, name: str) -> dict[str, Any]:
         """Return {'ready', 'desired', 'available', 'updated', 'total', 'generation',
         'observed_generation', 'conditions'} — the rollout fields let ``classify``
