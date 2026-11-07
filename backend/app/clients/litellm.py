@@ -1,5 +1,7 @@
 """Typed HTTP client wrapper for LiteLLM proxy management API."""
 
+import time
+import uuid
 from typing import Any
 from urllib.parse import quote
 
@@ -33,6 +35,32 @@ class LiteLLMClient:
     # ──── Health ────
     async def health(self) -> dict:
         return await self._request("GET", "/health")
+
+    async def smoke_chat(self, model_id: str) -> dict:
+        """Probe the exact registered deployment and verify which one answered."""
+        started = time.monotonic()
+        payload = {
+            "model": model_id, "max_tokens": 8, "stream": False,
+            "messages": [{"role": "user", "content": f"Reply OK. Request {uuid.uuid4().hex}"}],
+        }
+        try:
+            async with self._client() as client:
+                response = await client.post("/v1/chat/completions", json=payload, headers={"Cache-Control": "no-cache"})
+                response.raise_for_status()
+                data = response.json()
+        except httpx.HTTPStatusError as exc:
+            return {"ok": False, "reason": f"Inference returned HTTP {exc.response.status_code}"}
+        except (httpx.RequestError, ValueError):
+            return {"ok": False, "reason": "Inference endpoint unavailable or returned invalid JSON"}
+        if response.headers.get("x-litellm-model-id") != model_id:
+            return {"ok": False, "reason": "Could not verify that the requested deployment served the response"}
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not choices or not isinstance(choices, list) or not isinstance(choices[0], dict):
+            return {"ok": False, "reason": "No chat completion choice received"}
+        message = choices[0].get("message")
+        if not isinstance(message, dict) or not (message.get("content") or message.get("reasoning_content")):
+            return {"ok": False, "reason": "Empty chat completion"}
+        return {"ok": True, "model_id": model_id, "latency_ms": round((time.monotonic() - started) * 1000)}
 
     # ──── Team endpoints ────
     async def list_teams(self) -> list[dict]:

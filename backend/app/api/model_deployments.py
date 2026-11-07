@@ -729,6 +729,8 @@ def _apply_error(e: Exception, dep: CustomModelDeployment) -> HTTPException:
             details = (json.loads(e.body or "{}") or {}).get("details") or {}
         except (TypeError, ValueError):
             details = {}
+        if e.status == 409:
+            return HTTPException(status_code=409, detail=f"Kubernetes resource conflict: {e.reason}")
         if e.status == 404 and details.get("kind") == "namespaces":
             return HTTPException(
                 status_code=400,
@@ -830,7 +832,7 @@ async def create_deployment(
 
     # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
     try:
-        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
+        rollout = await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -839,7 +841,7 @@ async def create_deployment(
     if pd_serving.is_pd(dep):
         await _attach_router(db, dep, body, user.user_id)
 
-    return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
+    return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
 
 
 def _registration_key(dep: CustomModelDeployment) -> dict | None:
@@ -985,7 +987,7 @@ async def _apply_update(
 
     try:
         owner = await live_owner(k8s, dep)  # keep the selector the live Deployment was created with
-        await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image, owner=owner))
+        rollout = await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image, owner=owner))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -994,7 +996,7 @@ async def _apply_update(
     if dep.litellm_model_id and registered_as is not None and _registration_key(dep) != registered_as:
         await _unregister(litellm, dep)
 
-    return {**_serialize(dep), "warnings": await _deploy_warnings(db, dep)}
+    return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
 
 
 @router.post("/{deployment_id}/litellm-registration")
@@ -1130,6 +1132,10 @@ async def recipe_diff(
     """
     dep = await _deployment_or_404(db, deployment_id)
     recipe = await _recipe_for(db, dep, recipe_id)
+    return await deployment_recipe_diff(db, dep, recipe)
+
+
+async def deployment_recipe_diff(db: AsyncSession, dep: CustomModelDeployment, recipe: CustomServingRecipe) -> dict:
     values, proposed = await _proposed(db, dep, recipe)
     try:
         check_rollout(proposed)
@@ -1173,6 +1179,13 @@ async def reapply_recipe(
     """
     dep = await _deployment_or_404(db, deployment_id, for_update=True)
     recipe = await _recipe_for(db, dep, body.recipe_id)
+    return await apply_deployment_recipe(db, dep, recipe, litellm, user)
+
+
+async def apply_deployment_recipe(
+    db: AsyncSession, dep: CustomModelDeployment, recipe: CustomServingRecipe, litellm: LiteLLMClient, user: CustomUser,
+) -> dict:
+    """Apply to the caller's row-locked deployment and link the recipe in the same transaction."""
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     resolved, _ = await _proposed(db, dep, recipe)
     changed = [c["field"] for c in recipe_reapply.changes(dep, resolved)]

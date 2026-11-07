@@ -40,7 +40,13 @@ WIRING = [
     ),
     (lambda: tools.serving_overview(), serving_overview, "serving_overview", {}),
 ]
-ALL_CALLS = [w[0] for w in WIRING] + [lambda: tools.whoami()]
+ALL_CALLS = [w[0] for w in WIRING] + [
+    lambda: tools.whoami(), lambda: tools.preview_recipe(None), lambda: tools.create_recipe(None),
+    lambda: tools.deploy_from_recipe(ID, None),
+    lambda: tools.preview_deployment_recipe_patch(ID, {}), lambda: tools.apply_deployment_recipe_patch(ID, {}, "test"),
+    lambda: tools.get_rollout_status(ID), lambda: tools.get_deployment_diagnostics(ID, "decode"),
+    lambda: tools.smoke_test_deployment(ID, {}),
+]
 
 
 def _result(scalar=None, all_rows=None):
@@ -82,14 +88,16 @@ def as_caller(monkeypatch, mock_db):
     return _as
 
 
-async def test_registers_the_phase1_tools():
+async def test_registers_serving_tools_with_correct_write_annotations():
     server = MCPServer("t")
     tools.register_tools(server)
 
     listed = await server.list_tools()
 
-    assert {t.name for t in listed} == PHASE1_TOOLS
-    assert all(t.annotations and t.annotations.read_only_hint for t in listed)
+    reads = PHASE1_TOOLS | {"preview_recipe", "preview_deployment_recipe_patch", "get_rollout_status", "get_deployment_diagnostics"}
+    writes = {"create_recipe", "deploy_from_recipe", "apply_deployment_recipe_patch", "smoke_test_deployment"}
+    assert {t.name for t in listed if t.annotations.read_only_hint} == reads
+    assert {t.name for t in listed if not t.annotations.read_only_hint} == writes
 
 
 async def test_list_recipes_equals_rest_route_output(as_caller, mock_db, super_user):
