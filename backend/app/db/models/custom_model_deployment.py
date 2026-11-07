@@ -24,6 +24,7 @@ class CustomModelDeployment(CustomBase):
     # Name in LiteLLM (/model/new model_name) and the catalog; null = model_name.
     # Not unique: LiteLLM load-balances deployments that share a name.
     litellm_model_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    litellm_api_base: Mapped[str | None] = mapped_column(Text, nullable=True)
     namespace: Mapped[str] = mapped_column(String(128), nullable=False, default="default", server_default="default")
     # Which registered K8s cluster this deployment runs on. Null = portal default
     # (mounted kubeconfig). RESTRICT: a cluster can't be deleted while in use.

@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { RegistrationPreview, useRegistrationPreview } from "@/components/litellm-registration-preview";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
 import { isValidNamespace } from "@/lib/k8s-names";
 import { mapToLines, resolvePlacementPreview, tolerationsToLines } from "@/lib/placement";
@@ -24,6 +25,7 @@ export function DeployFromRecipeDialog({
   onClose: () => void;
 }) {
   const t = useTranslations("servingRecipes");
+  const tr = useTranslations("adminDeployments");
   const tc = useTranslations("common");
   const ts = useTranslations("storages");
   const createDep = useCreateDeployment();
@@ -31,6 +33,7 @@ export function DeployFromRecipeDialog({
 
   const isPd = recipe?.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
+  const [apiBase, setApiBase] = useState("");
   const [litellmName, setLitellmName] = useState("");
   const [namespace, setNamespace] = useState("");
   const [clusterId, setClusterId] = useState<string>("");
@@ -86,8 +89,52 @@ export function DeployFromRecipeDialog({
     });
   }, [recipe, selected]);
 
+  const pdConfig: PdConfig | null = isPd
+    ? {
+        ...(recipe?.pd_config ?? {}),
+        prefill: { ...(recipe?.pd_config?.prefill ?? {}), replicas: prefillReplicas },
+        decode: { ...(recipe?.pd_config?.decode ?? {}), replicas: decodeReplicas },
+      }
+    : null;
+  const body: CreateDeploymentBody | null = recipe ? {
+    model_name: modelName.trim(),
+    litellm_api_base: apiBase.trim() || null,
+    litellm_model_name: litellmName.trim() || null,
+    cluster_id: clusterId || null,
+    recipe_id: recipe.id,
+    namespace: nsTyped || null,
+    image: recipe.image,
+    replicas: isPd ? decodeReplicas : replicas,
+    gpu_count: recipe.gpu_count,
+    gpu_resource_key: recipe.gpu_resource_key,
+    cpu_request: recipe.cpu_request,
+    cpu_limit: recipe.cpu_limit,
+    memory_request: recipe.memory_request,
+    memory_limit: recipe.memory_limit,
+    node_selector: recipe.node_selector,
+    tolerations: recipe.tolerations,
+    storages: recipe.storages ?? [],
+    model_path: recipe.model_path,
+    vllm_extra_args: recipe.vllm_extra_args,
+    env: recipe.env,
+    engine: recipe.engine,
+    engine_args: recipe.engine_args,
+    probes: recipe.probes ?? null,
+    gpu_type: hasProfiles ? (gpuType || null) : (recipe.gpu_type ?? null),
+    ingress_host: ingressHost.trim(),
+    ingress_path: isPd ? "/" : ingressPath.trim() || "/",
+    ingress_class: isPd ? (recipe?.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
+    serving_mode: recipe.serving_mode ?? "aggregated",
+    pd_config: pdConfig,
+    runtime: recipe.runtime ?? null,
+  } : null;
+  const registration = useRegistrationPreview(
+    "/api/model-deployments/registration-preview",
+    body?.model_name && body.ingress_host && !nsInvalid ? body : null,
+  );
+
   function submit() {
-    if (!recipe) return;
+    if (!body || !registration.data) return;
     if (!modelName.trim() || !ingressHost.trim()) {
       toast.error(t("deployRequired"));
       return;
@@ -100,44 +147,6 @@ export function DeployFromRecipeDialog({
       toast.error(t("deployGpuTypeRequired"));
       return;
     }
-    const pdConfig: PdConfig | null = isPd
-      ? {
-          ...(recipe.pd_config ?? {}),
-          prefill: { ...(recipe.pd_config?.prefill ?? {}), replicas: prefillReplicas },
-          decode: { ...(recipe.pd_config?.decode ?? {}), replicas: decodeReplicas },
-        }
-      : null;
-    const body: CreateDeploymentBody = {
-      model_name: modelName.trim(),
-      litellm_model_name: litellmName.trim() || null,
-      cluster_id: clusterId || null,
-      recipe_id: recipe.id,
-      namespace: nsTyped || null,
-      image: recipe.image,
-      replicas: isPd ? decodeReplicas : replicas,
-      gpu_count: recipe.gpu_count,
-      gpu_resource_key: recipe.gpu_resource_key,
-      cpu_request: recipe.cpu_request,
-      cpu_limit: recipe.cpu_limit,
-      memory_request: recipe.memory_request,
-      memory_limit: recipe.memory_limit,
-      node_selector: recipe.node_selector,
-      tolerations: recipe.tolerations,
-      storages: recipe.storages ?? [],
-      model_path: recipe.model_path,
-      vllm_extra_args: recipe.vllm_extra_args,
-      env: recipe.env,
-      engine: recipe.engine,
-      engine_args: recipe.engine_args,
-      probes: recipe.probes ?? null,
-      gpu_type: hasProfiles ? (gpuType || null) : (recipe.gpu_type ?? null),
-      ingress_host: ingressHost.trim(),
-      ingress_path: isPd ? "/" : ingressPath.trim() || "/",
-      ingress_class: isPd ? (recipe.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
-      serving_mode: recipe.serving_mode ?? "aggregated",
-      pd_config: pdConfig,
-      runtime: recipe.runtime ?? null,
-    };
     createDep.mutate(body, {
       onSuccess: (res) => {
         toast.success(t("deploySuccess"));
@@ -156,7 +165,7 @@ export function DeployFromRecipeDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{recipe ? t("deployTitle", { name: recipe.name }) : ""}</DialogTitle>
           <DialogDescription>{recipe?.model_path}</DialogDescription>
@@ -253,9 +262,15 @@ export function DeployFromRecipeDialog({
             />
           )}
         </div>
+        <div className="space-y-2">
+          <Label htmlFor="deploy-api-base">{tr("overrideApiBase")}</Label>
+          <Input id="deploy-api-base" value={apiBase} onChange={(e) => setApiBase(e.target.value)}
+            placeholder={tr("defaultApiBase")} />
+          <RegistrationPreview preview={registration} />
+        </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={createDep.isPending}>{tc("cancel")}</Button>
-          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked || nsInvalid}>{t("deploySubmit")}</Button>
+          <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked || nsInvalid || !registration.data}>{t("deploySubmit")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

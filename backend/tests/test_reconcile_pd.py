@@ -177,7 +177,7 @@ async def test_pd_ready_registers_via_router_host_when_healthy():
     assert (transitions, registered) == (1, 1)
     assert dep.status == "Ready" and dep.litellm_model_id == "m-1"
     kwargs = litellm.create_model.await_args.kwargs
-    assert kwargs["api_base"] == "https://glm.example.com"
+    assert kwargs["api_base"] == "https://glm.example.com/v1"
     # vLLM answers to the full --model value (no --served-model-name set)
     assert kwargs["model_name"] == "glm" and kwargs["litellm_model"] == "openai//models/glm"
     assert dep.pd_status["router"] == {"ready": True, "reason": None, "api_base": "https://glm.example.com"}
@@ -230,7 +230,7 @@ async def test_pd_ready_waits_for_router_then_registers_once(monkeypatch):
     transitions, registered = await rd._reconcile_pd(db, litellm, k8s, dep)
     assert (transitions, registered) == (0, 1)
     assert dep.litellm_model_id == "m-2" and dep.status_message is None
-    assert litellm.create_model.await_args.kwargs["api_base"] == "https://llmd-glm-router.llm.example.com"
+    assert litellm.create_model.await_args.kwargs["api_base"] == "https://llmd-glm-router.llm.example.com/v1"
 
     # pass 4: nothing more to do
     transitions, registered = await rd._reconcile_pd(db, litellm, k8s, dep)
@@ -302,7 +302,7 @@ async def test_reconcile_once_routes_pd_rows_to_pd_pass(monkeypatch):
     assert pd_pass.await_args.args[3] is dep
     # the aggregated row still goes through the classic path (ingress api_base)
     assert agg.status == "Ready"
-    assert litellm.create_model.await_args.kwargs["api_base"] == "https://agg.example.com"
+    assert litellm.create_model.await_args.kwargs["api_base"] == "https://agg.example.com/v1"
 
 
 async def test_pd_router_healthy_but_unsynced_still_waits():

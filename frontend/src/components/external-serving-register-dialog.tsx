@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { ExternalServing, useRegisterExternalServing } from "@/hooks/use-api";
+import { RegistrationPreview, useRegistrationPreview } from "@/components/litellm-registration-preview";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -33,6 +34,7 @@ export function ExternalServingRegisterDialog({
   const [modelName, setModelName] = useState("");
   const [servedModelName, setServedModelName] = useState("");
   const [apiBase, setApiBase] = useState("");
+  const [appendV1, setAppendV1] = useState(true);
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -47,24 +49,28 @@ export function ExternalServingRegisterDialog({
       setModelName(path ? path.split("/").filter(Boolean).pop() ?? serving.deployment_name : serving.deployment_name);
       setServedModelName(path ?? serving.deployment_name);
       setApiBase("");
+      setAppendV1(true);
       setApiKey("");
       setError(null);
     }
   }
 
+  const draft = serving && modelName.trim() && servedModelName.trim() && apiBase.trim() ? {
+    cluster_id: serving.cluster_id,
+    namespace: serving.namespace,
+    deployment_name: serving.deployment_name,
+    model_name: modelName.trim(),
+    served_model_name: servedModelName.trim(),
+    api_base: apiBase.trim(),
+    append_v1: appendV1,
+  } : null;
+  const preview = useRegistrationPreview("/api/model-deployments/external/register-preview", draft);
+
   const submit = () => {
-    if (!serving) return;
+    if (!draft || !preview.data) return;
     setError(null);
     register.mutate(
-      {
-        cluster_id: serving.cluster_id,
-        namespace: serving.namespace,
-        deployment_name: serving.deployment_name,
-        model_name: modelName,
-        served_model_name: servedModelName,
-        api_base: apiBase,
-        ...(apiKey ? { api_key: apiKey } : {}),
-      },
+      { ...draft, ...(apiKey ? { api_key: apiKey } : {}) },
       {
         onSuccess: () => onClose(),
         onError: (e: Error) => setError(t("registerFailed", { message: e.message })),
@@ -74,7 +80,7 @@ export function ExternalServingRegisterDialog({
 
   return (
     <Dialog open={!!serving} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("registerDialogTitle")}</DialogTitle>
           <DialogDescription>{t("registerDialogDesc")}</DialogDescription>
@@ -99,13 +105,18 @@ export function ExternalServingRegisterDialog({
           </div>
           <div className="space-y-2">
             <Label htmlFor="ext-api-key">{t("fieldApiKey")}</Label>
-            <Input id="ext-api-key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+            <Input type="password" id="ext-api-key" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={appendV1} onChange={(e) => setAppendV1(e.target.checked)} />
+            {t("appendV1")}
+          </label>
+          <RegistrationPreview preview={preview} />
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>{t("cancel")}</Button>
-          <Button onClick={submit} disabled={!modelName || !servedModelName || !apiBase || register.isPending}>
+          <Button onClick={submit} disabled={!preview.data || register.isPending}>
             {register.isPending && <Loader2 className="size-4 animate-spin" />}
             {t("submitRegister")}
           </Button>

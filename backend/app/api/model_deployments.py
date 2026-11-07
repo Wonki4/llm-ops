@@ -34,7 +34,14 @@ from app.services.common_labels import load_deployment_copy
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
-from app.services.litellm_registration import litellm_name, registration
+from app.services.litellm_registration import (
+    ApiBase,
+    litellm_name,
+    openai_registration_fields,
+    registration,
+    registration_preview,
+    with_v1,
+)
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import stack_selector
 from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
@@ -76,6 +83,7 @@ def _litellm_name(v: str | None) -> str | None:
 
 class CreateDeploymentRequest(BaseModel):
     model_name: str
+    litellm_api_base: ApiBase | None = None
     litellm_model_name: str | None = None  # name in LiteLLM; None = model_name; may be shared
     cluster_id: str | None = None  # registered K8s cluster; None = portal default
     namespace: str | None = None  # None/blank = the cluster's default namespace
@@ -105,6 +113,20 @@ class CreateDeploymentRequest(BaseModel):
     pd_config: dict | None = None
     runtime: dict | None = None
     router_stack_id: str | None = None  # P/D: link this llm-d stack instead of auto-creating one
+
+    @field_validator("ingress_host")
+    @classmethod
+    def _host_only(cls, value: str) -> str:
+        if not value or any(c.isspace() or c in "/:?#@" for c in value):
+            raise ValueError("Enter only the ingress hostname. Set the full URL in LiteLLM API base.")
+        return value
+
+    @field_validator("ingress_path")
+    @classmethod
+    def _absolute_path(cls, value: str) -> str:
+        if not value.startswith("/") or any(c in value for c in "?#"):
+            raise ValueError("Ingress path must start with / and contain only a path")
+        return value
 
     @field_validator("vllm_extra_args")
     @classmethod
@@ -169,6 +191,7 @@ class CreateDeploymentRequest(BaseModel):
 
 
 class UpdateDeploymentRequest(BaseModel):
+    litellm_api_base: ApiBase | None = None
     litellm_model_name: str | None = None  # null/blank = back to model_name
     image: str | None = None
     replicas: int | None = Field(None, ge=0)
@@ -240,8 +263,13 @@ class RegisterExternalServingRequest(BaseModel):
     deployment_name: str
     model_name: str
     served_model_name: str
-    api_base: str
+    api_base: ApiBase
+    append_v1: bool = False
     api_key: str | None = None
+
+    def preview(self) -> dict:
+        base = with_v1(self.api_base) if self.append_v1 else self.api_base
+        return openai_registration_fields(self.model_name, self.served_model_name, base)
 
 
 def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | None = None) -> dict:
@@ -249,6 +277,7 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
     return {
         "id": str(d.id),
         "model_name": d.model_name,
+        "litellm_api_base": getattr(d, "litellm_api_base", None),
         "litellm_model_name": getattr(d, "litellm_model_name", None),
         "cluster_id": str(d.cluster_id) if d.cluster_id else None,
         "recipe_id": str(recipe_id) if recipe_id else None,
@@ -398,6 +427,13 @@ async def external_recipe_draft(
     return out
 
 
+@router.post("/external/register-preview")
+async def preview_external_registration(
+    body: RegisterExternalServingRequest, user: CustomUser = Depends(require_super_user)
+) -> dict:
+    return body.preview()
+
+
 @router.post("/external/register", status_code=status.HTTP_201_CREATED)
 async def register_external_serving(
     body: RegisterExternalServingRequest,
@@ -417,13 +453,9 @@ async def register_external_serving(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="This serving is already registered")
 
+    fields = body.preview()
     try:
-        result = await litellm.create_model(
-            model_name=body.model_name,
-            litellm_model=f"openai/{body.served_model_name}",
-            api_base=body.api_base,
-            api_key=body.api_key or "EMPTY",
-        )
+        result = await litellm.create_model(**fields, api_key=body.api_key or "EMPTY")
     except Exception:
         logger.exception("LiteLLM /model/new failed for external serving %s", body.deployment_name)
         raise HTTPException(status_code=502, detail="LiteLLM registration failed; check logs")
@@ -436,7 +468,7 @@ async def register_external_serving(
         namespace=body.namespace,
         deployment_name=body.deployment_name,
         model_name=body.model_name,
-        api_base=body.api_base,
+        api_base=fields["api_base"],
         litellm_model_id=str(model_id),
         registered_by=user.user_id,
     )
@@ -597,19 +629,21 @@ async def _router_stack_summary(db: AsyncSession, dep: CustomModelDeployment) ->
     }
 
 
+async def _existing_router(db: AsyncSession, name: str, stack_id: str | None) -> CustomLlmdStack | None:
+    if stack_id:
+        stack = await db.get(CustomLlmdStack, uuid.UUID(stack_id))
+        if stack is None:
+            raise HTTPException(status_code=400, detail="router_stack_id does not match an llm-d stack")
+        return stack
+    return (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == name))).scalar_one_or_none()
+
+
 async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: CreateDeploymentRequest, user_id) -> None:
     """Link the P/D serving to an llm-d router: the given stack, an existing
     ``<model>-router``, or a freshly created one (its failure is reported in
     status_message rather than failing the deploy — the pools are already up)."""
-    if body.router_stack_id:
-        stack = await db.get(CustomLlmdStack, uuid.UUID(body.router_stack_id))
-        if stack is None:
-            raise HTTPException(status_code=400, detail="router_stack_id does not match an llm-d stack")
-        dep.router_stack_id = stack.id
-        dep.router_stack_created = False
-        return
     name = f"{dep.model_name}-router"
-    existing = (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == name))).scalar_one_or_none()
+    existing = await _existing_router(db, name, body.router_stack_id)
     if existing is not None:
         dep.router_stack_id = existing.id
         dep.router_stack_created = False
@@ -664,6 +698,21 @@ def _apply_error(e: Exception, dep: CustomModelDeployment) -> HTTPException:
     return HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
 
 
+@router.post("/registration-preview")
+async def preview_deployment_registration(
+    body: CreateDeploymentRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Resolve the registration from the draft launch arguments without deploying it."""
+    router_base = None
+    if pd_serving.is_pd(body):
+        stack = await _existing_router(db, f"{body.model_name}-router", body.router_stack_id)
+        host = llmd_stacks.ingress_host(stack) if stack else body.ingress_host
+        router_base = f"https://{host}"
+    return registration_preview(body, router_base)
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create_deployment(
     body: CreateDeploymentRequest,
@@ -689,6 +738,7 @@ async def create_deployment(
         id=uuid.uuid4(),
         model_name=body.model_name,
         litellm_model_name=body.litellm_model_name,
+        litellm_api_base=body.litellm_api_base,
         cluster_id=uuid.UUID(body.cluster_id) if body.cluster_id else None,
         namespace=namespace,
         image=body.image or default_image(body.engine),
@@ -749,6 +799,7 @@ async def create_deployment(
 def _registration_key(dep: CustomModelDeployment) -> dict | None:
     """What /model/new would get, minus the P/D router URL (an update never changes it)."""
     try:
+        build_all(dep)  # Keep the existing entry if its previous manifests cannot be rendered.
         return registration(dep, api_base="<router>" if pd_serving.is_pd(dep) else None)
     except Exception:
         return None
