@@ -231,9 +231,8 @@ class LiteLLMClient:
     ) -> dict:
         """Register a new model deployment in LiteLLM via /model/new.
 
-        `litellm_model` is the routing identifier (e.g. 'openai/<served-name>');
-        for OpenAI-compatible vLLM endpoints prefix with 'openai/' so LiteLLM
-        routes via the OpenAI client. Returns LiteLLM's deployment record.
+        `litellm_model` includes the provider prefix (e.g. 'hosted_vllm/<served-name>').
+        Returns LiteLLM's deployment record.
         """
         litellm_params: dict[str, Any] = {"model": litellm_model, "api_base": api_base}
         if api_key:

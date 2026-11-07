@@ -103,6 +103,10 @@ def _fill(
     }
 
 
+def label_value(value: str) -> str:
+    return _EDGE.sub("", _NOT_VALUE_CHAR.sub("-", value)[:MAX_VALUE])
+
+
 def render(
     rules: dict | None, *, model_name: str, namespace: str, gpu_type: str | None, metrics_port: int
 ) -> dict[str, str]:
@@ -110,7 +114,7 @@ def render(
     valid label value (other characters → '-', at most 63, letters or digits at both ends).
     A placeholder with nothing to fill (no GPU type) is empty; the key stays."""
     filled = _fill(rules, model_name, namespace, gpu_type, metrics_port)
-    return {key: _EDGE.sub("", _NOT_VALUE_CHAR.sub("-", value)[:MAX_VALUE]) for key, value in filled.items()}
+    return {key: label_value(value) for key, value in filled.items()}
 
 
 def render_annotations(

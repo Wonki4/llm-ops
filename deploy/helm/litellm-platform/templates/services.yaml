@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-frontend
+  name: {{ include "litellm-platform.serviceName" (list . "frontend") }}
   labels:
     app.kubernetes.io/component: frontend
     {{- include "litellm-platform.labels" . | nindent 4 }}
@@ -24,7 +24,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-backend
+  name: {{ include "litellm-platform.serviceName" (list . "backend") }}
   labels:
     app.kubernetes.io/component: backend
     {{- include "litellm-platform.labels" . | nindent 4 }}
@@ -46,7 +46,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-db
+  name: {{ include "litellm-platform.serviceName" (list . "db") }}
   labels:
     app.kubernetes.io/component: database
     {{- include "litellm-platform.labels" . | nindent 4 }}
@@ -68,7 +68,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-keycloak
+  name: {{ include "litellm-platform.serviceName" (list . "keycloak") }}
   labels:
     app.kubernetes.io/component: keycloak
     {{- include "litellm-platform.labels" . | nindent 4 }}
@@ -90,7 +90,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-prometheus
+  name: {{ include "litellm-platform.serviceName" (list . "prometheus") }}
   labels:
     app.kubernetes.io/component: prometheus
     {{- include "litellm-platform.labels" . | nindent 4 }}
@@ -110,7 +110,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "litellm-platform.fullname" . }}-mcp
+  name: {{ include "litellm-platform.serviceName" (list . "mcp") }}
   labels:
     app.kubernetes.io/component: mcp
     {{- include "litellm-platform.labels" . | nindent 4 }}

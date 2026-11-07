@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Copy, Loader2, RefreshCw } from "lucide-react";
-import { toast } from "sonner";
+import { Loader2, RefreshCw } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { useDefaultNamespace, useK8sClusters, usePreviewServingRecipe } from "@/hooks/use-api";
@@ -13,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { copyText } from "@/lib/clipboard";
+import { ManifestYamlView } from "@/components/manifest-yaml-view";
 import { cn } from "@/lib/utils";
 
 const INGRESS_PLACEHOLDER = "<ingress-host>";
@@ -38,7 +37,6 @@ export function RecipeYamlPanel({
   const [modelName, setModelName] = useState("");
   // What gets rendered; text fields apply on Enter / "Render again", the cluster on change.
   const [target, setTarget] = useState<Target>({ clusterId: "", namespace: "", modelName: "" });
-  const [selected, setSelected] = useState(0);
   const defaultNs = useDefaultNamespace(clusterId);
 
   const body: ServingRecipePreviewBody | null = recipe
@@ -51,16 +49,10 @@ export function RecipeYamlPanel({
     : null;
   const preview = usePreviewServingRecipe(body);
   const manifests = preview.data?.manifests ?? [];
-  const shown = manifests[Math.min(selected, manifests.length - 1)];
   const isPd = recipe?.serving_mode === "pd";
 
   function apply(next: Partial<Target> = {}) {
     setTarget({ clusterId, namespace, modelName, ...next });
-  }
-
-  async function copy(text: string) {
-    if (await copyText(text)) toast.success(t("previewCopied"));
-    else toast.error(t("previewCopyFailed"));
   }
 
   function warningText(w: string): string {
@@ -129,44 +121,7 @@ export function RecipeYamlPanel({
               {preview.data!.warnings.map((w) => <li key={w}>{warningText(w)}</li>)}
             </ul>
           )}
-          <div className="flex items-start justify-between gap-2">
-            <div role="tablist" className="flex flex-wrap gap-1">
-              {manifests.map((m, i) => (
-                <button
-                  key={`${m.kind}/${m.name}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={m === shown}
-                  onClick={() => setSelected(i)}
-                  className={
-                    "rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors " +
-                    (m === shown ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")
-                  }
-                >
-                  {m.kind}/{m.name}
-                </button>
-              ))}
-            </div>
-            <Button type="button" size="xs" variant="outline" className="shrink-0" onClick={() => copy(manifests.map((m) => m.yaml).join("---\n"))}>
-              <Copy className="size-3.5" />{t("previewCopyAll")}
-            </Button>
-          </div>
-          {shown && (
-            <div role="tabpanel" className={cn("relative min-h-0 min-w-0", fill && "flex flex-1 flex-col")}>
-              <Button type="button" size="xs" variant="ghost" className="absolute right-4 top-2" onClick={() => copy(shown.yaml)}>
-                <Copy className="size-3.5" />{t("previewCopy")}
-              </Button>
-              <pre
-                className={cn(
-                  "overflow-auto rounded-md border bg-muted/40 p-3 font-mono text-[11px] leading-relaxed",
-                  fill ? "min-h-0 flex-1" : "max-h-[55vh]",
-                  preview.isFetching && "opacity-60",
-                )}
-              >
-                {shown.yaml}
-              </pre>
-            </div>
-          )}
+          <ManifestYamlView manifests={manifests} fill={fill} refreshing={preview.isFetching} />
         </>
       )}
     </div>

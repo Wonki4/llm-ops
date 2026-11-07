@@ -8,18 +8,47 @@ Expand the name of the chart.
 {{/*
 Create a default fully qualified app name.
 */}}
-{{- define "litellm-platform.fullname" -}}
+{{- define "litellm-platform.fullnameRaw" -}}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- .Values.fullnameOverride }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- .Release.Name }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-%s" .Release.Name $name }}
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{- define "litellm-platform.fullname" -}}
+{{- include "litellm-platform.fullnameRaw" . | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/* DNS labels for Services include the component suffix in their 63-character budget. */}}
+{{- define "litellm-platform.serviceName" -}}
+{{- $root := index . 0 -}}
+{{- $component := index . 1 -}}
+{{- $base := include "litellm-platform.fullnameRaw" $root | trimSuffix "-" -}}
+{{- $name := printf "%s-%s" $base $component -}}
+{{- if gt (len $name) 63 -}}
+{{- $limit := int (sub 51 (len $component)) -}}
+{{- printf "%s-%s-%s" (trunc $limit $base | trimSuffix "-") (sha256sum $base | trunc 10) $component -}}
+{{- else -}}
+{{- $name -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Use the bundled chart's actual Service name, or the configured external name. */}}
+{{- define "litellm-platform.litellmService" -}}
+{{- if .Values.litellm.internalServiceName -}}
+{{- .Values.litellm.internalServiceName -}}
+{{- else if .Values.litellm.enabled -}}
+{{- include "litellm.fullname" (index .Subcharts "litellm-helm") -}}
+{{- else -}}
+litellm-helm-litellm
+{{- end -}}
+{{- end -}}
 
 {{/*
 Common labels
@@ -57,7 +86,7 @@ Database host for internal/external mode.
 */}}
 {{- define "litellm-platform.databaseHost" -}}
 {{- if .Values.database.enabled -}}
-{{ include "litellm-platform.fullname" . }}-db
+{{ include "litellm-platform.serviceName" (list . "db") }}
 {{- else -}}
 {{ .Values.database.external.host }}
 {{- end -}}
@@ -111,14 +140,14 @@ Database password for internal/external mode.
 Backend internal service URL.
 */}}
 {{- define "litellm-platform.backendUrl" -}}
-http://{{ include "litellm-platform.fullname" . }}-backend:{{ .Values.backend.service.port }}
+http://{{ include "litellm-platform.serviceName" (list . "backend") }}:{{ .Values.backend.service.port }}
 {{- end }}
 
 {{/*
 Keycloak internal issuer URL.
 */}}
 {{- define "litellm-platform.keycloakInternalIssuer" -}}
-http://{{ include "litellm-platform.fullname" . }}-keycloak:{{ .Values.keycloak.service.port }}/realms/{{ .Values.keycloak.realm }}
+http://{{ include "litellm-platform.serviceName" (list . "keycloak") }}:{{ .Values.keycloak.service.port }}/realms/{{ .Values.keycloak.realm }}
 {{- end }}
 
 {{/*

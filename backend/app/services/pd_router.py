@@ -13,6 +13,7 @@ from __future__ import annotations
 import yaml
 
 from app.config import settings
+from app.services.common_labels import label_value
 from app.services.llmd_manifests import LABEL_LLMD_MODEL, deep_merge, default_llmd_values
 from app.services.pd_serving import (
     DEFAULT_PEAK_PREFILL_THROUGHPUT,
@@ -21,6 +22,12 @@ from app.services.pd_serving import (
     pd_config_of,
     serving_name,
 )
+from app.services.serving_names import fit_name, model_label
+
+
+def stack_name(dep) -> str:
+    # The portal stores the display name of a router stack in VARCHAR(128).
+    return f"{fit_name(dep.model_name, 121, dep.model_name)}-router"
 
 
 def _router_cfg(dep) -> dict:
@@ -54,7 +61,8 @@ def router_values(dep) -> dict:
     ms = values.setdefault("router", {}).setdefault("modelServers", {})
     # Always narrowed to this deployment's pods: every deployment made from a recipe shares
     # its values.yaml, so a selector of its own alone would reach their pods too.
-    ms["matchLabels"] = {**(ms.get("matchLabels") or {}), LABEL_LLMD_MODEL: dep.model_name}
+    labels = {k: label_value(str(v)) for k, v in (ms.get("matchLabels") or {}).items()}
+    ms["matchLabels"] = {**labels, LABEL_LLMD_MODEL: model_label(dep.model_name)}
     return values
 
 

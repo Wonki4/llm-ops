@@ -283,7 +283,7 @@ async def preview_recipe(
         values = pd_router.dump_values(pd_router.rendered_router_values(dep))
         out.append({
             "kind": "values.yaml",
-            "name": f"{dep.model_name}-router",
+            "name": pd_router.stack_name(dep),
             "yaml": f"# chart: {repo}/{chart} {version}\n{values}",
         })
     return {"manifests": out, "warnings": warnings}

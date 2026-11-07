@@ -15,11 +15,11 @@ data:
     scrape_configs:
       - job_name: "litellm"
         static_configs:
-          - targets: ["{{ .Values.litellm.internalServiceName }}:4000"]
+          - targets: ["{{ include "litellm-platform.litellmService" . }}:4000"]
         metrics_path: /metrics
 
       - job_name: "backend"
         static_configs:
-          - targets: ["{{ include "litellm-platform.fullname" . }}-backend:{{ .Values.backend.service.port }}"]
+          - targets: ["{{ include "litellm-platform.serviceName" (list . "backend") }}:{{ .Values.backend.service.port }}"]
         metrics_path: /metrics
 {{- end }}

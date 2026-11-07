@@ -46,7 +46,7 @@ prometheus:
 
 litellm:
   enabled: true
-  internalServiceName: "litellm-helm-litellm"
+  internalServiceName: ""  # Optional Service override
 
 ingress:
   enabled: false

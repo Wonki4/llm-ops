@@ -11,6 +11,7 @@ import { engineArgsToFlags } from "@/lib/serving-engines";
 import { type PdRole, PD_ROLES, PD_VLLM_PORT, effectiveRole, roleLaunchArgs } from "@/lib/pd-serving";
 
 import {
+  useDeploymentManifests,
   useModelDeployment,
   useModelDeploymentEvents,
   useScaleDeployment,
@@ -21,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ManifestYamlView } from "@/components/manifest-yaml-view";
 import { LitellmRegistrationCard } from "@/components/litellm-registration-card";
 import { LIVENESS_DEFAULTS, READINESS_DEFAULTS, STARTUP_DEFAULTS, rolloutSummary } from "@/components/pool-config-cards";
 
@@ -114,6 +116,33 @@ function MountedStorages({ dep }: { dep: ModelDeployment }) {
             {dep.storage_stale?.includes(s.storage_id) && <span className="text-destructive">●</span>}
           </div>
         ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DeploymentYaml({ id }: { id: string }) {
+  const t = useTranslations("adminDeployments");
+  const yaml = useDeploymentManifests(id);
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex flex-row items-center justify-between gap-3">
+        <CardTitle className="text-base">{t("liveYaml")}</CardTitle>
+        <Button type="button" variant="outline" size="sm" disabled={yaml.isFetching} onClick={() => yaml.refetch()}>
+          <RefreshCw className={yaml.isFetching ? "size-3.5 animate-spin" : "size-3.5"} />{t("refreshYaml")}
+        </Button>
+      </CardHeader>
+      <CardContent className="min-w-0 space-y-2">
+        {yaml.isPending && <p className="text-sm text-muted-foreground">{t("loadingYaml")}</p>}
+        {yaml.isError && <p role="alert" className="text-sm text-destructive">{t("yamlError")} {yaml.error.message}</p>}
+        {yaml.data && !yaml.isError && (
+          <>
+            {yaml.data.missing.length > 0 && (
+              <p className="break-all text-sm text-muted-foreground">{t("yamlMissing", { names: yaml.data.missing.join(", ") })}</p>
+            )}
+            <ManifestYamlView manifests={yaml.data.manifests} refreshing={yaml.isFetching} />
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -224,12 +253,110 @@ export default function DeploymentDetailPage() {
         </CardContent>
       </Card>
 
+      {/* Prefill / decode pools + the router they register through */}
+      {dep.serving_mode === "pd" && (
+        <Card data-testid="pd-section">
+          <CardHeader><CardTitle className="text-base">{t("pdSection")}</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+              {PD_ROLES.map((role) => {
+                const st = dep.pd_status?.[role];
+                const eff = effectiveRole(dep, dep.pd_config?.[role]);
+                const args = roleLaunchArgs(dep, role);
+                const cpu = eff.cpu_request || eff.cpu_limit ? `CPU ${eff.cpu_request ?? "-"} / ${eff.cpu_limit ?? "-"}` : null;
+                const mem = eff.memory_request || eff.memory_limit ? `Mem ${eff.memory_request ?? "-"} / ${eff.memory_limit ?? "-"}` : null;
+                return (
+                  <div key={role} className="space-y-3 rounded-md border p-3" data-testid={`pd-role-${role}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-medium">{t(role === "prefill" ? "pdPrefill" : "pdDecode")}</span>
+                      {st?.status && <StatusBadge status={st.status} />}
+                      <span className="text-sm text-muted-foreground tabular-nums">
+                        {st ? `${st.ready}/${st.desired}` : `–/${eff.replicas ?? 1}`}
+                      </span>
+                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
+                    </div>
+                    <ReplicaForm id={dep.id} role={role} desired={eff.replicas ?? 1} name={t(role === "prefill" ? "pdPrefill" : "pdDecode")} />
+                    {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
+                    <details>
+                      <summary className="cursor-pointer text-sm text-muted-foreground">{t("configSection")}</summary>
+                      <div className="mt-3 space-y-3">
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <Field label={t("colImage")} mono>{eff.image}</Field>
+                          <Field label={t("modelPath")} mono>{eff.model_path}</Field>
+                          <Field label={t("pdResources")} mono>
+                            {eff.gpu_count ?? 0} × {eff.gpu_resource_key}
+                            {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
+                          </Field>
+                          <Field label={t("pdStorage")} mono>{(eff.storages ?? []).length ? (eff.storages ?? []).map((s) => s.mount_path).join(", ") : "-"}</Field>
+                          <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, READINESS_DEFAULTS)}</Field>
+                          <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, STARTUP_DEFAULTS)}</Field>
+                          <Field label={t("pdPlacement")} mono>
+                            {eff.node_selector && Object.keys(eff.node_selector).length > 0
+                              ? Object.entries(eff.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")
+                              : "-"}
+                            {eff.runtime?.shm_size_gi ? ` · shm ${eff.runtime.shm_size_gi}Gi` : ""}
+                            {eff.runtime?.host_ipc ? " · hostIPC" : ""}{eff.runtime?.privileged ? " · privileged" : ""}
+                          </Field>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-xs text-muted-foreground">{t("pdLaunchArgs")}</div>
+                          <code className="block whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-2 text-xs font-mono">{args.join(" ")}</code>
+                        </div>
+                      </div>
+                    </details>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="rounded-md border p-3" data-testid="pd-router">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge variant="outline">llm-d</Badge>
+                <span className="font-medium">{t("pdRouter")}</span>
+                {dep.router_stack ? (
+                  <>
+                    <Link href={`/admin/llmd/${dep.router_stack.id}`} className="hover:underline">{dep.router_stack.name}</Link>
+                    {dep.router_stack.health_status && (
+                      <Badge variant={dep.router_stack.health_status === "Healthy" ? "default" : "secondary"}>{dep.router_stack.health_status}</Badge>
+                    )}
+                    {dep.router_stack.sync_status && <Badge variant="secondary">{dep.router_stack.sync_status}</Badge>}
+                    <span className="font-mono text-xs text-muted-foreground">{t("pdRouterHost")} {dep.router_stack.ingress_host}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {dep.router_stack.created_by_deployment ? t("pdRouterCreated") : t("pdRouterLinked")}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-xs text-amber-600 dark:text-amber-400">{t("pdRouterNone")}</span>
+                )}
+              </div>
+              {(() => {
+                const r = dep.pd_config?.router ?? {};
+                const image = r.epp_registry || r.epp_repository || r.epp_tag
+                  ? `${r.epp_registry ?? "…"}/${r.epp_repository ?? "…"}:${r.epp_tag ?? "…"}`
+                  : null;
+                const parts = [
+                  image ? `${t("pdEpp")} ${image}` : null,
+                  r.epp_replicas ? `${t("pdEpp")} ×${r.epp_replicas}` : null,
+                  r.ingress_class ? `${t("pdIngressClass")} ${r.ingress_class}` : null,
+                  `peakPrefillThroughput ${r.peak_prefill_throughput ?? 33821}`,
+                  `maxPrefixTokensToMatch ${r.prefix_tokens_to_match ?? 131072}`,
+                ].filter(Boolean);
+                return <div className="mt-2 font-mono text-[11px] text-muted-foreground">{parts.join(" · ")}</div>;
+              })()}
+              {dep.pd_status?.router && dep.pd_status.router.ready === false && dep.pd_status.router.reason && (
+                <p className="mt-2 text-xs text-muted-foreground">{t("pdRouterWaiting", { reason: dep.pd_status.router.reason })}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <DeploymentYaml key={dep.id} id={dep.id} />
+
       <LitellmRegistrationCard dep={dep} />
 
-      {/* Config */}
-      <Card>
-        <CardHeader><CardTitle className="text-base">{t("configSection")}</CardTitle></CardHeader>
-        <CardContent>
+      <details className="rounded-xl border bg-card py-4">
+        <summary className="cursor-pointer px-6 text-sm font-medium">{t("configSection")}</summary>
+        <div className="mt-4 px-6">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {dep.serving_mode !== "pd" && (
               <>
@@ -278,102 +405,10 @@ export default function DeploymentDetailPage() {
               </div>
             ) : null;
           })()}
-        </CardContent>
-      </Card>
+        </div>
+      </details>
 
       <MountedStorages dep={dep} />
-
-      {/* Prefill / decode pools + the router they register through */}
-      {dep.serving_mode === "pd" && (
-        <Card data-testid="pd-section">
-          <CardHeader><CardTitle className="text-base">{t("pdSection")}</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {PD_ROLES.map((role) => {
-                const st = dep.pd_status?.[role];
-                const eff = effectiveRole(dep, dep.pd_config?.[role]);
-                const args = roleLaunchArgs(dep, role);
-                const cpu = eff.cpu_request || eff.cpu_limit ? `CPU ${eff.cpu_request ?? "-"} / ${eff.cpu_limit ?? "-"}` : null;
-                const mem = eff.memory_request || eff.memory_limit ? `Mem ${eff.memory_request ?? "-"} / ${eff.memory_limit ?? "-"}` : null;
-                return (
-                  <div key={role} className="space-y-3 rounded-md border p-3" data-testid={`pd-role-${role}`}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-medium">{t(role === "prefill" ? "pdPrefill" : "pdDecode")}</span>
-                      {st?.status && <StatusBadge status={st.status} />}
-                      <span className="text-sm text-muted-foreground tabular-nums">
-                        {st ? `${st.ready}/${st.desired}` : `–/${eff.replicas ?? 1}`}
-                      </span>
-                      <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
-                    </div>
-                    <ReplicaForm id={dep.id} role={role} desired={eff.replicas ?? 1} name={t(role === "prefill" ? "pdPrefill" : "pdDecode")} />
-                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                      <Field label={t("colImage")} mono>{eff.image}</Field>
-                      <Field label={t("modelPath")} mono>{eff.model_path}</Field>
-                      <Field label={t("pdResources")} mono>
-                        {eff.gpu_count ?? 0} × {eff.gpu_resource_key}
-                        {eff.gpu_type ? ` · ${eff.gpu_type}` : ""}{cpu ? ` · ${cpu}` : ""}{mem ? ` · ${mem}` : ""}
-                      </Field>
-                      <Field label={t("pdStorage")} mono>{(eff.storages ?? []).length ? (eff.storages ?? []).map((s) => s.mount_path).join(", ") : "-"}</Field>
-                      <Field label={t("probeReadiness")} mono>{probeSummary(eff.probes?.readiness ?? null, READINESS_DEFAULTS)}</Field>
-                      <Field label={t("probeStartup")} mono>{probeSummary(eff.probes?.startup ?? null, STARTUP_DEFAULTS)}</Field>
-                      <Field label={t("pdPlacement")} mono>
-                        {eff.node_selector && Object.keys(eff.node_selector).length > 0
-                          ? Object.entries(eff.node_selector).map(([k, v]) => `${k}=${v}`).join(", ")
-                          : "-"}
-                        {eff.runtime?.shm_size_gi ? ` · shm ${eff.runtime.shm_size_gi}Gi` : ""}
-                        {eff.runtime?.host_ipc ? " · hostIPC" : ""}{eff.runtime?.privileged ? " · privileged" : ""}
-                      </Field>
-                    </div>
-                    {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
-                    <div className="space-y-1">
-                      <div className="text-xs text-muted-foreground">{t("pdLaunchArgs")}</div>
-                      <code className="block whitespace-pre-wrap break-all rounded-md border bg-muted/40 p-2 text-xs font-mono">{args.join(" ")}</code>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="rounded-md border p-3" data-testid="pd-router">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Badge variant="outline">llm-d</Badge>
-                <span className="font-medium">{t("pdRouter")}</span>
-                {dep.router_stack ? (
-                  <>
-                    <Link href={`/admin/llmd/${dep.router_stack.id}`} className="hover:underline">{dep.router_stack.name}</Link>
-                    {dep.router_stack.health_status && (
-                      <Badge variant={dep.router_stack.health_status === "Healthy" ? "default" : "secondary"}>{dep.router_stack.health_status}</Badge>
-                    )}
-                    {dep.router_stack.sync_status && <Badge variant="secondary">{dep.router_stack.sync_status}</Badge>}
-                    <span className="font-mono text-xs text-muted-foreground">{t("pdRouterHost")} {dep.router_stack.ingress_host}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {dep.router_stack.created_by_deployment ? t("pdRouterCreated") : t("pdRouterLinked")}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-xs text-amber-600 dark:text-amber-400">{t("pdRouterNone")}</span>
-                )}
-              </div>
-              {(() => {
-                const r = dep.pd_config?.router ?? {};
-                const image = r.epp_registry || r.epp_repository || r.epp_tag
-                  ? `${r.epp_registry ?? "…"}/${r.epp_repository ?? "…"}:${r.epp_tag ?? "…"}`
-                  : null;
-                const parts = [
-                  image ? `${t("pdEpp")} ${image}` : null,
-                  r.epp_replicas ? `${t("pdEpp")} ×${r.epp_replicas}` : null,
-                  r.ingress_class ? `${t("pdIngressClass")} ${r.ingress_class}` : null,
-                  `peakPrefillThroughput ${r.peak_prefill_throughput ?? 33821}`,
-                  `maxPrefixTokensToMatch ${r.prefix_tokens_to_match ?? 131072}`,
-                ].filter(Boolean);
-                return <div className="mt-2 font-mono text-[11px] text-muted-foreground">{parts.join(" · ")}</div>;
-              })()}
-              {dep.pd_status?.router && dep.pd_status.router.ready === false && dep.pd_status.router.reason && (
-                <p className="mt-2 text-xs text-muted-foreground">{t("pdRouterWaiting", { reason: dep.pd_status.router.reason })}</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* llm-d routers that select this deployment's pods */}
       <Card>

@@ -687,3 +687,32 @@ def test_pd_pool_runtime_extra_ports():
     for name in ("glm-dep-pf", "glm-dep-dc"):
         ports = deps[name]["spec"]["template"]["spec"]["containers"][0]["ports"]
         assert ports[2:] == [{"containerPort": 9100, "name": "metrics", "protocol": "TCP"}]
+
+
+@pytest.mark.parametrize("mode", ["aggregated", "pd"])
+def test_long_model_references_use_matching_service_names_and_labels(mode):
+    from app.services import pd_router
+
+    model = "serving-" + "a" * 245
+    dep = _dep(model_name=model, serving_mode=mode)
+    if mode == "pd":
+        for role in pd_serving.ROLES:
+            dep.pd_config[role]["pd_extras"] = {"labels": {"group": "prefix-{{model_name}}"}}
+        dep.pd_config["router"] = {
+            "values_yaml": 'router:\n  modelServers:\n    matchLabels:\n      group: "prefix-{{model_name}}"'
+        }
+    manifests = build_all(dep)
+    pods = [m["spec"]["template"]["metadata"]["labels"] for m in manifests if m["kind"] == "Deployment"]
+    services = {m["metadata"]["name"]: m for m in manifests if m["kind"] == "Service"}
+    other = k8s_resource_names(_dep(model_name=model + "b", serving_mode=mode))
+    for name, svc in services.items():
+        assert len(name) <= 63 and name not in other.values()
+        assert any(svc["spec"]["selector"].items() <= labels.items() for labels in pods)
+    assert all(len(value) <= 63 for labels in pods for value in labels.values())
+    if mode == "pd":
+        selector = pd_router.router_values(dep)["router"]["modelServers"]["matchLabels"]
+        assert all(selector.items() <= labels.items() for labels in pods)
+        assert len(pd_router.stack_name(dep)) <= 128
+    else:
+        ingress = next(m for m in manifests if m["kind"] == "Ingress")
+        assert ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"]["name"] in services
