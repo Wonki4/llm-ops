@@ -264,8 +264,20 @@ def _check_pool_extras(role: Role, ex: PdExtras) -> None:
     except ValueError:
         raise ValueError(f"{role}: --kv-transfer-config must be JSON") from None
     want = "kv_producer" if role == "prefill" else "kv_consumer"
-    if not isinstance(kv, dict) or kv.get("kv_role") != want or not kv.get("kv_connector"):
+    multi = isinstance(kv, dict) and kv.get("kv_connector") == "MultiConnector"
+    roles = (want, "kv_both") if multi else (want,)
+    if not isinstance(kv, dict) or kv.get("kv_role") not in roles or not kv.get("kv_connector"):
         raise ValueError(f"{role}: --kv-transfer-config needs kv_connector and kv_role={want!r}")
+    if multi:
+        config = kv.get("kv_connector_extra_config")
+        children = config.get("connectors") if isinstance(config, dict) else None
+        if not isinstance(children, list) or not children:
+            raise ValueError(f"{role}: MultiConnector needs a non-empty kv_connector_extra_config.connectors list")
+        for child in children:
+            if not isinstance(child, dict) or not child.get("kv_connector") or child.get("kv_role") not in (
+                "kv_producer", "kv_consumer", "kv_both",
+            ):
+                raise ValueError(f"{role}: every MultiConnector child needs kv_connector and kv_role")
     nixl = ex.env.get("VLLM_NIXL_SIDE_CHANNEL_PORT")
     if nixl is not None and not (nixl.isdigit() and 1024 <= int(nixl) <= 65535):
         raise ValueError(f"{role}: VLLM_NIXL_SIDE_CHANNEL_PORT must be a port number (1024-65535)")

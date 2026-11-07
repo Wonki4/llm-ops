@@ -39,6 +39,40 @@ export function defaultSidecar(pd: PdConfig): SidecarSpec {
   return { image: pd.sidecar_image ?? null, args: [...DEFAULT_SIDECAR_ARGS], env: {}, requests: {}, limits: {} };
 }
 
+const KV_FLAG = "--kv-transfer-config";
+
+// vLLM accepts both "--flag=json" and two argv entries, "--flag", "json".
+function mapKvArg(args: string[], change: (kv: Record<string, unknown>) => Record<string, unknown> | null) {
+  return args.map((arg, i) => {
+    const inline = arg.startsWith(KV_FLAG + "=");
+    if (!inline && args[i - 1] !== KV_FLAG) return arg;
+    try {
+      const kv = JSON.parse(inline ? arg.slice(KV_FLAG.length + 1) : arg);
+      if (!kv || typeof kv !== "object" || Array.isArray(kv)) return arg;
+      const next = change(kv);
+      return next ? (inline ? KV_FLAG + "=" : "") + JSON.stringify(next) : arg;
+    } catch {
+      return arg; // keep incomplete input editable
+    }
+  });
+}
+
+/** Wrap the current NIXL config and add a local CPU offload child. */
+export function multiConnectorExample(args: string[]) {
+  return mapKvArg(args, kv => {
+    if (kv.kv_connector !== "NixlConnector") return null;
+    const { engine_id, ...nixl } = kv;
+    return {
+      engine_id, kv_connector: "MultiConnector", kv_role: "kv_both",
+      kv_load_failure_policy: kv.kv_load_failure_policy,
+      kv_connector_extra_config: { connectors: [
+        nixl,
+        { kv_connector: "OffloadingConnector", kv_role: "kv_both", kv_connector_extra_config: { cpu_bytes_to_use: 1073741824 } },
+      ] },
+    };
+  });
+}
+
 /**
  * Another pool's P/D settings re-pointed at `role` (copying a pool): the role
  * label, --port, the kv_role inside --kv-transfer-config and a default NIXL
@@ -46,17 +80,18 @@ export function defaultSidecar(pd: PdConfig): SidecarSpec {
  */
 export function retargetPdExtras(ex: PdExtras, role: PdRole): PdExtras {
   const kvRole = role === "prefill" ? "kv_producer" : "kv_consumer";
-  const args = (ex.args ?? []).map((a) => {
-    if (a.startsWith("--port=")) return `--port=${PD_VLLM_PORT[role]}`;
-    if (a.startsWith("--kv-transfer-config=")) {
-      try {
-        const kv = JSON.parse(a.slice("--kv-transfer-config=".length));
-        return `--kv-transfer-config=${JSON.stringify({ ...kv, kv_role: kvRole })}`;
-      } catch {
-        return a; // invalid JSON: leave it for the save-time error
-      }
-    }
-    return a;
+  const sourceArgs = ex.args ?? [];
+  const args = mapKvArg(sourceArgs, kv => {
+    if (kv.kv_connector !== "MultiConnector") return { ...kv, kv_role: kvRole };
+    const extra = kv.kv_connector_extra_config;
+    const next = { ...kv, kv_role: kv.kv_role === "kv_both" ? "kv_both" : kvRole };
+    if (!extra || typeof extra !== "object" || !("connectors" in extra) || !Array.isArray(extra.connectors)) return next;
+    return { ...next, kv_connector_extra_config: { ...extra, connectors: extra.connectors.map(child =>
+      child?.kv_connector === "NixlConnector" && child.kv_role !== "kv_both" ? { ...child, kv_role: kvRole } : child
+    ) } };
+  }).map((arg, i) => {
+    if (arg.startsWith("--port=")) return `--port=${PD_VLLM_PORT[role]}`;
+    return sourceArgs[i - 1] === "--port" ? String(PD_VLLM_PORT[role]) : arg;
   });
   // The other pool's default NIXL port follows to this pool's default; a custom port is kept.
   const other: PdRole = role === "prefill" ? "decode" : "prefill";

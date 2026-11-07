@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, RefreshCw, ScrollText, Trash2, Server, AlertTriangle } from "lucide-react";
@@ -7,15 +8,17 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { engineArgsToFlags } from "@/lib/serving-engines";
-import { PD_ROLES, PD_VLLM_PORT, effectiveRole, roleLaunchArgs } from "@/lib/pd-serving";
+import { type PdRole, PD_ROLES, PD_VLLM_PORT, effectiveRole, roleLaunchArgs } from "@/lib/pd-serving";
 
 import {
   useModelDeployment,
   useModelDeploymentEvents,
+  useScaleDeployment,
   useDeleteModelDeployment,
 } from "@/hooks/use-api";
 import type { ModelDeployment, ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LitellmRegistrationCard } from "@/components/litellm-registration-card";
@@ -33,6 +36,41 @@ function Field({ label, children, mono }: { label: string; children: React.React
       <div className="text-xs text-muted-foreground">{label}</div>
       <div className={`text-sm ${mono ? "font-mono break-all" : ""}`}>{children}</div>
     </div>
+  );
+}
+
+function ReplicaForm({ id, role, desired, name }: { id: string; role?: PdRole; desired: number; name: string }) {
+  const t = useTranslations("adminDeployments");
+  const [draft, setDraft] = useState<string | null>(null);
+  const scale = useScaleDeployment(id, role);
+  const value = draft ?? String(desired);
+  const replicas = Number(value);
+  const valid = /^\d+$/.test(value) && Number.isInteger(replicas) && replicas <= 2147483647;
+  const disabled = scale.isPending || !valid || replicas === desired;
+
+  return (
+    <form className="flex flex-wrap items-end gap-2" onSubmit={(event) => {
+      event.preventDefault();
+      if (disabled) return;
+      scale.mutate(replicas, {
+        onSuccess: () => {
+          setDraft(null);
+          toast.success(t("replicasUpdated", { name, count: replicas }));
+        },
+        onError: (error) => toast.error(error.message),
+      });
+    }}>
+      <label className="space-y-1 text-xs text-muted-foreground">
+        <span>{t("desiredReplicas")}</span>
+        <Input type="number" min={0} max={2147483647} step={1} required className="h-8 w-24"
+          aria-label={t("replicaInputLabel", { name })} disabled={scale.isPending}
+          value={value} onChange={(event) => setDraft(event.target.value)} />
+      </label>
+      <Button type="submit" variant="outline" size="sm" disabled={disabled}>
+        {scale.isPending && <Loader2 className="size-3.5 animate-spin" />}
+        {t("applyReplicas")}
+      </Button>
+    </form>
   );
 }
 
@@ -179,6 +217,9 @@ export default function DeploymentDetailPage() {
             <Field label={t("litellmRegistered")}>{dep.litellm_model_id ? `✅ ${dep.litellm_model_id}` : t("notRegistered")}</Field>
             <Field label={t("serviceIp")} mono>{dep.service_cluster_ip || "-"}</Field>
             <Field label={t("lastSynced")}>{fmt(dep.last_synced_at)}</Field>
+            {dep.serving_mode !== "pd" && (
+              <ReplicaForm id={dep.id} desired={dep.replicas} name={dep.model_name} />
+            )}
           </div>
         </CardContent>
       </Card>
@@ -264,6 +305,7 @@ export default function DeploymentDetailPage() {
                       </span>
                       <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
                     </div>
+                    <ReplicaForm id={dep.id} role={role} desired={eff.replicas ?? 1} name={t(role === "prefill" ? "pdPrefill" : "pdDecode")} />
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Field label={t("colImage")} mono>{eff.image}</Field>
                       <Field label={t("modelPath")} mono>{eff.model_path}</Field>

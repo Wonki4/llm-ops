@@ -763,6 +763,65 @@ async def _unregister(litellm: LiteLLMClient, dep: CustomModelDeployment) -> Non
     dep.litellm_model_id = None
 
 
+class ReplicaRequest(BaseModel):
+    replicas: int = Field(ge=0, le=2**31 - 1, strict=True)
+
+
+@router.put("/{deployment_id}/replicas")
+async def scale_aggregated(
+    deployment_id: uuid.UUID,
+    body: ReplicaRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    dep = await _deployment_or_404(db, str(deployment_id), for_update=True)
+    if pd_serving.is_pd(dep):
+        raise HTTPException(status_code=409, detail="Select the prefill or decode pool to scale a P/D deployment")
+    dep.replicas = body.replicas
+    await _apply_replica_count(db, dep, k8s_resource_names(dep)["deployment"], body.replicas, user)
+    return {"replicas": body.replicas}
+
+
+@router.put("/{deployment_id}/pools/{role}/replicas")
+async def scale_pool(
+    deployment_id: uuid.UUID,
+    role: pd_serving.Role,
+    body: ReplicaRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    dep = await _deployment_or_404(db, str(deployment_id), for_update=True)
+    if not pd_serving.is_pd(dep):
+        raise HTTPException(status_code=409, detail="Pool scaling requires a P/D deployment")
+    cfg = pd_serving.pd_config_of(dep)
+    dep.pd_config = {**cfg, role: {**(cfg.get(role) or {}), "replicas": body.replicas}}
+    name = k8s_resource_names(dep)[f"{role}_deployment"]
+    await _apply_replica_count(db, dep, name, body.replicas, user)
+    return {"role": role, "replicas": body.replicas}
+
+
+async def _apply_replica_count(
+    db: AsyncSession, dep: CustomModelDeployment, name: str, replicas: int, user: CustomUser,
+) -> None:
+    try:
+        check_rollout(dep)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
+    dep.updated_by = user.user_id
+    await db.flush()
+    try:
+        await k8s.scale_deployment(dep.namespace, name, replicas)
+    except K8sNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except ApiException as e:
+        raise HTTPException(status_code=502, detail=f"Could not scale {name} in {dep.namespace} ({e.status} {e.reason})")
+    except Exception:
+        logger.exception("K8s scaling failed for %s", name)
+        raise HTTPException(status_code=502, detail=f"Could not scale {name} in {dep.namespace}")
+
+
 @router.put("/{deployment_id}")
 async def update_deployment(
     deployment_id: str,
@@ -778,11 +837,7 @@ async def update_deployment(
     the URL), the old LiteLLM entry is removed after the apply succeeds and
     the reconciler registers the new one on the next Ready transition.
     """
-    result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
-    dep = result.scalar_one_or_none()
-    if not dep:
-        raise HTTPException(status_code=404, detail="Deployment not found")
-
+    dep = await _deployment_or_404(db, deployment_id, for_update=True)
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     return await _apply_update(db, k8s, litellm, dep, body.model_dump(exclude_unset=True), user)
 
@@ -892,8 +947,11 @@ class ReapplyRequest(BaseModel):
     recipe_id: str | None = None  # None = the deployment's own recipe
 
 
-async def _deployment_or_404(db: AsyncSession, deployment_id: str) -> CustomModelDeployment:
-    result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
+async def _deployment_or_404(db: AsyncSession, deployment_id: str, *, for_update: bool = False) -> CustomModelDeployment:
+    query = select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id))
+    if for_update:
+        query = query.with_for_update()
+    result = await db.execute(query)
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
@@ -1016,7 +1074,7 @@ async def reapply_recipe(
     Instance fields (names, cluster, namespace, replicas, ingress, GPU type) stay;
     the GPU type's profile is applied again over the recipe's placement.
     """
-    dep = await _deployment_or_404(db, deployment_id)
+    dep = await _deployment_or_404(db, deployment_id, for_update=True)
     recipe = await _recipe_for(db, dep, body.recipe_id)
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     resolved, _ = await _proposed(db, dep, recipe)

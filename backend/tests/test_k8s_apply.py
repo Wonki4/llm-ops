@@ -59,3 +59,18 @@ async def test_missing_deployment_is_created():
     apps.create_namespaced_deployment.assert_awaited_once_with(namespace="ns", body=DEP)
     apps.replace_namespaced_deployment.assert_not_awaited()
     apps.patch_namespaced_deployment.assert_not_awaited()
+
+
+async def test_scaling_patches_only_replica_count():
+    apps, _, api_client = _apis(deployment_exists=True)
+    k8s = K8sClient()
+    with (
+        patch.object(K8sClient, "_api_client", AsyncMock(return_value=api_client)),
+        patch("app.clients.k8s.client.AppsV1Api", return_value=apps),
+    ):
+        await k8s.scale_deployment("ns", "m-prefill-deployment", 0)
+    apps.patch_namespaced_deployment.assert_awaited_once_with(
+        name="m-prefill-deployment", namespace="ns", body={"spec": {"replicas": 0}},
+        _content_type="application/merge-patch+json",
+    )
+    api_client.close.assert_awaited_once()

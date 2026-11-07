@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Area, Field } from "@/components/engine-args-fields";
 import { FormCard, FormSection } from "@/components/form-section";
 import { PoolConfigCards } from "@/components/pool-config-cards";
-import { DEFAULT_PD_SECURITY_CONTEXT, poolOf, type PdRole } from "@/lib/pd-serving";
+import { DEFAULT_PD_SECURITY_CONTEXT, multiConnectorExample, poolOf, type PdRole } from "@/lib/pd-serving";
 import { linesToList, linesToMap, listToLines, mapToLines } from "@/lib/placement";
 
 /**
@@ -101,6 +101,13 @@ function PdExtrasSection({
     capabilities: (security.capabilities ?? []).join(", "),
   }));
 
+  function setArgs(raw: string) {
+    setText(s => ({ ...s, args: raw }));
+    onChange({ ...value, args: linesToList(raw) ?? [] });
+  }
+  const args = linesToList(text.args) ?? [];
+  const multiArgs = multiConnectorExample(args);
+
   function setMap(key: MapKey, raw: string) {
     setText((s) => ({ ...s, [key]: raw }));
     onChange({ ...value, [key]: linesToMap(raw) ?? {} });
@@ -130,8 +137,13 @@ function PdExtrasSection({
       <Field id={id("args")} label={t("pdExtrasArgs")}>
         <Area
           id={id("args")} rows={4} value={text.args} placeholder="--port=8000"
-          onChange={(v) => { setText((s) => ({ ...s, args: v })); onChange({ ...value, args: linesToList(v) ?? [] }); }}
+          onChange={setArgs}
         />
+        {multiArgs.some((arg, i) => arg !== args[i]) && (
+          <Button type="button" size="sm" variant="outline" onClick={() => setArgs(listToLines(multiArgs))}>
+            {t("pdMultiConnectorExample")}
+          </Button>
+        )}
       </Field>
       {MAP_FIELDS.slice(1).map((f) => (
         <Field key={f.key} id={id(f.key)} label={t(f.label)}>
