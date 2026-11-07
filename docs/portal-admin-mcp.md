@@ -1,6 +1,6 @@
 # 포털 관리자 MCP (Claude Code 연결)
 
-포털 super user가 Claude Code(VS Code 확장 또는 CLI)에서 포털의 서빙 정보를 직접 조회할 수 있게
+포털 super user가 Claude Code(VS Code 확장 또는 CLI)에서 포털의 레시피를 관리하고 배포를 진단·복구할 수 있게
 백엔드가 MCP 서버를 `/mcp`로 제공합니다. 로그인은 Keycloak OAuth(authorization code + PKCE)로
 하고, 설정 파일에는 키·비밀번호·토큰을 넣지 않습니다. Claude Code가 토큰을 직접 보관하고(macOS는
 키체인, Linux·Remote-SSH 등은 `~/.claude/.credentials.json`) 스스로 갱신합니다.
@@ -9,7 +9,7 @@
 > 이 문서의 MCP와는 다릅니다. 이 MCP는 백엔드 호스트의 `/mcp`입니다.
 
 - **super user만** 결과를 받습니다. 그 외 사용자는 모든 도구에서 `super user only`만 받습니다.
-- 지금(1단계)은 **조회 전용**입니다. 레시피 작성·배포(2단계), 검증·벤치마크 루프(3단계)는 이후에 추가됩니다.
+- 활성화하면 super user가 레시피를 저장하고 실제 Kubernetes 배포를 생성·갱신할 수 있습니다.
 - 기본값은 꺼져 있습니다(`APP_MCP_ENABLED=false`).
 
 ## 1. Keycloak 클라이언트 준비 (운영)
@@ -94,7 +94,7 @@ claude mcp add --transport http --client-id portal-mcp --callback-port 8765 \
 
 ## 4. 도구
 
-모두 조회 전용이고, 포털 UI가 쓰는 REST API와 같은 데이터를 돌려줍니다.
+포털 UI와 같은 데이터를 조회하는 도구는 다음과 같습니다.
 
 | 도구 | 내용 |
 |---|---|
@@ -107,6 +107,25 @@ claude mcp add --transport http --client-id portal-mcp --callback-port 8765 \
 | `list_deployments` / `get_deployment(deployment_id)` | 모델 배포와 상태, llm-d 스택 |
 | `get_deployment_events(deployment_id, limit)` | 배포의 상태 이벤트 (최신순, 최대 500) |
 | `serving_overview` | 모델별 레시피 → 배포 → 벤치마크 → 카탈로그 진행 현황 |
+
+배포 복구에는 다음 도구를 사용합니다.
+
+| 도구 | 동작 |
+|---|---|
+| `preview_recipe`, `create_recipe` | 레시피 YAML과 경고를 미리 보거나 검증한 레시피를 저장합니다. |
+| `deploy_from_recipe` | 저장한 레시피 ID와 배포별 설정을 받아 배포 ID와 각 Kubernetes Deployment의 UID·generation이 담긴 `rollout`을 반환합니다. PD의 replica는 `prefill_replicas`, `decode_replicas`로 각각 지정합니다. |
+| `get_rollout_status` | 배포 ID와 방금 받은 `rollout`으로 이번 변경이 반영됐는지 확인합니다. 다른 변경이 먼저 적용되면 해당 풀의 상태가 `Superseded`입니다. PD는 라우터의 Argo CD 상태도 확인합니다. |
+| `get_deployment_diagnostics` | `aggregated`, `prefill`, `decode`, `router` 중 하나를 지정해 Pod 상태와 이벤트, 컨테이너 현재·직전 로그를 읽습니다. 클러스터 자격 증명에 Pod·로그 조회와 core Event 목록 권한이 필요합니다. |
+| `preview_deployment_recipe_patch` | 배포 ID와 JSON Merge Patch를 받아 공유 레시피에서 수정될 필드, 해당 배포에서 달라지는 YAML과 `preview_id`를 반환합니다. 배열은 교체하고 `null`은 키를 지웁니다. |
+| `apply_deployment_recipe_patch` | 같은 배포 ID, 패치, `preview_id`로 적용합니다. 적용 시점에 대상과 변경 내용을 다시 확인하고, 연결된 공유 레시피를 갱신하고 지정한 배포 하나에만 재적용합니다. 다른 배포의 미리보기이거나 변경 내용이 달라졌으면 409를 반환합니다. |
+| `smoke_test_deployment` | 준비된 배포의 고유 LiteLLM 등록 ID로 짧은 chat completion을 수행하고 실제 응답을 처리한 모델 ID까지 확인합니다. |
+
+예를 들어 decode가 알 수 없는 엔진 인자로 재시작한다면 직전 로그에서 인자명을 확인하고
+`{"pd_config":{"decode":{"engine_args":{"해당-인자":null}}}}`로 해당 배포의 변경을 미리 봅니다.
+diff에서 decode 변경을 확인한 뒤 같은 배포에 적용합니다. 같은 레시피를 쓰는 다른 배포는 현재 설정으로 계속 실행합니다. 해당 배포에서 레시피를 명시적으로 재적용하거나 이 레시피로 새 배포를 만들면 수정본을 사용합니다.
+추가 복구가 필요하면 같은 배포 ID로 다시 미리 보고 적용합니다. 공유 라우터 설정은 복구 도구로 변경할 수 없습니다. 새 풀들이 Ready이고 라우터가 Synced/Healthy가 되면
+`smoke_test_deployment`를 호출합니다. 이 검증은 LiteLLM 등록, chat completions 지원 및 프록시의
+`x-litellm-model-id` 응답 헤더를 사용합니다. 로그에 GPU 할당 대기 등 외부 원인이 보이면 그 상태와 근거를 보고합니다.
 
 ## 5. 토큰과 보안
 

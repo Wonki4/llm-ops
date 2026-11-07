@@ -1,10 +1,13 @@
 """create_or_patch: an existing Deployment is replaced (so dropped fields go away); Services stay patched."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.clients.k8s import K8sClient
+from app.services.model_deployment_manifests import LABEL_MODEL, LABEL_OWNER, OWNER
 
 DEP = {
     "apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "m-deployment", "namespace": "ns"}, "spec": {},
@@ -39,12 +42,16 @@ async def _apply(apps, core, api_client, manifests):
         patch("app.clients.k8s.client.CoreV1Api", return_value=core),
         patch("app.clients.k8s.client.NetworkingV1Api", return_value=MagicMock()),
     ):
-        await k8s.create_or_patch("ns", manifests)
+        return await k8s.create_or_patch("ns", manifests)
 
 
 async def test_existing_deployment_is_replaced_not_patched():
     apps, core, api_client = _apis(deployment_exists=True)
-    await _apply(apps, core, api_client, [DEP, SVC])
+    applied = apps.replace_namespaced_deployment.return_value
+    applied.metadata.uid = "live-uid"
+    applied.metadata.generation = 4
+    rollout = await _apply(apps, core, api_client, [DEP, SVC])
+    assert rollout == {"m-deployment": {"uid": "live-uid", "generation": 4}}
     apps.replace_namespaced_deployment.assert_awaited_once_with(name="m-deployment", namespace="ns", body=DEP)
     apps.patch_namespaced_deployment.assert_not_awaited()
     apps.create_namespaced_deployment.assert_not_awaited()
@@ -74,3 +81,21 @@ async def test_scaling_patches_only_replica_count():
         _content_type="application/merge-patch+json",
     )
     api_client.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize("kind", ["Deployment", "Service", "Ingress"])
+async def test_conflicting_serving_resource_is_never_overwritten(kind):
+    # Both model names render the same Kubernetes stem, but select different workloads.
+    labels = {LABEL_OWNER: OWNER, LABEL_MODEL: "a.b"}
+    manifest = {"kind": kind, "metadata": {"name": "a-b", "labels": labels}}
+    live = SimpleNamespace(metadata=SimpleNamespace(labels={**labels, LABEL_MODEL: "a-b"}, resource_version="7"))
+    create, update = AsyncMock(), AsyncMock()
+    with pytest.raises(ApiException) as conflict:
+        await K8sClient._upsert(AsyncMock(return_value=live), create, update, "a-b", "ns", manifest)
+    assert conflict.value.status == 409
+    create.assert_not_awaited()
+    update.assert_not_awaited()
+
+    live.metadata.labels = labels
+    await K8sClient._upsert(AsyncMock(return_value=live), create, update, "a-b", "ns", manifest)
+    assert update.await_args.kwargs["body"]["metadata"]["resourceVersion"] == "7"

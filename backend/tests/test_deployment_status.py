@@ -49,7 +49,7 @@ def test_classify_progress_deadline_still_wins():
 
 async def test_read_deployment_status_reports_rollout_progress():
     live = types.SimpleNamespace(
-        metadata=types.SimpleNamespace(generation=5),
+        metadata=types.SimpleNamespace(uid="deployment-uid", generation=5),
         spec=types.SimpleNamespace(replicas=2),
         status=types.SimpleNamespace(
             ready_replicas=1, available_replicas=1, updated_replicas=1, replicas=3,

@@ -56,6 +56,10 @@ rules:
   - apiGroups: [""]
     resources: ["pods/log"]
     verbs: ["get"]
+  # Serving diagnostics read events for the selected resource or pod UID.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["list"]
   # --- Storage: list PVCs for storage bindings (K8sClient.list_pvcs, read-only) ---
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]

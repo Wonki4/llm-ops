@@ -13,6 +13,7 @@ from kubernetes_asyncio import client, config
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.config import settings
+from app.services.model_deployment_manifests import LABEL_MODEL, LABEL_OWNER, PORTAL_OWNERS
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class K8sClient:
         finally:
             await api_client.close()
 
-    async def create_or_patch(self, namespace: str, manifests: list[dict]) -> None:
+    async def create_or_patch(self, namespace: str, manifests: list[dict]) -> dict[str, dict]:
         """Apply a list of K8s manifests: create what is missing, update what exists.
 
         Deployments are *replaced*, so a field the portal no longer renders (an env
@@ -100,12 +101,13 @@ class K8sClient:
             apps = client.AppsV1Api(api_client)
             core = client.CoreV1Api(api_client)
             net = client.NetworkingV1Api(api_client)
+            rollout = {}
             for manifest in manifests:
                 kind = manifest["kind"]
                 name = manifest["metadata"]["name"]
                 ns = manifest["metadata"].get("namespace", namespace)
                 if kind == "Deployment":
-                    await self._upsert(
+                    applied = await self._upsert(
                         apps.read_namespaced_deployment,
                         apps.create_namespaced_deployment,
                         apps.replace_namespaced_deployment,
@@ -113,30 +115,35 @@ class K8sClient:
                         ns,
                         manifest,
                     )
+                    rollout[name] = {"uid": applied.metadata.uid, "generation": applied.metadata.generation}
                 elif kind == "Service":
                     await self._upsert(core.read_namespaced_service, core.create_namespaced_service, core.patch_namespaced_service, name, ns, manifest)
                 elif kind == "Ingress":
                     await self._upsert(net.read_namespaced_ingress, net.create_namespaced_ingress, net.patch_namespaced_ingress, name, ns, manifest)
                 else:
                     raise ValueError(f"Unsupported kind: {kind}")
+            return rollout
         finally:
             await api_client.close()
 
     @staticmethod
-    async def _upsert(read_fn, create_fn, update_fn, name: str, namespace: str, manifest: dict) -> None:
+    async def _upsert(read_fn, create_fn, update_fn, name: str, namespace: str, manifest: dict):
         """``update_fn`` is the replace or patch call for an object that already exists."""
         try:
-            await read_fn(name=name, namespace=namespace)
-            exists = True
+            live = await read_fn(name=name, namespace=namespace)
         except ApiException as e:
-            if e.status == 404:
-                exists = False
-            else:
+            if e.status != 404:
                 raise
-        if exists:
-            await update_fn(name=name, namespace=namespace, body=manifest)
-        else:
-            await create_fn(namespace=namespace, body=manifest)
+            return await create_fn(namespace=namespace, body=manifest)
+
+        metadata = manifest["metadata"]
+        model = metadata.get("labels", {}).get(LABEL_MODEL)
+        if model is not None:
+            labels = live.metadata.labels or {}
+            if labels.get(LABEL_MODEL) != model or labels.get(LABEL_OWNER) not in PORTAL_OWNERS:
+                raise ApiException(status=409, reason=f"{manifest['kind']} {namespace}/{name} belongs to another workload")
+            manifest = {**manifest, "metadata": {**metadata, "resourceVersion": live.metadata.resource_version}}
+        return await update_fn(name=name, namespace=namespace, body=manifest)
 
     async def delete(self, namespace: str, names: dict[str, str]) -> None:
         """Delete a deployment's resources. ``names`` maps ``<prefix>deployment`` /
@@ -204,6 +211,7 @@ class K8sClient:
                 "available": int(dep.status.available_replicas or 0),
                 "updated": int(dep.status.updated_replicas or 0),
                 "total": int(dep.status.replicas or 0),
+                "uid": dep.metadata.uid,
                 "generation": dep.metadata.generation,
                 "observed_generation": dep.status.observed_generation,
                 "conditions": [{"type": c.type, "status": c.status, "reason": c.reason, "message": c.message} for c in (dep.status.conditions or [])],
