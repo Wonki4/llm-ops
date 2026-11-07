@@ -75,6 +75,18 @@ class K8sClient:
         await config.load_kube_config(config_file=settings.kubeconfig_path)
         return client.ApiClient()
 
+    async def scale_deployment(self, namespace: str, name: str, replicas: int) -> None:
+        api_client = await self._api_client()
+        try:
+            await client.AppsV1Api(api_client).patch_namespaced_deployment(
+                name=name,
+                namespace=namespace,
+                body={"spec": {"replicas": replicas}},
+                _content_type="application/merge-patch+json",
+            )
+        finally:
+            await api_client.close()
+
     async def create_or_patch(self, namespace: str, manifests: list[dict]) -> None:
         """Apply a list of K8s manifests: create what is missing, update what exists.
 

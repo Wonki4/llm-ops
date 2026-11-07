@@ -529,6 +529,29 @@ def test_pd_settings_accept_split_flag_form_and_round_trip():
     assert "pd_extras" not in out["prefill"]
 
 
+@pytest.mark.parametrize("role", ["prefill", "decode"])
+def test_multi_connector_is_rendered_only_for_selected_pool(role):
+    ex = _extras(role)
+    kv = {
+        "kv_connector": "MultiConnector", "kv_role": "kv_both",
+        "kv_connector_extra_config": {"connectors": [
+            {"kv_connector": "NixlConnector", "kv_role": "kv_producer" if role == "prefill" else "kv_consumer"},
+            {"kv_connector": "OffloadingConnector", "kv_role": "kv_both",
+             "kv_connector_extra_config": {"cpu_bytes_to_use": 1 << 30}},
+        ]},
+    }
+    ex["args"][1] = "--kv-transfer-config=" + json.dumps(kv)
+    dep = _with_extras(role, ex)
+    dep.pd_config = validate_pd_config(dep.pd_config, engine="vllm", base_extra_args=None)
+    for pool, manifest in zip(("prefill", "decode"), build_pd_deployments(dep), strict=True):
+        args = manifest["spec"]["template"]["spec"]["containers"][0]["args"]
+        actual = json.loads(pd_serving.flag_value(args, "--kv-transfer-config"))
+        if pool == role:
+            assert actual == kv
+        else:
+            assert actual["kv_connector"] == "NixlConnector"
+
+
 def test_pd_settings_model_name_placeholder_groups_both_pools():
     dep = _dep(model_name="Org/GLM_5.3")
     def pool(role):

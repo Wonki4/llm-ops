@@ -526,3 +526,55 @@ async def test_deploy_pd_rejects_invalid_router_values_yaml(client_for_user, sup
     async with client_for_user(super_user) as client:
         resp = await client.post("/api/model-deployments", json=body)
     assert resp.status_code == 422 and "values.yaml" in resp.text
+
+
+@pytest.mark.parametrize(("role", "replicas"), [("prefill", 0), ("decode", 5)])
+async def test_scale_only_requested_pool(client_for_user, super_user, mock_db, role, replicas):
+    config = {
+        "prefill": {"engine_args": {"max-num-seqs": 32}},
+        "decode": {"replicas": 2, "pd_extras": {"args": ["--custom"]}},
+        "router": {"epp_replicas": 3},
+    }
+    dep = _dep(pd_config=config)
+    mock_db.execute = AsyncMock(return_value=_result(scalar=dep))
+    k8s = AsyncMock()
+    with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)):
+        async with client_for_user(super_user) as client:
+            response = await client.put(f"/api/model-deployments/{dep.id}/pools/{role}/replicas", json={"replicas": replicas})
+    assert response.status_code == 200, response.text
+    assert dep.pd_config == {**config, role: {**config[role], "replicas": replicas}}
+    k8s.scale_deployment.assert_awaited_once_with(dep.namespace, f"glm-{role}-deployment", replicas)
+    k8s.create_or_patch.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("mode", "role", "replicas", "status"),
+    [("aggregated", "prefill", 3, 409), ("pd", "router", 3, 422), ("pd", "decode", -1, 422),
+     ("pd", "decode", 1.5, 422), ("pd", "decode", 1, 400)],
+)
+async def test_invalid_pool_scale(client_for_user, super_user, mock_db, mode, role, replicas, status):
+    dep = _dep(serving_mode=mode, pd_config={"decode": {"replicas": 2, "runtime": {"rollout": "replace"}}})
+    mock_db.execute = AsyncMock(return_value=_result(scalar=dep))
+    with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock()) as get_k8s:
+        async with client_for_user(super_user) as client:
+            response = await client.put(f"/api/model-deployments/{dep.id}/pools/{role}/replicas", json={"replicas": replicas})
+    assert response.status_code == status, response.text
+    get_k8s.assert_not_awaited()
+
+
+@pytest.mark.parametrize("mode", ["aggregated", None, "pd"])
+async def test_scale_aggregated_deployment(client_for_user, super_user, mock_db, mode):
+    dep = _dep(serving_mode=mode, replicas=2)
+    mock_db.execute = AsyncMock(return_value=_result(scalar=dep))
+    k8s = AsyncMock()
+    with patch("app.api.model_deployments.k8s_for_cluster", AsyncMock(return_value=k8s)):
+        async with client_for_user(super_user) as client:
+            response = await client.put(f"/api/model-deployments/{dep.id}/replicas", json={"replicas": 0})
+    if mode == "pd":
+        assert response.status_code == 409
+        assert dep.replicas == 2
+        k8s.scale_deployment.assert_not_awaited()
+    else:
+        assert response.status_code == 200, response.text
+        assert dep.replicas == 0
+        k8s.scale_deployment.assert_awaited_once_with(dep.namespace, "glm-deployment", 0)

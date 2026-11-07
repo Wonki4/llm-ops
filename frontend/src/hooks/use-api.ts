@@ -1,6 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { PdRole } from "@/lib/pd-serving";
 import { apiFetch } from "@/lib/api";
 import { runSequential } from "@/lib/bulk-review";
 import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
@@ -1385,6 +1386,19 @@ export function useModelDeployment(id: string) {
     queryKey: ["model-deployments", id],
     queryFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}`),
     enabled: !!id,
+    refetchInterval: 15000,
+  });
+}
+
+export function useScaleDeployment(id: string, role?: PdRole) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (replicas: number) =>
+      apiFetch(`/api/model-deployments/${id}${role ? `/pools/${role}` : ""}/replicas`, {
+        method: "PUT",
+        body: JSON.stringify({ replicas }),
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["model-deployments"] }),
   });
 }
 
