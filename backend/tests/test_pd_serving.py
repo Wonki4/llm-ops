@@ -166,9 +166,9 @@ def _by_name(manifests):
 def test_pd_deployments_render_roles():
     deps = build_pd_deployments(_dep(), sidecar_image="ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.9.0")
     m = _by_name(deps)
-    assert set(m) == {"glm-prefill-deployment", "glm-decode-deployment"}
+    assert set(m) == {"glm-dep-pf", "glm-dep-dc"}
 
-    pre = m["glm-prefill-deployment"]
+    pre = m["glm-dep-pf"]
     pod = pre["spec"]["template"]["spec"]
     c = pod["containers"][0]
     assert pre["spec"]["replicas"] == 2
@@ -204,7 +204,7 @@ def test_pd_deployments_render_roles():
     assert pod["nodeSelector"] == {"gpu-type": "h200"}
     assert {v["name"] for v in pod["volumes"]} == {"model-weights"}
 
-    dec = m["glm-decode-deployment"]
+    dec = m["glm-dep-dc"]
     pod = dec["spec"]["template"]["spec"]
     c = pod["containers"][0]
     assert dec["spec"]["replicas"] == 1
@@ -223,25 +223,25 @@ def test_pd_deployments_render_roles():
 def test_sidecar_image_precedence():
     dep = _dep()
     dep.pd_config = {**dep.pd_config, "sidecar_image": "internal/sidecar:1"}
-    dec = _by_name(build_pd_deployments(dep, sidecar_image="ghcr.io/x:y"))["glm-decode-deployment"]
+    dec = _by_name(build_pd_deployments(dep, sidecar_image="ghcr.io/x:y"))["glm-dep-dc"]
     assert dec["spec"]["template"]["spec"]["initContainers"][0]["image"] == "internal/sidecar:1"
     dep.pd_config = {k: v for k, v in dep.pd_config.items() if k != "sidecar_image"}
-    dec = _by_name(build_pd_deployments(dep))["glm-decode-deployment"]
+    dec = _by_name(build_pd_deployments(dep))["glm-dep-dc"]
     assert dec["spec"]["template"]["spec"]["initContainers"][0]["image"] == pd_serving.DEFAULT_SIDECAR_IMAGE
 
 
 def test_pd_services_and_build_all_have_no_ingress():
     svcs = _by_name(build_pd_services(_dep()))
-    assert set(svcs) == {"glm-prefill-service", "glm-decode-service"}
-    assert svcs["glm-decode-service"]["spec"]["selector"]["llm-ops/pd-role"] == "decode"
-    assert svcs["glm-decode-service"]["spec"]["ports"][0]["targetPort"] == 8000
+    assert set(svcs) == {"glm-svc-pf", "glm-svc-dc"}
+    assert svcs["glm-svc-dc"]["spec"]["selector"]["llm-ops/pd-role"] == "decode"
+    assert svcs["glm-svc-dc"]["spec"]["ports"][0]["targetPort"] == 8000
     kinds = [m["kind"] for m in build_all(_dep())]
     assert kinds == ["Deployment", "Deployment", "Service", "Service"]
     assert k8s_resource_names(_dep()) == {
-        "prefill_deployment": "glm-prefill-deployment",
-        "decode_deployment": "glm-decode-deployment",
-        "prefill_service": "glm-prefill-service",
-        "decode_service": "glm-decode-service",
+        "prefill_deployment": "glm-dep-pf",
+        "decode_deployment": "glm-dep-dc",
+        "prefill_service": "glm-svc-pf",
+        "decode_service": "glm-svc-dc",
     }
 
 
@@ -290,9 +290,9 @@ def test_aggregated_output_unchanged_without_runtime():
     assert c["resources"] == {} and "securityContext" not in c and "hostIPC" not in pod
     assert m["spec"]["selector"]["matchLabels"] == {"llm-ops/managed-by": "llm-ops-portal", "llm-ops/model-name": "glm"}
     assert k8s_resource_names(dep) == {
-        "deployment": "glm-deployment",
-        "service": "glm-service",
-        "ingress": "glm-ingress",
+        "deployment": "glm-dep",
+        "service": "glm-svc",
+        "ingress": "glm-ing",
     }
 
 
@@ -684,6 +684,6 @@ def test_pd_pools_declare_kv_event_ports():
 
 def test_pd_pool_runtime_extra_ports():
     deps = _by_name(build_pd_deployments(_dep(runtime={"extra_ports": {"metrics": 9100}}), sidecar_image="sc:v1"))
-    for name in ("glm-prefill-deployment", "glm-decode-deployment"):
+    for name in ("glm-dep-pf", "glm-dep-dc"):
         ports = deps[name]["spec"]["template"]["spec"]["containers"][0]["ports"]
         assert ports[2:] == [{"containerPort": 9100, "name": "metrics", "protocol": "TCP"}]

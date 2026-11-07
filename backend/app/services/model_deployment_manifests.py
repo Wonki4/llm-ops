@@ -18,6 +18,7 @@ from app.services.serving_engines import (
     serving_port,
     with_pod_ip,
 )
+from app.services.serving_names import resource_name
 from app.services.serving_probes import STARTUP_DEFAULTS_PD, render_probes
 from app.services.storage_mounts import to_volumes
 
@@ -55,21 +56,10 @@ def serving_api_key(vllm_extra_args: list | None, env: dict | None) -> str:
 
 
 def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
-    """Stable resource names.
-
-    Aggregated: ``<model>-deployment / -service / -ingress``. P/D:
-    ``<model>-prefill-deployment, -decode-deployment, -prefill-service,
-    -decode-service`` (keys ``<role>_deployment`` / ``<role>_service``). The
-    K8s client deletes by key suffix, so both shapes work.
-    """
+    """Map lifecycle keys (e.g. prefill_deployment) to Kubernetes object names."""
     if pd_serving.is_pd(dep):
         return pd_serving.role_resource_names(dep)
-    safe = dep.model_name.lower().replace("_", "-").replace(".", "-").replace("/", "-")
-    return {
-        "deployment": f"{safe}-deployment",
-        "service": f"{safe}-service",
-        "ingress": f"{safe}-ingress",
-    }
+    return {kind: resource_name(dep.model_name, kind) for kind in ("deployment", "service", "ingress")}
 
 
 def _labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:

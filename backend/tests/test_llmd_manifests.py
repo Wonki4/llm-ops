@@ -220,7 +220,7 @@ def test_build_ingress_shape_and_backend():
     ing = build_llmd_ingress(_stack(), host="myrouter.corp.internal", ingress_class="nginx", ingress_path="/")
     assert ing["apiVersion"] == "networking.k8s.io/v1"
     assert ing["kind"] == "Ingress"
-    assert ing["metadata"]["name"] == "llmd-my-stack-ingress"
+    assert ing["metadata"]["name"] == "llmd-my-stack-ing"
     assert ing["metadata"]["namespace"] == "llmd-my-stack"
     assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == "llm-ops-portal"
     rule = ing["spec"]["rules"][0]
@@ -271,7 +271,7 @@ def test_build_direct_service_uses_given_target_port():
 def test_build_direct_ingress_backend_is_direct_service():
     ing = build_direct_ingress(_stack(), host="direct.corp.internal", ingress_class="nginx", ingress_path="/")
     assert ing["kind"] == "Ingress"
-    assert ing["metadata"]["name"] == "llmd-my-stack-direct-ingress"
+    assert ing["metadata"]["name"] == "llmd-my-stack-direct-ing"
     assert ing["metadata"]["labels"]["app.kubernetes.io/managed-by"] == MANAGED_BY
     rule = ing["spec"]["rules"][0]
     assert rule["host"] == "direct.corp.internal"

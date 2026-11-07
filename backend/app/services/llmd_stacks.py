@@ -34,6 +34,7 @@ from app.services.llmd_manifests import (
     build_llmd_ingress,
     build_llmd_values,
     direct_service_name,
+    llmd_ingress_name,
     modelservers_target,
 )
 
@@ -178,7 +179,7 @@ def direct_selector(stack: CustomLlmdStack) -> tuple[dict, int]:
 def direct_cleanup_names(stack: CustomLlmdStack) -> dict:
     return {
         "service": direct_service_name(stack),
-        "ingress": f"{stack.argo_app_name}-direct-ingress",
+        "ingress": llmd_ingress_name(stack, direct=True),
     }
 
 
@@ -340,7 +341,7 @@ async def delete_stack(db: AsyncSession, stack: CustomLlmdStack) -> None:
         raise HTTPException(status_code=502, detail=f"ArgoCD delete failed: {k8s_error_message(e)}")
     try:
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await target_k8s.delete(stack.namespace, {"ingress": f"{stack.argo_app_name}-ingress"})
+        await target_k8s.delete(stack.namespace, {"ingress": llmd_ingress_name(stack)})
         if stack.direct_route_enabled:
             await target_k8s.delete(stack.namespace, direct_cleanup_names(stack))
     except Exception as e:  # noqa: BLE001 — ingress cleanup is best-effort

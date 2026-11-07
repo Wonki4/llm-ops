@@ -312,9 +312,9 @@ async def test_recipe_diff_pd_compares_each_pool(client_for_user, super_user, mo
             resp = await client.get(f"/api/model-deployments/{dep.id}/recipe-diff")
     assert resp.status_code == 200, resp.text
     pools = {m["name"]: m for m in resp.json()["manifests"] if m["kind"] == "Deployment"}
-    assert sorted(pools) == ["llama-decode-deployment", "llama-prefill-deployment"]
-    assert pools["llama-prefill-deployment"]["changed"] == 0
-    decode = pools["llama-decode-deployment"]
+    assert sorted(pools) == ["llama-dep-dc", "llama-dep-pf"]
+    assert pools["llama-dep-pf"]["changed"] == 0
+    decode = pools["llama-dep-dc"]
     inserted = [r["right"][1].strip() for r in decode["rows"] if r["op"] != "equal" and r["right"]]
     assert "- --max-num-seqs=512" in inserted
 

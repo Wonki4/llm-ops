@@ -15,7 +15,7 @@ def _vllm(deployment: dict) -> dict:
 
 
 def _pools(dep) -> dict:
-    return {d["metadata"]["name"].split("-")[-2]: d for d in build_pd_deployments(dep)}
+    return {d["spec"]["selector"]["matchLabels"][pd_serving.LABEL_PD_ROLE]: d for d in build_pd_deployments(dep)}
 
 
 def test_pd_pools_get_the_default_security_context():
