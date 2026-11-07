@@ -89,10 +89,14 @@ def argo_status(obj: dict | None) -> dict:
     if not obj:
         return {"sync_status": "Unknown", "health_status": "Unknown", "status_message": None}
     st = obj.get("status", {}) or {}
+    errors = [
+        c["message"] for c in st.get("conditions") or []
+        if str(c.get("type", "")).endswith("Error") and c.get("message")
+    ]
     return {
         "sync_status": (st.get("sync") or {}).get("status", "Unknown"),
         "health_status": (st.get("health") or {}).get("status", "Unknown"),
-        "status_message": (st.get("health") or {}).get("message"),
+        "status_message": "\n".join(errors) or (st.get("health") or {}).get("message"),
     }
 
 

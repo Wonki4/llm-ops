@@ -10,6 +10,14 @@ from app.api.llmd import _serialize
 from app.services import llmd_stacks
 
 
+def test_argo_status_explains_a_router_blocked_before_sync():
+    message = "application repo ghcr.io/llm-d/charts is not permitted in project 'llm-d'"
+    obj = {"status": {"conditions": [{"type": "InvalidSpecError", "message": message}]}}
+    assert llmd_stacks.argo_status(obj) == {
+        "health_status": "Unknown", "sync_status": "Unknown", "status_message": message,
+    }
+
+
 def test_dump_values_yaml_preserves_literal_blocks():
     # A multi-line string value (e.g. an embedded envoy.yaml config) must render
     # as a YAML `|` literal block, not a quoted string with escaped \n — the
