@@ -161,6 +161,11 @@ async def create_recipe(body: serving_recipes.RecipeBody) -> dict:
     return await _run(serving.create_recipe, body=body)
 
 
+async def preview_deployment_from_recipe(recipe_id: str, target: serving.DeployTarget) -> dict:
+    """Preview the target deployment's LiteLLM registration and aggregated ingress before applying the recipe."""
+    return await _run(serving.preview_deployment, recipe_id=recipe_id, target=target)
+
+
 async def deploy_from_recipe(recipe_id: str, target: serving.DeployTarget) -> dict:
     """Apply the saved recipe. Keep the deployment id and rollout map for subsequent checks."""
     return await _run(serving.deploy, recipe_id=recipe_id, target=target)
@@ -178,8 +183,13 @@ async def apply_deployment_recipe_patch(deployment_id: str, patch: dict, preview
     return await _run(serving.recovery_recipe, deployment_id=deployment_id, patch=patch, preview_id=preview_id)
 
 
+async def retry_aggregated_router(deployment_id: str) -> dict:
+    """Reapply this deployment's dedicated llm-d stack without rolling its model pods."""
+    return await _run(model_deployments.retry_aggregated_router, deployment_id=deployment_id)
+
+
 async def get_rollout_status(deployment_id: str, rollout: dict[str, serving.Revision] | None = None) -> dict:
-    """Check live Deployment generations, pool readiness and PD router sync/health.
+    """Check live Deployment generations, pool readiness and linked router sync/health.
     Pass the rollout map returned by deploy/apply to detect superseded writes.
     """
     return await _run(serving.rollout_status, deployment_id=deployment_id, rollout=rollout)
@@ -200,7 +210,8 @@ async def smoke_test_deployment(deployment_id: str, rollout: dict[str, serving.R
 def register_tools(server: MCPServer) -> None:
     for fn, description in _DESCRIPTIONS:
         server.tool(description=description, annotations=READ_ONLY)(fn)
-    for fn in (preview_recipe, preview_deployment_recipe_patch, get_rollout_status, get_deployment_diagnostics):
+    for fn in (preview_recipe, preview_deployment_from_recipe, preview_deployment_recipe_patch,
+               get_rollout_status, get_deployment_diagnostics):
         server.tool(annotations=READ_ONLY)(fn)
-    for fn in (create_recipe, deploy_from_recipe, apply_deployment_recipe_patch, smoke_test_deployment):
+    for fn in (create_recipe, deploy_from_recipe, apply_deployment_recipe_patch, retry_aggregated_router, smoke_test_deployment):
         server.tool(annotations=ToolAnnotations(read_only_hint=False))(fn)

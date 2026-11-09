@@ -70,6 +70,7 @@ class CustomModelDeployment(CustomBase):
     serving_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="aggregated", server_default="aggregated"
     )
+    aggregated_router: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     pd_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     runtime: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # The portal's common pod label / annotation rules ({key: value template}) as of
@@ -83,6 +84,7 @@ class CustomModelDeployment(CustomBase):
     router_stack_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("custom_llmd_stack.id", ondelete="SET NULL"), nullable=True
     )
+    router_apply_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     router_stack_created: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

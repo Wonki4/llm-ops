@@ -28,8 +28,8 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
-from app.services import llmd_stacks, manifest_diff, pd_router, pd_serving, recipe_reapply, serving_rollout
-from app.services.clusters import default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
+from app.services import aggregated_router, llmd_stacks, manifest_diff, pd_router, pd_serving, recipe_reapply, serving_rollout
+from app.services.clusters import argocd_placement_for, default_namespace, k8s_for_cluster, scan_scopes, validate_namespace
 from app.services.common_labels import load_deployment_copy
 from app.services.external_servings import scan_clusters
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
@@ -44,8 +44,9 @@ from app.services.litellm_registration import (
 )
 from app.services.llmd_links import portal_server, stacks_for_server
 from app.services.llmd_manifests import llmd_ingress_name, stack_selector
-from app.services.model_deployment_manifests import build_all, k8s_resource_names, live_owner
+from app.services.model_deployment_manifests import build_all, build_ingress, build_service, k8s_resource_names, live_owner
 from app.services.recipe_import import attach_storages, build_recipe_draft
+from app.services.aggregated_router import RouterOption
 from app.services.serving_engines import (
     DEFAULT_IMAGES,
     ServingEngine,
@@ -110,6 +111,7 @@ class CreateDeploymentRequest(BaseModel):
     ingress_class: str = "nginx"
     recipe_id: str | None = None  # recipe this deployment is launched from (informational)
     serving_mode: pd_serving.ServingMode = "aggregated"
+    aggregated_router: RouterOption = None
     pd_config: dict | None = None
     runtime: dict | None = None
     router_stack_id: str | None = None  # P/D: link this llm-d stack instead of auto-creating one
@@ -175,6 +177,11 @@ class CreateDeploymentRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_pd(self):
+        aggregated_router.validate_config(self.aggregated_router, self.serving_mode)
+        if aggregated_router.enabled(self):
+            if self.router_stack_id:
+                raise ValueError("Aggregated deployments create their own dedicated router")
+            aggregated_router.stack_for(self)
         if self.serving_mode == "pd":
             self.pd_config = pd_serving.validate_pd_config(
                 self.pd_config, engine=self.engine, base_extra_args=self.vllm_extra_args
@@ -302,6 +309,8 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
         "probes": getattr(d, "probes", None),
         "gpu_type": getattr(d, "gpu_type", None),
         "serving_mode": getattr(d, "serving_mode", None) or "aggregated",
+        "aggregated_router": getattr(d, "aggregated_router", None),
+        "router_apply_error": getattr(d, "router_apply_error", None),
         "pd_config": getattr(d, "pd_config", None),
         "runtime": getattr(d, "runtime", None),
         "pd_status": getattr(d, "pd_status", None),
@@ -516,11 +525,17 @@ async def deployment_manifests(
 ) -> dict:
     dep = await _deployment_or_404(db, str(deployment_id))
     k8s = await k8s_for_cluster(db, dep.cluster_id)
+    application = None
     try:
         resources = await k8s.read_manifests(dep.namespace, k8s_resource_names(dep))
-        if pd_serving.is_pd(dep) and dep.router_stack_id:
+        if aggregated_router.routed(dep) and dep.router_stack_id:
             stack = await db.get(CustomLlmdStack, dep.router_stack_id)
             if stack is not None:
+                if aggregated_router.enabled(dep):
+                    control, argo_ns, _ = await argocd_placement_for(db, stack.cluster_id)
+                    application = await control.get_application(argo_ns, stack.argo_app_name)
+                    if application is None:
+                        resources.append(("Application", stack.argo_app_name, None))
                 names = {"ingress": llmd_ingress_name(stack)}
                 if stack.direct_route_enabled:
                     names["direct_ingress"] = llmd_ingress_name(stack, direct=True)
@@ -533,6 +548,8 @@ async def deployment_manifests(
     except (OSError, TimeoutError) as e:
         raise HTTPException(status_code=502, detail="Could not reach the Kubernetes API") from e
 
+    if application is not None:
+        resources.append(("Application", application["metadata"]["name"], application))
     manifests = []
     missing = []
     for kind, name, obj in resources:
@@ -680,8 +697,11 @@ async def _existing_router(db: AsyncSession, name: str, stack_id: str | None) ->
         stack = await db.get(CustomLlmdStack, uuid.UUID(stack_id))
         if stack is None:
             raise HTTPException(status_code=400, detail="router_stack_id does not match an llm-d stack")
-        return stack
-    return (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == name))).scalar_one_or_none()
+    else:
+        stack = (await db.execute(select(CustomLlmdStack).where(CustomLlmdStack.name == name))).scalar_one_or_none()
+    if stack is not None:
+        await llmd_stacks.require_independent(db, stack)
+    return stack
 
 
 async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: CreateDeploymentRequest, user_id) -> None:
@@ -746,19 +766,55 @@ def _apply_error(e: Exception, dep: CustomModelDeployment) -> HTTPException:
     return HTTPException(status_code=502, detail="Failed to apply K8s resources; check logs")
 
 
+async def _inherit_recipe_router(db, body: CreateDeploymentRequest) -> CreateDeploymentRequest:
+    if body.serving_mode != "aggregated" or not body.recipe_id or "aggregated_router" in body.model_fields_set:
+        return body
+    try:
+        recipe = await db.get(CustomServingRecipe, uuid.UUID(body.recipe_id))
+    except ValueError as exc:
+        raise HTTPException(422, "Invalid recipe_id") from exc
+    if recipe is None:
+        raise HTTPException(404, "Serving recipe not found")
+    if recipe.aggregated_router is None:
+        return body
+    try:
+        return CreateDeploymentRequest(**{**body.model_dump(), "aggregated_router": recipe.aggregated_router})
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.post("/registration-preview")
 async def preview_deployment_registration(
     body: CreateDeploymentRequest,
+    include_ingress: bool = False,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Resolve the registration from the draft launch arguments without deploying it."""
+    body = await _inherit_recipe_router(db, body)
     router_base = None
     if pd_serving.is_pd(body):
         stack = await _existing_router(db, pd_router.stack_name(body), body.router_stack_id)
         host = llmd_stacks.ingress_host(stack) if stack else body.ingress_host
         router_base = f"https://{host}"
-    return registration_preview(body, router_base)
+    preview = registration_preview(body, router_base)
+    if aggregated_router.enabled(body):
+        stack = aggregated_router.stack_for(body)
+        preview["ingress"] = llmd_stacks.ingress_for(stack)
+        servers = stack.helm_values["router"]["modelServers"]
+        preview["routing"] = {
+            "mode": "llm-d", "selector": servers["matchLabels"], "target_port": servers["targetPorts"][0]["number"],
+        }
+    elif include_ingress and not pd_serving.is_pd(body):
+        preview["ingress"] = build_ingress(body)
+        service = build_service(body)["spec"]
+        preview["routing"] = {
+            "mode": "direct", "selector": service["selector"], "target_port": service["ports"][0]["targetPort"],
+        }
+    if "ingress" in preview and not body.namespace:
+        cluster_id = uuid.UUID(body.cluster_id) if body.cluster_id else None
+        preview["ingress"]["metadata"]["namespace"] = await default_namespace(db, cluster_id)
+    return preview
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -767,6 +823,7 @@ async def create_deployment(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    body = await _inherit_recipe_router(db, body)
     # Uniqueness on model_name
     existing = await db.execute(
         select(CustomModelDeployment).where(CustomModelDeployment.model_name == body.model_name)
@@ -812,6 +869,7 @@ async def create_deployment(
         recipe_id=uuid.UUID(body.recipe_id) if body.recipe_id else None,
         serving_mode=body.serving_mode,
         pd_config=body.pd_config,
+        aggregated_router=body.aggregated_router,
         runtime=body.runtime,
         **await load_deployment_copy(db),
         status="Pending",
@@ -830,6 +888,10 @@ async def create_deployment(
     await db.flush()
     await db.refresh(dep)
 
+    reserved = None
+    if aggregated_router.enabled(dep):
+        reserved = await aggregated_router.prepare(db, dep)
+
     # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
     try:
         rollout = await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
@@ -838,7 +900,9 @@ async def create_deployment(
     except Exception as e:
         raise _apply_error(e, dep)
 
-    if pd_serving.is_pd(dep):
+    if reserved is not None:
+        await aggregated_router.sync(db, dep, reserved=reserved)
+    elif pd_serving.is_pd(dep):
         await _attach_router(db, dep, body, user.user_id)
 
     return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
@@ -993,10 +1057,27 @@ async def _apply_update(
     except Exception as e:
         raise _apply_error(e, dep)
 
+    if aggregated_router.enabled(dep):
+        await aggregated_router.sync(db, dep)
+
     if dep.litellm_model_id and registered_as is not None and _registration_key(dep) != registered_as:
         await _unregister(litellm, dep)
 
     return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
+
+
+@router.post("/{deployment_id}/router/retry")
+async def retry_aggregated_router(
+    deployment_id: str,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    dep = await _deployment_or_404(db, deployment_id, for_update=True)
+    if not aggregated_router.enabled(dep):
+        raise HTTPException(409, "This deployment has no dedicated aggregated router")
+    dep.updated_by = user.user_id
+    await aggregated_router.sync(db, dep)
+    return _serialize(dep)
 
 
 @router.post("/{deployment_id}/litellm-registration")
@@ -1020,7 +1101,7 @@ async def reregister_deployment(
             status_code=409, detail=f"Deployment is {dep.status}; only a Ready deployment can be registered"
         )
     api_base = None
-    if pd_serving.is_pd(dep):
+    if aggregated_router.routed(dep):
         api_base, reason = await reconcile_deployments._router_target(db, dep)
         if api_base is None:
             raise HTTPException(status_code=409, detail=f"Router not ready: {reason}")
@@ -1145,6 +1226,11 @@ async def deployment_recipe_diff(db: AsyncSession, dep: CustomModelDeployment, r
     try:
         after_manifests = await _proposed_manifests(db, dep, values, proposed)
         current_manifests = build_all(dep, sidecar_image=settings.llmd_sidecar_image)
+        if aggregated_router.enabled(dep):
+            for row, manifests in ((dep, current_manifests), (proposed, after_manifests)):
+                stack = aggregated_router.stack_for(row, validate_targets=False)
+                manifests.append(llmd_stacks.ingress_for(stack))
+                manifests.append({"kind": "values.yaml", "metadata": {"name": stack.name}, **stack.helm_values})
         manifests = manifest_diff.manifest_diffs(current_manifests, after_manifests)
     except ValueError as e:
         blocked = blocked or str(e)
@@ -1218,17 +1304,16 @@ async def delete_deployment(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == uuid.UUID(deployment_id)))
-    dep = result.scalar_one_or_none()
-    if not dep:
-        raise HTTPException(status_code=404, detail="Deployment not found")
+    dep = await _deployment_or_404(db, deployment_id, for_update=True)
 
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     try:
         await k8s.delete(dep.namespace, k8s_resource_names(dep))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
-    except Exception:
+    except Exception as exc:
+        if aggregated_router.enabled(dep):
+            raise _apply_error(exc, dep) from exc
         logger.exception("K8s delete failed for %s", dep.model_name)
         # Continue to delete the row — orphan K8s resources are easier to clean than orphan DB rows.
 
@@ -1237,8 +1322,13 @@ async def delete_deployment(
         stack = await db.get(CustomLlmdStack, dep.router_stack_id)
         if stack is not None:
             try:
-                await llmd_stacks.delete_stack(db, stack)
+                if aggregated_router.enabled(dep):
+                    await llmd_stacks.delete_stack(db, stack, require_ingress_cleanup=True)
+                else:
+                    await llmd_stacks.delete_stack(db, stack)
             except HTTPException as e:
+                if aggregated_router.enabled(dep):
+                    raise
                 logger.warning("Router stack %s delete failed: %s", stack.name, e.detail)
 
     await db.delete(dep)

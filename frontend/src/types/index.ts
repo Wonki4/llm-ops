@@ -780,6 +780,7 @@ export interface ModelDeployment {
   /** GPU type profile name; resolved per cluster at deploy time. */
   gpu_type: string | null;
   serving_mode: ServingMode;
+  aggregated_router?: AggregatedRouterConfig | null;
   pd_config: PdConfig | null;
   runtime: RuntimeOptions | null;
   /** P/D: per-role observed status from the reconciler. */
@@ -788,6 +789,7 @@ export interface ModelDeployment {
   pd_summary: string | null;
   router_stack_id: string | null;
   router_stack_created: boolean;
+  router_apply_error?: string | null;
   /** Detail endpoint: the linked router with live ArgoCD state. */
   router_stack?: RouterStackSummary | null;
   ingress_host: string;
@@ -960,6 +962,13 @@ export type ServingEngine = "vllm" | "sglang";
 export type EngineArgs = Record<string, string | number | boolean>;
 
 // ─── Prefill/decode disaggregation ───────────────────────────
+export interface AggregatedRouterConfig {
+  chart_repo?: string;
+  chart_name?: string;
+  chart_version?: string;
+  values_yaml?: string;
+}
+
 export type ServingMode = "aggregated" | "pd";
 
 /**
@@ -1138,6 +1147,7 @@ export interface ServingRecipe {
   /** GPU type profile name; resolved per cluster at deploy time. */
   gpu_type: string | null;
   serving_mode: ServingMode;
+  aggregated_router?: AggregatedRouterConfig | null;
   pd_config: PdConfig | null;
   runtime: RuntimeOptions | null;
   created_by: string | null;
@@ -1190,6 +1200,7 @@ export interface ManifestPreview {
 }
 
 export interface ServingRecipePreview {
+  router_images?: { epp: string; envoy: string };
   manifests: ManifestPreview[];
   warnings: string[];
 }
@@ -1250,6 +1261,7 @@ export interface CreateDeploymentBody {
   ingress_path: string;
   ingress_class: string;
   serving_mode?: ServingMode;
+  aggregated_router?: AggregatedRouterConfig | null;
   pd_config?: PdConfig | null;
   runtime?: RuntimeOptions | null;
   /** P/D: link this llm-d stack instead of auto-creating `<model>-router`. */

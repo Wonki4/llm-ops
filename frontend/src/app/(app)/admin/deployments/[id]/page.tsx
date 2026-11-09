@@ -16,6 +16,7 @@ import {
   useModelDeploymentEvents,
   useScaleDeployment,
   useDeleteModelDeployment,
+  useRetryAggregatedRouter,
 } from "@/hooks/use-api";
 import type { ModelDeployment, ModelDeploymentEvent, ProbeSpec } from "@/types";
 import { Badge } from "@/components/ui/badge";
@@ -158,6 +159,8 @@ export default function DeploymentDetailPage() {
   const { data: dep, isLoading } = useModelDeployment(id);
   const { data: events } = useModelDeploymentEvents(id);
   const deleteMut = useDeleteModelDeployment();
+  const retryRouter = useRetryAggregatedRouter(id);
+  const common = useTranslations("common");
 
   const fmt = (d: string | null) => (d ? parseServerDate(d).toLocaleString(localeTag) : "-");
 
@@ -414,6 +417,13 @@ export default function DeploymentDetailPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">{t("llmdSection")}</CardTitle></CardHeader>
         <CardContent>
+          {dep.aggregated_router != null && (dep.router_apply_error || dep.router_stack?.status_message) && (
+            <div role="status" className="mb-2 flex items-center gap-3 text-sm">
+              <span>{dep.router_apply_error || dep.router_stack?.status_message}</span>
+              <Button variant="outline" size="sm" disabled={retryRouter.isPending}
+                onClick={() => retryRouter.mutate(undefined, { onError: (e) => toast.error(e.message) })}>{common("retry")}</Button>
+            </div>
+          )}
           {!dep.llmd_stacks || dep.llmd_stacks.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("llmdNone")}</p>
           ) : (

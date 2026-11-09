@@ -71,6 +71,12 @@ class DefaultValuesRequest(BaseModel):
 
 
 def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
+    epp_image = "{}/{}:{}".format(*llmd_stacks.epp_image(stack))
+    actual = (stack.values_snapshot or {}).get("router") or {}
+    if isinstance(actual, dict) and isinstance(actual.get("epp"), dict):
+        image = actual["epp"].get("image")
+        if isinstance(image, dict) and all(image.get(k) for k in ("registry", "repository", "tag")):
+            epp_image = "{registry}/{repository}:{tag}".format(**image)
     return {
         "id": str(stack.id),
         "name": stack.name,
@@ -81,7 +87,7 @@ def _serialize(stack: CustomLlmdStack, status_fields: dict) -> dict:
         "chart_repo": llmd_stacks.chart_source(stack)[0],
         "chart_name": llmd_stacks.chart_source(stack)[1],
         "chart_version": llmd_stacks.chart_source(stack)[2],
-        "epp_image": "{}/{}:{}".format(*llmd_stacks.epp_image(stack)),
+        "epp_image": epp_image,
         "ingress_host": llmd_stacks.ingress_host(stack),
         "ingress_class": llmd_stacks.ingress_class(stack),
         "chart_overrides": {
@@ -268,6 +274,7 @@ async def update_stack(
     if not stack:
         raise HTTPException(status_code=404, detail="Stack not found")
 
+    await llmd_stacks.require_independent(db, stack)
     if body.namespace is not None:
         stack.namespace = body.namespace
     if body.values_yaml is not None:
@@ -328,6 +335,7 @@ async def delete_stack(
     ).scalar_one_or_none()
     if not stack:
         raise HTTPException(status_code=404, detail="Stack not found")
+    await llmd_stacks.require_independent(db, stack)
     await llmd_stacks.delete_stack(db, stack)
     await db.commit()
     return {"ok": True}

@@ -59,7 +59,10 @@ def k8s_resource_names(dep: CustomModelDeployment) -> dict[str, str]:
     """Map lifecycle keys (e.g. prefill_deployment) to Kubernetes object names."""
     if pd_serving.is_pd(dep):
         return pd_serving.role_resource_names(dep)
-    return {kind: resource_name(dep.model_name, kind) for kind in ("deployment", "service", "ingress")}
+    kinds = ["deployment", "service"]
+    if getattr(dep, "aggregated_router", None) is None:
+        kinds.append("ingress")
+    return {kind: resource_name(dep.model_name, kind) for kind in kinds}
 
 
 def _labels(dep: CustomModelDeployment, owner: str = OWNER) -> dict[str, str]:
@@ -430,7 +433,10 @@ def build_all(dep: CustomModelDeployment, *, sidecar_image: str | None = None, o
     OWNER for a new deployment, whatever the live Deployment has on update (``live_owner``)."""
     if pd_serving.is_pd(dep):
         return [*build_pd_deployments(dep, sidecar_image=sidecar_image, owner=owner), *build_pd_services(dep, owner)]
-    return [build_deployment(dep, owner), build_service(dep, owner), build_ingress(dep, owner)]
+    resources = [build_deployment(dep, owner), build_service(dep, owner)]
+    if getattr(dep, "aggregated_router", None) is None:
+        resources.append(build_ingress(dep, owner))
+    return resources
 
 
 async def live_owner(k8s, dep: CustomModelDeployment) -> str:
