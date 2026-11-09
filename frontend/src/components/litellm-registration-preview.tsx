@@ -5,7 +5,10 @@ import { useTranslations } from "next-intl";
 
 import { apiFetch } from "@/lib/api";
 
-type Registration = { model_name: string; litellm_model: string; api_base: string };
+type Registration = { model_name: string; litellm_model: string; api_base: string;
+  routing?: { mode: "direct" | "llm-d"; selector: Record<string, string>; target_port: number };
+  ingress?: { metadata: { name: string }; spec: { rules: { host: string; http: { paths: { path: string; backend: { service: { name: string; port: { name?: string; number?: number } } } }[] } }[] } };
+};
 
 /** Keep each response tied to the exact draft that requested it, including during debounce. */
 export function useRegistrationPreview(path: string, draft: object | null) {
@@ -39,11 +42,23 @@ export function RegistrationPreview({ preview }: { preview: ReturnType<typeof us
   const common = useTranslations("common");
   if (!preview.active) return null;
   const { data, error } = preview;
+  const ingress = data?.ingress;
+  const rule = ingress?.spec.rules[0];
+  const route = rule?.http.paths[0];
   return (
     <section aria-live="polite" className="space-y-2 rounded-md border bg-muted/30 p-3 text-xs">
       <h4 className="font-medium">{t("registrationPreview")}</h4>
       {data ? (
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+          {ingress && rule && route && <>
+            <dt className="text-muted-foreground">Ingress</dt>
+            <dd className="break-all font-mono">{ingress.metadata.name}<br />{rule.host}{route.path} → {route.backend.service.name}:{route.backend.service.port.name ?? route.backend.service.port.number}</dd>
+          </>}
+          {data.routing && <>
+            <dt className="text-muted-foreground">Pod selector</dt>
+            <dd className="break-all font-mono">{Object.entries(data.routing.selector).map(([k, v]) => `${k}=${v}`).join(", ")}</dd>
+            <dt className="text-muted-foreground">targetPort</dt><dd className="font-mono">{data.routing.target_port}</dd>
+          </>}
           {Object.entries({ model_name: data.model_name, provider: data.litellm_model.split("/", 1)[0], model: data.litellm_model, api_base: data.api_base }).map(([key, value]) => (
             <div key={key} className="contents"><dt className="text-muted-foreground">{key}</dt><dd className="break-all font-mono">{value}</dd></div>
           ))}

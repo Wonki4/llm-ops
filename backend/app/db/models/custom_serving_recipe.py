@@ -51,6 +51,7 @@ class CustomServingRecipe(CustomBase):
     serving_mode: Mapped[str] = mapped_column(
         String(16), nullable=False, default="aggregated", server_default="aggregated"
     )
+    aggregated_router: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     pd_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # {"shm_size_gi", "host_ipc", "privileged", "extra_resources"} (see pd_serving.Runtime)
     runtime: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

@@ -7,7 +7,7 @@ health status is read live from the Application CR, never persisted here.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,7 @@ class CustomLlmdStack(CustomBase):
     # is a full host; NULL -> "{argo_app_name}.{effective_ingress_domain}".
     # ingress_class NULL -> settings.llmd_ingress_class.
     ingress_host: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    ingress_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     ingress_class: Mapped[str | None] = mapped_column(String(253), nullable=True)
     # Direct-route (opt-in). When enabled, the portal lays down a plain
     # ClusterIP Service selecting the model-server pods

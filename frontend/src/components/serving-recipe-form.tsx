@@ -135,8 +135,13 @@ export function ServingRecipeForm({
 
   const saving = createMut.isPending || updateMut.isPending;
   const isPd = form.serving_mode === "pd";
+  const aggregatedDefaults = useRouterDefaults("aggregated", !isPd && form.aggregated_router != null);
   const pd: PdConfig = form.pd_config ?? {};
   const gpuTypeList = gpuTypes ?? [];
+
+  function setAggregatedRouter(config: ServingRecipeInput["aggregated_router"]) {
+    setForm((f) => ({ ...f, aggregated_router: config }));
+  }
 
   function switchEngine(next: ServingEngine) {
     setForm((f) => {
@@ -337,6 +342,41 @@ export function ServingRecipeForm({
         ) : (
           <FormCard>
             {recipeSection}
+            <div className="space-y-3 px-5 py-4">
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={form.aggregated_router != null}
+                  onChange={(e) => setAggregatedRouter(e.target.checked ? {} : null)} />
+                {t("aggregatedRouter")}
+              </label>
+              {form.aggregated_router != null && (
+                <div className="space-y-3">
+                  <div className="grid gap-3 lg:grid-cols-[2fr_2fr_1fr]">
+                    {([
+                      ["chart_repo", "pdChartRepo"], ["chart_name", "pdChartName"], ["chart_version", "pdChartVersion"],
+                    ] as const).map(([key, label]) => (
+                      <Field key={key} id={`aggregated-${key}`} label={t(label)}>
+                        <Input id={`aggregated-${key}`} className="font-mono text-xs"
+                          value={form.aggregated_router?.[key] ?? ""} placeholder={aggregatedDefaults.data?.[key]}
+                          onChange={(e) => setAggregatedRouter({ ...form.aggregated_router, [key]: e.target.value || undefined })} />
+                      </Field>
+                    ))}
+                  </div>
+                  <Field id="aggregated-router-values" label="Helm values.yaml" hint={t("aggregatedRouterHint")}>
+                    <textarea id="aggregated-router-values" rows={18} spellCheck={false}
+                      className="w-full rounded-md border bg-background p-2 font-mono text-xs"
+                      value={form.aggregated_router.values_yaml ?? aggregatedDefaults.data?.values_yaml ?? ""}
+                      onChange={(e) => setAggregatedRouter({ ...form.aggregated_router, values_yaml: e.target.value })} />
+                  </Field>
+                  {form.aggregated_router.values_yaml != null && aggregatedDefaults.data && (
+                    <details className="text-xs">
+                      <summary className="cursor-pointer">{t("routerDefaultValues", { version: aggregatedDefaults.data.chart_version })}</summary>
+                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3">{aggregatedDefaults.data.values_yaml}</pre>
+                    </details>
+                  )}
+                  {aggregatedDefaults.isError && <Button type="button" variant="outline" size="sm" onClick={() => aggregatedDefaults.refetch()}>{tc("retry")}</Button>}
+                </div>
+              )}
+            </div>
             <PoolConfigCards
               key={`base-${poolNonce.base}`}
               idPrefix="recipe"
@@ -438,6 +478,7 @@ function recipeRequestBody(form: ServingRecipeInput, kvExtraText: string): Reque
     body: {
       ...body,
       ...representative,
+      aggregated_router: null,
       image: prefill.image ?? "",
       model_path: prefill.model_path ?? "",
       gpu_resource_key: prefill.gpu_resource_key ?? "nvidia.com/gpu",

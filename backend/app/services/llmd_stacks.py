@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.clients.k8s import K8sNotConfigured
 from app.config import settings
 from app.db.models.custom_llmd_stack import CustomLlmdStack
+from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services.clusters import argocd_placement_for, k8s_for_cluster
 from app.services.llmd_manifests import (
     argo_app_name_for,
@@ -104,10 +105,23 @@ async def live_status(db: AsyncSession, stack: CustomLlmdStack) -> dict:
     try:
         k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
         obj = await k8s.get_application(argocd_ns, stack.argo_app_name)
-        return argo_status(obj)
+        status = argo_status(obj)
+        if getattr(stack, "ingress_path", None) is not None:
+            if obj is None:
+                status["status_message"] = f"Application {stack.argo_app_name} not found"
+            else:
+                sync = (obj.get("status") or {}).get("sync") or {}
+                compared = (sync.get("comparedTo") or {}).get("source") or {}
+                helm = compared.get("helm") or {}
+                if sync.get("status") == "Synced" and helm.get("valuesObject") != stack.values_snapshot:
+                    status.update(sync_status="OutOfSync", status_message="Waiting for Argo CD to compare the deployed Helm values")
+        return status
     except Exception as e:  # noqa: BLE001 — status is best-effort
         logger.info("llm-d status read failed for %s: %s", stack.name, e)
-        return argo_status(None)
+        status = argo_status(None)
+        if getattr(stack, "ingress_path", None) is not None:
+            status["status_message"] = k8s_error_message(e)
+        return status
 
 
 def k8s_error_message(e: Exception) -> str:
@@ -164,7 +178,7 @@ def ingress_for(stack: CustomLlmdStack) -> dict:
         stack,
         host=ingress_host(stack),
         ingress_class=ingress_class(stack),
-        ingress_path=settings.llmd_ingress_path or "/",
+        ingress_path=getattr(stack, "ingress_path", None) or settings.llmd_ingress_path or "/",
     )
 
 
@@ -216,7 +230,7 @@ def require_direct_selector(stack: CustomLlmdStack) -> None:
 
 def application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_server: str) -> dict:
     chart_repo, chart_name, chart_version = chart_source(stack)
-    return build_argo_application(
+    application = build_argo_application(
         stack,
         chart_repo=chart_repo,
         chart_name=chart_name,
@@ -226,6 +240,9 @@ def application_for(stack: CustomLlmdStack, argocd_namespace: str, destination_s
         argocd_namespace=argocd_namespace,
         destination_server=destination_server,
     )
+    if getattr(stack, "ingress_path", None) is not None:
+        application["spec"]["syncPolicy"]["syncOptions"].append("FailOnSharedResource=true")
+    return application
 
 
 def require_valid_name(name: str) -> str:
@@ -332,7 +349,18 @@ async def create_stack(
     return stack
 
 
-async def delete_stack(db: AsyncSession, stack: CustomLlmdStack) -> None:
+async def require_independent(db: AsyncSession, stack: CustomLlmdStack) -> None:
+    # Only deployment-owned stacks persist a per-deployment ingress path.
+    if getattr(stack, "ingress_path", None) is None:
+        return
+    owner = await db.scalar(select(CustomModelDeployment.id).where(
+        CustomModelDeployment.router_stack_id == stack.id, CustomModelDeployment.aggregated_router.is_not(None),
+    ))
+    if owner:
+        raise HTTPException(409, f"Router is managed by aggregated deployment {owner}")
+
+
+async def delete_stack(db: AsyncSession, stack: CustomLlmdStack, *, require_ingress_cleanup: bool = False) -> None:
     """Delete the Application CR (502 on failure), clean up ingresses best-effort, delete the row."""
     try:
         k8s, argocd_ns, _dest = await argocd_placement_for(db, stack.cluster_id)
@@ -346,5 +374,7 @@ async def delete_stack(db: AsyncSession, stack: CustomLlmdStack) -> None:
         if stack.direct_route_enabled:
             await target_k8s.delete(stack.namespace, direct_cleanup_names(stack))
     except Exception as e:  # noqa: BLE001 — ingress cleanup is best-effort
+        if require_ingress_cleanup:
+            raise HTTPException(502, f"Router ingress cleanup failed: {k8s_error_message(e)}") from e
         logger.info("llm-d ingress cleanup failed for %s: %s", stack.name, e)
     await db.delete(stack)

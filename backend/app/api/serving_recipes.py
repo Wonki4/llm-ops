@@ -15,7 +15,8 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services import pd_router
+from app.services import aggregated_router, llmd_stacks, pd_router
+from app.services.aggregated_router import RouterOption
 from app.services.clusters import default_namespace, validate_namespace
 from app.services.common_labels import load_deployment_copy
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
@@ -53,6 +54,7 @@ class RecipeBody(BaseModel):
     probes: dict | None = None
     gpu_type: str | None = None  # GPU profile name, resolved per cluster at deploy time
     serving_mode: ServingMode = "aggregated"
+    aggregated_router: RouterOption = None
     pd_config: dict | None = None  # per-role overrides etc. (pd only; see pd_serving)
     runtime: dict | None = None  # shm / hostIPC / privileged / extra resources
 
@@ -78,6 +80,7 @@ class RecipeBody(BaseModel):
 
     @model_validator(mode="after")
     def _check_pd(self):
+        aggregated_router.validate_config(self.aggregated_router, self.serving_mode)
         if self.serving_mode == "pd":
             self.pd_config = validate_pd_config(
                 self.pd_config, engine=self.engine, base_extra_args=self.vllm_extra_args
@@ -154,6 +157,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "probes": getattr(r, "probes", None),
         "gpu_type": getattr(r, "gpu_type", None),
         "serving_mode": getattr(r, "serving_mode", None) or "aggregated",
+        "aggregated_router": getattr(r, "aggregated_router", None),
         "pd_config": getattr(r, "pd_config", None),
         "runtime": getattr(r, "runtime", None),
         "created_by": r.created_by,
@@ -230,7 +234,7 @@ async def preview_recipe(
     Runs the deploy path — storage resolution, GPU profiles, ``build_all`` — on
     a transient row that is never added to the session. Unbound storages render
     as placeholder claims and come back as ``storage_unresolved:<name>``
-    warnings; the P/D router (an llm-d stack) is not part of these manifests.
+    warnings. Routed recipes also include their rendered Helm values.
     """
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
     try:
@@ -267,6 +271,12 @@ async def preview_recipe(
         manifests = build_all(dep, sidecar_image=settings.llmd_sidecar_image)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    if aggregated_router.enabled(dep):
+        try:
+            stack = aggregated_router.stack_for(dep)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        manifests.append(llmd_stacks.ingress_for(stack))
     warnings = recipe_warnings(dep.model_path, dep.storages or [], dep.pd_config)
     warnings += [f"storage_unresolved:{n}" for n in unresolved]
     warnings += await pvc_warnings(db, dep)
@@ -278,6 +288,18 @@ async def preview_recipe(
         }
         for m in manifests
     ]
+    router_images = None
+    if aggregated_router.enabled(dep):
+        repo, chart, version = llmd_stacks.chart_source(stack)
+        values = pd_router.dump_values(stack.values_snapshot)
+        out.append({"kind": "values.yaml", "name": stack.name, "yaml": f"# chart: {repo}/{chart} {version}\n{values}"})
+        router = stack.values_snapshot["router"]
+        image = router["epp"]["image"]
+        proxy = router["proxy"]
+        router_images = {
+            "epp": "{registry}/{repository}:{tag}".format(**image),
+            "envoy": proxy.get("image") or proxy["presets"]["envoy"]["image"],
+        }
     if is_pd(dep):  # the router stack's values (ArgoCD renders the chart from them)
         repo, chart, version = pd_router.router_chart(dep)
         values = pd_router.dump_values(pd_router.rendered_router_values(dep))
@@ -286,17 +308,23 @@ async def preview_recipe(
             "name": pd_router.stack_name(dep),
             "yaml": f"# chart: {repo}/{chart} {version}\n{values}",
         })
-    return {"manifests": out, "warnings": warnings}
+    return {"manifests": out, "warnings": warnings, **({"router_images": router_images} if router_images else {})}
 
 
 class RouterDefaultsBody(BaseModel):
+    serving_mode: ServingMode = "pd"
     router: dict | None = None  # the recipe's current structured router fields (converting an older recipe)
 
 
 @router.post("/router-defaults")
 async def router_defaults(body: RouterDefaultsBody, user: CustomUser = Depends(require_super_user)) -> dict:
-    """What a P/D recipe's router editor starts with: a starter values.yaml (from the recipe's
-    structured router fields when converting one, else defaults) and the portal's chart."""
+    """Return the recipe editor's starter Helm values and chart source for this serving mode."""
+    if body.serving_mode == "aggregated":
+        repo, chart, version = aggregated_router.chart_source({})
+        return {
+            "chart_repo": repo, "chart_name": chart, "chart_version": version,
+            "values_yaml": pd_router.dump_values(aggregated_router.defaults()),
+        }
     return {
         "values_yaml": pd_router.default_values_yaml(body.router),
         "chart_repo": settings.llmd_chart_repo,
