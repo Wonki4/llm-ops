@@ -1535,6 +1535,14 @@ export function useUpdateDeploymentLitellmName(id: string) {
   });
 }
 
+export function useRetryAggregatedRouter(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiFetch<ModelDeployment>(`/api/model-deployments/${id}/router/retry`, { method: "POST" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments", id] }),
+  });
+}
+
 /** Register a Ready deployment in LiteLLM again (new entry first, then the old one is dropped). */
 export function useReregisterDeployment(id: string) {
   const qc = useQueryClient();
@@ -1955,11 +1963,12 @@ export function usePreviewServingRecipe(body: ServingRecipePreviewBody | null) {
 }
 
 /** The portal's router chart + starter values.yaml (cached; seeds new P/D recipes). */
-export function useRouterDefaults() {
+export function useRouterDefaults(mode: "pd" | "aggregated" = "pd", enabled = true) {
   return useQuery({
-    queryKey: ["serving-recipe-router-defaults"],
+    queryKey: ["serving-recipe-router-defaults", mode],
+    enabled,
     queryFn: () =>
-      apiFetch<RouterDefaults>("/api/admin/serving-recipes/router-defaults", { method: "POST", body: JSON.stringify({}) }),
+      apiFetch<RouterDefaults>("/api/admin/serving-recipes/router-defaults", { method: "POST", body: JSON.stringify({ serving_mode: mode }) }),
     staleTime: Infinity,
   });
 }

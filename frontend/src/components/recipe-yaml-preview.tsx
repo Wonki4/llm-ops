@@ -121,6 +121,12 @@ export function RecipeYamlPanel({
               {preview.data!.warnings.map((w) => <li key={w}>{warningText(w)}</li>)}
             </ul>
           )}
+          {preview.data?.router_images && (
+            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
+              <dt>{t("routerEppImage")}</dt><dd className="break-all font-mono">{preview.data.router_images.epp}</dd>
+              <dt>{t("routerEnvoyImage")}</dt><dd className="break-all font-mono">{preview.data.router_images.envoy}</dd>
+            </dl>
+          )}
           <ManifestYamlView manifests={manifests} fill={fill} refreshing={preview.isFetching} />
         </>
       )}

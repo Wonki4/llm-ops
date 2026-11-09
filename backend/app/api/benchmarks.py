@@ -21,7 +21,7 @@ from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
-from app.services import pd_serving
+from app.services import aggregated_router, pd_serving
 from app.services.benchmark_manifests import (
     build_job_manifest,
     build_self_serving_bench_job,
@@ -222,11 +222,11 @@ async def _ephemeral_storages(
 
 
 async def _router_target_base(db: AsyncSession, deployment: CustomModelDeployment) -> str:
-    """P/D servings are benchmarked through their llm-d router (the pools have no entry of their own)."""
+    """Benchmark a routed deployment through the same Envoy endpoint used for serving."""
     stack = await db.get(CustomLlmdStack, deployment.router_stack_id) if deployment.router_stack_id else None
     if stack is None:
         raise HTTPException(
-            status_code=409, detail="This P/D serving has no llm-d router stack linked; nothing to benchmark"
+            status_code=409, detail="This serving has no linked llm-d router to benchmark"
         )
     return router_target_url(stack)
 
@@ -668,7 +668,7 @@ async def create_benchmark(
 
     # Where the runner sends requests. An explicit body.api_key always wins.
     if deployment is not None:
-        if pd_serving.is_pd(deployment):
+        if aggregated_router.routed(deployment):
             target_base = await _router_target_base(db, deployment)
         else:
             svc = k8s_resource_names(deployment)["service"]

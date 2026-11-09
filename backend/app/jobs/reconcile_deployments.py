@@ -39,7 +39,7 @@ from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_model_deployment_event import CustomModelDeploymentEvent
 from app.db.session import async_session_factory
-from app.services import llmd_stacks, pd_serving
+from app.services import aggregated_router, llmd_stacks, pd_serving
 from app.services.clusters import k8s_for_cluster
 from app.services.deployment_status import classify
 from app.services.litellm_registration import litellm_name, registration
@@ -128,6 +128,8 @@ async def _observe_pd(k8s, dep: CustomModelDeployment) -> tuple[str, str | None,
 
 async def _router_target(db: AsyncSession, dep: CustomModelDeployment) -> tuple[str | None, str | None]:
     """``(api_base, reason)``: the router's URL when its stack is Healthy, else why not."""
+    if getattr(dep, "router_apply_error", None):
+        return None, dep.router_apply_error
     if not dep.router_stack_id:
         return None, "no llm-d router stack is linked to this deployment"
     stack = await db.get(CustomLlmdStack, dep.router_stack_id)
@@ -139,8 +141,10 @@ async def _router_target(db: AsyncSession, dep: CustomModelDeployment) -> tuple[
     # A freshly applied Application reports Healthy before it has compared or
     # created anything, so Healthy alone is not "the router is up".
     if health != "Healthy" or sync != "Synced":
-        return None, f"router '{stack.name}' is {sync}/{health}"
-    return f"https://{llmd_stacks.ingress_host(stack)}", None
+        reason = live.get("status_message")
+        return None, f"router '{stack.name}' is {sync}/{health}" + (f": {reason}" if reason else "")
+    path = (dep.ingress_path or "").rstrip("/") if aggregated_router.enabled(dep) else ""
+    return f"https://{llmd_stacks.ingress_host(stack)}{path}", None
 
 
 async def _record_event(
@@ -222,6 +226,11 @@ async def reconcile_once() -> dict:
                     continue
 
                 new_status, message = classify(observed, dep.replicas)
+                router_base = None
+                if aggregated_router.enabled(dep) and new_status == "Ready":
+                    router_base, reason = await _router_target(db, dep)
+                    if reason:
+                        new_status, message = "Updating", reason
                 cluster_ip = await k8s.read_service_cluster_ip(dep.namespace, names["service"])
 
                 # Build a small set of updates so we only flush when something changed
@@ -236,7 +245,8 @@ async def reconcile_once() -> dict:
                     dep.status_message = message
                     changed = True
 
-                if new_status != dep.status:
+                transitioned = new_status != dep.status
+                if transitioned:
                     transition = (dep.status, new_status)
                     severity = _severity_for(transition)
                     ev = await _record_event(db, dep, "StatusChanged", severity, dep.status, new_status, message)
@@ -247,33 +257,33 @@ async def reconcile_once() -> dict:
                     # Slack fan-out for warning/error
                     await _maybe_alert(db, ev, dep)
 
-                    # First-time Ready: register with LiteLLM + auto-create catalog
-                    if new_status == "Ready" and not dep.litellm_model_id:
-                        model_id = await _register_with_litellm(litellm, dep)
-                        if model_id:
-                            dep.litellm_model_id = model_id
-                            await _ensure_catalog(db, litellm_name(dep), dep.updated_by or "system")
-                            await _record_event(
-                                db,
-                                dep,
-                                "LitellmRegistered",
-                                "info",
-                                None,
-                                None,
-                                f"Registered as LiteLLM model id={model_id}",
-                            )
-                            registered += 1
-                        else:
-                            ev2 = await _record_event(
-                                db,
-                                dep,
-                                "LitellmRegisterFailed",
-                                "error",
-                                None,
-                                None,
-                                "LiteLLM /model/new failed; see logs",
-                            )
-                            await _maybe_alert(db, ev2, dep)
+                # First-time Ready: register with LiteLLM + auto-create catalog
+                if new_status == "Ready" and not dep.litellm_model_id and (transitioned or router_base):
+                    model_id = await _register_with_litellm(litellm, dep, api_base=router_base)
+                    if model_id:
+                        dep.litellm_model_id = model_id
+                        await _ensure_catalog(db, litellm_name(dep), dep.updated_by or "system")
+                        await _record_event(
+                            db,
+                            dep,
+                            "LitellmRegistered",
+                            "info",
+                            None,
+                            None,
+                            f"Registered as LiteLLM model id={model_id}",
+                        )
+                        registered += 1
+                    else:
+                        ev2 = await _record_event(
+                            db,
+                            dep,
+                            "LitellmRegisterFailed",
+                            "error",
+                            None,
+                            None,
+                            "LiteLLM /model/new failed; see logs",
+                        )
+                        await _maybe_alert(db, ev2, dep)
 
                 if changed:
                     dep.last_synced_at = datetime.now(UTC)
