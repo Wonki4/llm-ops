@@ -14,7 +14,7 @@ from app.api import serving_recipes as recipes
 from app.clients.litellm import get_litellm_client
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_serving_recipe import CustomServingRecipe
-from app.services import llmd_stacks, pd_serving, recipe_reapply
+from app.services import aggregated_router, llmd_stacks, pd_serving, recipe_reapply
 from app.services.clusters import k8s_for_cluster
 from app.services.deployment_status import classify
 from app.services.llmd_manifests import llmd_service_name
@@ -66,6 +66,12 @@ def deploy_body(recipe: dict, target: DeployTarget):
 
 async def create_recipe(body, user, db):
     return await recipes.create_recipe(recipes.CreateRecipeBody(**body.model_dump()), user, db)
+
+
+async def preview_deployment(recipe_id, target, user, db):
+    recipe = await recipes.get_recipe(recipe_id, user, db)
+    body = deploy_body(recipe, target)
+    return await deployments.preview_deployment_registration(body, include_ingress=True, user=user, db=db)
 
 
 async def deploy(recipe_id, target, user, db):
@@ -174,9 +180,14 @@ async def rollout_status(deployment_id, rollout, user, db):
         results[role] = {**live, "name": name, "status": state, "message": message}
     ready = all(pool["status"] == "Ready" for pool in results.values())
     router = None
-    if pd_serving.is_pd(dep):
+    if aggregated_router.routed(dep):
         router = await deployments._router_stack_summary(db, dep)
-        ready = bool(ready and router and router["sync_status"] == "Synced" and router["health_status"] == "Healthy")
+        ready = bool(
+            ready and not getattr(dep, "router_apply_error", None) and router
+            and router["sync_status"] == "Synced" and router["health_status"] == "Healthy"
+        )
+        if getattr(dep, "router_apply_error", None):
+            router = {**(router or {}), "status_message": dep.router_apply_error}
     return {"deployment_id": deployment_id, "ready": ready, "pools": results, "router": router}
 
 
@@ -184,7 +195,7 @@ async def diagnostics(deployment_id, role, tail_lines, user, db):
     dep = await deployments._deployment_or_404(db, deployment_id)
     cluster_id, ns = dep.cluster_id, dep.namespace
     router = role == "router"
-    if pd_serving.is_pd(dep) and router:
+    if aggregated_router.routed(dep) and router:
         stack = await db.get(CustomLlmdStack, dep.router_stack_id) if dep.router_stack_id else None
         if not stack:
             return {"role": role, "error": dep.status_message or "No linked router"}
@@ -198,6 +209,8 @@ async def diagnostics(deployment_id, role, tail_lines, user, db):
     result = {"role": role}
     if router:
         result["application"] = await llmd_stacks.live_status(db, stack)
+        if getattr(dep, "router_apply_error", None):
+            result["router_apply_error"] = dep.router_apply_error
     try:
         result.update(await workload_diagnostics(k8s, ns, name, router=router, tail_lines=tail_lines))
     except ApiException as exc:

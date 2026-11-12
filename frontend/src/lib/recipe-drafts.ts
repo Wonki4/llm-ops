@@ -33,6 +33,7 @@ export function recipeFromDeployment(dep: ModelDeployment, name: string, descrip
     probes: dep.probes ?? null,
     gpu_type: dep.gpu_type ?? null,
     serving_mode: dep.serving_mode ?? "aggregated",
+    aggregated_router: dep.aggregated_router ?? null,
     pd_config: dep.pd_config ?? null,
     runtime: dep.runtime ?? null,
   };

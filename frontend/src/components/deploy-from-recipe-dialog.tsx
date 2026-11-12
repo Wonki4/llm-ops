@@ -126,10 +126,11 @@ export function DeployFromRecipeDialog({
     ingress_class: isPd ? (recipe?.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
     serving_mode: recipe.serving_mode ?? "aggregated",
     pd_config: pdConfig,
+    aggregated_router: recipe.aggregated_router ?? null,
     runtime: recipe.runtime ?? null,
   } : null;
   const registration = useRegistrationPreview(
-    "/api/model-deployments/registration-preview",
+    isPd ? "/api/model-deployments/registration-preview" : "/api/model-deployments/registration-preview?include_ingress=true",
     body?.model_name && body.ingress_host && !nsInvalid ? body : null,
   );
 
@@ -170,6 +171,7 @@ export function DeployFromRecipeDialog({
           <DialogTitle>{recipe ? t("deployTitle", { name: recipe.name }) : ""}</DialogTitle>
           <DialogDescription>{recipe?.model_path}</DialogDescription>
         </DialogHeader>
+        {!isPd && <p className="text-sm text-muted-foreground">{recipe?.aggregated_router != null ? t("aggregatedRouterRoute") : t("aggregatedDirectRoute")}</p>}
         {isPd && <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground" data-testid="deploy-pd-note">{t("deployPdNote")}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("deployModelName")} span2><Input value={modelName} onChange={(e) => setModelName(e.target.value)} /></Field>
