@@ -22,7 +22,14 @@ import shlex
 from typing import Any
 
 from app.services.pd_serving import RESERVED_PORT_NAMES, is_port_name
-from app.services.serving_engines import _ARG_KEY, DEFAULT_ENGINE, SERVING_PORT, kv_event_ports, parse_port
+from app.services.serving_engines import (
+    _ARG_KEY,
+    ACCESS_LOG_FLAGS,
+    DEFAULT_ENGINE,
+    SERVING_PORT,
+    kv_event_ports,
+    parse_port,
+)
 from app.services.serving_probes import probe_from_k8s
 
 # Program tokens that precede the engine's own flags. Anything here is dropped
@@ -207,6 +214,40 @@ def parse_flags(tokens: list[str], warnings: list[dict]) -> tuple[dict[str, Any]
         positionals.append(tok)
         i += 1
     return engine_args, extra, positionals
+
+
+def _extract_access_log_filter(engine: str, tokens: list[str]) -> tuple[list[str], list[str] | None]:
+    """Move engine-specific access-log options into the recipe's runtime field.
+
+    SGLang uses ``nargs='*'``, which the generic one-value flag parser cannot
+    round-trip. Remove it before that parser sees its path arguments.
+    """
+    flag = ACCESS_LOG_FLAGS[engine]
+    other: list[str] = []
+    paths: list[str] | None = None
+    i = 0
+    while i < len(tokens):
+        arg = tokens[i]
+        if engine == "vllm" and arg.startswith(flag + "=") and arg[len(flag) + 1 :]:
+            paths = arg[len(flag) + 1 :].split(",")
+            i += 1
+            continue
+        if arg == flag:
+            if engine == "vllm":
+                if i + 1 < len(tokens) and tokens[i + 1].startswith("/"):
+                    paths = tokens[i + 1].split(",")
+                    i += 2
+                    continue
+            else:
+                paths = []
+                i += 1
+                while i < len(tokens) and tokens[i].startswith("/"):
+                    paths.append(tokens[i])
+                    i += 1
+                continue
+        other.append(arg)
+        i += 1
+    return other, paths
 
 
 def _take_model_path(engine: str, engine_args: dict[str, Any], positional: str | None, warnings: list[dict]) -> str:
@@ -417,6 +458,7 @@ def build_recipe_draft(spec: dict) -> dict:
 
     tokens = _unwrap_shell(list(container.get("command") or []), list(container.get("args") or []), warnings)
     engine, flag_tokens, positional_model = _detect_engine(tokens, image, warnings)
+    flag_tokens, access_log_paths = _extract_access_log_filter(engine, flag_tokens)
     engine_args, extra, positionals = parse_flags(flag_tokens, warnings)
     model_path = _take_model_path(engine, engine_args, positional_model, warnings)
     if positionals:
@@ -445,6 +487,8 @@ def build_recipe_draft(spec: dict) -> dict:
         "vllm_extra_args": extra or None,
         "gpu_resource_key": "nvidia.com/gpu",
     }
+    if access_log_paths is not None:
+        draft["runtime"] = {"access_log_exclude_paths": access_log_paths}
     _resources(container, draft, warnings)
     draft["env"] = _env(container, warnings)
     _volumes(spec, container, draft, warnings)

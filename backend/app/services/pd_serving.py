@@ -33,6 +33,7 @@ from app.services.common_labels import label_value
 from app.services.serving_engines import (
     DEFAULT_KV_EVENTS_ENDPOINT,
     SERVING_PORT,
+    access_log_filter_args,
     engine_of,
     flag_value,
     kv_events_args,
@@ -128,6 +129,8 @@ class Runtime(BaseModel):
     termination_grace_seconds: int | None = Field(None, ge=1, le=3600)
     prestop_sleep_seconds: int | None = Field(None, ge=0, le=600)
     kv_events: KvEvents | None = None
+    # None = portal defaults; [] = keep access logs for every endpoint.
+    access_log_exclude_paths: list[str] | None = None
 
     @field_validator("extra_resources")
     @classmethod
@@ -146,6 +149,16 @@ class Runtime(BaseModel):
             if not 1 <= port <= 65535:
                 raise ValueError(f"extra_ports[{name!r}] must be between 1 and 65535, got {port}")
         return v
+
+    @field_validator("access_log_exclude_paths")
+    @classmethod
+    def _access_log_paths(cls, v):
+        if v is None:
+            return None
+        for path in v:
+            if not path.startswith("/") or any(c.isspace() or c in ",?#" for c in path):
+                raise ValueError(f"access_log_exclude_paths entry {path!r} must be an absolute URL path")
+        return list(dict.fromkeys(v))
 
 
 # Port names the portal itself puts on the serving container.
@@ -668,6 +681,7 @@ def role_args(dep, spec: RoleSpec) -> list[str]:
     """
     model = spec.pool.model_path if spec.pool is not None else dep.model_path
     flags = [*render_engine_args(spec.engine_args), *spec.extra_args]
+    flags += access_log_filter_args("vllm", getattr(spec.pool, "runtime", None), flags)
     # The router reaches prefill pods on vLLM's port and decode pods through the sidecar.
     router_port = spec.port if spec.role == "prefill" else SIDECAR_PORT
     kv = kv_events_args(getattr(spec.pool, "runtime", None), port=router_port, served_name=served_name(flags, model))

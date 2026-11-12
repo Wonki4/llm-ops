@@ -1,5 +1,5 @@
 import type { ModelDeployment, PdConfig, PdExtras, PdFramework, PdRoleOverride, PdSecurityContext, PoolConfig, SidecarSpec } from "@/types";
-import { engineArgsToFlags } from "@/lib/serving-engines";
+import { accessLogFilterArgs, engineArgsToFlags } from "@/lib/serving-engines";
 
 export type PdRole = "prefill" | "decode";
 export const PD_ROLES: PdRole[] = ["prefill", "decode"];
@@ -188,14 +188,15 @@ export function effectiveRole(base: PoolConfig, role: PdRoleOverride | null | un
  * engine args with the pool's overrides on top, then both extra-arg lists.
  */
 export function roleLaunchArgs(
-  dep: Pick<ModelDeployment, "model_path" | "engine_args" | "vllm_extra_args" | "pd_config">,
+  dep: Pick<ModelDeployment, "model_path" | "engine_args" | "vllm_extra_args" | "pd_config" | "runtime">,
   role: PdRole,
 ): string[] {
   const ov = roleOverride(dep, role);
   const engineFlags = engineArgsToFlags({ ...(dep.engine_args ?? {}), ...(ov.engine_args ?? {}) });
   const extra = [...(dep.vllm_extra_args ?? []), ...(ov.vllm_extra_args ?? []), ...(ov.pd_extras?.args ?? [])];
+  const accessLog = accessLogFilterArgs("vllm", ov.runtime ?? dep.runtime, [...engineFlags, ...extra]);
   // A pool with P/D settings carries --port / --kv-transfer-config in them.
-  if (ov.pd_extras) return ["--model", dep.model_path, ...engineFlags, ...extra];
+  if (ov.pd_extras) return ["--model", dep.model_path, ...engineFlags, ...extra, ...accessLog];
   const kv = {
     kv_connector: "NixlConnector",
     kv_role: role === "prefill" ? "kv_producer" : "kv_consumer",
@@ -207,5 +208,6 @@ export function roleLaunchArgs(
     "--kv-transfer-config", JSON.stringify(kv),
     ...engineFlags,
     ...extra,
+    ...accessLog,
   ];
 }

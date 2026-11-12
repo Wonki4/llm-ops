@@ -116,6 +116,25 @@ def test_validate_runtime():
         validate_runtime({"extra_resources": {"ib": "1"}})
 
 
+def test_validate_runtime_access_log_paths():
+    assert validate_runtime({"access_log_exclude_paths": []}) == {"access_log_exclude_paths": []}
+    assert validate_runtime({"access_log_exclude_paths": ["/health", "/health", "/v1/models"]}) == {
+        "access_log_exclude_paths": ["/health", "/v1/models"],
+    }
+    for path in ("health", "/foo bar", "/metrics?x=1", "/a,/b"):
+        with pytest.raises(ValueError, match="absolute URL path"):
+            validate_runtime({"access_log_exclude_paths": [path]})
+
+
+def test_pd_access_log_filter_per_pool():
+    dep = _dep(pd_config={"decode": {"runtime": {"access_log_exclude_paths": []}}})
+    prefill, decode = build_pd_deployments(dep)
+    prefill_args = prefill["spec"]["template"]["spec"]["containers"][0]["args"]
+    decode_args = decode["spec"]["template"]["spec"]["containers"][0]["args"]
+    assert prefill_args[-1] == "--disable-access-log-for-endpoints=/health,/metrics,/v1/models"
+    assert not any("disable-access-log-for-endpoints" in arg for arg in decode_args)
+
+
 def test_startup_probe_schema():
     assert validate_probes({"startup": {"period_seconds": 30}}) == {"startup": {"period_seconds": 30}}
     dep = _dep(serving_mode="aggregated", probes=None)
@@ -210,7 +229,8 @@ def test_pd_deployments_render_roles():
     assert dec["spec"]["replicas"] == 1
     assert c["args"][2:4] == ["--port", "8200"]
     assert '"kv_role":"kv_consumer"' in c["args"][5]
-    assert "--max-num-seqs" in c["args"] and c["args"][-1] == "--enable-auto-tool-choice"
+    assert "--max-num-seqs" in c["args"] and c["args"][-2] == "--enable-auto-tool-choice"
+    assert c["args"][-1] == "--disable-access-log-for-endpoints=/health,/metrics,/v1/models"
     assert c["ports"][0] == {"containerPort": 8200, "name": "http"}
     assert c["readinessProbe"]["httpGet"]["port"] == 8200
     assert {e["name"]: e.get("value") for e in c["env"]}["DECODE_ONLY"] == "1"
@@ -463,10 +483,11 @@ def test_pd_settings_render_verbatim_on_their_pool():
     # the settings carry the plumbing: no portal-injected --port / --kv-transfer-config duplicates
     assert c["args"][:2] == ["--model", "zai-org/GLM-5.3-Flash"]
     assert c["args"].count("--port") == 0 and c["args"].count("--kv-transfer-config") == 0
-    assert c["args"][-3:] == [
+    assert c["args"][-4:] == [
         "--port=8000",
         '--kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_producer"}',
         "--block-size=128",
+        "--disable-access-log-for-endpoints=/health,/metrics,/v1/models",
     ]
     env = {e["name"]: e for e in c["env"]}
     assert env["UCX_TLS"]["value"] == "cuda_ipc,cuda_copy,tcp"
