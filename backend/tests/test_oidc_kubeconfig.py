@@ -49,7 +49,7 @@ def _kubeconfig(id_token: str) -> dict:
 
 async def test_registered_public_client_refresh_persists_rotated_tokens(monkeypatch):
     """A saved public-client config refreshes without a secret and stores rotation."""
-    new_token = _jwt(int(time.time()) + 3600)
+    new_token = _jwt(int(time.time()) + 240)
     requests = []
 
     def handle(request: httpx.Request) -> httpx.Response:
@@ -101,6 +101,15 @@ async def test_registered_public_client_refresh_persists_rotated_tokens(monkeypa
 async def test_unsaved_expired_oidc_token_requires_saved_cluster():
     with pytest.raises(oidc_kubeconfig.OidcKubeconfigError, match="save the cluster"):
         await oidc_kubeconfig.prepare_oidc_kubeconfig(_kubeconfig(_jwt(0)), "ctx", allow_refresh=False)
+
+
+async def test_five_minute_oidc_token_is_usable_without_refresh():
+    token = _jwt(int(time.time()) + 240)
+    ready, refreshed = await oidc_kubeconfig.prepare_oidc_kubeconfig(
+        _kubeconfig(token), "ctx", allow_refresh=False
+    )
+    assert refreshed is False
+    assert ready["users"][0]["user"] == {"token": token}
 
 
 async def test_valid_oidc_token_reaches_kubernetes_client_as_bearer():

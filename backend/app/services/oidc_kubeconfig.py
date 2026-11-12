@@ -21,6 +21,9 @@ class OidcKubeconfigError(ValueError):
     """An OIDC kubeconfig cannot provide a usable Kubernetes API token."""
 
 
+_REFRESH_SKEW_SECONDS = 30
+
+
 def _selected_user(kubeconfig: dict, context: str) -> dict | None:
     context_entry = next((c for c in kubeconfig.get("contexts", []) if c.get("name") == context), None)
     user_name = (context_entry or {}).get("context", {}).get("user")
@@ -56,7 +59,7 @@ def _token_expiring(token: str | None) -> bool:
     try:
         payload = token.split(".")[1]
         decoded = json.loads(base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)))
-        return float(decoded["exp"]) <= time.time() + 300
+        return float(decoded["exp"]) <= time.time() + _REFRESH_SKEW_SECONDS
     except (IndexError, ValueError, KeyError, TypeError, json.JSONDecodeError) as e:
         raise OidcKubeconfigError("OIDC id-token is not a valid JWT with an exp claim") from e
 
