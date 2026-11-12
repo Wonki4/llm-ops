@@ -1677,6 +1677,7 @@ export interface CreateK8sClusterBody {
   argocd_host_cluster_id?: string | null;
   argocd_dest_server?: string | null;
   kubeconfig: string;
+  oidc_ca_pem?: string;
   description?: string | null;
   is_default?: boolean;
   bench_storage_id?: string | null;
@@ -1764,7 +1765,7 @@ export function useBenchmarkPreview() {
 /** Test an unsaved kubeconfig+context (before the cluster is created). */
 export function useTestK8sCluster() {
   return useMutation({
-    mutationFn: (body: { kubeconfig: string; context: string }) =>
+    mutationFn: (body: { kubeconfig: string; context: string; oidc_ca_pem?: string }) =>
       apiFetch<ClusterTestResult>("/api/admin/k8s-clusters/test", {
         method: "POST",
         body: JSON.stringify(body),

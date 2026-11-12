@@ -43,6 +43,7 @@ type FormState = {
   argocd_host_cluster_id: string;
   argocd_dest_server: string;
   kubeconfig: string;
+  oidc_ca_pem: string;
   description: string;
   is_default: boolean;
   bench_storage_id: string;
@@ -58,6 +59,7 @@ const EMPTY: FormState = {
   argocd_host_cluster_id: "",
   argocd_dest_server: "",
   kubeconfig: "",
+  oidc_ca_pem: "",
   description: "",
   is_default: false,
   bench_storage_id: "",
@@ -81,6 +83,7 @@ export function ClusterSettingsTab() {
   const [editing, setEditing] = useState<K8sClusterSummary | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
   const [testResult, setTestResult] = useState<ClusterTestResult | null>(null);
+  const [readingOidcCa, setReadingOidcCa] = useState(false);
 
   const openCreate = () => {
     setEditing(null);
@@ -99,6 +102,7 @@ export function ClusterSettingsTab() {
       argocd_host_cluster_id: c.argocd_host_cluster_id ?? "",
       argocd_dest_server: c.argocd_dest_server ?? "",
       kubeconfig: "", // masked — empty keeps existing
+      oidc_ca_pem: "",
       description: c.description ?? "",
       is_default: c.is_default,
       bench_storage_id: c.bench_storage_id ?? "",
@@ -116,7 +120,7 @@ export function ClusterSettingsTab() {
     }
     setTestResult(null);
     testMut.mutate(
-      { kubeconfig: form.kubeconfig, context: form.context },
+      { kubeconfig: form.kubeconfig, context: form.context, oidc_ca_pem: form.oidc_ca_pem || undefined },
       { onSuccess: (r) => setTestResult(r), onError: (e) => setTestResult({ ok: false, server_version: null, message: e instanceof Error ? e.message : "error" }) },
     );
   };
@@ -152,6 +156,7 @@ export function ClusterSettingsTab() {
         gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
+      if (form.oidc_ca_pem) body.oidc_ca_pem = form.oidc_ca_pem;
       updateMut.mutate(
         { id: editing.id, body },
         {
@@ -171,6 +176,7 @@ export function ClusterSettingsTab() {
         argocd_host_cluster_id: form.argocd_host_cluster_id,
         argocd_dest_server: form.argocd_dest_server,
         kubeconfig: form.kubeconfig,
+        oidc_ca_pem: form.oidc_ca_pem || undefined,
         description: form.description || null,
         is_default: form.is_default,
         bench_storage_id: benchStorage || null,
@@ -213,7 +219,7 @@ export function ClusterSettingsTab() {
     });
   };
 
-  const saving = createMut.isPending || updateMut.isPending;
+  const saving = createMut.isPending || updateMut.isPending || readingOidcCa;
 
   return (
     <Card>
@@ -393,6 +399,28 @@ export function ClusterSettingsTab() {
               {editing && (
                 <p className="text-xs text-muted-foreground">{t("kubeconfigEditHint")}</p>
               )}
+              <p className="text-xs text-muted-foreground">{t("kubeconfigOidcHint")}</p>
+              <div className="space-y-1">
+                <Label htmlFor="cluster-oidc-ca">{t("oidcCaLabel")}</Label>
+                <Input
+                  id="cluster-oidc-ca"
+                  type="file"
+                  accept=".crt,.pem,.cer"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    setReadingOidcCa(true);
+                    try {
+                      const pem = file ? await file.text() : "";
+                      setForm((current) => ({ ...current, oidc_ca_pem: pem }));
+                    } catch {
+                      toast.error(t("oidcCaReadFailed"));
+                    } finally {
+                      setReadingOidcCa(false);
+                    }
+                  }}
+                />
+                <p className="text-xs text-muted-foreground">{t("oidcCaHint")}</p>
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="cluster-desc">{t("descriptionLabel")}</Label>
@@ -452,7 +480,7 @@ export function ClusterSettingsTab() {
                 variant="outline"
                 size="sm"
                 onClick={handleTest}
-                disabled={testMut.isPending}
+                disabled={testMut.isPending || readingOidcCa}
               >
                 {testMut.isPending ? (
                   <Loader2 className="size-4 animate-spin" />

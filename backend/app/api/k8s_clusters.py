@@ -7,7 +7,9 @@ cluster a deployment/benchmark runs on) is handled later in each menu via the
 cluster ``id``.
 """
 
+import base64
 import logging
+import ssl
 import uuid
 
 import yaml
@@ -24,6 +26,8 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import crypto
+from app.services.clusters import k8s_for_cluster
+from app.services.oidc_kubeconfig import OidcKubeconfigError, oidc_provider_config
 from app.services.storage_store import load_storages
 
 logger = logging.getLogger(__name__)
@@ -40,6 +44,7 @@ class CreateClusterRequest(BaseModel):
     namespace: str = "default"
     argocd_namespace: str = "argocd"
     kubeconfig: str
+    oidc_ca_pem: str | None = None
     description: str | None = None
     is_default: bool = False
     bench_storage_id: str | None = None
@@ -62,6 +67,7 @@ class UpdateClusterRequest(BaseModel):
     namespace: str | None = None
     argocd_namespace: str | None = None
     kubeconfig: str | None = None  # omitted/empty = keep existing
+    oidc_ca_pem: str | None = None
     description: str | None = None
     is_default: bool | None = None
     bench_storage_id: str | None = None
@@ -81,9 +87,10 @@ class UpdateClusterRequest(BaseModel):
 class TestClusterRequest(BaseModel):
     kubeconfig: str
     context: str
+    oidc_ca_pem: str | None = None
 
 
-def _parse_kubeconfig(raw: str, context: str) -> tuple[dict, str | None]:
+def _parse_kubeconfig(raw: str, context: str, oidc_ca_pem: str | None = None) -> tuple[dict, str | None]:
     """Validate a pasted kubeconfig and resolve the api server for `context`.
 
     Returns (parsed_dict, api_server). Raises HTTPException(400) on invalid YAML
@@ -110,6 +117,19 @@ def _parse_kubeconfig(raw: str, context: str) -> tuple[dict, str | None]:
         (c for c in parsed.get("clusters", []) if c.get("name") == cluster_name), None
     )
     api_server = (cluster_entry or {}).get("cluster", {}).get("server")
+    try:
+        fields = oidc_provider_config(parsed, context)
+    except OidcKubeconfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if oidc_ca_pem:
+        if fields is None:
+            raise HTTPException(status_code=400, detail="OIDC CA certificate requires an OIDC kubeconfig user")
+        try:
+            ssl.create_default_context(cadata=oidc_ca_pem)
+        except (ValueError, ssl.SSLError) as e:
+            raise HTTPException(status_code=400, detail="Invalid OIDC CA certificate PEM") from e
+        fields["idp-certificate-authority-data"] = base64.b64encode(oidc_ca_pem.encode()).decode("ascii")
+        fields.pop("idp-certificate-authority", None)
     return parsed, api_server
 
 
@@ -222,7 +242,7 @@ async def create_cluster(
     bench_mount_path = body.bench_mount_path or None
     await _check_bench_storage(db, bench_storage_id, bench_mount_path)
 
-    _parsed, api_server = _parse_kubeconfig(body.kubeconfig, body.context)
+    parsed, api_server = _parse_kubeconfig(body.kubeconfig, body.context, body.oidc_ca_pem)
 
     argocd_host = await _validate_argocd_host(db, body.argocd_host_cluster_id, None)
 
@@ -232,7 +252,9 @@ async def create_cluster(
         context=body.context,
         namespace=body.namespace,
         argocd_namespace=body.argocd_namespace or "argocd",
-        kubeconfig_encrypted=crypto.encrypt(body.kubeconfig),
+        kubeconfig_encrypted=crypto.encrypt(
+            yaml.safe_dump(parsed, sort_keys=False) if body.oidc_ca_pem else body.kubeconfig
+        ),
         api_server=api_server,
         is_default=body.is_default,
         description=body.description,
@@ -289,14 +311,16 @@ async def update_cluster(
 
     # Re-validate + re-parse api_server when kubeconfig or context changes.
     new_kubeconfig = body.kubeconfig if (body.kubeconfig or "").strip() else None
-    if new_kubeconfig is not None or body.context is not None:
+    if new_kubeconfig is not None or body.context is not None or body.oidc_ca_pem:
         raw = new_kubeconfig if new_kubeconfig is not None else crypto.decrypt(
             cluster.kubeconfig_encrypted
         )
-        _parsed, api_server = _parse_kubeconfig(raw, cluster.context)
+        parsed, api_server = _parse_kubeconfig(raw, cluster.context, body.oidc_ca_pem)
         cluster.api_server = api_server
-        if new_kubeconfig is not None:
-            cluster.kubeconfig_encrypted = crypto.encrypt(new_kubeconfig)
+        if new_kubeconfig is not None or body.oidc_ca_pem:
+            cluster.kubeconfig_encrypted = crypto.encrypt(
+                yaml.safe_dump(parsed, sort_keys=False) if body.oidc_ca_pem else new_kubeconfig
+            )
 
     if body.is_default is not None:
         cluster.is_default = body.is_default
@@ -347,7 +371,7 @@ async def test_unsaved_cluster(
     user: CustomUser = Depends(require_super_user),
 ) -> dict:
     """Test a kubeconfig+context before saving."""
-    parsed, _ = _parse_kubeconfig(body.kubeconfig, body.context)
+    parsed, _ = _parse_kubeconfig(body.kubeconfig, body.context, body.oidc_ca_pem)
     return await _run_probe(parsed, body.context)
 
 
@@ -364,9 +388,12 @@ async def test_saved_cluster(
     cluster = result.scalar_one_or_none()
     if not cluster:
         raise HTTPException(status_code=404, detail="Cluster not found")
-    raw = crypto.decrypt(cluster.kubeconfig_encrypted)
-    parsed, _ = _parse_kubeconfig(raw, cluster.context)
-    return await _run_probe(parsed, cluster.context)
+    try:
+        version = await (await k8s_for_cluster(db, cluster.id)).probe()
+        return {"ok": True, "server_version": version, "message": "Connected"}
+    except Exception as e:  # noqa: BLE001 — surface any connection error to the admin
+        logger.info("Cluster connection test failed: %s", e)
+        return {"ok": False, "server_version": None, "message": str(e)}
 
 
 async def _run_probe(parsed: dict, context: str) -> dict:

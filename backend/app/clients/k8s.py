@@ -7,6 +7,7 @@ error to the admin instead of crashing the request.
 """
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from kubernetes_asyncio import client, config
@@ -14,6 +15,7 @@ from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.config import settings
 from app.services.model_deployment_manifests import LABEL_MODEL, LABEL_OWNER, PORTAL_OWNERS
+from app.services.oidc_kubeconfig import prepare_oidc_kubeconfig
 
 logger = logging.getLogger(__name__)
 
@@ -60,21 +62,48 @@ class K8sClient:
     (rare admin actions + ~60s reconciler).
     """
 
-    def __init__(self, kubeconfig: dict | None = None, context: str | None = None) -> None:
+    def __init__(
+        self,
+        kubeconfig: dict | None = None,
+        context: str | None = None,
+        kubeconfig_loader: Callable[[], Awaitable[tuple[dict, str]]] | None = None,
+    ) -> None:
         self._kubeconfig = kubeconfig
         self._context = context
+        self._kubeconfig_loader = kubeconfig_loader
 
     async def _api_client(self) -> client.ApiClient:
-        if self._kubeconfig is not None:
+        if self._kubeconfig_loader is not None:
+            kubeconfig, context = await self._kubeconfig_loader()
+        elif self._kubeconfig is not None:
+            if self._context is None:
+                raise K8sNotConfigured("A context is required for an in-memory kubeconfig")
+            kubeconfig, _ = await prepare_oidc_kubeconfig(
+                self._kubeconfig, self._context, allow_refresh=False
+            )
+            context = self._context
+        else:
+            kubeconfig = None
+            context = None
+        if kubeconfig is not None:
             cfg = client.Configuration()
             await config.load_kube_config_from_dict(
-                config_dict=self._kubeconfig, context=self._context, client_configuration=cfg
+                config_dict=kubeconfig, context=context, client_configuration=cfg
             )
             return client.ApiClient(configuration=cfg)
         if not settings.kubeconfig_path:
             raise K8sNotConfigured("APP_KUBECONFIG_PATH is empty; K8s features disabled")
         await config.load_kube_config(config_file=settings.kubeconfig_path)
         return client.ApiClient()
+
+    async def probe(self) -> str:
+        """Return the Kubernetes API version using this client's credentials."""
+        api_client = await self._api_client()
+        try:
+            info = await client.VersionApi(api_client).get_code()
+            return info.git_version or "unknown"
+        finally:
+            await api_client.close()
 
     async def scale_deployment(self, namespace: str, name: str, replicas: int) -> None:
         api_client = await self._api_client()
@@ -538,13 +567,4 @@ async def probe_cluster(kubeconfig: dict, context: str) -> str:
     connection / auth failure. Used by the clusters settings "test connection"
     action; does not touch the portal's own mounted kubeconfig.
     """
-    cfg = client.Configuration()
-    await config.load_kube_config_from_dict(
-        config_dict=kubeconfig, context=context, client_configuration=cfg
-    )
-    api_client = client.ApiClient(configuration=cfg)
-    try:
-        info = await client.VersionApi(api_client).get_code()
-        return info.git_version or "unknown"
-    finally:
-        await api_client.close()
+    return await K8sClient(kubeconfig=kubeconfig, context=context).probe()
