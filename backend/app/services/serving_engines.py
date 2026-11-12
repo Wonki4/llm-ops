@@ -17,6 +17,12 @@ ServingEngine = Literal["vllm", "sglang"]
 ENGINES: tuple[str, ...] = ("vllm", "sglang")
 DEFAULT_ENGINE = "vllm"
 SERVING_PORT = 8000
+DEFAULT_ACCESS_LOG_EXCLUDE_PATHS = ("/health", "/metrics", "/v1/models")
+
+ACCESS_LOG_FLAGS = {
+    "vllm": "--disable-access-log-for-endpoints",
+    "sglang": "--uvicorn-access-log-exclude-prefixes",
+}
 
 DEFAULT_IMAGES: dict[str, str] = {
     "vllm": "vllm/vllm-openai:latest",
@@ -223,10 +229,29 @@ def render_engine_args(args: dict | None) -> list[str]:
     return out
 
 
+def access_log_filter_args(engine: str, runtime: dict | None, flags: list[str]) -> list[str]:
+    """Default quiet endpoints for existing and new recipes, unless configured off.
+
+    A manually supplied engine flag wins. SGLang's option takes several argv
+    values, so it must be appended after all other flags.
+    """
+    flag = ACCESS_LOG_FLAGS[engine]
+    if any(arg == flag or arg.startswith(flag + "=") for arg in flags):
+        return []
+    configured = (runtime or {}).get("access_log_exclude_paths")
+    paths = DEFAULT_ACCESS_LOG_EXCLUDE_PATHS if configured is None else configured
+    if not paths:
+        return []
+    if engine == "sglang":
+        return [flag, *paths]
+    return [f"{flag}={','.join(paths)}"]
+
+
 def engine_flags(dep) -> list[str]:
     """Structured args first, then the free-text extra args (so a power user can
     still override a structured value by repeating the flag)."""
-    return render_engine_args(getattr(dep, "engine_args", None)) + list(dep.vllm_extra_args or [])
+    flags = render_engine_args(getattr(dep, "engine_args", None)) + list(dep.vllm_extra_args or [])
+    return flags + access_log_filter_args(engine_of(dep), getattr(dep, "runtime", None), flags)
 
 
 def serving_port(dep) -> int:

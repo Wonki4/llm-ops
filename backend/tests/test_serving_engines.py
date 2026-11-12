@@ -4,20 +4,14 @@ import types
 
 import pytest
 
+from app.api.benchmarks import _serving_snapshot
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
-
-
-def test_engine_columns_exist_on_both_tables():
-    for model in (CustomServingRecipe, CustomModelDeployment):
-        cols = model.__table__.columns
-        assert cols["engine"].nullable is False
-        assert cols["engine"].server_default.arg == "vllm"
-        assert cols["engine_args"].nullable is True
-
-
+from app.services.benchmark_serving import build_ephemeral_deployment
 from app.services.model_deployment_manifests import build_deployment, build_service
 from app.services.serving_engines import (
+    DEFAULT_ACCESS_LOG_EXCLUDE_PATHS,
+    access_log_filter_args,
     container_launch,
     default_image,
     engine_of,
@@ -27,6 +21,17 @@ from app.services.serving_engines import (
     validate_engine_args,
     validate_port_flag,
 )
+
+VLLM_LOG_FILTER = "--disable-access-log-for-endpoints=/health,/metrics,/v1/models"
+SGLANG_LOG_FILTER = ["--uvicorn-access-log-exclude-prefixes", *DEFAULT_ACCESS_LOG_EXCLUDE_PATHS]
+
+
+def test_engine_columns_exist_on_both_tables():
+    for model in (CustomServingRecipe, CustomModelDeployment):
+        cols = model.__table__.columns
+        assert cols["engine"].nullable is False
+        assert cols["engine"].server_default.arg == "vllm"
+        assert cols["engine_args"].nullable is True
 
 
 def _dep(**kw):
@@ -92,21 +97,25 @@ def test_vllm_container_matches_legacy_args():
     c = _container(build_deployment(_dep(vllm_extra_args=["--max-model-len", "8192"])))
     assert c["name"] == "vllm"
     assert "command" not in c
-    assert c["args"] == ["--model", "/models/m", "--port", "8000", "--max-model-len", "8192"]
+    assert c["args"] == ["--model", "/models/m", "--port", "8000", "--max-model-len", "8192", VLLM_LOG_FILTER]
 
 
 def test_vllm_container_engine_args_before_extra_args():
     c = _container(build_deployment(_dep(engine_args={"tensor-parallel-size": 2}, vllm_extra_args=["--x"])))
-    assert c["args"] == ["--model", "/models/m", "--port", "8000", "--tensor-parallel-size", "2", "--x"]
+    assert c["args"] == [
+        "--model", "/models/m", "--port", "8000", "--tensor-parallel-size", "2", "--x", VLLM_LOG_FILTER,
+    ]
 
 
 def test_sglang_container_sets_command_and_model_path():
-    c = _container(build_deployment(_dep(engine="sglang", engine_args={"tp-size": 2}, vllm_extra_args=["--log-level", "info"])))
+    c = _container(build_deployment(_dep(
+        engine="sglang", engine_args={"tp-size": 2}, vllm_extra_args=["--log-level", "info"],
+    )))
     assert c["name"] == "sglang"
     assert c["command"] == ["python3", "-m", "sglang.launch_server"]
     assert c["args"] == [
         "--model-path", "/models/m", "--host", "0.0.0.0", "--port", "8000",
-        "--tp-size", "2", "--log-level", "info",
+        "--tp-size", "2", "--log-level", "info", *SGLANG_LOG_FILTER,
     ]
     assert c["readinessProbe"]["httpGet"] == {"path": "/health", "port": 8000}
 
@@ -117,22 +126,45 @@ def test_container_launch_in_memory_row_without_engine_is_vllm():
     del dep.engine_args
     command, args = container_launch(dep)
     assert command is None
-    assert args == ["--model", "/models/m", "--port", "8000"]
+    assert args == ["--model", "/models/m", "--port", "8000", VLLM_LOG_FILTER]
 
 
 def test_serve_argv_vllm_matches_legacy():
-    assert serve_argv(_dep(vllm_extra_args=["--a"]), 8000) == ["vllm", "serve", "/models/m", "--port", "8000", "--a"]
+    assert serve_argv(_dep(vllm_extra_args=["--a"]), 8000) == [
+        "vllm", "serve", "/models/m", "--port", "8000", "--a", VLLM_LOG_FILTER,
+    ]
 
 
 def test_serve_argv_sglang():
     assert serve_argv(_dep(engine="sglang", engine_args={"tp-size": 2}), 8000) == [
         "python3", "-m", "sglang.launch_server", "--model-path", "/models/m",
-        "--host", "0.0.0.0", "--port", "8000", "--tp-size", "2",
+        "--host", "0.0.0.0", "--port", "8000", "--tp-size", "2", *SGLANG_LOG_FILTER,
     ]
 
 
-from app.api.benchmarks import _serving_snapshot
-from app.services.benchmark_serving import build_ephemeral_deployment
+@pytest.mark.parametrize("engine", ["vllm", "sglang"])
+def test_access_log_filter_custom_paths_or_empty_list(engine):
+    custom = _dep(engine=engine, runtime={"access_log_exclude_paths": ["/ready", "/metrics"]})
+    disabled = _dep(engine=engine, runtime={"access_log_exclude_paths": []})
+    expected = (
+        ["--disable-access-log-for-endpoints=/ready,/metrics"]
+        if engine == "vllm"
+        else ["--uvicorn-access-log-exclude-prefixes", "/ready", "/metrics"]
+    )
+    assert container_launch(custom)[1][-len(expected):] == expected
+    assert serve_argv(custom)[-len(expected):] == expected
+    assert access_log_filter_args(engine, disabled.runtime, []) == []
+    assert not any("access-log" in arg for arg in container_launch(disabled)[1])
+
+
+@pytest.mark.parametrize("engine,manual", [
+    ("vllm", ["--disable-access-log-for-endpoints=/ping"]),
+    ("sglang", ["--uvicorn-access-log-exclude-prefixes", "/ping"]),
+])
+def test_manual_access_log_filter_is_not_duplicated(engine, manual):
+    args = container_launch(_dep(engine=engine, vllm_extra_args=manual))[1]
+    assert args[-len(manual):] == manual
+    assert args.count(manual[0]) == 1
 
 
 def test_ephemeral_deployment_copies_engine_and_args():
@@ -145,7 +177,9 @@ def test_ephemeral_deployment_copies_engine_and_args():
 
 def test_ephemeral_deployment_engine_args_override():
     base = _dep(engine="vllm", engine_args={"tensor-parallel-size": 2})
-    eph = build_ephemeral_deployment(base, name="bench-x", namespace="ns", overrides={"engine_args": {"tensor-parallel-size": 4}})
+    eph = build_ephemeral_deployment(
+        base, name="bench-x", namespace="ns", overrides={"engine_args": {"tensor-parallel-size": 4}},
+    )
     assert eph.engine_args == {"tensor-parallel-size": 4}
 
 
@@ -164,7 +198,7 @@ def test_port_flag_moves_container_probes_and_service(extra):
     dep = _dep(vllm_extra_args=["--max-num-seqs=8", *extra], probes={"liveness": {}})
     assert serving_port(dep) == 9000
     _, args = container_launch(dep)
-    assert args == ["--model", "/models/m", "--port", "9000", "--max-num-seqs=8"]
+    assert args == ["--model", "/models/m", "--port", "9000", "--max-num-seqs=8", VLLM_LOG_FILTER]
     c = build_deployment(dep)["spec"]["template"]["spec"]["containers"][0]
     assert c["ports"] == [{"containerPort": 9000, "name": "http"}]
     assert c["readinessProbe"]["httpGet"]["port"] == 9000
@@ -176,7 +210,7 @@ def test_port_from_engine_args_and_sglang_keeps_host():
     dep = _dep(engine="sglang", engine_args={"port": 30000})
     assert serving_port(dep) == 30000
     _, args = container_launch(dep)
-    assert args == ["--model-path", "/models/m", "--host", "0.0.0.0", "--port", "30000"]
+    assert args == ["--model-path", "/models/m", "--host", "0.0.0.0", "--port", "30000", *SGLANG_LOG_FILTER]
 
 
 def test_default_port_without_flag():
@@ -187,7 +221,9 @@ def test_default_port_without_flag():
 
 def test_serve_argv_drops_user_port_for_the_bench_port():
     dep = _dep(vllm_extra_args=["--port=9000", "--max-num-seqs=8"])
-    assert serve_argv(dep, port=8000) == ["vllm", "serve", "/models/m", "--port", "8000", "--max-num-seqs=8"]
+    assert serve_argv(dep, port=8000) == [
+        "vllm", "serve", "/models/m", "--port", "8000", "--max-num-seqs=8", VLLM_LOG_FILTER,
+    ]
 
 
 @pytest.mark.parametrize("bad", [["--port=abc"], ["--port=0"], ["--port=70000"], ["--port"]])

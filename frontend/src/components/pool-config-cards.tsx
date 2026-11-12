@@ -12,6 +12,7 @@ import { StorageMountsEditor } from "@/components/storage-mounts-editor";
 import { Area, EngineArgsFields, Field, ROW_GRID, withEngineArg } from "@/components/engine-args-fields";
 import { CollapsibleSection, FormSection } from "@/components/form-section";
 import { linesToList, linesToMap, linesToTolerations, listToLines, mapToLines, tolerationsToLines } from "@/lib/placement";
+import { accessLogExcludePaths } from "@/lib/serving-engines";
 
 type OptionalText =
   | "cpu_request" | "cpu_limit" | "memory_request" | "memory_limit";
@@ -39,6 +40,7 @@ export function PoolConfigCards({
   const t = useTranslations("servingRecipes");
   const id = (s: string) => `${idPrefix}-${s}`;
   const [argsText, setArgsText] = useState(() => listToLines(value.vllm_extra_args));
+  const [accessLogPathsText, setAccessLogPathsText] = useState(() => listToLines(accessLogExcludePaths(value.runtime)));
   const [envText, setEnvText] = useState(() => mapToLines(value.env));
   const [nsText, setNsText] = useState(() => mapToLines(value.node_selector));
   const [tolText, setTolText] = useState(() => tolerationsToLines(value.tolerations));
@@ -69,7 +71,7 @@ export function PoolConfigCards({
     const empty = !next.shm_size_gi && !next.host_ipc && !next.privileged
       && !Object.keys(next.extra_resources ?? {}).length && !Object.keys(next.extra_ports ?? {}).length
       && !next.rollout && next.termination_grace_seconds == null && next.prestop_sleep_seconds == null
-      && !next.kv_events;
+      && !next.kv_events && next.access_log_exclude_paths == null;
     onChange({ runtime: empty ? null : next });
   }
   const seconds = (k: "termination_grace_seconds" | "prestop_sleep_seconds") => (e: React.ChangeEvent<HTMLInputElement>) =>
@@ -193,6 +195,15 @@ export function PoolConfigCards({
             id={id("args")} value={argsText}
             placeholder={engine === "sglang" ? "--log-level=info\n--schedule-policy=lpm" : "--max-model-len=8192\n--tensor-parallel-size=2"}
             onChange={(v) => { setArgsText(v); onChange({ vllm_extra_args: linesToList(v) }); }}
+          />
+        </Field>
+        <Field id={id("access-log-paths")} label={t("accessLogExcludePaths")} hint={t("accessLogExcludePathsHint")}>
+          <Area
+            id={id("access-log-paths")} rows={3} value={accessLogPathsText}
+            onChange={(v) => {
+              setAccessLogPathsText(v);
+              setRuntime({ access_log_exclude_paths: linesToList(v) ?? [] });
+            }}
           />
         </Field>
       </FormSection>

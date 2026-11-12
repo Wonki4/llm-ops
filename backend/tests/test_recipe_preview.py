@@ -62,6 +62,9 @@ async def test_preview_aggregated_renders_deployment_service_ingress(client_for_
     assert data["warnings"] == []
     assert res.await_args.args[2:] == (None, "prod")
     dep = _docs(resp)[0]
+    assert dep["spec"]["template"]["spec"]["containers"][0]["args"][-1] == (
+        "--disable-access-log-for-endpoints=/health,/metrics,/v1/models"
+    )
     assert dep["metadata"]["namespace"] == "prod"
     assert dep["spec"]["template"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "models-pvc"
     mock_db.add.assert_not_called()
@@ -87,6 +90,9 @@ async def test_preview_pd_renders_both_pools_and_services(client_for_user, super
     assert prefill["spec"]["replicas"] == 2 and decode["spec"]["replicas"] == 1
     for d in (prefill, decode):
         assert d["spec"]["template"]["spec"]["volumes"][0]["persistentVolumeClaim"]["claimName"] == "models-pvc"
+        assert d["spec"]["template"]["spec"]["containers"][0]["args"][-1] == (
+            "--disable-access-log-for-endpoints=/health,/metrics,/v1/models"
+        )
     assert [c["name"] for c in decode["spec"]["template"]["spec"]["initContainers"]] == ["routing-proxy"]
     assert not prefill["spec"]["template"]["spec"].get("initContainers")
 

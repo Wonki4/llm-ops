@@ -1,4 +1,4 @@
-import type { EngineArgs, ServingEngine } from "@/types";
+import type { EngineArgs, RuntimeOptions, ServingEngine } from "@/types";
 
 /**
  * Curated "main" launch flags per engine, shown as dedicated fields in the
@@ -17,6 +17,22 @@ export const ENGINE_LABEL_KEY: Record<ServingEngine, "engineVllm" | "engineSglan
   vllm: "engineVllm",
   sglang: "engineSglang",
 };
+
+/** Applied at launch when an older recipe has no explicit setting. An empty list disables the filter. */
+export const DEFAULT_ACCESS_LOG_EXCLUDE_PATHS = ["/health", "/metrics", "/v1/models"];
+
+export function accessLogExcludePaths(runtime: RuntimeOptions | null | undefined): string[] {
+  return runtime?.access_log_exclude_paths ?? DEFAULT_ACCESS_LOG_EXCLUDE_PATHS;
+}
+
+/** Mirrors the backend's effective launch args for the deployment details page. */
+export function accessLogFilterArgs(engine: ServingEngine, runtime: RuntimeOptions | null | undefined, flags: string[]): string[] {
+  const flag = engine === "vllm" ? "--disable-access-log-for-endpoints" : "--uvicorn-access-log-exclude-prefixes";
+  if (flags.some((arg) => arg === flag || arg.startsWith(`${flag}=`))) return [];
+  const paths = accessLogExcludePaths(runtime);
+  if (!paths.length) return [];
+  return engine === "vllm" ? [`${flag}=${paths.join(",")}`] : [flag, ...paths];
+}
 
 /** Structured flags a new recipe starts with (also re-applied when switching engine). */
 export const DEFAULT_ENGINE_ARGS: Record<ServingEngine, EngineArgs | null> = {

@@ -106,6 +106,7 @@ def test_portal_vllm_manifest_round_trips_without_warnings():
     assert d["engine"] == "vllm" and d["image"] == dep.image and d["model_path"] == dep.model_path
     assert d["engine_args"] == dep.engine_args
     assert d["vllm_extra_args"] is None
+    assert d["runtime"] == {"access_log_exclude_paths": ["/health", "/metrics", "/v1/models"]}
     assert (d["gpu_count"], d["gpu_resource_key"]) == (2, "nvidia.com/gpu")
     assert (d["cpu_request"], d["cpu_limit"], d["memory_request"], d["memory_limit"]) == ("4", "8", "32Gi", "64Gi")
     assert d["env"] == dep.env and d["node_selector"] == dep.node_selector and d["tolerations"] == dep.tolerations
@@ -133,6 +134,7 @@ def test_portal_sglang_manifest_round_trips():
     assert out["warnings"] == []
     assert d["engine"] == "sglang" and d["model_path"] == dep.model_path
     assert d["engine_args"] == {"tp-size": 2, "context-length": 4096}
+    assert d["runtime"] == {"access_log_exclude_paths": ["/health", "/metrics", "/v1/models"]}
     assert d["gpu_count"] == 0 and d["pvc_mounts"] == [] and d["env"] is None
 
 
@@ -143,6 +145,18 @@ def test_extra_args_from_portal_manifest_land_in_engine_args():
     dep = _dep(engine_args=None, vllm_extra_args=["--max-num-seqs=64", "--enable-prefix-caching"])
     d = build_recipe_draft(_manifest_to_spec(build_deployment(dep)))["draft"]
     assert d["engine_args"] == {"max-num-seqs": 64, "enable-prefix-caching": True}
+    assert d["runtime"] == {"access_log_exclude_paths": ["/health", "/metrics", "/v1/models"]}
+
+
+def test_import_custom_sglang_access_log_prefixes():
+    out = build_recipe_draft(_spec(
+        image="lmsysorg/sglang:latest",
+        command=["python3", "-m", "sglang.launch_server"],
+        args=["--model-path", "/models/m", "--uvicorn-access-log-exclude-prefixes", "/health", "/ready"],
+    ))
+    assert out["warnings"] == []
+    assert out["draft"]["runtime"] == {"access_log_exclude_paths": ["/health", "/ready"]}
+    assert out["draft"]["engine_args"] is None
 
 
 # ─── Launch forms ────────────────────────────────────────────────────────────
@@ -446,7 +460,10 @@ def test_kv_event_ports_are_not_imported_twice():
 def test_runtime_extra_ports_round_trip():
     dep = _dep(runtime={"extra_ports": {"metrics": 9100}})
     out = build_recipe_draft(_manifest_to_spec(build_deployment(dep)))
-    assert out["draft"]["runtime"] == {"extra_ports": {"metrics": 9100}}
+    assert out["draft"]["runtime"] == {
+        "extra_ports": {"metrics": 9100},
+        "access_log_exclude_paths": ["/health", "/metrics", "/v1/models"],
+    }
 
 
 def _shm_spec(size_limit: str | None, mount_path: str = "/dev/shm", ports=None):
@@ -481,4 +498,7 @@ def test_memory_volume_without_a_usable_size_or_not_at_dev_shm_is_still_flagged(
 
 def test_runtime_shm_round_trip():
     out = build_recipe_draft(_manifest_to_spec(build_deployment(_dep(runtime={"shm_size_gi": 2000}))))
-    assert out["draft"]["runtime"] == {"shm_size_gi": 2000}
+    assert out["draft"]["runtime"] == {
+        "shm_size_gi": 2000,
+        "access_log_exclude_paths": ["/health", "/metrics", "/v1/models"],
+    }

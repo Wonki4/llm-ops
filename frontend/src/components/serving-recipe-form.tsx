@@ -12,7 +12,7 @@ import type { PdConfig, PdFramework, PdRoleOverride, PoolConfig, ServingEngine, 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { DEFAULT_ENGINE_ARGS, DEFAULT_ENV, DEFAULT_EXTRA_ARGS, ENGINES, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, missingToolCallParser } from "@/lib/serving-engines";
+import { DEFAULT_ACCESS_LOG_EXCLUDE_PATHS, DEFAULT_ENGINE_ARGS, DEFAULT_ENV, DEFAULT_EXTRA_ARGS, ENGINES, ENGINE_DEFAULT_IMAGE, ENGINE_LABEL_KEY, missingToolCallParser } from "@/lib/serving-engines";
 import { Field } from "@/components/engine-args-fields";
 import { PoolConfigCards } from "@/components/pool-config-cards";
 import { PdRolePanel } from "@/components/pd-role-panel";
@@ -31,7 +31,7 @@ const BLANK: ServingRecipeInput = {
   storages: [], vllm_extra_args: [...DEFAULT_EXTRA_ARGS.vllm], env: { ...DEFAULT_ENV },
   // Startup + liveness on (empty spec = backend defaults): liveness only starts once startup has passed.
   engine: "vllm", engine_args: DEFAULT_ENGINE_ARGS.vllm, probes: { liveness: {}, startup: {} }, gpu_type: null,
-  serving_mode: "aggregated", pd_config: null, runtime: { shm_size_gi: 1 },
+  serving_mode: "aggregated", pd_config: null, runtime: { shm_size_gi: 1, access_log_exclude_paths: [...DEFAULT_ACCESS_LOG_EXCLUDE_PATHS] },
 };
 
 const MODES: ServingMode[] = ["aggregated", "pd"];

@@ -1076,6 +1076,8 @@ export interface RuntimeOptions {
   prestop_sleep_seconds?: number | null;
   /** vLLM KV-cache events (`--kv-events-config`); present = on. */
   kv_events?: KvEventsOptions | null;
+  /** Unset = portal defaults; [] = log every endpoint. */
+  access_log_exclude_paths?: string[] | null;
 }
 
 /** vLLM's ZMQ KV-event publisher. Blank topic = `kv@$(POD_IP):<port>@<served model name>`. */

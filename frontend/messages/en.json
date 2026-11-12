@@ -1838,6 +1838,8 @@
     "sectionEngineArgs": "Engine arguments",
     "engineArgsHint": "Blank = engine default. Unlisted flags go in extra args.",
     "extraArgs": "Extra args (one per line)",
+    "accessLogExcludePaths": "Exclude paths from access logs",
+    "accessLogExcludePathsHint": "One path per line. Defaults to /health, /metrics, /v1/models; leave blank to log every path. SGLang matches path prefixes.",
     "extraArgsPortHint": "One line is one argument (valued flags as --flag=value). A --port=N moves the container port, health checks and the Service targetPort with it. Wildcard endpoint / replay_endpoint ports in --kv-events-config (e.g. tcp://*:5556) are added as kv-events / kv-replay container ports.",
     "arg": {
       "tensorParallelSize": "Tensor parallel size",
