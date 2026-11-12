@@ -163,6 +163,7 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
   - 기본 팀 ID (모든 유저, 쉼표로 여러 팀 지원)
   - 추가 팀 규칙 (사번 prefix 기반): 기본 팀 + 규칙 팀 합산 배정
 - **팀 숨기기**: 일반 유저에게 비노출할 팀 ID 관리
+- **Kubernetes 클러스터**: kubeconfig 등록 및 연결 테스트. Keycloak OIDC 형식은 [OIDC kubeconfig 등록 안내](docs/cluster-oidc-kubeconfig.md) 참고
 
 #### 모델 서빙 — Prefill/Decode 분리 (P/D)
 - 서빙 레시피의 **서빙 방식**을 `Prefill / Decode 분리`로 두면 한 레시피로 prefill 풀 + decode 풀 두 개의 Deployment(+Service)를 띄운다 (vLLM 전용)

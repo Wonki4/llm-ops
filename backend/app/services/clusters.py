@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.k8s import K8sClient
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.db.session import async_session_factory
 from app.services import crypto
+from app.services.oidc_kubeconfig import oidc_provider_config, prepare_oidc_kubeconfig
 
 LOCAL_DEST_SERVER = "https://kubernetes.default.svc"
 _DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -35,8 +37,30 @@ async def _cluster_row(db: AsyncSession, cluster_id: uuid.UUID) -> CustomK8sClus
     ).scalar_one_or_none()
 
 
+async def _registered_oidc_kubeconfig(cluster_id: uuid.UUID) -> tuple[dict, str]:
+    """Refresh a stored OIDC token once across replicas and save any rotation."""
+    async with async_session_factory() as db:
+        result = await db.execute(
+            select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_id).with_for_update()
+        )
+        row = result.scalar_one_or_none()
+        if row is None:
+            raise ValueError(f"Registered cluster {cluster_id} no longer exists")
+        raw = yaml.safe_load(crypto.decrypt(row.kubeconfig_encrypted))
+        client_config, refreshed = await prepare_oidc_kubeconfig(raw, row.context, allow_refresh=True)
+        if refreshed:
+            row.kubeconfig_encrypted = crypto.encrypt(yaml.safe_dump(raw, sort_keys=False))
+            await db.commit()
+        return client_config, row.context
+
+
 def _client_for_row(row: CustomK8sCluster) -> K8sClient:
     kubeconfig = yaml.safe_load(crypto.decrypt(row.kubeconfig_encrypted))
+    if oidc_provider_config(kubeconfig, row.context) is not None:
+        async def load() -> tuple[dict, str]:
+            return await _registered_oidc_kubeconfig(row.id)
+
+        return K8sClient(kubeconfig_loader=load)
     return K8sClient(kubeconfig=kubeconfig, context=row.context)
 
 
