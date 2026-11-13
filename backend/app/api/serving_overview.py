@@ -1,13 +1,16 @@
 """Serving home: one row per self-served model showing where it sits in the
 recipe → deployment → benchmark → catalog pipeline (Super User only)."""
 
+import asyncio
 import logging
+from typing import Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
+from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -17,13 +20,25 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import llmd_stacks
-from app.services.clusters import scan_scopes
+from app.services.clusters import namespace_scopes, scan_scopes
 from app.services.external_servings import scan_clusters
+from app.services.litellm_registration import litellm_name
 from app.services.llmd_links import external_server, link_stacks, portal_server
+from app.services.llmd_manifests import llmd_service_name
 from app.services.pd_serving import pd_status_summary
 from app.services.serving_engines import engine_of
+from app.services.serving_topology import (
+    NamespaceSnapshots,
+    TopologyGraph,
+    add_service,
+    build_topology,
+    read_routes,
+    read_workloads,
+)
 
 logger = logging.getLogger(__name__)
+route_snapshots = NamespaceSnapshots(read_routes)
+workload_snapshots = NamespaceSnapshots(read_workloads)
 
 router = APIRouter(prefix="/api/admin/serving", tags=["serving-overview"])
 
@@ -218,3 +233,99 @@ async def serving_overview(
     # ArgoCD sync/health per stack (best-effort, one read each).
     status = {str(st.id): await llmd_stacks.live_status(db, st) for st in stacks}
     return build_overview(deployments, stacks, runs, recipes, catalog, external, registrations, status)
+
+
+@router.get("/topology")
+async def serving_topology(
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    cluster: str = "",
+    ns: str = "",
+    summary: bool = False,
+) -> dict:
+    catalog = dict((await db.execute(select(CustomModelCatalog.model_name, CustomModelCatalog.display_name))).all())
+    deps = (await db.execute(select(CustomModelDeployment))).scalars().all()
+    external = (await db.execute(select(CustomExternalServing))).scalars().all()
+    stacks = (await db.execute(select(CustomLlmdStack))).scalars().all()
+    extra = [(r.cluster_id, r.namespace) for r in [*deps, *external, *stacks]]
+    owners = [
+        {"model_id": d.litellm_model_id, "name": litellm_name(d), "deployment": d.model_name, "ref": str(d.id),
+         "cluster_id": str(d.cluster_id) if d.cluster_id else None, "namespace": d.namespace}
+        for d in deps
+    ] + [
+        {"model_id": r.litellm_model_id, "name": r.model_name, "deployment": r.deployment_name,
+         "ref": None, "owner_id": str(r.id), "cluster_id": str(r.cluster_id) if r.cluster_id else None,
+         "namespace": r.namespace}
+        for r in external
+    ]
+    errors = []
+    snapshots = {}
+
+    async def scan(scope):
+        try:
+            data = await route_snapshots.read(scope)
+            if not summary:
+                data = {**data, **await workload_snapshots.read(scope)}
+            snapshots[scope.cluster_id, scope.namespace] = {**data, "cluster": scope.name}
+        except Exception:
+            errors.append(f"{scope.name} / {scope.namespace}")
+
+    try:
+        scopes = await namespace_scopes(db, extra, include_registered=True)
+    except Exception:
+        scopes = []
+        errors.append("Kubernetes")
+    selected = [s for s in scopes if (not cluster or (s.cluster_id or "default") == cluster)
+                and (not ns or s.namespace == ns)]
+    live, _ = await asyncio.gather(
+        litellm.get_model_info(), asyncio.gather(*(scan(scope) for scope in selected)), return_exceptions=True
+    )
+    available = not isinstance(live, BaseException)
+    graph = build_topology(live if available else [], catalog, owners, stacks, snapshots, litellm_available=available)
+    return {
+        **graph, "litellm_available": available, "unavailable_scopes": sorted(errors),
+        "partial_coverage": len(selected) < len(scopes) or bool(errors),
+        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in scopes],
+    }
+
+
+@router.get("/topology/workloads")
+async def topology_workloads(
+    cluster: str, ns: str, kind: Literal["ingress", "service"], name: str,
+    user: CustomUser = Depends(require_super_user), db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Only serve namespaces the same admin can see in the overview. Resolve the
+    # entry from Kubernetes, so callers cannot supply arbitrary pod selectors.
+    extra = []
+    for model in (CustomModelDeployment, CustomExternalServing, CustomLlmdStack):
+        extra.extend((await db.execute(select(model.cluster_id, model.namespace)
+                                       .where(model.namespace == ns).distinct())).all())
+    scopes = await namespace_scopes(db, extra, include_registered=True)
+    scope = next((s for s in scopes if (s.cluster_id or "default") == cluster and s.namespace == ns), None)
+    if not scope:
+        raise HTTPException(404, "Unknown topology scope")
+    try:
+        routes = await route_snapshots.read(scope)
+        if kind == "ingress":
+            services = {svc for ingress, _, _, _, svc in routes["paths"] if ingress == name}
+        else:
+            services = {name} if name in routes["services"] else set()
+        if not services:
+            raise HTTPException(404, "Entry point no longer present")
+        workloads = await workload_snapshots.read(scope)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, "Kubernetes workload lookup unavailable") from exc
+    stacks = (await db.scalars(select(CustomLlmdStack).where(
+        CustomLlmdStack.cluster_id == (scope.cluster.id if scope.cluster else None),
+        CustomLlmdStack.namespace == ns,
+    ))).all()
+    routers = {llmd_service_name(st): st for st in stacks}
+    graph = TopologyGraph()
+    data = {**routes, **workloads, "cluster": scope.name}
+    expanded = set()
+    for svc in sorted(services):
+        add_service(graph, scope.cluster_id, ns, svc, routers.get(svc), data, expanded)
+    return graph.result()

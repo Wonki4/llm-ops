@@ -6,7 +6,7 @@ import { Loader2, Plus, Trash2, Network, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useLlmdStacks, useDeleteLlmdStack } from "@/hooks/use-api";
+import { useLlmdStacks, useDeleteLlmdStack, useK8sClusterSettings } from "@/hooks/use-api";
 import type { LlmdStackSummary } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,10 +28,16 @@ function LlmdStacks() {
   const t = useTranslations("llmd");
   const ts = useTranslations("serving");
   const { data: allStacks, isLoading } = useLlmdStacks();
-  const [scope, setScope] = useServingScope();
+  const settings = useK8sClusterSettings();
+  const [scope, setScope] = useServingScope(settings.data);
   const clusterName = useClusterName();
   const stacks = allStacks?.filter((s) => inScope(scope, s));
   const deleteMut = useDeleteLlmdStack();
+
+  if (!settings.data) {
+    return settings.isError ? <p role="alert">{settings.error.message}</p>
+      : <div className="h-64 animate-pulse rounded-lg bg-muted" aria-busy="true" />;
+  }
 
   const handleDelete = (e: React.MouseEvent, s: LlmdStackSummary) => {
     e.preventDefault();
@@ -56,8 +62,8 @@ function LlmdStacks() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <ServingDeployTabs />
-        <ServingScopeFilter scope={scope} onChange={setScope} items={allStacks ?? []} />
+        <ServingDeployTabs scope={scope} />
+        <ServingScopeFilter scope={scope} onChange={setScope} items={allStacks ?? []} settings={settings.data} />
       </div>
 
       <Card>

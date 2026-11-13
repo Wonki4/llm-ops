@@ -1706,9 +1706,13 @@ export function useK8sClusters() {
   return useQuery({ ...k8sClustersQuery, select: (r: K8sClustersResponse) => r.clusters });
 }
 
+export function useK8sClusterSettings() {
+  return useQuery(k8sClustersQuery);
+}
+
 /** The namespace a deploy to `clusterId` uses when none is typed: the cluster's, else the portal default (`""` = portal default cluster). */
 export function useDefaultNamespace(clusterId: string): string {
-  const { data } = useQuery({ ...k8sClustersQuery });
+  const { data } = useK8sClusterSettings();
   const cluster = data?.clusters.find((c) => c.id === clusterId);
   return cluster?.namespace || data?.default_namespace || "default";
 }

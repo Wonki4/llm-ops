@@ -30,6 +30,10 @@ kind: ClusterRole
 metadata:
   name: llm-ops-portal
 rules:
+  # Resolve Pod -> ReplicaSet -> Deployment ownership in the routing graph.
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["list"]
   # --- Serving deployments: Deployment / Service / Ingress lifecycle ---
   - apiGroups: ["apps"]
     resources: ["deployments"]

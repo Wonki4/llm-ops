@@ -2,14 +2,14 @@
 
 import { Suspense } from "react";
 import Link from "next/link";
-import { CheckCircle2, Workflow } from "lucide-react";
+import { CheckCircle2, Network, Workflow } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { useServingOverview } from "@/hooks/use-api";
+import { useK8sClusterSettings, useServingOverview } from "@/hooks/use-api";
 import type { ServingOverviewRow } from "@/types";
 import { ModelStatusBadge } from "@/components/model-status-badge";
 import { ServingScopeFilter, useServingScope } from "@/components/serving-scope-filter";
-import { inScope, isScoped } from "@/lib/serving-scope";
+import { inScope, isScoped, scopeQuery } from "@/lib/serving-scope";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -54,7 +54,8 @@ export default function ServingHomePage() {
 function ServingHome() {
   const t = useTranslations("serving");
   const { data, isLoading } = useServingOverview();
-  const [scope, setScope] = useServingScope();
+  const settings = useK8sClusterSettings();
+  const [scope, setScope] = useServingScope(settings.data);
   const scoped = isScoped(scope);
   const scopeItems = [
     ...(data?.models ?? []).flatMap((r) => [...r.deployments, ...r.llmd_stacks]),
@@ -79,14 +80,24 @@ function ServingHome() {
     catalogued: rows?.filter((r) => r.catalog).length ?? 0,
   };
 
+  if (!settings.data) {
+    return settings.isError ? <p role="alert">{settings.error.message}</p>
+      : <div className="h-64 animate-pulse rounded-lg bg-muted" aria-busy="true" />;
+  }
+
   return (
     <div className="space-y-6">
-      <div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
         <h1 className="text-2xl font-bold flex items-center gap-2"><Workflow className="size-5" />{t("title")}</h1>
         <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
+        </div>
+        <Link href={`/admin/serving/topology${scopeQuery(scope, true)}`} className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
+          <Network className="size-4" />{t("graph.title")}
+        </Link>
       </div>
 
-      <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} />
+      <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} settings={settings.data} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {(["models", "ready", "benchmarked", "catalogued"] as const).map((k) => (
