@@ -94,7 +94,7 @@ async def test_personal_key_refused_when_beta_is_off(client_for_user, regular_us
     litellm_db["db"] = _litellm_db(user_row={"models": ["all-proxy-models"], "max_budget": None})
     async with client_for_user(regular_user) as client:
         resp = await client.post("/api/keys", json={"key_alias": "mine"})
-    assert resp.status_code == 403 and "Beta" in resp.text
+    assert resp.status_code == 403 and "개인 키가 꺼져 있습니다" in resp.json()["detail"]
     mock_litellm.generate_key.assert_not_awaited()
 
 

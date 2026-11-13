@@ -45,7 +45,7 @@ async def require_personal_access(db: AsyncSession, litellm_db: AsyncSession, us
     Returns the user row (``models``, ``max_budget``).
     """
     if not await personal_keys_beta_enabled(db):
-        raise HTTPException(status_code=403, detail="개인 키(Beta)가 꺼져 있습니다. 관리자에게 문의하세요.")
+        raise HTTPException(status_code=403, detail="개인 키가 꺼져 있습니다. 관리자에게 문의하세요.")
     row = (
         await litellm_db.execute(
             text('SELECT models, max_budget FROM "LiteLLM_UserTable" WHERE user_id = :user_id'),

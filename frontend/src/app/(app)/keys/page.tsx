@@ -357,7 +357,6 @@ export default function AllKeysPage() {
                     ) : key.personal ? (
                       <Badge variant="outline" className="gap-1 text-[11px]" data-testid="personal-key-badge">
                         {t("personalBadge")}
-                        <span className="text-[9px] uppercase text-muted-foreground">{t("betaBadge")}</span>
                       </Badge>
                     ) : (
                       <span className="text-xs text-muted-foreground">-</span>

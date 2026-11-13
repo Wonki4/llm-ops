@@ -200,7 +200,6 @@ export default function ModelDashboardPage() {
                 >
                   <span className="flex min-w-0 items-center gap-1.5 text-sm">
                     <span className="truncate">{t("byTeam.personal")}</span>
-                    <Badge variant="outline" className="px-1 py-0 text-[9px] uppercase">Beta</Badge>
                   </span>
                   <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0">{personalLabel}</Badge>
                 </button>
