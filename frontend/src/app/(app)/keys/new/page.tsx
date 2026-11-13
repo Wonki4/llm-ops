@@ -246,9 +246,6 @@ export default function CreateKeyPage({
                       }
                     >
                       {kt === "team" ? t("keyTypeTeam") : t("keyTypePersonal")}
-                      {kt === "personal" && (
-                        <Badge variant={keyType === kt ? "secondary" : "outline"} className="px-1 py-0 text-[10px]">{t("betaBadge")}</Badge>
-                      )}
                     </button>
                   ))}
                 </div>

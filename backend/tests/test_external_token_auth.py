@@ -191,7 +191,7 @@ async def test_allowed_client_passes(sso, monkeypatch):
 async def test_personal_needs_beta(sso, litellm_client):
     async with sso["wire"](FakeDBs(beta="false")) as client:
         resp = await client.post("/api/external/token-auth", json={"token": "t"}, headers=HEADERS)
-    assert resp.status_code == 403 and "Beta" in resp.text
+    assert resp.status_code == 403 and "개인 키가 꺼져 있습니다" in resp.json()["detail"]
     litellm_client.generate_key.assert_not_awaited()
 
 
