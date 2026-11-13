@@ -8,6 +8,7 @@ import { useTranslations } from "next-intl";
 import {
   ExternalServing,
   useExternalServings,
+  useK8sClusterSettings,
   useModelDeployments,
   useUnregisterExternalServing,
 } from "@/hooks/use-api";
@@ -84,7 +85,8 @@ export default function DeploymentsPage() {
 function DeploymentsList() {
   const t = useTranslations("adminDeployments");
   const ts = useTranslations("serving");
-  const [scope, setScope] = useServingScope();
+  const settings = useK8sClusterSettings();
+  const [scope, setScope] = useServingScope(settings.data);
   const clusterName = useClusterName();
   const { data: deployments, isLoading } = useModelDeployments();
   const { data: external, isLoading: externalLoading } = useExternalServings();
@@ -92,6 +94,11 @@ function DeploymentsList() {
 
   const [registerTarget, setRegisterTarget] = useState<ExternalServing | null>(null);
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
+  if (!settings.data) {
+    return settings.isError ? <p role="alert">{settings.error.message}</p>
+      : <div className="h-64 animate-pulse rounded-lg bg-muted" aria-busy="true" />;
+  }
 
   const loading = isLoading || externalLoading;
   const allServings = external?.servings ?? [];
@@ -113,8 +120,8 @@ function DeploymentsList() {
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <ServingDeployTabs />
-        <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} />
+        <ServingDeployTabs scope={scope} />
+        <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} settings={settings.data} />
       </div>
 
       {scanErrors.length > 0 && (

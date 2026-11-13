@@ -3,6 +3,7 @@
 import re
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 import yaml
 from sqlalchemy import select
@@ -125,12 +126,30 @@ async def default_namespace(db: AsyncSession, cluster_id: uuid.UUID | str | None
 ScanScope = tuple[str | None, str, K8sClient, str]
 
 
-async def scan_scopes(
+@dataclass
+class NamespaceScope:
+    cluster: CustomK8sCluster | None
+    namespace: str
+
+    @property
+    def cluster_id(self) -> str | None:
+        return str(self.cluster.id) if self.cluster else None
+
+    @property
+    def name(self) -> str:
+        return self.cluster.name if self.cluster else "default"
+
+    def client(self) -> K8sClient:
+        return _client_for_row(self.cluster) if self.cluster else K8sClient()
+
+
+async def namespace_scopes(
     db: AsyncSession,
     extra: Iterable[tuple[uuid.UUID | str | None, str | None]] = (),
     *,
     representative: bool = True,
-) -> list[ScanScope]:
+    include_registered: bool = False,
+) -> list[NamespaceScope]:
     """Where an external-serving scan looks, instead of every namespace of every cluster.
 
     The representative cluster (``is_default``) in its own namespace, or the portal
@@ -141,15 +160,10 @@ async def scan_scopes(
     from app.config import settings
 
     rows = {str(r.id): r for r in (await db.execute(select(CustomK8sCluster))).scalars().all()}
-    clients: dict[str | None, K8sClient] = {}
-    out: list[ScanScope] = []
+    scopes: dict[tuple[str | None, str], NamespaceScope] = {}
 
     def add(cid: str | None, namespace: str) -> None:
-        if any(s[0] == cid and s[3] == namespace for s in out):
-            return
-        if cid not in clients:
-            clients[cid] = K8sClient() if cid is None else _client_for_row(rows[cid])
-        out.append((cid, "default" if cid is None else rows[cid].name, clients[cid], namespace))
+        scopes[cid, namespace] = NamespaceScope(rows.get(cid), namespace)
 
     if representative:
         rep = next((r for r in rows.values() if r.is_default), None)
@@ -157,8 +171,27 @@ async def scan_scopes(
             add(str(rep.id), rep.namespace or settings.k8s_default_namespace)
         else:
             add(None, settings.k8s_default_namespace)
+    if include_registered:
+        for cid, row in rows.items():
+            add(cid, row.namespace or settings.k8s_default_namespace)
     for cluster_id, namespace in extra:
         cid = str(cluster_id) if cluster_id else None
         if namespace and (cid is None or cid in rows):
             add(cid, namespace)
+    return list(scopes.values())
+
+
+async def scan_scopes(
+    db: AsyncSession,
+    extra: Iterable[tuple[uuid.UUID | str | None, str | None]] = (),
+    *,
+    representative: bool = True,
+) -> list[ScanScope]:
+    clients: dict[str | None, K8sClient] = {}
+    out = []
+    for scope in await namespace_scopes(db, extra, representative=representative):
+        cid = scope.cluster_id
+        if cid not in clients:
+            clients[cid] = scope.client()
+        out.append((cid, scope.name, clients[cid], scope.namespace))
     return out

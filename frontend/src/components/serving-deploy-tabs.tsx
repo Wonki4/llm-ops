@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Network, Server } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { scopeQuery } from "@/lib/serving-scope";
+import { scopeQuery, type ServingScope } from "@/lib/serving-scope";
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -14,10 +14,9 @@ const TABS = [
 ] as const;
 
 /** Segmented links shared by the two "deploy" surfaces (K8s deployments, llm-d stacks); they keep the cluster/namespace scope. */
-export function ServingDeployTabs() {
+export function ServingDeployTabs({ scope }: { scope: ServingScope }) {
   const pathname = usePathname();
-  const params = useSearchParams();
-  const query = scopeQuery({ cluster: params.get("cluster") ?? "", ns: params.get("ns") ?? "" });
+  const query = scopeQuery(scope, true);
   const t = useTranslations("serving");
   return (
     <div className="inline-flex rounded-md border bg-muted/40 p-0.5">

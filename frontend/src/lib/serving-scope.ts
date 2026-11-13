@@ -7,6 +7,23 @@ export const PORTAL_CLUSTER = "default";
 
 export type ServingScope = { cluster: string; ns: string };
 export type ScopedItem = { cluster_id?: string | null; namespace?: string | null };
+export type ClusterSettings = {
+  clusters: { id: string; namespace: string; is_default: boolean }[];
+  default_namespace: string;
+};
+
+/** An omitted cluster selects the representative; an explicit empty cluster selects all. */
+export function clusterScope(settings: ClusterSettings, selected?: string): ServingScope {
+  const cluster = selected ?? settings.clusters.find(c => c.is_default)?.id ?? PORTAL_CLUSTER;
+  const ns = cluster ? settings.clusters.find(c => c.id === cluster)?.namespace || settings.default_namespace : "";
+  return { cluster, ns };
+}
+
+export function scopeFromParams(params: Pick<URLSearchParams, "get">, settings?: ClusterSettings): ServingScope {
+  const cluster = params.get("cluster");
+  const base = settings ? clusterScope(settings, cluster ?? undefined) : { cluster: cluster ?? "", ns: "" };
+  return { ...base, ns: params.get("ns") ?? base.ns };
+}
 
 export function clusterKey(clusterId: string | null | undefined): string {
   return clusterId || PORTAL_CLUSTER;
@@ -22,11 +39,11 @@ export function isScoped(scope: ServingScope): boolean {
   return !!(scope.cluster || scope.ns);
 }
 
-/** `?cluster=…&ns=…` (empty string when unscoped), for links that keep the scope. */
-export function scopeQuery(scope: ServingScope): string {
+/** Keep explicit "all" selections on pages where omitted parameters mean configured defaults. */
+export function scopeQuery(scope: ServingScope, includeEmpty = false): string {
   const qs = new URLSearchParams();
-  if (scope.cluster) qs.set("cluster", scope.cluster);
-  if (scope.ns) qs.set("ns", scope.ns);
+  if (scope.cluster || includeEmpty) qs.set("cluster", scope.cluster);
+  if (scope.ns || includeEmpty) qs.set("ns", scope.ns);
   const s = qs.toString();
   return s ? `?${s}` : "";
 }
