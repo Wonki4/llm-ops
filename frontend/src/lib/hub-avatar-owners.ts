@@ -1,0 +1,20 @@
+// Bundled avatars from the public Hugging Face profile of each exact owner.
+export const hubAvatarOwners = new Set([
+  "01-ai", "ai-sweden-models", "ai21labs", "alibaba-nlp", "allenai",
+  "amazon", "apple", "arcee-ai", "baai", "baidu",
+  "bartowski", "beomi", "bigcode", "bigscience", "black-forest-labs",
+  "bytedance-seed", "cerebras", "eleutherai", "facebook", "flagopen",
+  "ggml-org", "heegyu", "helsinki-nlp", "huggingfaceh4", "huggingfacem4",
+  "huggingfacetb", "ibm-granite", "ibm-research", "inclusionai", "internlm",
+  "jinaai", "k-intelligence", "kakaobrain", "kakaocorp", "krafton",
+  "kyutai", "lgai-exaone", "lightonai", "liquidai", "lmstudio-community",
+  "minimaxai", "mistral-community", "mixedbread-ai", "mlx-community", "naver",
+  "naver-hyperclovax", "ncsoft", "neuralmagic", "nomic-ai", "nousresearch",
+  "open-orca", "open-r1", "open-thoughts", "openai-community", "openbmb",
+  "openbuddy", "opendatalab", "opengvlab", "paddlepaddle", "perplexity-ai",
+  "prithivmlmods", "quantfactory", "redhatai", "rtzr", "salesforce",
+  "sentence-transformers", "skt", "snowflake", "stabilityai", "stepfun-ai",
+  "systran", "tencent-hunyuan", "thebloke", "tiiuae", "togethercomputer",
+  "unsloth", "upstage", "wan-ai", "xai-org", "xenova",
+  "xiaomimimo",
+]);

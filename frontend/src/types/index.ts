@@ -1128,6 +1128,7 @@ export interface ServingRecipe {
   id: string;
   name: string;
   description: string | null;
+  hf_repo_id?: string | null;
   model_path: string;
   image: string;
   gpu_count: number;

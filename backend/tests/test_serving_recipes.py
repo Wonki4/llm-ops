@@ -4,6 +4,8 @@ import types
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
 from app.api.serving_recipes import _serialize
 
 
@@ -29,6 +31,32 @@ def _recipe(**kw):
 
 _BODY = {"name": "r1", "model_path": "/w/llama", "image": "vllm:latest",
          "vllm_extra_args": ["--tensor-parallel-size", "2"]}
+
+
+@pytest.mark.parametrize(("path", "model_id", "expected"), [
+    ("Qwen/Qwen3.5-32B", None, "Qwen/Qwen3.5-32B"),
+    ("/weights/quantized", "Qwen/Qwen3.5-32B", "Qwen/Qwen3.5-32B"),
+    ("/weights/Qwen/Qwen3.5-32B", None, None),
+])
+async def test_model_identity_is_independent_of_runtime_path(admin_client, mock_db, path, model_id, expected):
+    mock_db.execute.return_value = _result()
+    result = await admin_client.post("/api/admin/serving-recipes", json={
+        **_BODY, "model_path": path, "hf_repo_id": model_id,
+    })
+    assert result.status_code == 201
+    assert result.json()["hf_repo_id"] == expected and result.json()["model_path"] == path
+
+
+async def test_older_recipe_client_preserves_assigned_model(admin_client, mock_db):
+    recipe = _recipe(hf_repo_id="Qwen/Qwen3.5-32B")
+    mock_db.execute.side_effect = [_result(scalar=recipe), _result(scalar=recipe)]
+    result = await admin_client.put(f"/api/admin/serving-recipes/{recipe.id}", json=_BODY)
+    assert result.status_code == 200 and result.json()["hf_repo_id"] == recipe.hf_repo_id == "Qwen/Qwen3.5-32B"
+
+
+async def test_local_path_is_rejected_as_explicit_model_id(admin_client):
+    result = await admin_client.post("/api/admin/serving-recipes", json={**_BODY, "hf_repo_id": "/weights/llama"})
+    assert result.status_code == 422
 
 
 def test_serialize_round_trips_fields():

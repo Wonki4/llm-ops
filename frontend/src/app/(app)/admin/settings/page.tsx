@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { Suspense, useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -20,10 +21,35 @@ import {
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClusterSettingsTab } from "@/components/cluster-settings-tab";
+import { ServingAccessTab } from "@/components/serving-access-tab";
 import { GpuProfilesCard } from "@/components/gpu-profiles-card";
 import { PodLabelsCard } from "@/components/pod-labels-card";
 
 export default function PortalSettingsPage() {
+  return <Suspense fallback={<div className="h-48 animate-pulse rounded-lg bg-muted" />}><PortalSettings /></Suspense>;
+}
+
+function PortalSettings() {
+  const searchParams = useSearchParams();
+  const requestedTab = searchParams.get("tab");
+  const tab = requestedTab === "teams" || requestedTab === "clusters" || requestedTab === "serving-access"
+    ? requestedTab : "general";
+  useEffect(() => {
+    if (requestedTab === "clusters" && window.location.hash === "#serving-grants") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", "serving-access");
+      url.hash = "";
+      window.history.replaceState(null, "", url);
+    }
+  }, [requestedTab]);
+  function selectTab(value: string) {
+    const url = new URL(window.location.href);
+    if (value === "general") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", value);
+    if (value !== "serving-access") url.searchParams.delete("team");
+    url.hash = "";
+    window.history.replaceState(null, "", url);
+  }
   const t = useTranslations("settings");
   const tc = useTranslations("common");
 
@@ -129,7 +155,7 @@ export default function PortalSettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className={tab === "serving-access" ? "max-w-6xl space-y-6" : "max-w-2xl space-y-6"}>
       <div>
         <h1 className="text-2xl font-bold">{t("pageTitle")}</h1>
         <p className="text-muted-foreground mt-1">
@@ -137,11 +163,12 @@ export default function PortalSettingsPage() {
         </p>
       </div>
 
-      <Tabs defaultValue="general" className="w-full">
-        <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
+      <Tabs value={tab} onValueChange={selectTab} className="w-full">
+        <TabsList variant="line" className="w-full justify-start gap-3 rounded-none border-b sm:gap-6">
           <TabsTrigger value="general" className="flex-none px-1">{t("tabGeneral")}</TabsTrigger>
           <TabsTrigger value="teams" className="flex-none px-1">{t("tabTeams")}</TabsTrigger>
           <TabsTrigger value="clusters" className="flex-none px-1">{t("tabClusters")}</TabsTrigger>
+          <TabsTrigger value="serving-access" className="flex-none px-1">{t("tabServingAccess")}</TabsTrigger>
         </TabsList>
 
         {/* ── 일반 ── */}
@@ -499,6 +526,9 @@ export default function PortalSettingsPage() {
           <ClusterSettingsTab />
           <GpuProfilesCard />
           <PodLabelsCard />
+        </TabsContent>
+        <TabsContent value="serving-access" className="mt-4">
+          <ServingAccessTab />
         </TabsContent>
       </Tabs>
     </div>

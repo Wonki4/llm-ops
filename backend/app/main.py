@@ -27,6 +27,7 @@ from app.api import (
     model_deployments,
     models_catalog,
     portal_settings,
+    serving_access,
     serving_overview,
     serving_recipes,
     storages,
@@ -86,6 +87,7 @@ app.include_router(serving_recipes.router)
 app.include_router(gpu_profiles.router)
 app.include_router(storages.router)
 app.include_router(serving_overview.router)
+app.include_router(serving_access.router)
 
 # Portal admin MCP for super users (Claude Code, Keycloak OAuth); off unless APP_MCP_ENABLED.
 # Validated even when off: the REST API rejects tokens issued to mcp_client_id regardless.

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { ServingRoleView, TeamDeploymentDetail } from "@/components/team-serving";
 import Link from "next/link";
 import { ArrowLeft, Loader2, RefreshCw, ScrollText, Trash2, Server, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -150,6 +151,11 @@ function DeploymentYaml({ id }: { id: string }) {
 }
 
 export default function DeploymentDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  return <ServingRoleView member={<TeamDeploymentDetail id={id} />}><AdminDeploymentDetail /></ServingRoleView>;
+}
+
+function AdminDeploymentDetail() {
   const t = useTranslations("adminDeployments");
   const localeTag = useLocaleTag();
   const params = useParams();

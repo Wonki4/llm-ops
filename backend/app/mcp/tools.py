@@ -124,7 +124,7 @@ _DESCRIPTIONS: list[tuple[Callable[..., Awaitable[dict]], str]] = [
     ),
     (
         list_recipes,
-        "Serving recipes, newest first: model path, image, engine (vLLM / SGLang) and its args, GPU "
+        "Serving recipes, newest first: model repository (hf_repo_id), runtime model path, image, engine and its args, GPU "
         "count and resources, env, storages. Each item's `id` is the `recipe_id` `get_recipe` takes.",
     ),
     (get_recipe, "One serving recipe in full. `recipe_id` comes from `list_recipes`."),

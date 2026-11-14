@@ -38,7 +38,7 @@ function NewRecipeRoute() {
   return (
     <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("createTitle")} description={t("createDescription")} />
-      <ServingRecipeForm />
+      <ServingRecipeForm initialRepo={sp.get("repo")} />
     </div>
   );
 }

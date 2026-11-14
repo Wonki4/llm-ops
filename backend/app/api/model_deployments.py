@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from kubernetes_asyncio.client.exceptions import ApiException
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
@@ -25,7 +26,7 @@ from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
-from app.db.models.custom_user import CustomUser
+from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 from app.jobs import reconcile_deployments
 from app.services import (
@@ -724,12 +725,13 @@ async def _existing_router(db: AsyncSession, name: str, stack_id: str | None) ->
     return stack
 
 
-async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: CreateDeploymentRequest, user_id) -> None:
+async def _attach_router(db: AsyncSession, dep: CustomModelDeployment, body: CreateDeploymentRequest, user_id,
+                         *, reuse_existing: bool = True) -> None:
     """Link the P/D serving to an llm-d router: the given stack, an existing
     ``<model>-router``, or a freshly created one (its failure is reported in
     status_message rather than failing the deploy — the pools are already up)."""
     name = pd_router.stack_name(dep)
-    existing = await _existing_router(db, name, body.router_stack_id)
+    existing = await _existing_router(db, name, body.router_stack_id) if reuse_existing else None
     if existing is not None:
         dep.router_stack_id = existing.id
         dep.router_stack_created = False
@@ -905,12 +907,21 @@ async def create_deployment(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     db.add(dep)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "23505":
+            raise HTTPException(409, f"Deployment for '{body.model_name}' already exists") from exc
+        raise
     await db.refresh(dep)
 
     reserved = None
     if aggregated_router.enabled(dep):
         reserved = await aggregated_router.prepare(db, dep)
+    elif pd_serving.is_pd(dep) and user.global_role != GlobalRole.SUPER_USER:
+        release = llmd_stacks.require_valid_name(pd_router.stack_name(dep))
+        if await db.scalar(select(CustomLlmdStack.id).where(CustomLlmdStack.argo_app_name == release)):
+            raise HTTPException(409, "The router name for this deployment is already in use")
 
     # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
     try:
@@ -923,7 +934,7 @@ async def create_deployment(
     if reserved is not None:
         await aggregated_router.sync(db, dep, reserved=reserved)
     elif pd_serving.is_pd(dep):
-        await _attach_router(db, dep, body, user.user_id)
+        await _attach_router(db, dep, body, user.user_id, reuse_existing=user.global_role == GlobalRole.SUPER_USER)
 
     return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
 
@@ -958,6 +969,10 @@ async def scale_aggregated(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     dep = await _deployment_or_404(db, str(deployment_id), for_update=True)
+    return await scale_deployment_replicas(db, dep, body, user)
+
+
+async def scale_deployment_replicas(db, dep, body: ReplicaRequest, user):
     if pd_serving.is_pd(dep):
         raise HTTPException(status_code=409, detail="Select the prefill or decode pool to scale a P/D deployment")
     dep.replicas = body.replicas
@@ -974,6 +989,10 @@ async def scale_pool(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     dep = await _deployment_or_404(db, str(deployment_id), for_update=True)
+    return await scale_pool_replicas(db, dep, role, body, user)
+
+
+async def scale_pool_replicas(db, dep, role: pd_serving.Role, body: ReplicaRequest, user):
     if not pd_serving.is_pd(dep):
         raise HTTPException(status_code=409, detail="Pool scaling requires a P/D deployment")
     cfg = pd_serving.pd_config_of(dep)
@@ -1331,14 +1350,17 @@ async def delete_deployment(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     dep = await _deployment_or_404(db, deployment_id, for_update=True)
+    return await remove_deployment(db, dep)
 
+
+async def remove_deployment(db: AsyncSession, dep: CustomModelDeployment, *, strict_cleanup: bool = False) -> dict:
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     try:
         await k8s.delete(dep.namespace, k8s_resource_names(dep))
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as exc:
-        if aggregated_router.enabled(dep):
+        if strict_cleanup or aggregated_router.enabled(dep):
             raise _apply_error(exc, dep) from exc
         logger.exception("K8s delete failed for %s", dep.model_name)
         # Continue to delete the row — orphan K8s resources are easier to clean than orphan DB rows.
@@ -1348,17 +1370,17 @@ async def delete_deployment(
         stack = await db.get(CustomLlmdStack, dep.router_stack_id)
         if stack is not None:
             try:
-                if aggregated_router.enabled(dep):
+                if strict_cleanup or aggregated_router.enabled(dep):
                     await llmd_stacks.delete_stack(db, stack, require_ingress_cleanup=True)
                 else:
                     await llmd_stacks.delete_stack(db, stack)
             except HTTPException as e:
-                if aggregated_router.enabled(dep):
+                if strict_cleanup or aggregated_router.enabled(dep):
                     raise
                 logger.warning("Router stack %s delete failed: %s", stack.name, e.detail)
 
     await db.delete(dep)
-    return {"deleted": True, "id": deployment_id}
+    return {"deleted": True, "id": str(dep.id)}
 
 
 # ─── Deployment events (status transitions + alerts) ────────────

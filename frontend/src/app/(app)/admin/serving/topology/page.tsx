@@ -7,10 +7,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Box, Boxes, ChevronRight, Cloud, Layers3, Network, RefreshCw, Route, Search, Server, Waypoints } from "lucide-react";
 
 import { apiFetch } from "@/lib/api";
-import { useK8sClusterSettings } from "@/hooks/use-api";
+import { useK8sClusterSettings, useMe } from "@/hooks/use-api";
+import { scopeKey, teamScopeParams, type TeamScope } from "@/hooks/use-serving-access";
+import { ServingRoleView, TeamScopeView } from "@/components/team-serving";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ServingScopeFilter, useClusterName, useServingScope } from "@/components/serving-scope-filter";
+import { ServingScopeFilter, useServingScope } from "@/components/serving-scope-filter";
 import { inScope, isScoped, scopeQuery, type ScopedItem, type ServingScope } from "@/lib/serving-scope";
 
 type Kind = "model" | "registration" | "ingress" | "service" | "router" | "pod" | "workload";
@@ -155,10 +157,10 @@ function PagedList<T,>({ items, size, children }: {
   </>;
 }
 
-function ClusterGraph({ graph, routes }: { graph: ResourceGraph; routes: ModelRoutes[] }) {
+function ClusterGraph({ graph, routes, locationLabel, team }: {
+  graph: ResourceGraph; routes: ModelRoutes[]; locationLabel: (location: ScopedItem) => string; team: boolean;
+}) {
   const t = useTranslations("serving.graph");
-  const clusterName = useClusterName();
-  const locationLabel = (location: ScopedItem) => `${clusterName(location.cluster_id)} / ${location.namespace}`;
   const [selectedId, selectNode] = useState("");
   const children = new Map<string, string[]>();
   const ownership = graph.ownership_edges ?? [];
@@ -264,7 +266,7 @@ function ClusterGraph({ graph, routes }: { graph: ResourceGraph; routes: ModelRo
         {selected.locations?.map(loc => <div key={JSON.stringify(loc)} className="text-muted-foreground">{locationLabel(loc)}</div>)}
         {[selected.detail, selected.scope, selected.status && statusText(selected.status)].filter(Boolean).map((line, i) =>
           <div key={i} className="break-all text-muted-foreground">{line}</div>)}
-        {selected.ref && <Link className="underline underline-offset-4" href={selected.kind === "router" ? `/admin/llmd/${selected.ref}` : `/admin/deployments/${selected.ref}`}>
+        {selected.ref && !(team && selected.kind === "router") && <Link className="underline underline-offset-4" href={selected.kind === "router" ? `/admin/llmd/${selected.ref}` : `/admin/deployments/${selected.ref}`}>
           {t(selected.kind === "router" ? "openStack" : "openDep")}
         </Link>}
       </div>
@@ -272,14 +274,19 @@ function ClusterGraph({ graph, routes }: { graph: ResourceGraph; routes: ModelRo
   );
 }
 
-function EntryRow({ item, summary }: { item: EntryRoutes; summary: Graph }) {
+function EntryRow({ item, summary, scope, locationLabel }: {
+  item: EntryRoutes; summary: Graph; scope?: TeamScope; locationLabel: (location: ScopedItem) => string;
+}) {
   const { entry, routes } = item;
   const t = useTranslations("serving.graph");
   const [open, setOpen] = useState(false);
-  const params = new URLSearchParams({ cluster: entry.cluster, ns: entry.ns, kind: entry.kind, name: entry.name });
+  const me = useMe();
+  const params = scope ? teamScopeParams(scope) : new URLSearchParams({ cluster: entry.cluster, ns: entry.ns });
+  params.set("kind", entry.kind);
+  params.set("name", entry.name);
   const detail = useQuery({
-    queryKey: ["topology-workloads", entry.cluster, entry.ns, entry.kind, entry.name],
-    queryFn: () => apiFetch<ResourceGraph>(`/api/admin/serving/topology/workloads?${params}`),
+    queryKey: ["topology-workloads", scope ? me.data?.user_id : "admin", entry.cluster, entry.ns, entry.kind, entry.name],
+    queryFn: () => apiFetch<ResourceGraph>(`${scope ? "/api/serving" : "/api/admin/serving"}/topology/workloads?${params}`),
     enabled: open,
     staleTime: 30_000,
   });
@@ -305,7 +312,7 @@ function EntryRow({ item, summary }: { item: EntryRoutes; summary: Graph }) {
       {detail.isError && <div role="alert" className="flex items-center gap-2 px-4 py-2 text-sm">
         {t("workloadError")} <Button variant="outline" size="sm" onClick={() => detail.refetch()}>{t("refresh")}</Button>
       </div>}
-      <ClusterGraph graph={graph} routes={routes} />
+      <ClusterGraph graph={graph} routes={routes} locationLabel={locationLabel} team={!!scope} />
     </>}
   </article>;
 }
@@ -347,11 +354,42 @@ function RouteGroup({ label, routes, searching }: { label: string; routes: Model
 }
 
 export default function ServingTopologyPage() {
-  return <Suspense fallback={<div className="h-48 animate-pulse rounded-xl bg-muted" />}><TopologyView /></Suspense>;
+  return <Suspense fallback={<div className="h-48 animate-pulse rounded-xl bg-muted" />}>
+    <ServingRoleView member={<TeamScopeView>{scope => <TeamTopology key={scopeKey(scope)} scope={scope} />}</TeamScopeView>}>
+      <TopologyView />
+    </ServingRoleView></Suspense>;
+}
+
+function TeamTopology({scope}: {scope: TeamScope}) {
+  const t = useTranslations("serving.graph");
+  const ts = useTranslations("serving");
+  const me = useMe();
+  const query = useQuery({
+    queryKey: ["team-topology", me.data?.user_id, scopeKey(scope)],
+    queryFn: () => apiFetch<Graph>(`/api/serving/topology?${teamScopeParams(scope)}`),
+  });
+  if (query.isError) return <p role="alert">{query.error.message}</p>;
+  if (!query.data) return <div aria-busy="true" className="h-32 animate-pulse bg-muted" />;
+  const graph = query.data;
+  const groups = groupModels(graph, "", {cluster: scope.cluster_id ?? "default", ns: scope.namespace});
+  const internal = groupEntries(graph.entries, groups.cluster, "");
+  const locationLabel = () => `${scope.cluster_name ?? ts("scopePortalCluster")} / ${scope.namespace}`;
+  return <section className="space-y-3">
+    <Link className="text-sm underline" href="/admin/serving">{t("back")}</Link>
+    <h1 className="text-2xl font-bold">{t("title")}</h1>
+    {!graph.litellm_available && <p role="status">{t("unavailable")}</p>}
+    {!!graph.unavailable_scopes.length && <p role="status">{t("partial")} · {locationLabel()}</p>}
+    {internal.items.length ? <PagedList items={internal.items} size={10}>{items => items.map(item =>
+      <EntryRow key={JSON.stringify([item.entry.kind, item.entry.name])} scope={scope} summary={graph}
+        item={item} locationLabel={locationLabel} />)}</PagedList> : <p>{t("noEntries")}</p>}
+    {!!internal.unmatched.length && <RouteGroup label={t("unmatched")} routes={internal.unmatched} searching={false} />}
+    {!!groups.cloud.length && <RouteGroup label={t("cloudModels")} routes={groups.cloud} searching={false} />}
+  </section>;
 }
 
 function TopologyView() {
   const t = useTranslations("serving.graph");
+  const ts = useTranslations("serving");
   const [search, setSearch] = useState("");
   const term = useDeferredValue(search.trim().toLowerCase());
   const settings = useK8sClusterSettings();
@@ -408,7 +446,8 @@ function TopologyView() {
         {data.partial_coverage && internal.items.length > 0 && <p className="text-xs text-muted-foreground">{t("scopeCandidate")}</p>}
         {internal.items.length ? <PagedList key={JSON.stringify([scope.cluster, scope.ns, term])} items={internal.items} size={10}>
           {visible => visible.map(item => <EntryRow key={JSON.stringify([item.entry.cluster, item.entry.ns, item.entry.kind, item.entry.name])}
-            item={item} summary={data} />)}
+            item={item} summary={data} locationLabel={loc =>
+              `${loc.cluster_id ? settings.data?.clusters.find(c => c.id === loc.cluster_id)?.name ?? loc.cluster_id : ts("scopePortalCluster")} / ${loc.namespace}`} />)}
         </PagedList> : <p className="text-sm text-muted-foreground">{t("noEntries")}</p>}
         {internal.unmatched.length > 0 && <RouteGroup key={term} label={t("unmatched")} routes={internal.unmatched} searching={Boolean(term)} />}
       </section>

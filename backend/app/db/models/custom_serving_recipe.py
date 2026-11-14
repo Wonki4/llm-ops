@@ -22,6 +22,7 @@ class CustomServingRecipe(CustomBase):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hf_repo_id: Mapped[str | None] = mapped_column(String(256))
     model_path: Mapped[str] = mapped_column(String(512), nullable=False)
     image: Mapped[str] = mapped_column(String(512), nullable=False)
     gpu_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")

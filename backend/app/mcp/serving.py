@@ -2,15 +2,15 @@
 
 import hashlib
 import json
-import uuid
-from typing import Annotated, Literal
+from typing import Literal
 
 from fastapi import HTTPException
 from kubernetes_asyncio.client.exceptions import ApiException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel
 
 from app.api import model_deployments as deployments
 from app.api import serving_recipes as recipes
+from app.api.recipe_deployment import DeployTarget, deploy_body
 from app.clients.litellm import get_litellm_client
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_serving_recipe import CustomServingRecipe
@@ -22,59 +22,19 @@ from app.services.model_deployment_manifests import k8s_resource_names
 from app.services.serving_diagnostics import workload_diagnostics
 
 Role = Literal["aggregated", "prefill", "decode", "router"]
-Count = Annotated[int, Field(ge=0, le=2**31 - 1, strict=True)]
-
-
-class DeployTarget(BaseModel):
-    """Instance settings. Serving configuration comes from the saved recipe."""
-
-    model_config = ConfigDict(extra="forbid")
-    model_name: str
-    ingress_host: str
-    cluster_id: uuid.UUID | None = None
-    namespace: str | None = None
-    ingress_path: str = "/"
-    ingress_class: str | None = None
-    gpu_type: str | None = None
-    litellm_api_base: str | None = None
-    litellm_model_name: str | None = None
-    router_stack_id: uuid.UUID | None = None
-    replicas: Count | None = None
-    prefill_replicas: Count | None = None
-    decode_replicas: Count | None = None
-
-
-def deploy_body(recipe: dict, target: DeployTarget):
-    config = {
-        k: v for k, v in recipe.items() if k in recipes.RecipeBody.model_fields and k not in ("name", "description")
-    }
-    instance = target.model_dump(mode="json", exclude_none=True, exclude={"prefill_replicas", "decode_replicas"})
-    if config.get("serving_mode") == "pd":
-        if target.replicas is not None:
-            raise ValueError("Specify prefill_replicas and decode_replicas for a PD deployment")
-        pd = dict(config.get("pd_config") or {})
-        for role, count in (("prefill", target.prefill_replicas), ("decode", target.decode_replicas)):
-            if count is not None:
-                pd[role] = {**(pd.get(role) or {}), "replicas": count}
-        config["pd_config"] = pd
-        instance["replicas"] = (pd.get("decode") or {}).get("replicas", 1)
-        instance.setdefault("ingress_class", (pd.get("router") or {}).get("ingress_class") or "nginx")
-    elif any(v is not None for v in (target.prefill_replicas, target.decode_replicas, target.router_stack_id)):
-        raise ValueError("Pool replica counts and router_stack_id require a PD recipe")
-    return deployments.CreateDeploymentRequest(**(config | instance), recipe_id=recipe["id"])
 
 
 async def create_recipe(body, user, db):
     return await recipes.create_recipe(recipes.CreateRecipeBody(**body.model_dump()), user, db)
 
 
-async def preview_deployment(recipe_id, target, user, db):
+async def preview_deployment(recipe_id, target: DeployTarget, user, db):
     recipe = await recipes.get_recipe(recipe_id, user, db)
     body = deploy_body(recipe, target)
     return await deployments.preview_deployment_registration(body, include_ingress=True, user=user, db=db)
 
 
-async def deploy(recipe_id, target, user, db):
+async def deploy(recipe_id, target: DeployTarget, user, db):
     recipe = await recipes.get_recipe(recipe_id, user, db)
     return await deployments.create_deployment(deploy_body(recipe, target), user, db)
 
