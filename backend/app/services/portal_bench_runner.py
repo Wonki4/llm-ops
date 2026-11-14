@@ -298,7 +298,8 @@ async def main():
     result = {"runner": "portal", "runner_version": 1, "experiment": "prefix_cache" if cache else "performance"}
     if cache:
         result["phases"] = {}
-    headers = {"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"]} if os.environ.get("OPENAI_API_KEY") else {}
+    api_key = os.environ.get("BENCH_RUNNER_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
+    headers = {"Authorization": "Bearer " + api_key} if api_key else {}
     try:
         base = os.environ["BENCH_URL"].rstrip("/")
         model = os.environ["BENCH_MODEL"]
@@ -314,7 +315,8 @@ async def main():
                 texts = chat_inputs(os.environ["BENCH_TOKENIZER"], workload)
                 await run_performance(session, chat_url(base), model, workload, texts, result)
     except Exception as exc:
-        result["error"] = str(exc)[:500] or type(exc).__name__
+        message = str(exc) or type(exc).__name__
+        result["error"] = (message.replace(api_key, "***") if api_key else message)[:500]
         print("<<<RESULT>>>" + json.dumps(result), flush=True)
         raise SystemExit(1)
     print("<<<RESULT>>>" + json.dumps(result), flush=True)

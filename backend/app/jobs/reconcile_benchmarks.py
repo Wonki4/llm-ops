@@ -21,9 +21,11 @@ from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.session import async_session_factory
 from app.config import settings
+from app.services.benchmark_credentials import BenchmarkCredentials, public_snapshot
 from app.services.benchmark_manifests import build_job_manifest, build_performance_job
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
 from app.services.clusters import k8s_for_cluster
+from app.services.crypto import decrypt
 from app.services.model_deployment_manifests import serving_api_key
 from app.services.serving_engines import render_engine_args, served_name
 from app.services.storage_mounts import legacy_pvc_volumes, to_volumes
@@ -125,7 +127,16 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
     if ready:
         snap = run.serving_snapshot or {}
         target = serving_target_url(run.serving_k8s_name, run.k8s_namespace)
-        model = served_name(render_engine_args(snap.get("engine_args")) + (snap.get("vllm_extra_args") or []), snap.get("model_path"))
+        flags = render_engine_args(snap.get("engine_args")) + (snap.get("vllm_extra_args") or [])
+        model = served_name(flags, snap.get("model_path"))
+        credentials = BenchmarkCredentials(run.id)
+        if snap.get("runner_secret"):
+            api_key = None  # The serving Deployment owns the runner's Secret.
+        elif snap.get("legacy_runner_key_encrypted"):
+            api_key = decrypt(snap["legacy_runner_key_encrypted"])
+        else:
+            # A pre-upgrade run picked up before its record was migrated.
+            api_key = snap.get("api_key_override") or serving_api_key(flags, snap.get("env"))
         vols, mounts = _snapshot_volumes(snap)
         if run.kind == "performance":
             params = run.params or {}
@@ -133,7 +144,7 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or settings.vllm_bench_image,
                 target_base_url=target,
-                api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
+                api_key=api_key, credentials=credentials,
                 served_model=model,
                 tokenizer=params.get("tokenizer") or snap.get("model_path"),
                 volumes=vols,
@@ -144,10 +155,24 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
                 run,
                 image=run.bench_image or settings.benchmark_accuracy_image,
                 target_base_url=target,
-                api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
+                api_key=api_key, credentials=credentials,
                 bench_model=model, tokenizer=snap.get("model_path"), volumes=vols, volume_mounts=mounts,
             )
-        await k8s.create_job(run.k8s_namespace, manifest)
+        secret = credentials.manifest()
+        try:
+            await k8s.create_job(run.k8s_namespace, manifest, secret=secret)
+        except ApiException as exc:
+            if exc.status != 409:
+                raise
+            # Recover a completed handoff when the worker restarted before committing its DB transaction.
+            observed = await k8s.read_job_status(run.k8s_namespace, manifest["metadata"]["name"])
+            if observed.get("run_id") != str(run.id):
+                raise
+            if secret and not (observed["succeeded"] or observed["failed"]):
+                # A legacy handoff creates the Secret after the Job. A worker can
+                # stop between those calls; create it under the verified owner.
+                await k8s.ensure_benchmark_job_secret(run.k8s_namespace, manifest, secret)
+        run.serving_snapshot = public_snapshot(snap)
         run.status = "pending"
         run.started_at = _now()
         return 1
@@ -239,6 +264,8 @@ async def reconcile_once() -> dict:
                 except K8sNotConfigured:
                     logger.warning("K8s not configured; skipping benchmark reconciler pass")
                     return {"polled": 0, "transitions": 0, "skipped": True}
+                if run.status in TERMINAL and run.serving_snapshot:
+                    run.serving_snapshot = public_snapshot(run.serving_snapshot)
                 # Tear the temp serving down as soon as the run is terminal.
                 if run.ephemeral and not run.serving_torn_down and run.status in TERMINAL:
                     await _teardown_serving(k8s, run)

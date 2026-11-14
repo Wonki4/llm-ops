@@ -50,11 +50,11 @@ def _serving_deployment():
     }
 
 
-def test_job_is_single_batch_job_named_by_run():
+def test_job_is_single_batch_job_named_by_run(bench_credentials):
     job = build_self_serving_bench_job(
         _run(), serving_deployment=_serving_deployment(),
         serve_argv=["vllm", "serve", "/models/m", "--port", "8000"],
-        port=8000, api_key="EMPTY", served_model="/models/m",
+        port=8000, credentials=bench_credentials, api_key="EMPTY", served_model="/models/m",
     )
     assert job["kind"] == "Job"
     assert job["metadata"]["name"] == job_name_for(uuid.UUID(int=7))
@@ -62,11 +62,11 @@ def test_job_is_single_batch_job_named_by_run():
     assert job["metadata"]["labels"]["app"] == "llmops-benchmark"
 
 
-def test_reuses_serving_image_gpu_mount_and_scheduling():
+def test_reuses_serving_image_gpu_mount_and_scheduling(bench_credentials):
     job = build_self_serving_bench_job(
         _run(), serving_deployment=_serving_deployment(),
         serve_argv=["vllm", "serve", "/models/m", "--port", "8000"],
-        port=8000, api_key="EMPTY", served_model="/models/m",
+        port=8000, credentials=bench_credentials, api_key="EMPTY", served_model="/models/m",
     )
     pod = job["spec"]["template"]["spec"]
     c = pod["containers"][0]
@@ -79,11 +79,11 @@ def test_reuses_serving_image_gpu_mount_and_scheduling():
     assert pod["restartPolicy"] == "Never"
 
 
-def test_script_backgrounds_serve_polls_health_and_benches_localhost():
+def test_script_backgrounds_serve_polls_health_and_benches_localhost(bench_credentials):
     job = build_self_serving_bench_job(
         _run(), serving_deployment=_serving_deployment(),
         serve_argv=["vllm", "serve", "/models/m", "--port", "8000"],
-        port=8000, api_key="EMPTY", served_model="/models/m", tokenizer="/models/m",
+        port=8000, credentials=bench_credentials, api_key="EMPTY", served_model="/models/m", tokenizer="/models/m",
     )
     script = job["spec"]["template"]["spec"]["containers"][0]["command"][2]
     # serve is backgrounded
@@ -93,33 +93,35 @@ def test_script_backgrounds_serve_polls_health_and_benches_localhost():
     # bench targets the same localhost base-url and the served model
     assert "PORTAL_RUNNER" in script and "vllm bench serve" not in script
     assert "http://localhost:8000" in script
-    env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    env = {e["name"]: e.get("value", e.get("valueFrom")) for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
     assert env["BENCH_MODEL"] == "/models/m" and env["BENCH_URL"] == "http://localhost:8000"
     # RESULT marker emitted, server killed
     assert "<<<RESULT>>>" in script
     assert "kill" in script
 
 
-def test_env_carries_serving_env_plus_openai_key():
+def test_env_carries_serving_env_plus_openai_key(bench_credentials):
     job = build_self_serving_bench_job(
         _run(), serving_deployment=_serving_deployment(),
         serve_argv=["vllm", "serve", "/models/m", "--port", "8000"],
-        port=8000, api_key="sk-secret", served_model="/models/m",
+        port=8000, credentials=bench_credentials, api_key="sk-secret", served_model="/models/m",
     )
-    env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
-    assert env["OPENAI_API_KEY"] == "sk-secret"
-    assert env["HF_HOME"] == "/models/.hf"           # serving env preserved
+    env = {e["name"]: e.get("value", e.get("valueFrom")) for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    data = bench_credentials.manifest()["stringData"]
+    assert data[env["BENCH_RUNNER_API_KEY"]["secretKeyRef"]["key"]] == "sk-secret"
+    assert "sk-secret" not in json.dumps(job)
+    assert data[env["HF_HOME"]["secretKeyRef"]["key"]] == "/models/.hf"           # serving env preserved
     assert env["BENCH_RUN_ID"] == str(uuid.UUID(int=7))
 
 
-def test_bench_argv_respects_params():
+def test_bench_argv_respects_params(bench_credentials):
     job = build_self_serving_bench_job(
         _run(params={"num_prompts": 300, "random_input_len": 512, "request_rate": 8, "ignore_eos": True}),
         serving_deployment=_serving_deployment(),
         serve_argv=["vllm", "serve", "/models/m"],
-        port=8000, api_key="EMPTY", served_model="srv",
+        port=8000, credentials=bench_credentials, api_key="EMPTY", served_model="srv",
     )
-    env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    env = {e["name"]: e.get("value", e.get("valueFrom")) for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
     workload = json.loads(env["BENCH_WORKLOAD"])
     assert workload["num_prompts"] == 300 and workload["random_input_len"] == 512
     assert workload["request_rate"] == 8 and workload["ignore_eos"] is True

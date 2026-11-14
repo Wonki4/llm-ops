@@ -22,6 +22,7 @@ from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import aggregated_router, pd_serving
+from app.services.benchmark_credentials import BenchmarkCredentials, public_snapshot
 from app.services.benchmark_manifests import (
     build_job_manifest,
     build_self_serving_bench_job,
@@ -38,6 +39,8 @@ from app.services.benchmark_serving import (
     ephemeral_manifests,
     ephemeral_model_name,
     external_bench_facts,
+    external_launch,
+    external_runner_key,
     serving_cli,
     serving_resource_names,
     serving_target_url,
@@ -279,7 +282,8 @@ def _build_bench_job(
     *,
     deployment: "CustomModelDeployment | None",
     target_base: str,
-    api_key: str,
+    api_key: str | None,
+    credentials: BenchmarkCredentials,
     image_override: str | None,
     bench_vols: tuple[list, list] = ([], []),
 ) -> dict:
@@ -303,6 +307,7 @@ def _build_bench_job(
             run,
             image=image_override or perf_default_image,
             target_base_url=target_base,
+            credentials=credentials,
             api_key=api_key,
             served_model=served_model,
             tokenizer=tokenizer,
@@ -314,6 +319,7 @@ def _build_bench_job(
         run,
         image=image_override or settings.benchmark_accuracy_image,
         target_base_url=target_base,
+        credentials=credentials,
         api_key=api_key,
         bench_model=served_model,
         tokenizer=deployment.model_path if deployment else None,
@@ -333,7 +339,7 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "bench_image": r.bench_image,
         "cluster_id": str(r.cluster_id) if r.cluster_id else None,
         "deployment_id": str(r.deployment_id) if r.deployment_id else None,
-        "serving_snapshot": r.serving_snapshot,
+        "serving_snapshot": public_snapshot(r.serving_snapshot),
         "ephemeral": r.ephemeral,
         "serving_torn_down": r.serving_torn_down,
         "status": r.status,
@@ -461,6 +467,7 @@ async def create_benchmark(
             },
             created_by=user.user_id,
         )
+        credentials = BenchmarkCredentials(run.id)
         run.k8s_job_name = job_name_for(run.id)
         db.add(run)
         await db.flush()
@@ -471,6 +478,7 @@ async def create_benchmark(
             run,
             image=run.bench_image,
             target_base_url=base_url.rstrip("/"),
+            credentials=credentials,
             api_key=body.api_key or "",
             served_model=body.model_name,
             tokenizer=body.params.get("tokenizer") or body.model_name,
@@ -478,7 +486,7 @@ async def create_benchmark(
             volume_mounts=bench_vols[1],
         )
         try:
-            await k8s.create_job(namespace, manifest)
+            await k8s.create_job(namespace, manifest, secret=credentials.manifest())
         except K8sNotConfigured as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
@@ -542,24 +550,25 @@ async def create_benchmark(
             serving_snapshot={
                 "source": "external",
                 "image": spec["container"]["image"],
-                "vllm_extra_args": serving_cli(spec["container"]),
-                "env": {e["name"]: e["value"] for e in spec["container"]["env"] if e.get("value")},
+                "vllm_extra_args": public_snapshot(serving_cli(spec["container"])),
+                "env": {},
                 "model_path": facts["served_model"],
                 "pvc_name": facts["pvc_name"],
                 "pvc_mount_path": facts["pvc_mount_path"],
             },
         )
+        credentials = BenchmarkCredentials(run.id)
         run.k8s_job_name = job_name_for(run.id)
         run.serving_torn_down = True  # single Job — no separate serving to tear down
         clone = build_external_clone(spec, name=ephemeral_model_name(run.id), overrides=body.serving_overrides)[0]
-        api_key = body.api_key or serving_api_key(serving_cli(spec["container"]), run.serving_snapshot["env"])
-        if body.api_key:
-            run.serving_snapshot["api_key_override"] = body.api_key
+        container = spec["container"]
+        api_key = body.api_key or external_runner_key(container)
         job = build_self_serving_bench_job(
             run,
             serving_deployment=clone,
-            serve_argv=serving_cli(spec["container"]),
+            serve_argv=external_launch(spec["container"]),
             port=_clone_target_port(spec["container"]),
+            credentials=credentials,
             api_key=api_key,
             served_model=facts["served_model"],
             tokenizer=params.get("tokenizer"),
@@ -568,7 +577,7 @@ async def create_benchmark(
         await db.flush()
         await db.refresh(run)
         try:
-            await ext_k8s.create_job(ext.namespace, job)
+            await ext_k8s.create_job(ext.namespace, job, secret=credentials.manifest())
         except K8sNotConfigured as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
@@ -627,9 +636,8 @@ async def create_benchmark(
             eph.storages = await _ephemeral_storages(db, base, cluster_uuid, namespace)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        run.serving_snapshot = _serving_snapshot(eph)
-        if body.api_key:
-            run.serving_snapshot["api_key_override"] = body.api_key
+        run.serving_snapshot = public_snapshot(_serving_snapshot(eph))
+        credentials = BenchmarkCredentials(run.id)
         run.k8s_job_name = job_name_for(run.id)
 
         if kind == "performance":
@@ -644,6 +652,7 @@ async def create_benchmark(
                 serving_deployment=build_deployment(eph),
                 serve_argv=serve_argv,
                 port=VLLM_PORT,
+                credentials=credentials,
                 api_key=api_key,
                 served_model=served_name(engine_flags(eph), eph.model_path),
                 tokenizer=(run.params or {}).get("tokenizer") or eph.model_path,
@@ -652,7 +661,7 @@ async def create_benchmark(
             await db.flush()
             await db.refresh(run)
             try:
-                await k8s.create_job(namespace, job)
+                await k8s.create_job(namespace, job, secret=credentials.manifest())
             except K8sNotConfigured as e:
                 raise HTTPException(status_code=503, detail=str(e))
             except Exception as e:
@@ -665,11 +674,17 @@ async def create_benchmark(
 
         # Accuracy (lm_eval): keep the provisioning path — serving + later Job.
         run.serving_k8s_name = name
+        api_key = body.api_key or serving_api_key(engine_flags(eph), eph.env)
+        # The worker can launch the runner after a restart using only this reference.
+        credentials.values["runner-key"] = api_key
+        run.serving_snapshot = {**run.serving_snapshot, "runner_secret": True}
+        deployment, service = ephemeral_manifests(eph)
+        deployment = credentials.protect_deployment(deployment)
         db.add(run)
         await db.flush()
         await db.refresh(run)
         try:
-            await k8s.create_or_patch(namespace, ephemeral_manifests(eph))
+            await k8s.create_benchmark_serving(namespace, deployment, service, credentials.manifest())
         except K8sNotConfigured as e:
             raise HTTPException(status_code=503, detail=str(e))
         except Exception as e:
@@ -698,7 +713,7 @@ async def create_benchmark(
             raise HTTPException(status_code=409, detail="Serving deployment is not ready yet")
         model_name = deployment.model_name
         namespace = body.namespace or deployment.namespace
-        serving_snapshot = _serving_snapshot(deployment)
+        serving_snapshot = public_snapshot(_serving_snapshot(deployment))
     else:
         if not body.model_name:
             raise HTTPException(status_code=400, detail="model_name or deployment_id is required")
@@ -720,6 +735,7 @@ async def create_benchmark(
         serving_snapshot=serving_snapshot,
         created_by=user.user_id,
     )
+    credentials = BenchmarkCredentials(run.id)
     run.k8s_job_name = job_name_for(run.id)
     db.add(run)
     await db.flush()
@@ -732,7 +748,7 @@ async def create_benchmark(
         else:
             svc = k8s_resource_names(deployment)["service"]
             target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-        api_key = body.api_key or serving_api_key(deployment.vllm_extra_args, deployment.env)
+        api_key = body.api_key or serving_api_key(engine_flags(deployment), deployment.env)
     else:
         target_base = settings.litellm_base_url.rstrip("/")
         api_key = body.api_key or settings.litellm_admin_api_key
@@ -742,12 +758,13 @@ async def create_benchmark(
         run,
         deployment=deployment,
         target_base=target_base,
+        credentials=credentials,
         api_key=api_key,
         image_override=body.image or None,
         bench_vols=bench_vols,
     )
     try:
-        await k8s.create_job(namespace, manifest)
+        await k8s.create_job(namespace, manifest, secret=credentials.manifest())
     except K8sNotConfigured as e:
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
@@ -807,9 +824,9 @@ async def preview_benchmark(
         k8s_namespace=namespace,
         created_by=user.user_id,
     )
+    credentials = BenchmarkCredentials(run.id)
     run.k8s_job_name = job_name_for(run.id)
     manifests: list[dict] = []
-
     if body.base_url:
         base_url = body.base_url.strip()
         if kind != "performance":
@@ -827,7 +844,8 @@ async def preview_benchmark(
                 run,
                 image=body.image or settings.vllm_bench_image,
                 target_base_url=base_url.rstrip("/"),
-                api_key="<redacted>",
+                credentials=credentials,
+                api_key=body.api_key or "",
                 served_model=body.model_name,
                 tokenizer=body.params.get("tokenizer") or body.model_name,
                 volumes=bench_vols[0],
@@ -855,9 +873,10 @@ async def preview_benchmark(
             build_self_serving_bench_job(
                 run,
                 serving_deployment=clone,
-                serve_argv=serving_cli(spec["container"]),
+                serve_argv=external_launch(spec["container"]),
                 port=_clone_target_port(spec["container"]),
-                api_key="<redacted>",
+                credentials=credentials,
+                api_key=body.api_key or external_runner_key(spec["container"]),
                 served_model=facts["served_model"],
                 tokenizer=(body.params or {}).get("tokenizer") or facts["tokenizer"],
             )
@@ -892,30 +911,28 @@ async def preview_benchmark(
         run.model_name = base.model_name
         if kind == "performance":
             serve_argv = engine_serve_argv(eph, VLLM_PORT)
-            for index, arg in enumerate(serve_argv):
-                if arg.startswith("--api-key="):
-                    serve_argv[index] = "--api-key=***"
-                elif arg == "--api-key" and index + 1 < len(serve_argv):
-                    serve_argv[index + 1] = "***"
             manifests.append(
                 build_self_serving_bench_job(
                     run,
                     serving_deployment=build_deployment(eph),
                     serve_argv=serve_argv,
                     port=VLLM_PORT,
-                    api_key="<redacted>",
+                    credentials=credentials,
+                    api_key=body.api_key or serving_api_key(serve_argv, eph.env),
                     served_model=served_name(engine_flags(eph), eph.model_path),
                     tokenizer=(body.params or {}).get("tokenizer") or eph.model_path,
                 )
             )
         else:
-            manifests.extend(ephemeral_manifests(eph))
+            deployment, service = ephemeral_manifests(eph)
+            manifests.extend([credentials.protect_deployment(deployment), service])
             manifests.append(
                 _build_bench_job(
                     run,
                     deployment=eph,
                     target_base=serving_target_url(name, namespace),
-                    api_key=body.api_key or serving_api_key(eph.vllm_extra_args, eph.env),
+                    credentials=credentials,
+                    api_key=None,  # The runner will reuse the temporary serving's Secret.
                     image_override=body.image or None,
                 )
             )
@@ -939,7 +956,7 @@ async def preview_benchmark(
             run.k8s_namespace = body.namespace or deployment.namespace
             svc = k8s_resource_names(deployment)["service"]
             target_base = f"http://{svc}.{deployment.namespace}.svc.cluster.local"
-            api_key = body.api_key or serving_api_key(deployment.vllm_extra_args, deployment.env)
+            api_key = body.api_key or serving_api_key(engine_flags(deployment), deployment.env)
         else:
             target_base = settings.litellm_base_url.rstrip("/")
             api_key = body.api_key or settings.litellm_admin_api_key
@@ -951,6 +968,7 @@ async def preview_benchmark(
                 run,
                 deployment=deployment,
                 target_base=target_base,
+                credentials=credentials,
                 api_key=api_key,
                 image_override=body.image or None,
                 bench_vols=bench_vols,
@@ -1005,6 +1023,7 @@ async def cancel_benchmark(
         except Exception:
             logger.exception("Ephemeral serving delete failed for benchmark %s", run.id)
 
+    run.serving_snapshot = public_snapshot(run.serving_snapshot)
     run.status = "cancelled"
     await db.flush()
     return _serialize(run)

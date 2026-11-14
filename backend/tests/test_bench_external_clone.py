@@ -1,5 +1,6 @@
 """Benchmark-by-cloning-an-external-serving: live-spec reader, clone builder, facts."""
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -328,8 +329,11 @@ async def test_create_external_api_key_override(client_for_user, super_user, moc
             resp = await client.post("/api/benchmarks", json={**EXTERNAL_BODY, "api_key": "sk-gate"})
     assert resp.status_code == 201
     _ns, manifest = fake_k8s.create_job.await_args.args
-    env = {e["name"]: e["value"] for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]}
-    assert env["OPENAI_API_KEY"] == "sk-gate"
+    env = {e["name"]: e for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]}
+    ref = env["BENCH_RUNNER_API_KEY"]["valueFrom"]["secretKeyRef"]
+    secret = fake_k8s.create_job.await_args.kwargs["secret"]
+    assert ref["name"] == secret["metadata"]["name"] and secret["stringData"][ref["key"]] == "sk-gate"
+    assert "sk-gate" not in json.dumps(manifest) and "sk-gate" not in resp.text
 
 
 async def test_create_external_snapshot_merges_command_cli(client_for_user, super_user, mock_db):
@@ -346,9 +350,8 @@ async def test_create_external_snapshot_merges_command_cli(client_for_user, supe
     assert resp.status_code == 201, resp.text
     run = mock_db.add.call_args.args[0]
     assert run.model_name == "y-8b"
-    snap = run.serving_snapshot
-    # Merged+expanded CLI in the snapshot so serving_api_key can derive
-    # --api-key from command-form launches too.
-    assert "--api-key" in snap["vllm_extra_args"]
-    assert "sk-live" in snap["vllm_extra_args"]
+    assert "sk-live" not in json.dumps(run.serving_snapshot) and "sk-live" not in resp.text
+    manifest = fake_k8s.create_job.await_args.args[1]
+    assert "sk-live" not in json.dumps(manifest)
+    assert fake_k8s.create_job.await_args.kwargs["secret"]["stringData"]["runner-key"] == "sk-live"
     assert run.params.get("tokenizer") == "/models/y"

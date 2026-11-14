@@ -11,6 +11,7 @@ registered with LiteLLM — they exist only for the lifetime of the run.
 
 from __future__ import annotations
 
+import re
 import shlex
 import uuid
 
@@ -20,6 +21,7 @@ from app.services.model_deployment_manifests import (
     build_deployment,
     build_service,
     k8s_resource_names,
+    serving_api_key,
 )
 from app.services.serving_engines import engine_of
 
@@ -146,18 +148,42 @@ def serving_cli(container: dict) -> list[str]:
     wrap it in ``sh -c "vllm serve …"``; flag parsing works against one
     normalized token list instead of assuming everything lives in args.
     """
-    raw = list(container.get("command") or []) + list(container.get("args") or [])
-    cli: list[str] = []
-    for tok in raw:
-        s = str(tok)
-        if any(ch.isspace() for ch in s):
+    cli = []
+    for arg in external_launch(container):
+        if any(c.isspace() for c in arg):
             try:
-                cli.extend(shlex.split(s))
+                cli.extend(shlex.split(arg))
                 continue
             except ValueError:
                 pass
-        cli.append(s)
+        cli.append(arg)
     return cli
+
+
+def external_launch(container: dict) -> list[str]:
+    """Preserve argv boundaries, including shell scripts and keys containing spaces."""
+    return [*(container.get("command") or []), *(container.get("args") or [])]
+
+
+def external_runner_key(container: dict):
+    env = {e["name"]: e for e in container.get("env_raw", [])}
+    raw = external_launch(container)
+    # Direct argv preserves keys containing spaces. Parse inside shell-form launches.
+    key = serving_api_key(raw, {}) if raw else "EMPTY"
+    if key == "EMPTY":
+        key = serving_api_key(serving_cli(container), {})
+    ref = re.fullmatch(r"\$\((\w+)\)|\$\{(\w+)\}|\$(\w+)", key)
+    names = [next(g for g in ref.groups() if g)] if ref else []
+    if key == "EMPTY":
+        names = ["VLLM_API_KEY", "OPENAI_API_KEY"]
+    for name in names:
+        entry = env.get(name, {})
+        if entry.get("valueFrom"):
+            return {"valueFrom": entry["valueFrom"]}
+        if entry.get("value"):
+            # The source and runner share a Pod. Use the kubelet-expanded value.
+            return {"value": f"$({name})"}
+    return key
 
 
 def _positional_model(cli: list) -> str | None:

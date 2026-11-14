@@ -481,12 +481,62 @@ class K8sClient:
 
     # ─── Batch v1 (Jobs) — used by benchmark runner ─────────────────
 
-    async def create_job(self, namespace: str, manifest: dict) -> None:
-        """Create a K8s Job. Raises ApiException(409) if name collides."""
+    @staticmethod
+    async def _create_owned_secret(api_client, namespace, secret, kind, name, uid, *, retry=False):
+        # Create only after the owner exists. Kubernetes collects the Secret even
+        # when the portal is down during Job TTL or temporary Deployment cleanup.
+        owner = {"apiVersion": "batch/v1" if kind == "Job" else "apps/v1",
+                 "kind": kind, "name": name, "uid": uid}
+        body = {**secret, "metadata": {**secret["metadata"], "ownerReferences": [owner]}}
+        try:
+            await client.CoreV1Api(api_client).create_namespaced_secret(namespace, body)
+        except ApiException as exc:
+            if retry and exc.status == 409:
+                return
+            # Admission errors can echo the rejected Secret body.
+            raise RuntimeError(f"Benchmark credential creation failed (Kubernetes HTTP {exc.status})") from None
+
+    async def create_job(self, namespace: str, manifest: dict, *, secret: dict | None = None) -> None:
         api_client = await self._api_client()
         try:
             batch = client.BatchV1Api(api_client)
-            await batch.create_namespaced_job(namespace=namespace, body=manifest)
+            job = await batch.create_namespaced_job(namespace=namespace, body=manifest)
+            if secret:
+                try:
+                    await self._create_owned_secret(api_client, namespace, secret, "Job",
+                                                    job.metadata.name, job.metadata.uid)
+                except Exception:
+                    await batch.delete_namespaced_job(
+                        job.metadata.name, namespace, propagation_policy="Background",
+                        body={"preconditions": {"uid": job.metadata.uid}},
+                    )
+                    raise
+        finally:
+            await api_client.close()
+
+    async def ensure_benchmark_job_secret(self, namespace, manifest, secret):
+        name = manifest["metadata"]["name"]
+        async with await self._api_client() as api_client:
+            job = await client.BatchV1Api(api_client).read_namespaced_job(name, namespace)
+            if (job.metadata.labels or {}).get("bench-run") != manifest["metadata"]["labels"]["bench-run"]:
+                raise RuntimeError("Benchmark Job owner changed during credential handoff")
+            await self._create_owned_secret(api_client, namespace, secret, "Job", name, job.metadata.uid, retry=True)
+
+    async def create_benchmark_serving(self, namespace, deployment, service, secret):
+        name = deployment["metadata"]["name"]
+        # Only attach credentials to a freshly created clone, never adopt an existing workload.
+        api_client = await self._api_client()
+        try:
+            apps = client.AppsV1Api(api_client)
+            owner = await apps.create_namespaced_deployment(namespace, deployment)
+            try:
+                await self._create_owned_secret(api_client, namespace, secret, "Deployment", name, owner.metadata.uid)
+                await client.CoreV1Api(api_client).create_namespaced_service(namespace, service)
+            except Exception:
+                await apps.delete_namespaced_deployment(
+                    name, namespace, body={"preconditions": {"uid": owner.metadata.uid}},
+                )
+                raise
         finally:
             await api_client.close()
 
@@ -500,6 +550,7 @@ class K8sClient:
             batch = client.BatchV1Api(api_client)
             job = await batch.read_namespaced_job_status(name=name, namespace=namespace)
             return {
+                "run_id": (job.metadata.labels or {}).get("bench-run"),
                 "active": int(job.status.active or 0),
                 "succeeded": int(job.status.succeeded or 0),
                 "failed": int(job.status.failed or 0),
