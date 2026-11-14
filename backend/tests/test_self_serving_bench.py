@@ -1,5 +1,6 @@
 """Self-serving benchmark Job builder (serve + bench in one pod)."""
 
+import json
 import types
 import uuid
 
@@ -90,9 +91,10 @@ def test_script_backgrounds_serve_polls_health_and_benches_localhost():
     # readiness poll targets localhost:8000/health
     assert "http://localhost:8000/health" in script
     # bench targets the same localhost base-url and the served model
-    assert "vllm bench serve" in script
+    assert "PORTAL_RUNNER" in script and "vllm bench serve" not in script
     assert "http://localhost:8000" in script
-    assert "--model /models/m" in script
+    env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert env["BENCH_MODEL"] == "/models/m" and env["BENCH_URL"] == "http://localhost:8000"
     # RESULT marker emitted, server killed
     assert "<<<RESULT>>>" in script
     assert "kill" in script
@@ -117,8 +119,7 @@ def test_bench_argv_respects_params():
         serve_argv=["vllm", "serve", "/models/m"],
         port=8000, api_key="EMPTY", served_model="srv",
     )
-    script = job["spec"]["template"]["spec"]["containers"][0]["command"][2]
-    assert "--num-prompts 300" in script
-    assert "--random-input-len 512" in script
-    assert "--request-rate 8" in script
-    assert "--ignore-eos" in script
+    env = {e["name"]: e["value"] for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    workload = json.loads(env["BENCH_WORKLOAD"])
+    assert workload["num_prompts"] == 300 and workload["random_input_len"] == 512
+    assert workload["request_rate"] == 8 and workload["ignore_eos"] is True

@@ -1,7 +1,9 @@
+import json
+import pytest
 import types
 import uuid
 
-from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job
+from app.services.benchmark_manifests import build_job_manifest, build_performance_job
 
 
 def _run(**kw):
@@ -21,7 +23,7 @@ def _env(manifest: dict) -> dict:
 def test_vllm_bench_job_passes_api_key_as_openai_key():
     # An explicit key (e.g. the user's benchmark api_key override) must reach the
     # runner as OPENAI_API_KEY so auth-gated targets accept the request.
-    m = build_vllm_bench_job(
+    m = build_performance_job(
         _run(), image="img", target_base_url="http://t", api_key="sk-override", served_model="m",
     )
     assert _env(m)["OPENAI_API_KEY"] == "sk-override"
@@ -35,90 +37,22 @@ def test_accuracy_job_passes_api_key_as_bench_key():
     assert _env(m)["BENCH_API_KEY"] == "sk-acc"
 
 
-def _script(manifest: dict) -> str:
-    return manifest["spec"]["template"]["spec"]["containers"][0]["command"][2]
+def test_job_uses_structured_workload_and_separate_model_alias():
+    m = build_performance_job(_run(params={"random_input_len": 256, "seed": 42, "preset": "chat"}),
+                              image="engine", target_base_url="http://proxy/prefix/v1",
+                              api_key="secret", served_model="my alias", tokenizer="/models/tokenizer")
+    env = _env(m)
+    workload = json.loads(env["BENCH_WORKLOAD"])
+    assert (env["BENCH_URL"], env["BENCH_MODEL"], env["BENCH_TOKENIZER"]) == (
+        "http://proxy/prefix/v1", "my alias", "/models/tokenizer")
+    assert workload["random_input_len"] == 256 and workload["seed"] == 42 and "preset" not in workload
+    command = m["spec"]["template"]["spec"]["containers"][0]["command"]
+    assert command[:2] == ["python", "-c"] and "vllm bench serve" not in command[-1]
+    assert "secret" not in command[-1]
 
 
-def test_vllm_bench_job_appends_extra_args_verbatim():
-    """`extra_args` is a raw CLI string (vllm bench serve flags) — bare flags
-    have no value, so the JSON key/value passthrough can't express them."""
-    m = build_vllm_bench_job(
-        _run(params={"extra_args": "--disable-tqdm --burstiness 0.5"}),
-        image="img", target_base_url="http://t", api_key="k", served_model="m",
-    )
-    script = _script(m)
-    assert "--disable-tqdm" in script
-    assert "--burstiness 0.5" in script
-    assert "--extra-args" not in script  # must not fall through the key/value path
-
-
-def test_vllm_bench_job_extra_args_tokens_are_quoted():
-    m = build_vllm_bench_job(
-        _run(params={"extra_args": '--served-model-name "my model"'}),
-        image="img", target_base_url="http://t", api_key="k", served_model="m",
-    )
-    assert "'my model'" in _script(m)  # quoted as ONE argv token, not shell-split
-
-
-def test_seed_param_overrides_default():
-    m = build_vllm_bench_job(
-        _run(params={"seed": 42}),
-        image="img", target_base_url="http://t", api_key="", served_model="m",
-    )
-    script = _script(m)
-    assert "--seed 42" in script
-    assert "--seed 0" not in script
-
-
-def test_seed_defaults_to_zero_when_absent():
-    m = build_vllm_bench_job(
-        _run(), image="img", target_base_url="http://t", api_key="", served_model="m",
-    )
-    assert "--seed 0" in _script(m)
-
-
-def test_goodput_param_emits_space_separated_pairs():
-    m = build_vllm_bench_job(
-        _run(params={"goodput": "ttft:200 tpot:50"}),
-        image="img", target_base_url="http://t", api_key="", served_model="m",
-    )
-    assert "--goodput ttft:200 tpot:50" in _script(m)
-
-
-def test_editable_workload_values_become_flags_without_duplicates():
-    """Workload knobs (input/output len, num_prompts, max_concurrency) are
-    first-class param values — each appears exactly once in the argv, so an
-    edited value can never collide with a preset default (the form's old
-    append-flags override produced a duplicate `--random-input-len`)."""
-    m = build_vllm_bench_job(
-        _run(params={
-            "random_input_len": 2048,
-            "random_output_len": 512,
-            "num_prompts": 50,
-            "max_concurrency": 16,
-        }),
-        image="img", target_base_url="http://t", api_key="", served_model="m",
-    )
-    script = _script(m)
-    assert "--random-input-len 2048" in script
-    assert script.count("--random-input-len") == 1
-    assert "--random-output-len 512" in script
-    assert "--num-prompts 50" in script
-    assert "--max-concurrency 16" in script
-
-
-def test_preset_and_external_source_are_not_emitted_as_cli_flags():
-    """`preset` (performance runs) and `external_source` (external-clone runs)
-    are portal bookkeeping keys stored on the run, never `vllm bench serve`
-    flags — the passthrough loop must not turn them into --preset/--external-source."""
-    m = build_vllm_bench_job(
-        _run(params={
-            "preset": "chat",
-            "external_source": {"namespace": "x"},
-            "num_prompts": 10,
-        }),
-        image="img", target_base_url="http://t", api_key="", served_model="m",
-    )
-    script = _script(m)
-    assert "--preset" not in script
-    assert "--external-source" not in script
+@pytest.mark.parametrize("params", [{"extra_args": "--backend openai"}, {"burstiness": .5},
+                                    {"goodput": "slo:5"}, {"max_concurrency": 0}, {"request_rate": -1}])
+def test_runner_rejects_unsupported_or_invalid_options(params):
+    with pytest.raises(ValueError):
+        build_performance_job(_run(params=params), image="i", target_base_url="http://t", api_key="", served_model="m")

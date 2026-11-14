@@ -10,6 +10,7 @@ import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useBenchmark, useCancelBenchmark, useDeleteBenchmark } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
+import { CacheResults, PerformanceResults, experimentOf } from "@/components/benchmark-cache";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -65,6 +66,7 @@ export default function AdminBenchmarkDetailPage({
 }) {
   const { id } = use(params);
   const t = useTranslations("adminBenchmarks");
+  const te = useTranslations("benchExperiment");
   const ts = useTranslations("benchmarkStatus");
   const localeTag = useLocaleTag();
 
@@ -127,10 +129,11 @@ export default function AdminBenchmarkDetailPage({
             </p>
           )}
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            {run.tool} · {run.kind} · {run.id}
+            {run.result?.runner === "portal" ? te("portalRunner") : run.tool} · {run.kind} · {run.id}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button asChild variant="outline" size="sm"><Link href={`/admin/benchmarks/new?from=${run.id}`}>{te("rerun")}</Link></Button>
           {canCancel && (
             <Button
               variant="outline"
@@ -155,6 +158,8 @@ export default function AdminBenchmarkDetailPage({
         </div>
       </div>
 
+      {experimentOf(run) === "prefix_cache" && <CacheResults run={run}/>}
+      {experimentOf(run) === "performance" && <PerformanceResults run={run}/>}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("overview")}</CardTitle>
@@ -237,6 +242,8 @@ export default function AdminBenchmarkDetailPage({
         </Card>
       )}
 
+      <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm">{te("raw")}</summary>
+        <div className="mt-4 space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("params")}</CardTitle>
@@ -262,6 +269,8 @@ export default function AdminBenchmarkDetailPage({
         </CardContent>
       </Card>
 
+        </div>
+      </details>
       {run.error_message && (
         <Card>
           <CardHeader>

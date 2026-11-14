@@ -184,7 +184,7 @@ def served_and_model_arg(cli: list) -> tuple[str | None, str | None]:
 def external_bench_facts(spec: dict) -> dict:
     """What the bench job needs to know about an external serving's clone.
 
-    served_model is what `vllm bench serve --model` must send (the name the
+    served_model is what the portal runner must send (the name the
     server reports): --served-model-name wins, else the --model value. The
     tokenizer is always the model argument (--model, the `serve` positional,
     or --model-path). When the model path is backed by a PVC-mounted volume,

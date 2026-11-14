@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import shlex
 import uuid
+from pathlib import Path
 
+from app.services.benchmark_workload import performance_workload
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 
 
@@ -30,84 +32,19 @@ def nfs_fields_incomplete(
     return any(flags) and not all(flags)
 
 
-# Params consumed explicitly above or used only by the portal (not CLI flags).
-# Everything else in `params` is passed through to `vllm bench serve`.
-_NON_CLI_PARAMS = frozenset(
-    {
-        "random_input_len",
-        "random_output_len",
-        "num_prompts",
-        "request_rate",
-        "max_concurrency",
-        "ignore_eos",
-        "tokenizer",
-        "seed",
-        "goodput",
-        "nfs_server",
-        "nfs_path",
-        "nfs_mount_path",
-        "extra_args",
-        # Portal bookkeeping (historical-record / external-clone source), never
-        # `vllm bench serve` flags.
-        "preset",
-        "external_source",
-    }
-)
+def _runner_source():
+    return Path(__file__).with_name("portal_bench_runner.py").read_text()
 
 
-def _vllm_bench_argv(
-    run: CustomBenchmarkRun,
-    *,
-    target_base_url: str,
-    served_model: str,
-    tokenizer: str | None,
-) -> list[str]:
-    """The `vllm bench serve` argv (no shell). Shared by the URL-target bench
-    Job and the self-serving bench Job."""
-    p = run.params or {}
-    args = [
-        "vllm", "bench", "serve",
-        "--backend", "openai-chat",
-        "--base-url", target_base_url,
-        "--endpoint", "/v1/chat/completions",
-        "--model", served_model,
-        "--tokenizer", tokenizer or served_model,
-        "--dataset-name", "random",
-        "--random-input-len", str(int(p.get("random_input_len", 1024))),
-        "--random-output-len", str(int(p.get("random_output_len", 128))),
-        "--num-prompts", str(int(p.get("num_prompts", 200))),
-        "--percentile-metrics", "ttft,tpot,itl,e2el",
-        "--metric-percentiles", "90,99",
-        "--seed", str(int(p.get("seed", 0))),
-        "--save-result", "--result-dir", "/tmp", "--result-filename", "r.json",
-    ]
-    if p.get("request_rate") not in (None, ""):
-        args += ["--request-rate", str(float(p["request_rate"]))]
-    if p.get("max_concurrency") not in (None, ""):
-        args += ["--max-concurrency", str(int(p["max_concurrency"]))]
-    if p.get("goodput") not in (None, ""):
-        args += ["--goodput", *str(p["goodput"]).split()]
-    if p.get("ignore_eos"):
-        args += ["--ignore-eos"]
-    used_flags = {a for a in args if a.startswith("--")}
-    for key, val in p.items():
-        if key in _NON_CLI_PARAMS or val in (None, ""):
-            continue
-        flag = "--" + key.replace("_", "-")
-        if flag in used_flags:
-            continue
-        if isinstance(val, bool):
-            if val:
-                args.append(flag)
-        else:
-            args += [flag, str(val)]
-    extra_args = p.get("extra_args")
-    if isinstance(extra_args, str) and extra_args.strip():
-        args += shlex.split(extra_args)
-    return args
+def _runner_env(run, base, model, tokenizer, api_key):
+    params = run.params or {}
+    workload = params if params.get("experiment") == "prefix_cache" else performance_workload(params)
+    values = {"BENCH_URL": base, "BENCH_MODEL": model, "BENCH_TOKENIZER": tokenizer or model,
+              "BENCH_WORKLOAD": json.dumps(workload), "OPENAI_API_KEY": api_key, "BENCH_RUN_ID": str(run.id)}
+    return [{"name": k, "value": v} for k, v in values.items()]
 
 
-def build_vllm_bench_job(
+def build_performance_job(
     run: CustomBenchmarkRun,
     *,
     image: str,
@@ -120,25 +57,8 @@ def build_vllm_bench_job(
     backoff_limit: int = 0,
     ttl_seconds_after_finished: int = 7 * 24 * 3600,
 ) -> dict:
-    """K8s Job that runs the official `vllm bench serve` against an
-    OpenAI-compatible endpoint and emits the result.json as a RESULT marker.
-
-    Runs on a vLLM image (the CLI ships with vllm). The OpenAI-chat backend
-    authenticates via the OPENAI_API_KEY env var, so portal/LiteLLM-protected
-    targets work. The synthetic `random` dataset avoids any runtime download
-    (air-gap safe); a tokenizer is still needed — defaults to `served_model`,
-    or the mounted weights when the caller passes volumes.
-    """
+    """Run the portal streaming client against an existing OpenAI-compatible target."""
     name = job_name_for(run.id)
-
-    args = _vllm_bench_argv(run, target_base_url=target_base_url, served_model=served_model, tokenizer=tokenizer)
-
-    bench_cmd = " ".join(shlex.quote(a) for a in args)
-    # vllm bench serve prints a summary table + writes /tmp/r.json. We collapse
-    # that JSON to one line and wrap it in the RESULT marker the reconciler
-    # harvests (it scans for the last `<<<RESULT>>>{json}` line).
-    emit = 'echo "<<<RESULT>>>{\\"metrics\\": $(tr -d \'\\n\' < /tmp/r.json)}"'
-    script = f"set -e\n{bench_cmd}\n{emit}\n"
 
     # Model-weights mount, prebuilt by the caller: a deployment target's own
     # storages (read-only) or, for a raw model_name, the cluster's bench storage.
@@ -165,11 +85,8 @@ def build_vllm_bench_job(
                             "name": "runner",
                             "image": image,
                             "imagePullPolicy": "IfNotPresent",
-                            "command": ["sh", "-c", script],
-                            "env": [
-                                {"name": "OPENAI_API_KEY", "value": api_key},
-                                {"name": "BENCH_RUN_ID", "value": str(run.id)},
-                            ],
+                            "command": ["python", "-c", _runner_source()],
+                            "env": _runner_env(run, target_base_url, served_model, tokenizer, api_key),
                             "volumeMounts": volume_mounts,
                         }
                     ],
@@ -202,7 +119,7 @@ def build_self_serving_bench_job(
     volumes/scheduling from ``serving_deployment`` (a Deployment manifest as
     built by build_deployment / build_external_clone), but replaces the run
     command with: background ``serve_argv``, poll ``/health`` on localhost until
-    ready, run ``vllm bench serve`` against ``http://localhost:<port>``, emit the
+    ready, run the portal runner against ``http://localhost:<port>``, emit the
     RESULT marker, stop the server.
     """
     name = job_name_for(run.id)
@@ -211,15 +128,12 @@ def build_self_serving_bench_job(
 
     base_url = f"http://localhost:{port}"
     serve_cmd = " ".join(shlex.quote(a) for a in serve_argv)
-    bench_cmd = " ".join(
-        shlex.quote(a)
-        for a in _vllm_bench_argv(run, target_base_url=base_url, served_model=served_model, tokenizer=tokenizer)
-    )
-    emit = 'echo "<<<RESULT>>>{\\"metrics\\": $(tr -d \'\\n\' < /tmp/r.json)}"'
+    benchmark = f"python - <<'PORTAL_RUNNER'\n{_runner_source()}\nPORTAL_RUNNER"
     wait = (
-        "python - <<'PY'\n"
-        "import urllib.request, time, sys\n"
+        "python - \"$SRV\" <<'PY'\n"
+        "import os, urllib.request, time, sys\n"
         f"for _ in range({_HEALTH_TRIES}):\n"
+        "    os.kill(int(sys.argv[1]), 0)\n"
         "    try:\n"
         f"        urllib.request.urlopen('{base_url}/health', timeout=3); sys.exit(0)\n"
         "    except Exception:\n"
@@ -228,9 +142,9 @@ def build_self_serving_bench_job(
         "PY"
     )
     script = (
-        "set -m\n"
         f"{serve_cmd} &\n"
         "SRV=$!\n"
+        'trap \'kill "$SRV" 2>/dev/null || true\' EXIT\n'
         f"if ! {wait}\n"
         "then\n"
         "  echo 'benchmark aborted: serving did not become ready within the startup window' >&2\n"
@@ -238,17 +152,12 @@ def build_self_serving_bench_job(
         "  exit 1\n"
         "fi\n"
         "set -e\n"
-        f"{bench_cmd}\n"
-        f"{emit}\n"
-        "kill $SRV 2>/dev/null || true\n"
+        f"{benchmark}\n"
     )
 
-    env = list(src_c.get("env") or [])
-    env = [e for e in env if e.get("name") not in ("OPENAI_API_KEY", "BENCH_RUN_ID")]
-    env += [
-        {"name": "OPENAI_API_KEY", "value": api_key},
-        {"name": "BENCH_RUN_ID", "value": str(run.id)},
-    ]
+    runner_env = _runner_env(run, base_url, served_model, tokenizer, api_key)
+    reserved = {item["name"] for item in runner_env}
+    env = [e for e in src_c.get("env", []) if e["name"] not in reserved] + runner_env
 
     container = {
         "name": "serve-bench",
@@ -259,7 +168,12 @@ def build_self_serving_bench_job(
         "resources": src_c.get("resources") or {},
         "volumeMounts": list(src_c.get("volumeMounts") or []),
     }
+    if src_c.get("securityContext"):
+        container["securityContext"] = src_c["securityContext"]
     pod_spec: dict = {"restartPolicy": "Never", "containers": [container]}
+    for key in ("hostIPC", "initContainers", "imagePullSecrets"):
+        if src_pod.get(key):
+            pod_spec[key] = src_pod[key]
     if src_pod.get("volumes"):
         pod_spec["volumes"] = src_pod["volumes"]
     if src_pod.get("nodeSelector"):
@@ -293,6 +207,9 @@ def build_job_manifest(
     target_base_url: str,
     api_key: str,
     bench_model: str | None = None,
+    tokenizer: str | None = None,
+    volumes: list | None = None,
+    volume_mounts: list | None = None,
     backoff_limit: int = 0,
     ttl_seconds_after_finished: int = 7 * 24 * 3600,
 ) -> dict:
@@ -331,12 +248,15 @@ def build_job_manifest(
                 },
                 "spec": {
                     "restartPolicy": "Never",
+                    "volumes": volumes or [],
                     "containers": [
                         {
                             "name": "runner",
                             "image": image,
                             "imagePullPolicy": "IfNotPresent",
+                            "volumeMounts": volume_mounts or [],
                             "env": [
+                                {"name": "BENCH_TOKENIZER", "value": (run.params or {}).get("tokenizer") or tokenizer or bench_model or run.model_name},
                                 {"name": "BENCH_TOOL", "value": run.tool},
                                 {"name": "BENCH_KIND", "value": run.kind},
                                 {"name": "BENCH_MODEL", "value": bench_model or run.model_name},

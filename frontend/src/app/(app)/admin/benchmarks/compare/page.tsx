@@ -12,6 +12,7 @@ import type { BenchmarkRun, ServingSnapshot } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { CacheResults, experimentOf } from "@/components/benchmark-cache";
 import { PERF_METRICS, getAt, fmt, pickBestWorst } from "@/lib/bench-metrics";
 
 const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
@@ -105,9 +106,10 @@ function CompareInner() {
     .map((id) => runsById.get(id))
     .filter((r): r is BenchmarkRun => !!r);
 
-  const allPerf = ordered.every((r) => r.kind === "performance");
+  const caches = ordered.filter(r => experimentOf(r) === "prefix_cache");
+  const allPerf = ordered.every((r) => experimentOf(r) === "performance");
   const allAcc = ordered.every((r) => r.kind === "accuracy");
-  const mixed = !allPerf && !allAcc;
+  const mixed = !allPerf && !allAcc && caches.length !== ordered.length;
 
   // For accuracy we union metric keys across runs (tasks differ per run).
   const accuracyMetricKeys: string[] = allAcc
@@ -154,6 +156,9 @@ function CompareInner() {
         </p>
       </div>
 
+      {caches.length > 0 && <div className="grid gap-4 xl:grid-cols-2">{caches.map(run =>
+        <section key={run.id} className="space-y-2"><Link className="font-medium hover:underline" href={`/admin/benchmarks/${run.id}`}>{run.label || run.model_name}</Link><CacheResults run={run}/></section>
+      )}</div>}
       {mixed && (
         <div className="rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700 px-3 py-2 text-sm text-yellow-800 dark:text-yellow-200">
           {t("mixedKindsWarning")}

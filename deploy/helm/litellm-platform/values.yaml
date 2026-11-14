@@ -36,6 +36,7 @@ backend:
   env:
     APP_DATABASE_URL: ""
     APP_LITELLM_BASE_URL: ""
+    APP_BENCHMARK_ACCURACY_IMAGE: "llmops-benchmark:portal-v1"
     APP_LITELLM_ADMIN_API_KEY: "sk-1234"
     APP_KEYCLOAK_BASE_URL: ""
     APP_KEYCLOAK_INTERNAL_URL: ""

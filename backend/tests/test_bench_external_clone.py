@@ -281,7 +281,7 @@ async def test_create_external_clone_run(client_for_user, super_user, mock_db):
     ns, manifest = fake_k8s.create_job.await_args.args
     assert ns == "team-a" and manifest["kind"] == "Job"
     script = manifest["spec"]["template"]["spec"]["containers"][0]["command"][2]
-    assert "vllm bench serve" in script and "http://localhost:" in script
+    assert "PORTAL_RUNNER" in script and "http://localhost:" in script
 
 
 async def test_create_external_missing_serving_404(client_for_user, super_user, mock_db):

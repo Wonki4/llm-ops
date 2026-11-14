@@ -3,11 +3,14 @@
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.services.benchmark_manifests import job_name_for
 from tests._storage import legacy_entry
 
 
-async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, super_user, mock_db):
+@pytest.mark.parametrize("cache", [False, True])
+async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, super_user, mock_db, cache):
     base = MagicMock()
     base.id = uuid.uuid4()
     base.model_name = "m"
@@ -33,6 +36,14 @@ async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, s
     fake_k8s = MagicMock()
     fake_k8s.create_job = AsyncMock()
     body = {"tool": "vllm_serving", "params": {"num_prompts": 10}, "ephemeral": True, "deployment_id": str(base.id)}
+    if cache:
+        base.engine = "vllm"
+        base.serving_mode = "aggregated"
+        base.engine_args = {"served-model-name": "alias"}
+        base.runtime = {}
+        body["params"].update(experiment="prefix_cache", random_input_len=128, prefix_len=96,
+                              random_output_len=8, max_concurrency=2)
+        mock_db.get = AsyncMock(return_value=base)
     with (
         patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=fake_k8s)),
         patch("app.api.benchmarks.resolve_entries", AsyncMock(side_effect=lambda db, e, *a, **k: list(e or []))),
@@ -47,4 +58,11 @@ async def test_ephemeral_perf_creates_single_self_serving_job(client_for_user, s
     ns, manifest = fake_k8s.create_job.await_args.args
     assert manifest["kind"] == "Job"
     script = manifest["spec"]["template"]["spec"]["containers"][0]["command"][2]
-    assert "vllm serve" in script and "vllm bench serve" in script
+    assert "vllm serve" in script
+    if cache:
+        assert ns == base.namespace
+        container = manifest["spec"]["template"]["spec"]["containers"][0]
+        assert {e["name"]: e.get("value") for e in container["env"]}["BENCH_MODEL"] == "alias"
+        assert "PORTAL_RUNNER" in script and run.params["seed"] == 0
+    else:
+        assert "PORTAL_RUNNER" in script

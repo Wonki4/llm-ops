@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, FileCode2, Loader2, Play } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
@@ -14,25 +14,20 @@ import {
   useGpuProfiles,
   useK8sClusters,
   useBenchmarkPreview,
-  useBenchmarks,
+  useBenchmark,
   useBenchmarkPresets,
   useExternalServings,
 } from "@/hooks/use-api";
 import type { ExternalServing } from "@/hooks/use-api";
-import type { BenchmarkTool, CreateBenchmarkRequest, LoadPreset } from "@/types";
-import { buildBenchCommand } from "@/lib/bench-command";
+import { CacheForm } from "@/components/benchmark-cache-form";
+import { experimentOf } from "@/components/benchmark-cache";
+import type { BenchmarkRun, BenchmarkTool, CreateBenchmarkRequest, LoadPreset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { JsonEditor } from "@/components/json-editor";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-
-const TOOL_OPTIONS: BenchmarkTool[] = [
-  "vllm_serving",
-  "sglang_serving",
-  "lm_eval",
-];
 
 const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
   vllm_serving: "performance",
@@ -52,7 +47,7 @@ const PRESET_LABEL_KEY: Record<string, string> = {
   long_output: "presetLongOutput",
 };
 
-// Editable `vllm bench serve` workload knobs. Presets (below) are one-click
+// Portal runner workload settings. Presets (below) are one-click
 // prefill for these fields — every value is then directly editable.
 const DEFAULT_PERF_PARAMS = {
   random_input_len: 1024,
@@ -61,7 +56,7 @@ const DEFAULT_PERF_PARAMS = {
   max_concurrency: "" as number | string,
   request_rate: "" as number | string,
   seed: 0,
-  ignore_eos: true,
+  ignore_eos: false,
   tokenizer: "",
 };
 type PerfParams = typeof DEFAULT_PERF_PARAMS;
@@ -98,9 +93,40 @@ const DEFAULT_ACCURACY_PARAMS = {
 };
 
 // The active tab IS the start mode — no inference from which fields are set.
-type BenchMode = "clone" | "direct" | "model" | "endpoint" | "fromRun";
+type BenchMode = "clone" | "direct" | "model" | "endpoint";
 
 export default function NewBenchmarkPage() {
+  return <Suspense fallback={<Loader2 className="animate-spin"/>}><ExperimentPage /></Suspense>;
+}
+
+type Experiment = "prefix_cache" | "performance" | "accuracy";
+
+function ExperimentPage() {
+  const id = useSearchParams().get("from") ?? "";
+  const source = useBenchmark(id);
+  const f = useTranslations("benchmarkForm");
+  const t = useTranslations("benchExperiment");
+  const [choice, setChoice] = useState<Experiment | null>(null);
+  if (id && source.isPending) return <Loader2 className="animate-spin"/>;
+  if (id && !source.data) return <p>{t("missingRun")} <Link href="/admin/benchmarks">{f("backToList")}</Link></p>;
+  const experiment = choice ?? (source.data ? experimentOf(source.data) : "prefix_cache");
+  const original = source.data && experimentOf(source.data) === experiment ? source.data : undefined;
+  return <div className="mx-auto max-w-4xl space-y-5">
+    <Link href="/admin/benchmarks" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+      <ArrowLeft className="size-4"/>{f("backToList")}
+    </Link>
+    <h1 className="text-2xl font-bold">{f("pageTitle")}</h1>
+    <div role="group" aria-label={t("experiment")} className="flex flex-wrap gap-1 rounded-lg border bg-muted/40 p-1">
+      {(["prefix_cache", "performance", "accuracy"] as const).map(key =>
+        <button key={key} type="button" aria-pressed={experiment === key} onClick={() => setChoice(key)}
+          className="flex-1 rounded-md px-4 py-2 text-sm aria-pressed:bg-background aria-pressed:font-semibold aria-pressed:shadow-sm">{t(key)}</button>)}
+    </div>
+    {experiment === "prefix_cache" ? <CacheForm key={original?.id ?? "cache"} source={original}/> :
+      <SingleRunForm key={experiment + (original?.id ?? "")} experiment={experiment} source={original}/>}
+  </div>;
+}
+
+function SingleRunForm({experiment, source}: {experiment: "performance" | "accuracy"; source?: BenchmarkRun}) {
   const t = useTranslations("benchmarkForm");
   const tc = useTranslations("common");
   const router = useRouter();
@@ -130,42 +156,38 @@ export default function NewBenchmarkPage() {
     setServingOverridesText(Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "");
   };
   const [modelName, setModelName] = useState("");
-  const [tool, setTool] = useState<BenchmarkTool>("vllm_serving");
+  const tool: BenchmarkTool = experiment === "accuracy" ? "lm_eval" : source?.tool ?? "vllm_serving";
   const [perf, setPerf] = useState<PerfParams>(DEFAULT_PERF_PARAMS);
   const [baseUrl, setBaseUrl] = useState("");
   const [endpointModel, setEndpointModel] = useState("");
   const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
-  // JSON override merged on top of named params — accuracy path only; the
-  // performance path's equivalent is the editable workload fields + append-flags.
+  // Preserve additional settings when rerunning a historical workload.
   const [extraParamsText, setExtraParamsText] = useState("");
-  const [extraArgsText, setExtraArgsText] = useState("");
   const [namespace, setNamespace] = useState("");
   const [image, setImage] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [label, setLabel] = useState("");
   const [note, setNote] = useState("");
-  const [loadFromId, setLoadFromId] = useState("");
-
-  const { data: pastRuns } = useBenchmarks({ limit: 50 });
-
+  const [showYaml, setShowYaml] = useState(false);
   const kind = TOOL_TO_KIND[tool];
 
   // Prefill the form from a previously-run benchmark. The API key is a secret
   // and is intentionally NOT restored — re-enter it if the target needs one.
-  const loadFromRun = (runId: string) => {
-    setLoadFromId(runId);
-    const run = (pastRuns ?? []).find((r) => r.id === runId);
-    if (!run) return;
+  const restored = useRef(false);
+  useEffect(() => {
+    const run = source;
+    if (!run || restored.current || (run.params.external_source && !external)) return;
+    restored.current = true;
     setExternalTarget(null);
-    setTool(run.tool);
     if (run.deployment_id) {
       setDeploymentId(run.deployment_id);
       setModelName("");
-      // Restore the run's mode, but land on the clone tab when the
-      // deployment is no longer Ready — the direct tab won't list it.
-      const dep = (deployments ?? []).find((d) => d.id === run.deployment_id);
-      const forceClone = dep ? dep.ready_replicas === 0 : false;
-      setMode(run.ephemeral || forceClone ? "clone" : "direct");
+      setMode(run.ephemeral ? "clone" : "direct");
+    } else if (run.params.external_source) {
+      const ext = run.params.external_source as { cluster_id: string | null; namespace: string; deployment_name: string };
+      const match = external?.servings.find(s => s.cluster_id === ext.cluster_id && s.namespace === ext.namespace && s.deployment_name === ext.deployment_name);
+      setMode("clone");
+      setExternalTarget(match ?? null);
     } else {
       setDeploymentId("");
       const snap = run.serving_snapshot as { source?: string; base_url?: string } | null;
@@ -181,7 +203,7 @@ export default function NewBenchmarkPage() {
     }
     setClusterId(run.cluster_id ?? "");
     setNamespace(run.k8s_namespace ?? "");
-    setImage(run.bench_image ?? "");
+    setImage(run.kind === "accuracy" && run.bench_image === "llmops-benchmark:latest" ? "" : run.bench_image ?? "");
     setLabel(run.label ?? "");
     setNote(run.note ?? "");
     setServingOverridesText("");
@@ -197,12 +219,12 @@ export default function NewBenchmarkPage() {
         max_concurrency: str(params.max_concurrency),
         request_rate: str(params.request_rate),
         seed: num(params.seed, DEFAULT_PERF_PARAMS.seed),
-        ignore_eos: params.ignore_eos !== false,
+        ignore_eos: params.ignore_eos === true,
         tokenizer: str(params.tokenizer),
       });
-      setExtraArgsText(str(params.extra_args));
-      // The JSON-override card is accuracy-only now; nothing to restore here.
-      setExtraParamsText("");
+      const known = new Set([...Object.keys(DEFAULT_PERF_PARAMS), "preset", "external_source"]);
+      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
+      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
     } else {
       const known = new Set([
         "tasks", "batch_size", "num_concurrent", "num_fewshot", "limit",
@@ -219,11 +241,10 @@ export default function NewBenchmarkPage() {
         apply_chat_template: params.apply_chat_template === true,
         gen_kwargs: str(params.gen_kwargs),
       });
-      setExtraArgsText("");
       const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
       setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
     }
-  };
+  }, [source, external]);
 
   // Deduplicated model_name list for the dropdown.
   const modelOptions = useMemo(() => {
@@ -232,8 +253,8 @@ export default function NewBenchmarkPage() {
   }, [models]);
 
   const allDeployments = deployments ?? [];
-  const readyDeployments = allDeployments.filter((d) => d.ready_replicas > 0);
   const selectedDeployment = allDeployments.find((d) => d.id === deploymentId) ?? null;
+  const readyDeployments = allDeployments.filter((d) => d.ready_replicas > 0);
 
   // The external target only participates while the clone tab is active;
   // leftover selections on inactive tabs never leak into cluster/namespace
@@ -245,19 +266,6 @@ export default function NewBenchmarkPage() {
   const directDeploymentId = readyDeployments.some((d) => d.id === deploymentId)
     ? deploymentId
     : "";
-
-  // The served-model name and base URL shown in the live command preview,
-  // resolved from whichever target tab is active.
-  const previewModel =
-    mode === "endpoint"
-      ? endpointModel
-      : mode === "model"
-        ? modelName
-        : selectedDeployment?.model_name ||
-          externalTarget?.model_path ||
-          externalTarget?.deployment_name ||
-          undefined;
-  const previewBaseUrl = mode === "endpoint" ? baseUrl : undefined;
 
   const handleCloneTargetChange = (value: string) => {
     if (value.startsWith("ext::")) {
@@ -393,7 +401,6 @@ export default function NewBenchmarkPage() {
       params: {
         ...buildNamedParams(),
         ...(extras.ok ? extras.value : {}),
-        ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
     };
     if (mode === "clone" && externalTarget) {
@@ -429,23 +436,22 @@ export default function NewBenchmarkPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     mode, deploymentId, directDeploymentId, externalTarget, modelName, baseUrl, endpointModel,
-    tool, perf, presets, accParams, extraParamsText, extraArgsText, servingOverridesText,
+    tool, perf, presets, accParams, extraParamsText, servingOverridesText,
     clusterId, namespace, image, apiKey,
   ]);
 
   const previewKey = previewBody ? JSON.stringify(previewBody) : "";
   const runPreview = previewMutation.mutate;
   useEffect(() => {
-    if (!previewKey) return;
+    if (!showYaml || !previewKey) return;
     const id = setTimeout(() => runPreview(JSON.parse(previewKey)), 400);
     return () => clearTimeout(id);
-  }, [previewKey, runPreview]);
+  }, [showYaml, previewKey, runPreview]);
 
   const previewManifests = previewMutation.data?.manifests ?? [];
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (mode === "fromRun") return; // submit is disabled on this tab
     if (mode === "clone" && !deploymentId && !externalTarget) {
       toast.error(t("errorTargetRequired"));
       return;
@@ -492,7 +498,6 @@ export default function NewBenchmarkPage() {
       params: {
         ...buildNamedParams(),
         ...extras.value,
-        ...(kind === "performance" && extraArgsText.trim() ? { extra_args: extraArgsText.trim() } : {}),
       },
       label: label.trim() || undefined,
       note: note.trim() || undefined,
@@ -546,46 +551,8 @@ export default function NewBenchmarkPage() {
   };
 
   return (
-    <div className="space-y-6 max-w-6xl">
-      <div>
-        <Link
-          href="/admin/benchmarks"
-          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
-        >
-          <ArrowLeft className="size-3.5" />
-          {t("backToList")}
-        </Link>
-        <h1 className="text-2xl font-bold mt-2">{t("pageTitle")}</h1>
-        <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
-      <form onSubmit={handleSubmit} className="space-y-5 lg:col-span-3">
-        <Card>
-          <CardContent className="space-y-4 pt-6">
-            <div className="space-y-1.5">
-              <Label htmlFor="run_label">{t("labelLabel")}</Label>
-              <Input
-                id="run_label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={t("labelPlaceholder")}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="run_note">{t("noteLabel")}</Label>
-              <textarea
-                id="run_note"
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={t("notePlaceholder")}
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
+    <div className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{t("target")}</CardTitle>
@@ -621,9 +588,9 @@ export default function NewBenchmarkPage() {
               <TabsList className="w-full">
                 <TabsTrigger value="clone">{t("tabClone")}</TabsTrigger>
                 <TabsTrigger value="direct">{t("tabDirect")}</TabsTrigger>
-                <TabsTrigger value="endpoint">{t("tabEndpoint")}</TabsTrigger>
+                {kind === "performance" && <TabsTrigger value="endpoint">{t("tabEndpoint")}</TabsTrigger>}
                 <TabsTrigger value="model">{t("tabModel")}</TabsTrigger>
-                <TabsTrigger value="fromRun">{t("tabFromRun")}</TabsTrigger>
+
               </TabsList>
 
               <TabsContent value="clone" className="space-y-4 pt-2">
@@ -675,6 +642,7 @@ export default function NewBenchmarkPage() {
                     </p>
                   )}
                 </div>
+                <details><summary className="cursor-pointer text-sm">{t("servingOverridesLabel")}</summary>
                 <div className="space-y-1.5">
                   <Label htmlFor="bench_gpu_type">{t("gpuTypeLabel")}</Label>
                   <select
@@ -701,6 +669,7 @@ export default function NewBenchmarkPage() {
                   />
                   <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
                 </div>
+                </details>
               </TabsContent>
 
               <TabsContent value="direct" className="space-y-4 pt-2">
@@ -790,50 +759,8 @@ export default function NewBenchmarkPage() {
                 </div>
               </TabsContent>
 
-              <TabsContent value="fromRun" className="space-y-4 pt-2">
-                {(pastRuns?.length ?? 0) === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4 text-center">
-                    {t("fromRunEmpty")}
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="load_from">{t("loadFromLabel")}</Label>
-                    <select
-                      id="load_from"
-                      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                      value={loadFromId}
-                      onChange={(e) => loadFromRun(e.target.value)}
-                    >
-                      <option value="">{t("loadFromNone")}</option>
-                      {(pastRuns ?? []).map((r) => (
-                        <option key={r.id} value={r.id}>
-                          {r.model_name} · {r.tool} · {r.status}
-                          {r.created_at ? ` · ${new Date(r.created_at).toLocaleDateString()}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-muted-foreground">{t("loadFromHint")}</p>
-                  </div>
-                )}
-              </TabsContent>
             </Tabs>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="tool">{t("toolLabel")}</Label>
-              <select
-                id="tool"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
-                value={tool}
-                onChange={(e) => setTool(e.target.value as BenchmarkTool)}
-              >
-                {TOOL_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {value} ({TOOL_TO_KIND[value]})
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-muted-foreground">{t(`toolHint_${tool}`)}</p>
-            </div>
           </CardContent>
         </Card>
 
@@ -847,10 +774,6 @@ export default function NewBenchmarkPage() {
                 presets={presets}
                 perf={perf}
                 onChange={setPerf}
-                extraArgsText={extraArgsText}
-                onExtraArgsChange={setExtraArgsText}
-                model={previewModel}
-                baseUrl={previewBaseUrl}
               />
             ) : (
               <AccuracyParamsFields
@@ -861,29 +784,49 @@ export default function NewBenchmarkPage() {
           </CardContent>
         </Card>
 
-        {kind === "accuracy" && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t("extraParams")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
+        <details className="rounded-lg border p-4" open={extraParamsText ? true : undefined}>
+          <summary className="cursor-pointer text-sm">{t("extraParams")}</summary>
+            <div className="mt-3 space-y-2">
               <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
               <JsonEditor
                 id="extra_params"
                 value={extraParamsText}
                 onChange={setExtraParamsText}
-                placeholder={'{\n  "request_rate": 4,\n  "ignore_eos": true\n}'}
+                placeholder={kind === "performance" ? '{"goodput":"ttft:200 tpot:50"}' : '{"tokenizer":"org/model"}'}
               />
-              <p className="text-xs text-muted-foreground">{t("extraParamsHint")}</p>
-            </CardContent>
-          </Card>
-        )}
+              <p className="text-xs text-muted-foreground">{t(kind === "performance" ? "perfExtras" : "accuracyExtras")}</p>
+            </div>
+        </details>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("advanced")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm">{t("advanced")}</summary>
+          <div className="mt-3 space-y-3">
+            <div className="space-y-1.5">
+              <Label>{t("toolLabel")}</Label>
+              <p className="text-sm">{t(kind === "accuracy" ? "accuracyRunner" : "performanceRunner")}</p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="run_label">{t("labelLabel")}</Label>
+              <Input
+                id="run_label"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder={t("labelPlaceholder")}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="run_note">{t("noteLabel")}</Label>
+              <textarea
+                id="run_note"
+                rows={2}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder={t("notePlaceholder")}
+                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+              />
+            </div>
+
+
             <div className="space-y-1.5">
               <Label htmlFor="namespace">{t("namespaceLabel")}</Label>
               <Input
@@ -899,7 +842,7 @@ export default function NewBenchmarkPage() {
               <Label htmlFor="image">{t("imageLabel")}</Label>
               <Input
                 id="image"
-                placeholder="llmops-benchmark:latest"
+                placeholder="llmops-benchmark:portal-v1"
                 value={image}
                 onChange={(e) => setImage(e.target.value)}
               />
@@ -917,9 +860,8 @@ export default function NewBenchmarkPage() {
               />
               <p className="text-xs text-muted-foreground">{t("apiKeyHint")}</p>
             </div>
-          </CardContent>
-        </Card>
-
+          </div>
+        </details>
         <div className="flex items-center justify-end gap-3">
           <Link href="/admin/benchmarks">
             <Button type="button" variant="outline">
@@ -928,7 +870,7 @@ export default function NewBenchmarkPage() {
           </Link>
           <Button
             type="submit"
-            disabled={createMutation.isPending || mode === "fromRun"}
+            disabled={createMutation.isPending}
           >
             {createMutation.isPending ? (
               <Loader2 className="size-4 mr-1 animate-spin" />
@@ -940,19 +882,10 @@ export default function NewBenchmarkPage() {
         </div>
       </form>
 
-      <aside className="lg:col-span-2 lg:sticky lg:top-6">
-        <Card className="overflow-hidden">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <FileCode2 className="size-4" />
-              {t("previewTitle")}
-              {previewMutation.isPending && (
-                <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
-              )}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">{t("previewHint")}</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
+      <details className="rounded-lg border p-4" onToggle={e => setShowYaml(e.currentTarget.open)}>
+        <summary className="cursor-pointer text-sm">{t("previewTitle")}</summary>
+        <div className="mt-3 space-y-3">
+          {previewMutation.isPending && <Loader2 className="size-4 animate-spin"/>}
             {previewManifests.length === 0 ? (
               <p className="text-sm text-muted-foreground py-6 text-center">
                 {t("previewEmpty")}
@@ -972,10 +905,8 @@ export default function NewBenchmarkPage() {
                 </div>
               ))
             )}
-          </CardContent>
-        </Card>
-      </aside>
-      </div>
+        </div>
+      </details>
     </div>
   );
 }
@@ -984,18 +915,10 @@ function PerfWorkloadFields({
   presets,
   perf,
   onChange,
-  extraArgsText,
-  onExtraArgsChange,
-  model,
-  baseUrl,
 }: {
   presets: Record<string, LoadPreset> | undefined;
   perf: PerfParams;
   onChange: (next: PerfParams) => void;
-  extraArgsText: string;
-  onExtraArgsChange: (v: string) => void;
-  model?: string;
-  baseUrl?: string;
 }) {
   const t = useTranslations("benchmarkForm");
   const activePreset = matchedPresetKey(presets, perf);
@@ -1031,6 +954,8 @@ function PerfWorkloadFields({
         <p className="text-xs text-muted-foreground">{t("presetFillHint")}</p>
       </div>
 
+      <details><summary className="cursor-pointer text-sm">{t("advanced")}</summary>
+      <div className="mt-3 space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <NumberField
           id="random_input_len"
@@ -1105,24 +1030,7 @@ function PerfWorkloadFields({
         <p className="text-xs text-muted-foreground">{t("tokenizerHint")}</p>
       </div>
 
-      <div className="space-y-1.5">
-        <Label>{t("commandPreview")}</Label>
-        <pre className="rounded-md border bg-muted/20 p-3 text-xs font-mono leading-relaxed overflow-auto whitespace-pre-wrap">
-          {buildBenchCommand(perf, extraArgsText, { model, baseUrl })}
-        </pre>
-      </div>
-
-      <div className="space-y-1.5">
-        <Label htmlFor="extra_args">{t("additionalFlags")}</Label>
-        <Input
-          id="extra_args"
-          value={extraArgsText}
-          onChange={(e) => onExtraArgsChange(e.target.value)}
-          placeholder="--disable-tqdm --burstiness 0.5"
-          className="font-mono"
-        />
-        <p className="text-xs text-muted-foreground">{t("additionalFlagsHint")}</p>
-      </div>
+      </div></details>
     </>
   );
 }

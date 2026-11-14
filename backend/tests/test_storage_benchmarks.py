@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.jobs import reconcile_benchmarks
-from app.services.benchmark_manifests import build_vllm_bench_job
+from app.services.benchmark_manifests import build_performance_job
 from app.services.benchmark_serving import build_ephemeral_deployment
 from tests._storage import CLUSTER, legacy_entry
 
@@ -25,10 +25,10 @@ def _job_volumes(manifest):
 def test_bench_job_takes_prebuilt_volumes():
     vols = [{"name": "model-weights", "nfs": {"server": "s", "path": "/p", "readOnly": True}}]
     mounts = [{"name": "model-weights", "mountPath": "/models", "readOnly": True}]
-    m = build_vllm_bench_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m",
+    m = build_performance_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m",
                              volumes=vols, volume_mounts=mounts)
     assert _job_volumes(m) == (vols, mounts)
-    m = build_vllm_bench_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m")
+    m = build_performance_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m")
     pod = m["spec"]["template"]["spec"]
     assert pod.get("volumes", []) == [] and pod["containers"][0].get("volumeMounts", []) == []
 
@@ -37,7 +37,7 @@ def test_deployment_target_mounts_its_storages_read_only():
     from app.api.benchmarks import _build_bench_job
 
     storages = [legacy_entry("models-pvc", "/models")]
-    dep = types.SimpleNamespace(model_path="/models/llama", image="vllm:1", storages=storages)
+    dep = types.SimpleNamespace(model_path="/models/llama", image="vllm:1", storages=storages, vllm_extra_args=["--served-model-name","my-alias"])
     m = _build_bench_job(_run(), deployment=dep, target_base="http://t", api_key="k", image_override=None)
     vols, mounts = _job_volumes(m)
     assert vols == [{"name": "model-weights", "persistentVolumeClaim": {"claimName": "models-pvc", "readOnly": True}}]

@@ -2,7 +2,7 @@
 export type Direction = "higher" | "lower";
 export type MetricSpec = { key: string; path: (string | number)[]; direction: Direction };
 
-// Keys emitted by `vllm bench serve` result.json (throughput in req|tok/s,
+// Metrics shared by legacy results and the portal runner (throughput in req|tok/s,
 // latencies in ms). Flat schema — one path segment each.
 export const PERF_METRICS: MetricSpec[] = [
   { key: "request_throughput", path: ["request_throughput"], direction: "higher" },
