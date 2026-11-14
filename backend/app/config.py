@@ -82,9 +82,10 @@ class Settings(BaseSettings):
     # Keep below the ingress read timeout (commonly 60s).
     gpu_node_scan_timeout: float = 30.0
 
-    # Image used to run `vllm bench serve` for performance benchmarks when the
+    # Python image (aiohttp and transformers) used by the portal runner for performance benchmarks when the
     # target isn't a portal-managed serving deployment (which reuses its own image).
     vllm_bench_image: str = "vllm/vllm-openai:latest"
+    benchmark_accuracy_image: str = "llmops-benchmark:portal-v1"
 
     # llm-d stack (ArgoCD-deployed). Air-gap: internal chart repo + image registry.
     # Isolation: every Application is scoped to a dedicated AppProject so it can

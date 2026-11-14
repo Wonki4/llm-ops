@@ -1,8 +1,9 @@
 """Endpoint-URL mode: benchmark an already-running endpoint by base URL alone.
 
-No serving is provisioned — a single `vllm bench serve` Job hits the URL.
+No serving is provisioned — a single portal runner Job hits the URL.
 """
 
+import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -46,12 +47,20 @@ async def test_endpoint_url_creates_single_job_no_serving(client_for_user, super
     pod = manifest["spec"]["template"]["spec"]
     # No serving is provisioned → no model-weights volume mounted.
     assert pod.get("volumes", []) == []
-    script = pod["containers"][0]["command"][2]
-    assert "vllm bench serve" in script
-    assert "--base-url http://my-vllm:8000" in script
-    assert "--model meta-llama/Llama-3-8B" in script
-    # The user-supplied workload value flows straight through to the flag.
-    assert "--random-input-len 2048" in script
+    runner = pod["containers"][0]
+    assert runner["command"][:2] == ["python", "-c"]
+    env = {e["name"]: e["value"] for e in runner["env"]}
+    assert env["BENCH_URL"] == "http://my-vllm:8000"
+    assert env["BENCH_MODEL"] == "meta-llama/Llama-3-8B"
+    assert json.loads(env["BENCH_WORKLOAD"])["random_input_len"] == 2048
+
+
+async def test_legacy_cli_options_rejected_before_scheduling(client_for_user, super_user):
+    async with client_for_user(super_user) as client:
+        body = _endpoint_body(params={"extra_args": "--burstiness 0.5"})
+        for url in ("/api/benchmarks", "/api/benchmarks/preview"):
+            resp = await client.post(url, json=body)
+            assert resp.status_code == 400 and "extra_args" in resp.text
 
 
 async def test_endpoint_url_requires_model_name(client_for_user, super_user, mock_db):

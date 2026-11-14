@@ -1579,6 +1579,7 @@ export function useReapplyDeployment(id: string) {
 // ─── Benchmark Runs ─────────────────────────────────────────
 
 export function useBenchmarks(filters: {
+  experiment?: string;
   model_name?: string;
   tool?: string;
   status?: string;
@@ -1587,6 +1588,7 @@ export function useBenchmarks(filters: {
   const params = new URLSearchParams();
   if (filters.model_name) params.set("model_name", filters.model_name);
   if (filters.tool) params.set("tool", filters.tool);
+  if (filters.experiment) params.set("experiment", filters.experiment);
   if (filters.status) params.set("status_filter", filters.status);
   if (filters.limit) params.set("limit", String(filters.limit));
   const qs = params.toString() ? `?${params.toString()}` : "";

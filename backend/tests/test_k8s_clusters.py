@@ -15,7 +15,7 @@ from app.api.k8s_clusters import CreateClusterRequest, _parse_kubeconfig
 from app.api.k8s_clusters import _serialize as _serialize_cluster
 from app.services import crypto
 from app.services.benchmark_manifests import (
-    build_vllm_bench_job,
+    build_performance_job,
     nfs_fields_incomplete,
 )
 from app.services.storage_mounts import legacy_pvc_volumes, nfs_override_volumes
@@ -112,7 +112,7 @@ def test_vllm_bench_job_mounts_nfs_when_set():
     vols, mounts = nfs_override_volumes(
         {"nfs_server": "nfs.local", "nfs_path": "/export/models", "nfs_mount_path": "/models"}
     )
-    job = build_vllm_bench_job(
+    job = build_performance_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
         served_model="m", tokenizer="/models/m", volumes=vols, volume_mounts=mounts,
     )
@@ -125,7 +125,7 @@ def test_vllm_bench_job_mounts_nfs_when_set():
 
 def test_vllm_bench_job_mounts_pvc_for_deployment_target():
     vols, mounts = legacy_pvc_volumes("weights", "/models")
-    job = build_vllm_bench_job(
+    job = build_performance_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
         served_model="m", volumes=vols, volume_mounts=mounts,
     )
@@ -134,45 +134,13 @@ def test_vllm_bench_job_mounts_pvc_for_deployment_target():
 
 
 def test_vllm_bench_job_no_volume_when_unset():
-    job = build_vllm_bench_job(
+    job = build_performance_job(
         _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
         served_model="m",
     )
     spec = job["spec"]["template"]["spec"]
     assert spec["volumes"] == []
     assert spec["containers"][0]["volumeMounts"] == []
-
-
-def _bench_script(params):
-    run = types.SimpleNamespace(
-        id=uuid.uuid4(), params=params, k8s_namespace="bench",
-        tool="vllm_serving", kind="performance",
-    )
-    job = build_vllm_bench_job(
-        run, image="vllm:latest", target_base_url="http://t", api_key="k",
-        served_model="m", tokenizer="/models/m",
-    )
-    return job["spec"]["template"]["spec"]["containers"][0]["command"][2]
-
-
-def test_extra_params_pass_through_as_flags():
-    script = _bench_script({"trust_remote_code": True, "random_range_ratio": 0.5})
-    assert "--trust-remote-code" in script  # bool True → bare flag
-    assert "--random-range-ratio 0.5" in script  # underscores → dashes
-
-
-def test_extra_params_skip_reserved_infra_and_collisions():
-    script = _bench_script(
-        {"num_prompts": 50, "seed": 42, "nfs_server": "nfs.local", "nfs_path": "/m",
-         "nfs_mount_path": "/models"}
-    )
-    assert script.count("--num-prompts") == 1 and "--num-prompts 50" in script
-    assert script.count("--seed") == 1 and "--seed 42" in script  # user seed wins, emitted once
-    assert "--nfs-server" not in script  # infra-only, never a CLI flag
-
-
-def test_extra_params_false_bool_omitted():
-    assert "--disable-tqdm" not in _bench_script({"disable_tqdm": False})
 
 
 def test_create_cluster_request_defaults_argocd_namespace():

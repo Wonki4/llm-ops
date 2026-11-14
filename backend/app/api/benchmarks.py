@@ -9,7 +9,7 @@ import uuid
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +25,11 @@ from app.services import aggregated_router, pd_serving
 from app.services.benchmark_manifests import (
     build_job_manifest,
     build_self_serving_bench_job,
-    build_vllm_bench_job,
+    build_performance_job,
     job_name_for,
     nfs_fields_incomplete,
 )
+from app.services.benchmark_workload import validate_run_options
 from app.services.benchmark_presets import LOAD_PRESETS
 from app.services.benchmark_serving import (
     _clone_target_port,
@@ -50,7 +51,7 @@ from app.services.model_deployment_manifests import (
     k8s_resource_names,
     serving_api_key,
 )
-from app.services.serving_engines import engine_of
+from app.services.serving_engines import engine_flags, engine_of, flag_value, served_name
 from app.services.serving_engines import serve_argv as engine_serve_argv
 from app.services.storage_mounts import to_volumes
 from app.services.storage_store import bench_volumes, resolve_entries
@@ -93,7 +94,6 @@ TOOL_TO_KIND = {
 }
 
 
-DEFAULT_BENCH_IMAGE = "llmops-benchmark:latest"
 DEFAULT_BENCH_NAMESPACE = "default"
 
 
@@ -176,6 +176,49 @@ class CreateBenchmarkRequest(BaseModel):
     note: str | None = Field(None, description="Free-form note about the run")
 
 
+class PrefixCacheWorkload(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    experiment: str
+    random_input_len: int = Field(gt=1)
+    random_output_len: int = Field(gt=0)
+    num_prompts: int = Field(gt=0)
+    max_concurrency: int = Field(gt=0)
+    prefix_len: int = Field(gt=0)
+    seed: int = 0
+    preset: str | None = None
+
+
+async def _cache_template(body: CreateBenchmarkRequest, db: AsyncSession) -> CustomModelDeployment | None:
+    if body.params.get("experiment") != "prefix_cache":
+        return None
+    if (body.tool != "vllm_serving" or not body.ephemeral or not body.deployment_id
+            or body.external_target or body.base_url or body.model_name):
+        raise HTTPException(400, "Prefix cache comparison requires a cloned portal vLLM deployment")
+    try:
+        workload = PrefixCacheWorkload.model_validate(body.params)
+        deployment_id = uuid.UUID(body.deployment_id)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid prefix cache workload or deployment: {exc}") from exc
+    if workload.prefix_len >= workload.random_input_len:
+        raise HTTPException(400, "Shared prefix must be shorter than the input")
+    base = await db.get(CustomModelDeployment, deployment_id)
+    if not base:
+        raise HTTPException(404, "Template deployment not found")
+    if engine_of(base) != "vllm" or pd_serving.is_pd(base):
+        raise HTTPException(400, "Prefix cache comparison requires a single-pod vLLM template (P/D is unsupported)")
+    flags = engine_flags(base)
+    nodes = flag_value(flags, "--nnodes")
+    if nodes not in (None, "1") or flag_value(flags, "--distributed-executor-backend") == "external_launcher":
+        raise HTTPException(400, "Multi-node vLLM cannot run inside a single cloned Pod")
+    # Pin placement to the selected deployment (also for API callers).
+    body.cluster_id = str(base.cluster_id) if base.cluster_id else None
+    body.namespace = base.namespace
+    body.params = workload.model_dump(exclude_none=True)
+    if body.serving_overrides or body.image:
+        raise HTTPException(400, "Cache comparison uses the selected deployment's serving configuration")
+    return base
+
+
 def _serving_snapshot(dep: CustomModelDeployment) -> dict:
     """Freeze a serving deployment's config so benchmark runs stay comparable
     even if the deployment is later edited or deleted."""
@@ -240,13 +283,13 @@ def _build_bench_job(
     image_override: str | None,
     bench_vols: tuple[list, list] = ([], []),
 ) -> dict:
-    """Pick the manifest for a run: performance → official `vllm bench serve`
-    (on a vLLM image), accuracy → the lm-eval runner image. Shared by create
+    """Pick the manifest for a run: performance → portal streaming runner,
+    accuracy → portal runner with the standard evaluation library. Shared by create
     and preview so the YAML preview is exactly what runs.
     """
     params = run.params or {}
     if deployment is not None:
-        served_model = deployment.model_path
+        served_model = served_name(engine_flags(deployment), deployment.model_path)
         perf_default_image = deployment.image
         vols, mounts = to_volumes(deployment.storages, force_read_only=True)
     else:
@@ -255,8 +298,8 @@ def _build_bench_job(
         vols, mounts = bench_vols
 
     if run.kind == "performance":
-        tokenizer = params.get("tokenizer") or served_model
-        return build_vllm_bench_job(
+        tokenizer = params.get("tokenizer") or (deployment.model_path if deployment else served_model)
+        return build_performance_job(
             run,
             image=image_override or perf_default_image,
             target_base_url=target_base,
@@ -269,10 +312,12 @@ def _build_bench_job(
     # accuracy (lm-eval): bench_model None for a LiteLLM alias target.
     return build_job_manifest(
         run,
-        image=image_override or DEFAULT_BENCH_IMAGE,
+        image=image_override or settings.benchmark_accuracy_image,
         target_base_url=target_base,
         api_key=api_key,
-        bench_model=deployment.model_path if deployment is not None else None,
+        bench_model=served_model,
+        tokenizer=deployment.model_path if deployment else None,
+        volumes=vols, volume_mounts=mounts,
     )
 
 
@@ -308,6 +353,7 @@ async def list_benchmarks(
     model_name: str | None = None,
     tool: str | None = None,
     status_filter: str | None = None,
+    experiment: str | None = None,
     limit: int = 100,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
@@ -317,6 +363,11 @@ async def list_benchmarks(
         query = query.where(CustomBenchmarkRun.model_name == model_name)
     if tool:
         query = query.where(CustomBenchmarkRun.tool == tool)
+    experiment_key = CustomBenchmarkRun.params["experiment"].astext
+    if experiment == "prefix_cache":
+        query = query.where(experiment_key == "prefix_cache")
+    elif experiment in ("performance", "accuracy"):
+        query = query.where(CustomBenchmarkRun.kind == experiment, experiment_key.is_distinct_from("prefix_cache"))
     if status_filter:
         query = query.where(CustomBenchmarkRun.status == status_filter)
     query = query.order_by(CustomBenchmarkRun.created_at.desc()).limit(min(limit, 500))
@@ -349,9 +400,14 @@ async def create_benchmark(
 ) -> dict:
     if body.tool not in ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
+    try:
+        validate_run_options(TOOL_TO_KIND[body.tool], body.params)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid portal runner options: {exc}") from exc
+    cache_template = await _cache_template(body, db)
     kind = TOOL_TO_KIND[body.tool]
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
-    image = body.image or DEFAULT_BENCH_IMAGE
+    image = body.image or settings.benchmark_accuracy_image
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
     if nfs_fields_incomplete(
         body.params.get("nfs_server"),
@@ -366,7 +422,7 @@ async def create_benchmark(
 
     # Endpoint-URL mode: benchmark an already-running OpenAI-compatible endpoint
     # at a user-supplied base URL. No serving is provisioned — a single bench Job
-    # hits the URL directly. Performance tools only (uses `vllm bench serve`).
+    # hits the URL directly. Performance tools only.
     if body.base_url:
         if kind != "performance":
             raise HTTPException(status_code=400, detail="base_url supports performance benchmarks only")
@@ -411,7 +467,7 @@ async def create_benchmark(
         await db.refresh(run)
 
         bench_vols = await bench_volumes(db, cluster_uuid, namespace, body.params)
-        manifest = build_vllm_bench_job(
+        manifest = build_performance_job(
             run,
             image=run.bench_image,
             target_base_url=base_url.rstrip("/"),
@@ -533,7 +589,7 @@ async def create_benchmark(
             tmpl_id = uuid.UUID(body.deployment_id)
         except ValueError:
             raise HTTPException(status_code=400, detail="Invalid deployment_id")
-        base = (
+        base = cache_template or (
             await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id))
         ).scalar_one_or_none()
         if not base:
@@ -552,7 +608,7 @@ async def create_benchmark(
             k8s_namespace=namespace,
             deployment_id=base.id,
             ephemeral=True,
-            # Perf runs `vllm bench serve` (needs a vLLM image) → reuse the
+            # Performance runs the portal client alongside the model → reuse the
             # serving's own image; accuracy keeps the lm-eval runner image.
             bench_image=(body.image or base.image) if kind == "performance" else image,
             created_by=user.user_id,
@@ -579,16 +635,18 @@ async def create_benchmark(
         if kind == "performance":
             # Single self-serving Job — no separate serving Deployment.
             run.serving_torn_down = True
+            if cache_template:
+                run.serving_snapshot["replicas"] = 1
             serve_argv = engine_serve_argv(eph, VLLM_PORT)
-            api_key = body.api_key or serving_api_key(eph.vllm_extra_args, eph.env)
+            api_key = body.api_key or serving_api_key(serve_argv, eph.env)
             job = build_self_serving_bench_job(
                 run,
                 serving_deployment=build_deployment(eph),
                 serve_argv=serve_argv,
                 port=VLLM_PORT,
                 api_key=api_key,
-                served_model=eph.model_path,
-                tokenizer=(run.params or {}).get("tokenizer"),
+                served_model=served_name(engine_flags(eph), eph.model_path),
+                tokenizer=(run.params or {}).get("tokenizer") or eph.model_path,
             )
             db.add(run)
             await db.flush()
@@ -658,6 +716,7 @@ async def create_benchmark(
         cluster_id=cluster_uuid,
         k8s_namespace=namespace,
         deployment_id=deployment.id if deployment else None,
+        bench_image=body.image or ((deployment.image if deployment else settings.vllm_bench_image) if kind == "performance" else settings.benchmark_accuracy_image),
         serving_snapshot=serving_snapshot,
         created_by=user.user_id,
     )
@@ -730,6 +789,11 @@ async def preview_benchmark(
     """
     if body.tool not in ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
+    try:
+        validate_run_options(TOOL_TO_KIND[body.tool], body.params)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid portal runner options: {exc}") from exc
+    cache_template = await _cache_template(body, db)
     kind = TOOL_TO_KIND[body.tool]
     namespace = body.namespace or DEFAULT_BENCH_NAMESPACE
 
@@ -759,7 +823,7 @@ async def preview_benchmark(
             db, uuid.UUID(body.cluster_id) if body.cluster_id else None, namespace, body.params
         )
         manifests.append(
-            build_vllm_bench_job(
+            build_performance_job(
                 run,
                 image=body.image or settings.vllm_bench_image,
                 target_base_url=base_url.rstrip("/"),
@@ -805,7 +869,7 @@ async def preview_benchmark(
             tmpl_id = uuid.UUID(body.deployment_id)
         except ValueError:
             return {"manifests": [], "note": "invalid_deployment"}
-        base = (
+        base = cache_template or (
             await db.execute(select(CustomModelDeployment).where(CustomModelDeployment.id == tmpl_id))
         ).scalar_one_or_none()
         if not base:
@@ -828,6 +892,11 @@ async def preview_benchmark(
         run.model_name = base.model_name
         if kind == "performance":
             serve_argv = engine_serve_argv(eph, VLLM_PORT)
+            for index, arg in enumerate(serve_argv):
+                if arg.startswith("--api-key="):
+                    serve_argv[index] = "--api-key=***"
+                elif arg == "--api-key" and index + 1 < len(serve_argv):
+                    serve_argv[index + 1] = "***"
             manifests.append(
                 build_self_serving_bench_job(
                     run,
@@ -835,8 +904,8 @@ async def preview_benchmark(
                     serve_argv=serve_argv,
                     port=VLLM_PORT,
                     api_key="<redacted>",
-                    served_model=eph.model_path,
-                    tokenizer=(body.params or {}).get("tokenizer"),
+                    served_model=served_name(engine_flags(eph), eph.model_path),
+                    tokenizer=(body.params or {}).get("tokenizer") or eph.model_path,
                 )
             )
         else:

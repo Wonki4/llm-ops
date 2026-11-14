@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useBenchmarks, useDeleteBenchmark } from "@/hooks/use-api";
+import { experimentOf, ResultSummary } from "@/components/benchmark-cache";
 import type { BenchmarkRun } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,11 +33,7 @@ const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
   cancelled: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
 };
 
-const TOOL_OPTIONS: BenchmarkRun["tool"][] = [
-  "vllm_serving",
-  "sglang_serving",
-  "lm_eval",
-];
+const EXPERIMENTS = ["prefix_cache", "performance", "accuracy"] as const;
 
 const STATUS_OPTIONS: BenchmarkRun["status"][] = [
   "provisioning",
@@ -58,36 +55,15 @@ function formatDateTime(dateStr: string | null, localeTag: string): string {
   });
 }
 
-function formatDuration(
-  start: string | null,
-  end: string | null,
-  fallback: string,
-): string {
-  if (!start) return fallback;
-  const startMs = new Date(start).getTime();
-  const endMs = end ? new Date(end).getTime() : Date.now();
-  const sec = Math.max(0, Math.round((endMs - startMs) / 1000));
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}m ${s}s`;
-}
-
 export default function AdminBenchmarksPage() {
   const t = useTranslations("adminBenchmarks");
   const ts = useTranslations("benchmarkStatus");
-  // Render a stored workload param (number, numeric string, or missing) for the
-  // table. Absent/empty -> "-"; numbers get thousands separators.
-  const fmtParam = (v: unknown): string => {
-    if (v === null || v === undefined || v === "") return "-";
-    const n = typeof v === "number" ? v : Number(v);
-    return Number.isFinite(n) ? n.toLocaleString(localeTag) : String(v);
-  };
+  const te = useTranslations("benchExperiment");
   const localeTag = useLocaleTag();
 
   const [modelInput, setModelInput] = useState("");
   const [model, setModel] = useState("");
-  const [tool, setTool] = useState<string>("");
+  const [experiment, setExperiment] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -98,7 +74,7 @@ export default function AdminBenchmarksPage() {
 
   const { data: runs, isLoading } = useBenchmarks({
     model_name: model || undefined,
-    tool: tool || undefined,
+    experiment: experiment || undefined,
     status: status || undefined,
     limit: 200,
   });
@@ -118,7 +94,10 @@ export default function AdminBenchmarksPage() {
   const handleDelete = (r: BenchmarkRun) => {
     if (!confirm(t("confirmDelete", { name: r.label || r.model_name }))) return;
     deleteMut.mutate(r.id, {
-      onSuccess: () => toast.success(t("deleteSuccess")),
+      onSuccess: () => {
+        setSelected(prev => { const next = new Set(prev); next.delete(r.id); return next; });
+        toast.success(t("deleteSuccess"));
+      },
       onError: (e) => toast.error(e instanceof Error ? e.message : t("deleteFail")),
     });
   };
@@ -161,13 +140,14 @@ export default function AdminBenchmarksPage() {
         </div>
         <select
           className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-          value={tool}
-          onChange={(e) => setTool(e.target.value)}
+          aria-label={te("experiment")}
+          value={experiment}
+          onChange={(e) => setExperiment(e.target.value)}
         >
-          <option value="">{t("allTools")}</option>
-          {TOOL_OPTIONS.map((value) => (
+          <option value="">{te("allExperiments")}</option>
+          {EXPERIMENTS.map((value) => (
             <option key={value} value={value}>
-              {value}
+              {te(value)}
             </option>
           ))}
         </select>
@@ -183,12 +163,12 @@ export default function AdminBenchmarksPage() {
             </option>
           ))}
         </select>
-        {(tool || status || model) && (
+        {(experiment || status || model) && (
           <button
             type="button"
             className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
             onClick={() => {
-              setTool("");
+              setExperiment("");
               setStatus("");
               setModelInput("");
               setModel("");
@@ -206,16 +186,9 @@ export default function AdminBenchmarksPage() {
             <TableRow>
               <TableHead className="w-10"></TableHead>
               <TableHead>{t("colModel")}</TableHead>
-              <TableHead>{t("colLabel")}</TableHead>
-              <TableHead>{t("colTool")}</TableHead>
-              <TableHead>{t("colKind")}</TableHead>
-              <TableHead>{t("colNumPrompts")}</TableHead>
-              <TableHead>{t("colConcurrency")}</TableHead>
-              <TableHead>{t("colInputLen")}</TableHead>
-              <TableHead>{t("colOutputLen")}</TableHead>
+              <TableHead>{te("experiment")}</TableHead>
               <TableHead>{t("colStatus")}</TableHead>
-              <TableHead>{t("colDuration")}</TableHead>
-              <TableHead>{t("colCreatedBy")}</TableHead>
+              <TableHead>{te("result")}</TableHead>
               <TableHead>{t("colCreatedAt")}</TableHead>
               <TableHead className="w-10"></TableHead>
             </TableRow>
@@ -223,7 +196,7 @@ export default function AdminBenchmarksPage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={14}>
+                <TableCell colSpan={7}>
                   <div className="flex items-center justify-center py-10">
                     <Loader2 className="size-5 animate-spin text-muted-foreground" />
                   </div>
@@ -231,7 +204,7 @@ export default function AdminBenchmarksPage() {
               </TableRow>
             ) : !runs || runs.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14}>
+                <TableCell colSpan={7}>
                   <div className="flex flex-col items-center justify-center py-10 gap-2 text-muted-foreground">
                     <FlaskConical className="size-6" />
                     <span className="text-sm">{t("empty")}</span>
@@ -265,23 +238,15 @@ export default function AdminBenchmarksPage() {
                     >
                       {r.model_name}
                     </Link>
+                    <p className="text-xs font-normal text-muted-foreground">{[r.k8s_namespace, r.label].filter(Boolean).join(" · ")}</p>
                   </TableCell>
-                  <TableCell className="text-sm">{r.label || "-"}</TableCell>
-                  <TableCell className="font-mono text-xs">{r.tool}</TableCell>
-                  <TableCell className="text-sm">{r.kind}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.num_prompts)}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.max_concurrency)}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.random_input_len)}</TableCell>
-                  <TableCell className="font-mono text-xs">{fmtParam(r.params?.random_output_len)}</TableCell>
+                  <TableCell>{te(experimentOf(r))}</TableCell>
                   <TableCell>
                     <Badge className={STATUS_STYLES[r.status]}>
                       {ts(r.status)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="font-mono text-xs">
-                    {formatDuration(r.started_at, r.finished_at, "-")}
-                  </TableCell>
-                  <TableCell className="text-sm">{r.created_by}</TableCell>
+                  <TableCell className="tabular-nums"><ResultSummary run={r}/></TableCell>
                   <TableCell className="text-sm">
                     {formatDateTime(r.created_at, localeTag)}
                   </TableCell>

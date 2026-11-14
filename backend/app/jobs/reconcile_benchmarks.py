@@ -21,10 +21,11 @@ from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.session import async_session_factory
 from app.config import settings
-from app.services.benchmark_manifests import build_job_manifest, build_vllm_bench_job
+from app.services.benchmark_manifests import build_job_manifest, build_performance_job
 from app.services.benchmark_serving import serving_resource_names, serving_target_url
 from app.services.clusters import k8s_for_cluster
 from app.services.model_deployment_manifests import serving_api_key
+from app.services.serving_engines import render_engine_args, served_name
 from app.services.storage_mounts import legacy_pvc_volumes, to_volumes
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,6 @@ RESULT_MARKER = "<<<RESULT>>>"
 TERMINAL = ("succeeded", "failed", "cancelled")
 # A serving loading weights from a PVC can take a while to report ready.
 PROVISION_TIMEOUT_S = 1800
-DEFAULT_BENCH_IMAGE = "llmops-benchmark:latest"
 
 
 def _snapshot_volumes(snap: dict) -> tuple[list, list]:
@@ -125,15 +125,16 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
     if ready:
         snap = run.serving_snapshot or {}
         target = serving_target_url(run.serving_k8s_name, run.k8s_namespace)
+        model = served_name(render_engine_args(snap.get("engine_args")) + (snap.get("vllm_extra_args") or []), snap.get("model_path"))
+        vols, mounts = _snapshot_volumes(snap)
         if run.kind == "performance":
             params = run.params or {}
-            vols, mounts = _snapshot_volumes(snap)
-            manifest = build_vllm_bench_job(
+            manifest = build_performance_job(
                 run,
                 image=run.bench_image or settings.vllm_bench_image,
                 target_base_url=target,
                 api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
-                served_model=snap.get("model_path"),
+                served_model=model,
                 tokenizer=params.get("tokenizer") or snap.get("model_path"),
                 volumes=vols,
                 volume_mounts=mounts,
@@ -141,10 +142,10 @@ async def _drive_provisioning(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
         else:
             manifest = build_job_manifest(
                 run,
-                image=run.bench_image or DEFAULT_BENCH_IMAGE,
+                image=run.bench_image or settings.benchmark_accuracy_image,
                 target_base_url=target,
                 api_key=snap.get("api_key_override") or serving_api_key(snap.get("vllm_extra_args"), snap.get("env")),
-                bench_model=snap.get("model_path"),
+                bench_model=model, tokenizer=snap.get("model_path"), volumes=vols, volume_mounts=mounts,
             )
         await k8s.create_job(run.k8s_namespace, manifest)
         run.status = "pending"
@@ -185,8 +186,17 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
         parsed = _parse_result(await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name))
         run.status = "succeeded"
         run.result = parsed
-        if parsed is None:
-            run.error_message = "Runner finished without emitting RESULT marker"
+        if (run.params or {}).get("experiment") == "prefix_cache" and (
+            not parsed or parsed.get("error") or not all(
+                (parsed.get("phases") or {}).get(name, {}).get("completed") == run.params.get("num_prompts")
+                for name in ("individual", "shared")
+            )
+        ):
+            run.status = "failed"
+            run.error_message = (parsed or {}).get("error") or "Incomplete prefix cache comparison"
+        if not parsed or parsed.get("error"):
+            run.status = "failed"
+            run.error_message = (parsed or {}).get("error") or "Runner finished without emitting RESULT marker"
         run.finished_at = _now()
         transitions += 1
     elif failed > 0:
@@ -196,7 +206,7 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
         cond = _failure_message(observed["conditions"]) or "Job failed"
         if parsed is not None:
             run.result = parsed
-            run.error_message = cond
+            run.error_message = parsed.get("error") or cond
         else:
             # Append the runner's real failure from the pod logs (e.g.
             # "vllm: not found") so the UI shows the cause, not just "backoff limit".
