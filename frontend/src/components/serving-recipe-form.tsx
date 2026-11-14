@@ -19,6 +19,7 @@ import { PdRolePanel } from "@/components/pd-role-panel";
 import { PdRouterPanel } from "@/components/pd-router-panel";
 import { RecipeYamlPanel, RecipeYamlPreview } from "@/components/recipe-yaml-preview";
 import { FormCard, FormSection } from "@/components/form-section";
+import { RecipeRepositoryIcon } from "@/components/recipe-repository-icon";
 import { splitEngineArgs } from "@/lib/recipe-drafts";
 import { DEFAULT_PD_FRAMEWORK, defaultPdExtras, defaultSidecar, retargetPdExtras, PD_FRAMEWORKS, PD_ROLES, POOL_KEYS, effectiveRole, poolOf, type PdRole } from "@/lib/pd-serving";
 
@@ -102,10 +103,11 @@ export function RecipePageHeader({ title, description }: { title: string; descri
  * create so the backend can point that deployment at the new recipe.
  */
 export function ServingRecipeForm({
-  recipe, initial, sourceDeploymentId, children,
+  recipe, initial, initialRepo, sourceDeploymentId, children,
 }: {
   recipe?: ServingRecipe;
   initial?: ServingRecipeInput;
+  initialRepo?: string | null;
   sourceDeploymentId?: string | null;
   /** Rendered above the form: import notice, parser warnings. */
   children?: React.ReactNode;
@@ -120,7 +122,7 @@ export function ServingRecipeForm({
   const { data: routerDefaults } = useRouterDefaults();
 
   // Drafts from the reverse parser predate some fields; BLANK fills the gaps.
-  const seed: ServingRecipeInput = withListedArgs(withFullRoles({ ...BLANK, ...(recipe ? toInput(recipe) : initial ?? {}) }));
+  const seed: ServingRecipeInput = withListedArgs(withFullRoles({ ...BLANK, hf_repo_id: initialRepo ?? null, ...(recipe ? toInput(recipe) : initial ?? {}) }));
   const [form, setForm] = useState<ServingRecipeInput>(seed);
   const [kvExtraText, setKvExtraText] = useState(() => {
     const extra = seed.pd_config?.kv_transfer_extra;
@@ -137,6 +139,8 @@ export function ServingRecipeForm({
   const isPd = form.serving_mode === "pd";
   const aggregatedDefaults = useRouterDefaults("aggregated", !isPd && form.aggregated_router != null);
   const pd: PdConfig = form.pd_config ?? {};
+  const repositoryId = form.hf_repo_id || (isPd ? pd.prefill?.model_path : form.model_path) || "";
+  const repositoryOwner = /^([A-Za-z0-9_][A-Za-z0-9._-]*)\/[A-Za-z0-9_][A-Za-z0-9._-]*$/.exec(repositoryId)?.[1];
   const gpuTypeList = gpuTypes ?? [];
 
   function setAggregatedRouter(config: ServingRecipeInput["aggregated_router"]) {
@@ -232,7 +236,7 @@ export function ServingRecipeForm({
       onSuccess: (saved: ServingRecipe) => {
         toast.success(recipe ? t("saveSuccess") : t("createSuccess"));
         for (const code of saved.warnings ?? []) toast.warning(ts(`warn_${code}`));
-        router.push(RECIPES_HREF);
+        router.push(saved.hf_repo_id ? `${RECIPES_HREF}?repo=${encodeURIComponent(saved.hf_repo_id)}` : RECIPES_HREF + "?repo=");
       },
       onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("saveError")),
     };
@@ -246,6 +250,14 @@ export function ServingRecipeForm({
 
   const recipeSection = (
     <FormSection title={t("sectionRecipe")}>
+      <Field id="recipe-hf-repo" label={t("hfRepo")} hint={t("hfRepoHint")}>
+        <div className="flex items-center gap-2">
+          {repositoryOwner && <RecipeRepositoryIcon owner={repositoryOwner} />}
+          <Input id="recipe-hf-repo" className="font-mono" value={form.hf_repo_id ?? ""}
+            placeholder="Qwen/Qwen3.5-32B" maxLength={256}
+            onChange={e => setForm(f => ({ ...f, hf_repo_id: e.target.value.trim() || null }))} />
+        </div>
+      </Field>
       <Field id="recipe-mode" label={`${t("servingMode")} · ${t("engine")}`} hint={isPd ? `${t("modePdHint")} ${t("modeEngineLocked")}` : undefined}>
         <div className="flex flex-wrap items-center gap-2">
           <div id="recipe-mode" role="radiogroup" aria-label={t("servingMode")} className="inline-flex rounded-md border p-0.5">

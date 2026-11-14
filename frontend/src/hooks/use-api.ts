@@ -2020,7 +2020,9 @@ export function useCreateDeployment() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["model-deployments"] }),
+    onSuccess: () => Promise.all(["model-deployments", "serving-overview", "team-deployments"].map(key =>
+      qc.invalidateQueries({ queryKey: [key] })
+    )),
   });
 }
 

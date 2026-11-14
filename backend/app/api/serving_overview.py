@@ -20,7 +20,7 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import llmd_stacks
-from app.services.clusters import namespace_scopes, scan_scopes
+from app.services.clusters import NamespaceScope, namespace_scopes, scan_scopes
 from app.services.external_servings import scan_clusters
 from app.services.litellm_registration import litellm_name
 from app.services.llmd_links import external_server, link_stacks, portal_server
@@ -244,10 +244,23 @@ async def serving_topology(
     ns: str = "",
     summary: bool = False,
 ) -> dict:
-    catalog = dict((await db.execute(select(CustomModelCatalog.model_name, CustomModelCatalog.display_name))).all())
-    deps = (await db.execute(select(CustomModelDeployment))).scalars().all()
-    external = (await db.execute(select(CustomExternalServing))).scalars().all()
-    stacks = (await db.execute(select(CustomLlmdStack))).scalars().all()
+    return await load_topology(db, litellm, cluster, ns, summary)
+
+
+async def load_topology(db, litellm, cluster, ns, summary, *, permitted: NamespaceScope | None = None):
+    async def rows(model):
+        query = select(model)
+        if permitted:
+            query = query.where(model.cluster_id == (permitted.cluster.id if permitted.cluster else None),
+                                model.namespace == permitted.namespace)
+        return (await db.execute(query)).scalars().all()
+
+    catalog = {} if permitted else dict(
+        (await db.execute(select(CustomModelCatalog.model_name, CustomModelCatalog.display_name))).all()
+    )
+    deps = await rows(CustomModelDeployment)
+    external = await rows(CustomExternalServing)
+    stacks = await rows(CustomLlmdStack)
     extra = [(r.cluster_id, r.namespace) for r in [*deps, *external, *stacks]]
     owners = [
         {"model_id": d.litellm_model_id, "name": litellm_name(d), "deployment": d.model_name, "ref": str(d.id),
@@ -272,7 +285,7 @@ async def serving_topology(
             errors.append(f"{scope.name} / {scope.namespace}")
 
     try:
-        scopes = await namespace_scopes(db, extra, include_registered=True)
+        scopes = [permitted] if permitted else await namespace_scopes(db, extra, include_registered=True)
     except Exception:
         scopes = []
         errors.append("Kubernetes")
@@ -282,6 +295,9 @@ async def serving_topology(
         litellm.get_model_info(), asyncio.gather(*(scan(scope) for scope in selected)), return_exceptions=True
     )
     available = not isinstance(live, BaseException)
+    if available and permitted:
+        owned_ids = {r["model_id"] for r in owners if r["model_id"]}
+        live = [r for r in live if (r.get("model_info") or {}).get("id") in owned_ids]
     graph = build_topology(live if available else [], catalog, owners, stacks, snapshots, litellm_available=available)
     return {
         **graph, "litellm_available": available, "unavailable_scopes": sorted(errors),
@@ -305,6 +321,11 @@ async def topology_workloads(
     scope = next((s for s in scopes if (s.cluster_id or "default") == cluster and s.namespace == ns), None)
     if not scope:
         raise HTTPException(404, "Unknown topology scope")
+    return await load_topology_workloads(db, scope, kind, name)
+
+
+async def load_topology_workloads(db, scope: NamespaceScope, kind, name):
+    ns = scope.namespace
     try:
         routes = await route_snapshots.read(scope)
         if kind == "ingress":

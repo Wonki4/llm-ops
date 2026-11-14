@@ -16,8 +16,10 @@ import type { ModelDeployment } from "@/types";
 import { ServingScopeFilter, useClusterName, useServingScope } from "@/components/serving-scope-filter";
 import { clusterKey, inScope } from "@/lib/serving-scope";
 import { ExternalServingRegisterDialog } from "@/components/external-serving-register-dialog";
+import { AdminDeployFromRecipeButton } from "@/components/deploy-from-recipe-dialog";
 import { Badge } from "@/components/ui/badge";
 import { ServingDeployTabs } from "@/components/serving-deploy-tabs";
+import { ServingRoleView, TeamServingHome } from "@/components/team-serving";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -77,7 +79,7 @@ export default function DeploymentsPage() {
   // useSearchParams (the scope filter) needs a Suspense boundary for static prerendering.
   return (
     <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
-      <DeploymentsList />
+      <ServingRoleView member={<TeamServingHome />}><DeploymentsList /></ServingRoleView>
     </Suspense>
   );
 }
@@ -114,9 +116,12 @@ function DeploymentsList() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="size-5" />{t("pageTitle")}</h1>
-        <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2"><Server className="size-5" />{t("pageTitle")}</h1>
+          <p className="text-muted-foreground mt-1">{t("pageDescription")}</p>
+        </div>
+        <AdminDeployFromRecipeButton scope={scope} />
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">

@@ -8,6 +8,8 @@ import { useTranslations } from "next-intl";
 import { useK8sClusterSettings, useServingOverview } from "@/hooks/use-api";
 import type { ServingOverviewRow } from "@/types";
 import { ModelStatusBadge } from "@/components/model-status-badge";
+import { AdminDeployFromRecipeButton } from "@/components/deploy-from-recipe-dialog";
+import { ServingRoleView, TeamServingHome } from "@/components/team-serving";
 import { ServingScopeFilter, useServingScope } from "@/components/serving-scope-filter";
 import { inScope, isScoped, scopeQuery } from "@/lib/serving-scope";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +48,7 @@ export default function ServingHomePage() {
   // useSearchParams (the scope filter) needs a Suspense boundary for static prerendering.
   return (
     <Suspense fallback={<div className="h-64 animate-pulse rounded-lg bg-muted" />}>
-      <ServingHome />
+      <ServingRoleView member={<TeamServingHome />}><ServingHome /></ServingRoleView>
     </Suspense>
   );
 }
@@ -92,9 +94,12 @@ function ServingHome() {
         <h1 className="text-2xl font-bold flex items-center gap-2"><Workflow className="size-5" />{t("title")}</h1>
         <p className="text-muted-foreground mt-1">{t("subtitle")}</p>
         </div>
-        <Link href={`/admin/serving/topology${scopeQuery(scope, true)}`} className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
-          <Network className="size-4" />{t("graph.title")}
-        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href={`/admin/serving/topology${scopeQuery(scope, true)}`} className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
+            <Network className="size-4" />{t("graph.title")}
+          </Link>
+          <AdminDeployFromRecipeButton scope={scope} />
+        </div>
       </div>
 
       <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} settings={settings.data} />

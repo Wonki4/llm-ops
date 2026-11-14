@@ -1,5 +1,6 @@
 """Serving recipe CRUD (Super User only). Reusable vLLM/SGLang serving templates."""
 
+import re
 import uuid
 
 import yaml
@@ -32,10 +33,18 @@ from app.services.storage_store import UnknownStorageError, check_known, resolve
 
 router = APIRouter(prefix="/api/admin/serving-recipes", tags=["serving-recipes"])
 
+_REPO_SEGMENT = r"[A-Za-z0-9_][A-Za-z0-9._-]*"
+_REPO_ID = re.compile(rf"{_REPO_SEGMENT}/{_REPO_SEGMENT}")
+
+
+def repo_id_from_path(path: str) -> str | None:
+    return path if len(path) <= 256 and _REPO_ID.fullmatch(path) else None
+
 
 class RecipeBody(BaseModel):
     name: str
     description: str | None = None
+    hf_repo_id: str | None = Field(None, max_length=256, description="Model repository in owner/model format")
     model_path: str
     image: str
     gpu_count: int = Field(1, ge=0)
@@ -57,6 +66,14 @@ class RecipeBody(BaseModel):
     aggregated_router: RouterOption = None
     pd_config: dict | None = None  # per-role overrides etc. (pd only; see pd_serving)
     runtime: dict | None = None  # shm / hostIPC / privileged / extra resources
+
+    @field_validator("hf_repo_id")
+    @classmethod
+    def _check_repo_id(cls, value: str | None) -> str | None:
+        value = (value or "").strip()
+        if value and not repo_id_from_path(value):
+            raise ValueError("Use a Hugging Face repository ID in owner/model format")
+        return value or None
 
     @model_validator(mode="before")
     @classmethod
@@ -139,6 +156,7 @@ def _serialize(r: CustomServingRecipe) -> dict:
         "id": str(r.id),
         "name": r.name,
         "description": r.description,
+        "hf_repo_id": getattr(r, "hf_repo_id", None),
         "model_path": r.model_path,
         "image": r.image,
         "gpu_count": r.gpu_count,
@@ -206,6 +224,7 @@ async def create_recipe(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
     await _check_known_storages(db, body)
     fields = body.model_dump(exclude={"source_deployment_id"})
+    fields["hf_repo_id"] = body.hf_repo_id or repo_id_from_path(body.model_path)
     recipe = CustomServingRecipe(id=uuid.uuid4(), created_by=user.user_id, updated_by=user.user_id, **fields)
     db.add(recipe)
     await db.flush()
@@ -241,7 +260,7 @@ async def preview_recipe(
         gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
     except UnknownGpuTypeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    fields = body.model_dump(exclude={"name", "description", "cluster_id", "namespace", "model_name", "storages"})
+    fields = body.model_dump(exclude={"name", "description", "hf_repo_id", "cluster_id", "namespace", "model_name", "storages"})
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=(body.model_name or body.name or "preview").strip(),
@@ -359,7 +378,12 @@ async def update_recipe(
     if clash and clash.id != recipe.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
     await _check_known_storages(db, body)
-    for k, v in body.model_dump().items():
+    fields = body.model_dump()
+    if "hf_repo_id" not in body.model_fields_set and getattr(recipe, "hf_repo_id", None):
+        del fields["hf_repo_id"]  # Older clients cannot send this field.
+    else:
+        fields["hf_repo_id"] = body.hf_repo_id or repo_id_from_path(body.model_path)
+    for k, v in fields.items():
         setattr(recipe, k, v)
     recipe.updated_by = user.user_id
     await db.flush()

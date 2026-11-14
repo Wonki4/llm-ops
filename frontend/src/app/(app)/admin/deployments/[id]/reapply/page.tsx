@@ -12,6 +12,7 @@ import type { ManifestDiff } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { RecipeOptions } from "@/components/recipe-options";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ManifestDiffView } from "@/components/manifest-diff-view";
 
@@ -114,7 +115,7 @@ function ReapplyFromRecipe() {
                   onChange={(e) => pickRecipe(e.target.value)}
                 >
                   {!recipeId && <option value="">{t("reapplyPickRecipe")}</option>}
-                  {candidates.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                  <RecipeOptions recipes={candidates} />
                 </select>
               )}
             </div>

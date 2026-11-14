@@ -4,6 +4,7 @@ from app.db.models.custom_gpu_profile import CustomGpuProfile  # noqa: F401
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_catalog import CustomModelCatalog
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
+from app.db.models.custom_serving_grant import CustomServingGrant, CustomServingGrantEvent
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_storage import CustomStorage, CustomStorageBinding
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest
@@ -20,6 +21,8 @@ __all__ = [
     "CustomLlmdStack",
     "CustomExternalServing",
     "CustomServingRecipe",
+    "CustomServingGrant",
+    "CustomServingGrantEvent",
     "CustomStorage",
     "CustomStorageBinding",
 ]

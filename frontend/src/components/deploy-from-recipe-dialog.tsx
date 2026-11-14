@@ -1,21 +1,58 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateDeployment, useDefaultNamespace, useGpuNodes, useGpuProfiles, useK8sClusters } from "@/hooks/use-api";
+import { useCreateDeployment, useDefaultNamespace, useGpuNodes, useGpuProfiles, useK8sClusters, useServingRecipes } from "@/hooks/use-api";
 import type { CreateDeploymentBody, PdConfig, ServingRecipe } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
 import { RegistrationPreview, useRegistrationPreview } from "@/components/litellm-registration-preview";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
 import { isValidNamespace } from "@/lib/k8s-names";
+import { DeployRecipeBrowser, SelectedRecipe } from "@/components/deploy-recipe-browser";
+import { PORTAL_CLUSTER, type ServingScope } from "@/lib/serving-scope";
 import { mapToLines, resolvePlacementPreview, tolerationsToLines } from "@/lib/placement";
+
+export function AdminDeployFromRecipeButton({ scope }: { scope: ServingScope }) {
+  const t = useTranslations("teamServing");
+  const [open, setOpen] = useState(false);
+  const [recipe, setRecipe] = useState<ServingRecipe | null>(null);
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    if (!next) setRecipe(null);
+  }
+  return <Dialog open={open} onOpenChange={changeOpen}>
+    <DialogTrigger asChild><Button>{t("deployFromRecipe")}</Button></DialogTrigger>
+    {open && (recipe
+      ? <RecipeDeploymentContent key={recipe.id} recipe={recipe} initialScope={scope} onSelectRecipe={setRecipe} onClose={() => changeOpen(false)} />
+      : <RecipePicker onSelect={setRecipe} />)}
+  </Dialog>;
+}
+
+function RecipePicker({ initialRepo, onSelect }: { initialRepo?: string; onSelect: (recipe: ServingRecipe) => void }) {
+  const t = useTranslations();
+  const recipes = useServingRecipes();
+  return <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
+    <DialogHeader>
+      <DialogTitle>{t("teamServing.deployFromRecipe")}</DialogTitle>
+      <DialogDescription>{t("servingRecipes.pickForDeploy")}</DialogDescription>
+    </DialogHeader>
+    {recipes.isPending && <p role="status">{t("common.loading")}</p>}
+    {recipes.isError && <p role="alert">{recipes.error.message}</p>}
+    {recipes.data?.length === 0 && <div className="space-y-3">
+      <p>{t("servingRecipes.empty")}</p>
+      <Button asChild variant="outline"><Link href="/admin/recipes/new">{t("servingRecipes.newRecipe")}</Link></Button>
+    </div>}
+    {!!recipes.data?.length && <DeployRecipeBrowser recipes={recipes.data} initialRepo={initialRepo} onSelect={onSelect} />}
+  </DialogContent>;
+}
 
 export function DeployFromRecipeDialog({
   recipe,
@@ -24,47 +61,56 @@ export function DeployFromRecipeDialog({
   recipe: ServingRecipe | null;
   onClose: () => void;
 }) {
+  return <Dialog open={!!recipe} onOpenChange={open => { if (!open) onClose(); }}>
+    {recipe && <RecipeDeploymentContent key={recipe.id} recipe={recipe} onClose={onClose} />}
+  </Dialog>;
+}
+
+function RecipeDeploymentContent({ recipe, initialScope, onSelectRecipe, onClose }: {
+  recipe: ServingRecipe;
+  initialScope?: ServingScope;
+  onSelectRecipe?: (recipe: ServingRecipe) => void;
+  onClose: () => void;
+}) {
   const t = useTranslations("servingRecipes");
   const tr = useTranslations("adminDeployments");
   const tc = useTranslations("common");
   const ts = useTranslations("storages");
+  const deployLabel = useTranslations("teamServing");
   const createDep = useCreateDeployment();
+  const [choosingRecipe, setChoosingRecipe] = useState(false);
   const { data: clusters } = useK8sClusters();
 
-  const isPd = recipe?.serving_mode === "pd";
+  const isPd = recipe.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
   const [apiBase, setApiBase] = useState("");
   const [litellmName, setLitellmName] = useState("");
-  const [namespace, setNamespace] = useState("");
-  const [clusterId, setClusterId] = useState<string>("");
+  const [namespace, setNamespace] = useState(initialScope?.ns ?? "");
+  const [clusterId, setClusterId] = useState(initialScope?.cluster === PORTAL_CLUSTER ? "" : initialScope?.cluster ?? "");
   const [ingressHost, setIngressHost] = useState("");
   const [ingressPath, setIngressPath] = useState("/");
   const [ingressClass, setIngressClass] = useState("nginx");
   const [replicas, setReplicas] = useState(1);
   // P/D: one replica count per pool, seeded from the recipe's role overrides.
-  const [prefillReplicas, setPrefillReplicas] = useState(recipe?.pd_config?.prefill?.replicas ?? 1);
-  const [decodeReplicas, setDecodeReplicas] = useState(recipe?.pd_config?.decode?.replicas ?? 1);
+  const [prefillReplicas, setPrefillReplicas] = useState(recipe.pd_config?.prefill?.replicas ?? 1);
+  const [decodeReplicas, setDecodeReplicas] = useState(recipe.pd_config?.decode?.replicas ?? 1);
   const [storageBlocked, setStorageBlocked] = useState(false);
   const [gpuTypeChoice, setGpuTypeChoice] = useState<string | null>(null); // null = follow the recipe
-  const gpuType = gpuTypeChoice ?? recipe?.gpu_type ?? "";
+  const gpuType = gpuTypeChoice ?? recipe.gpu_type ?? "";
   const setGpuType = (v: string) => setGpuTypeChoice(v);
 
-  // Instance fields reset each time a new recipe opens the dialog: the
-  // caller remounts this component with `key={recipe.id}`.
-
-  const open = !!recipe;
   const clusterKey = clusterId || null;
   // Blank = the cluster's default namespace; the backend resolves it the same way.
   const defaultNs = useDefaultNamespace(clusterId);
   const nsTyped = namespace.trim();
   const nsInvalid = !!nsTyped && !isValidNamespace(nsTyped);
   const effectiveNs = nsTyped || defaultNs;
-  const { data: profilesData } = useGpuProfiles(clusterKey, open);
-  const nodes = useGpuNodes(clusterKey, open);
+  const { data: profilesData } = useGpuProfiles(clusterKey);
+  const nodes = useGpuNodes(clusterKey);
   const profiles = useMemo(() => (profilesData?.profiles ?? []).filter((p) => p.enabled), [profilesData]);
   const needsGpu = isPd
-    ? Math.max(recipe?.gpu_count ?? 0, recipe?.pd_config?.prefill?.gpu_count ?? 0, recipe?.pd_config?.decode?.gpu_count ?? 0) > 0
-    : (recipe?.gpu_count ?? 0) > 0;
+    ? Math.max(recipe.gpu_count ?? 0, recipe.pd_config?.prefill?.gpu_count ?? 0, recipe.pd_config?.decode?.gpu_count ?? 0) > 0
+    : (recipe.gpu_count ?? 0) > 0;
   const hasProfiles = profiles.length > 0;
   const selected = profiles.find((p) => p.name === gpuType) ?? null;
   const gpuTypeMissing = needsGpu && hasProfiles && !selected;
@@ -83,7 +129,6 @@ export function DeployFromRecipeDialog({
   }, [nodes.data, profiles]);
 
   const preview = useMemo(() => {
-    if (!recipe) return null;
     return resolvePlacementPreview(selected, {
       node_selector: recipe.node_selector, tolerations: recipe.tolerations, gpu_resource_key: recipe.gpu_resource_key,
     });
@@ -91,12 +136,12 @@ export function DeployFromRecipeDialog({
 
   const pdConfig: PdConfig | null = isPd
     ? {
-        ...(recipe?.pd_config ?? {}),
-        prefill: { ...(recipe?.pd_config?.prefill ?? {}), replicas: prefillReplicas },
-        decode: { ...(recipe?.pd_config?.decode ?? {}), replicas: decodeReplicas },
+        ...(recipe.pd_config ?? {}),
+        prefill: { ...(recipe.pd_config?.prefill ?? {}), replicas: prefillReplicas },
+        decode: { ...(recipe.pd_config?.decode ?? {}), replicas: decodeReplicas },
       }
     : null;
-  const body: CreateDeploymentBody | null = recipe ? {
+  const body: CreateDeploymentBody = {
     model_name: modelName.trim(),
     litellm_api_base: apiBase.trim() || null,
     litellm_model_name: litellmName.trim() || null,
@@ -123,19 +168,19 @@ export function DeployFromRecipeDialog({
     gpu_type: hasProfiles ? (gpuType || null) : (recipe.gpu_type ?? null),
     ingress_host: ingressHost.trim(),
     ingress_path: isPd ? "/" : ingressPath.trim() || "/",
-    ingress_class: isPd ? (recipe?.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
+    ingress_class: isPd ? (recipe.pd_config?.router?.ingress_class ?? "nginx") : ingressClass.trim() || "nginx",
     serving_mode: recipe.serving_mode ?? "aggregated",
     pd_config: pdConfig,
     aggregated_router: recipe.aggregated_router ?? null,
     runtime: recipe.runtime ?? null,
-  } : null;
+  };
   const registration = useRegistrationPreview(
     isPd ? "/api/model-deployments/registration-preview" : "/api/model-deployments/registration-preview?include_ingress=true",
-    body?.model_name && body.ingress_host && !nsInvalid ? body : null,
+    body.model_name && body.ingress_host && !nsInvalid ? body : null,
   );
 
   function submit() {
-    if (!body || !registration.data) return;
+    if (!registration.data) return;
     if (!modelName.trim() || !ingressHost.trim()) {
       toast.error(t("deployRequired"));
       return;
@@ -164,14 +209,20 @@ export function DeployFromRecipeDialog({
     });
   }
 
+  if (choosingRecipe && onSelectRecipe) {
+    return <RecipePicker initialRepo={recipe.hf_repo_id ?? ""} onSelect={next => {
+      onSelectRecipe(next);
+      setChoosingRecipe(false);
+    }} />;
+  }
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{recipe ? t("deployTitle", { name: recipe.name }) : ""}</DialogTitle>
-          <DialogDescription>{recipe?.model_path}</DialogDescription>
+          <DialogTitle>{onSelectRecipe ? deployLabel("deployFromRecipe") : t("deployTitle", { name: recipe.name })}</DialogTitle>
+          <DialogDescription>{recipe.model_path}</DialogDescription>
         </DialogHeader>
-        {!isPd && <p className="text-sm text-muted-foreground">{recipe?.aggregated_router != null ? t("aggregatedRouterRoute") : t("aggregatedDirectRoute")}</p>}
+        {onSelectRecipe && <SelectedRecipe recipe={recipe} onChange={() => setChoosingRecipe(true)} disabled={createDep.isPending} />}
+        {!isPd && <p className="text-sm text-muted-foreground">{recipe.aggregated_router != null ? t("aggregatedRouterRoute") : t("aggregatedDirectRoute")}</p>}
         {isPd && <p className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground" data-testid="deploy-pd-note">{t("deployPdNote")}</p>}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label={t("deployModelName")} span2><Input value={modelName} onChange={(e) => setModelName(e.target.value)} /></Field>
@@ -251,18 +302,16 @@ export function DeployFromRecipeDialog({
               <div className="grid grid-cols-1 gap-1 font-mono sm:grid-cols-3">
                 <div><span className="text-muted-foreground">nodeSelector</span><br />{mapToLines(preview.node_selector) || "—"}</div>
                 <div><span className="text-muted-foreground">tolerations</span><br />{tolerationsToLines(preview.tolerations) || "—"}</div>
-                <div><span className="text-muted-foreground">resource</span><br />{recipe?.gpu_count} × {preview.gpu_resource_key}</div>
+                <div><span className="text-muted-foreground">resource</span><br />{recipe.gpu_count} × {preview.gpu_resource_key}</div>
               </div>
             </div>
           )}
-          {recipe && (
-            <StorageResolutionPreview
-              storageIds={recipeStorageIds(recipe)}
-              clusterId={clusterId || null}
-              namespace={effectiveNs}
-              onBlockedChange={setStorageBlocked}
-            />
-          )}
+          <StorageResolutionPreview
+            storageIds={recipeStorageIds(recipe)}
+            clusterId={clusterId || null}
+            namespace={effectiveNs}
+            onBlockedChange={setStorageBlocked}
+          />
         </div>
         <div className="space-y-2">
           <Label htmlFor="deploy-api-base">{tr("overrideApiBase")}</Label>
@@ -275,7 +324,6 @@ export function DeployFromRecipeDialog({
           <Button onClick={submit} disabled={createDep.isPending || gpuTypeMissing || storageBlocked || nsInvalid || !registration.data}>{t("deploySubmit")}</Button>
         </DialogFooter>
       </DialogContent>
-    </Dialog>
   );
 }
 

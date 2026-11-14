@@ -2,6 +2,7 @@
 
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
@@ -15,6 +16,7 @@ import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
 import { buildAccessGroupIndex, expandTeamModels, type AccessGroupIndex } from "@/lib/access-groups";
 import { TeamBoostHistory } from "@/components/team-boost-history";
+import { TeamServingInventory } from "@/components/team-serving";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1789,7 +1791,13 @@ export default function TeamDetailPage({
   const tc = useTranslations("common");
   const localeTag = useLocaleTag();
   const { teamId } = use(params);
-  const [activeTab, setActiveTab] = useState("overview");
+  const requestedTab = useSearchParams().get("tab") ?? "overview";
+  function setActiveTab(tab: string) {
+    const url = new URL(window.location.href);
+    if (tab === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", tab);
+    window.history.replaceState(null, "", url);
+  }
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [detailModel, setDetailModel] = useState<ModelWithCatalog | null>(null);
@@ -1847,6 +1855,8 @@ export default function TeamDetailPage({
   if (!data) return null;
 
   const { team, my_keys, is_admin, my_membership } = data;
+  const allowedTabs = ["overview", "keys", "models", "deployments", "usage", ...(is_admin ? ["members", "settings"] : [])];
+  const activeTab = allowedTabs.includes(requestedTab) ? requestedTab : "overview";
   // Rows for the team's models tab, matching the model dashboard table.
   // all-proxy / no explicit models = access to every model (LiteLLM default).
   const teamHasAllModels =
@@ -1886,10 +1896,11 @@ export default function TeamDetailPage({
       <Separator />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
+        <TabsList className="h-auto max-w-full flex-wrap">
           <TabsTrigger value="overview">{t("tabOverview")}</TabsTrigger>
           <TabsTrigger value="keys">{t("tabMyKeys")}</TabsTrigger>
           <TabsTrigger value="models">{t("tabModels")}</TabsTrigger>
+          <TabsTrigger value="deployments">{t("tabDeployments")}</TabsTrigger>
           {is_admin && <TabsTrigger value="members">{t("tabMembers")}</TabsTrigger>}
           <TabsTrigger value="usage">{t("tabUsage")}</TabsTrigger>
           {is_admin && <TabsTrigger value="settings">{t("tabSettings")}</TabsTrigger>}
@@ -2032,6 +2043,10 @@ export default function TeamDetailPage({
               <ModelTable rows={teamModelRows} showCopyName />
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="deployments" className="mt-6">
+          <TeamServingInventory teamId={teamId} />
         </TabsContent>
 
         {is_admin && (

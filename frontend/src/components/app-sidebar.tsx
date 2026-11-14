@@ -28,6 +28,7 @@ import {
   Workflow,
 } from "lucide-react";
 import { useMe } from "@/hooks/use-api";
+import { useTeamScopes } from "@/hooks/use-serving-access";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { UserRole } from "@/types";
@@ -72,6 +73,7 @@ const navigation: NavItem[] = [
 export function AppSidebar() {
   const pathname = usePathname();
   const { data: me } = useMe();
+  const scopes = useTeamScopes();
   const t = useTranslations("sidebar");
 
   const userRole: UserRole = me?.role ?? "user";
@@ -86,7 +88,8 @@ export function AppSidebar() {
       </div>
       <nav className="flex-1 overflow-y-auto p-3">
         {(() => {
-          const visible = navigation.filter((item) => item.roles.includes(userRole));
+          const visible = navigation.filter((item) => item.roles.includes(userRole) ||
+            (item.key === "servingHome" && !scopes.isError && !!scopes.data?.length));
           const regular = visible.filter((item) => item.roles.includes("user"));
           const serving = visible.filter((item) => item.section === "serving");
           const admin = visible.filter((item) => !item.roles.includes("user") && item.section !== "serving");
