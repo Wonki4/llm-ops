@@ -5,7 +5,7 @@
 #   - Serving deployments  -> Deployment / Service / Ingress  (get/create/patch/delete)
 #   - Reconciler           -> deployments/status, services    (get)
 #   - Benchmarks           -> Job (create/get/delete), jobs/status (get),
-#                             Pod (list), pods/log (get)
+#                             Pod (list), pods/log (get), Secret (create)
 #   - Cluster probe        -> GET /version
 #   - llm-d stacks         -> applications.argoproj.io  (get/create/patch/delete)
 #
@@ -47,6 +47,10 @@ rules:
   - apiGroups: ["networking.k8s.io"]
     resources: ["ingresses"]
     verbs: ["get", "list", "create", "update", "patch", "delete"]
+  # Benchmark credentials are owned by the Job or cloned Deployment (garbage collected).
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
   # --- Benchmarks: Jobs + reading their pods/logs ---
   - apiGroups: ["batch"]
     resources: ["jobs"]

@@ -17,30 +17,34 @@ def _run(**kw):
 
 def _env(manifest: dict) -> dict:
     container = manifest["spec"]["template"]["spec"]["containers"][0]
-    return {e["name"]: e["value"] for e in container.get("env", [])}
+    return {e["name"]: e.get("value", e.get("valueFrom")) for e in container.get("env", [])}
 
 
-def test_vllm_bench_job_passes_api_key_as_openai_key():
+def test_vllm_bench_job_passes_api_key_as_openai_key(bench_credentials):
     # An explicit key (e.g. the user's benchmark api_key override) must reach the
     # runner as OPENAI_API_KEY so auth-gated targets accept the request.
     m = build_performance_job(
-        _run(), image="img", target_base_url="http://t", api_key="sk-override", served_model="m",
+        _run(), image="img", target_base_url="http://t", credentials=bench_credentials, api_key="sk-override", served_model="m",
     )
-    assert _env(m)["OPENAI_API_KEY"] == "sk-override"
+    assert _env(m)["OPENAI_API_KEY"]["secretKeyRef"] == {"name": bench_credentials.name, "key": "runner-key"}
+    assert bench_credentials.manifest()["stringData"]["runner-key"] == "sk-override"
+    assert "sk-override" not in json.dumps(m)
 
 
-def test_accuracy_job_passes_api_key_as_bench_key():
+def test_accuracy_job_passes_api_key_as_bench_key(bench_credentials):
     m = build_job_manifest(
         _run(tool="lm_eval", kind="accuracy"),
-        image="img", target_base_url="http://t", api_key="sk-acc", bench_model="m",
+        image="img", target_base_url="http://t", credentials=bench_credentials, api_key="sk-acc", bench_model="m",
     )
-    assert _env(m)["BENCH_API_KEY"] == "sk-acc"
+    assert _env(m)["BENCH_API_KEY"]["secretKeyRef"] == {"name": bench_credentials.name, "key": "runner-key"}
+    assert bench_credentials.manifest()["stringData"]["runner-key"] == "sk-acc"
+    assert "sk-acc" not in json.dumps(m)
 
 
-def test_job_uses_structured_workload_and_separate_model_alias():
+def test_job_uses_structured_workload_and_separate_model_alias(bench_credentials):
     m = build_performance_job(_run(params={"random_input_len": 256, "seed": 42, "preset": "chat"}),
                               image="engine", target_base_url="http://proxy/prefix/v1",
-                              api_key="secret", served_model="my alias", tokenizer="/models/tokenizer")
+                              credentials=bench_credentials, api_key="secret", served_model="my alias", tokenizer="/models/tokenizer")
     env = _env(m)
     workload = json.loads(env["BENCH_WORKLOAD"])
     assert (env["BENCH_URL"], env["BENCH_MODEL"], env["BENCH_TOKENIZER"]) == (
@@ -53,6 +57,6 @@ def test_job_uses_structured_workload_and_separate_model_alias():
 
 @pytest.mark.parametrize("params", [{"extra_args": "--backend openai"}, {"burstiness": .5},
                                     {"goodput": "slo:5"}, {"max_concurrency": 0}, {"request_rate": -1}])
-def test_runner_rejects_unsupported_or_invalid_options(params):
+def test_runner_rejects_unsupported_or_invalid_options(params, bench_credentials):
     with pytest.raises(ValueError):
-        build_performance_job(_run(params=params), image="i", target_base_url="http://t", api_key="", served_model="m")
+        build_performance_job(_run(params=params), image="i", target_base_url="http://t", credentials=bench_credentials, api_key="", served_model="m")

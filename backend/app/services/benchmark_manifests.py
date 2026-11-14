@@ -7,10 +7,10 @@ and writes a `<<<RESULT>>>{...}` line to stdout that the reconciler harvests.
 from __future__ import annotations
 
 import json
-import shlex
 import uuid
 from pathlib import Path
 
+from app.services.benchmark_credentials import BenchmarkCredentials
 from app.services.benchmark_workload import performance_workload
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 
@@ -36,12 +36,12 @@ def _runner_source():
     return Path(__file__).with_name("portal_bench_runner.py").read_text()
 
 
-def _runner_env(run, base, model, tokenizer, api_key):
+def _runner_env(run, base, model, tokenizer, api_key, credentials, key_env="OPENAI_API_KEY"):
     params = run.params or {}
     workload = params if params.get("experiment") == "prefix_cache" else performance_workload(params)
     values = {"BENCH_URL": base, "BENCH_MODEL": model, "BENCH_TOKENIZER": tokenizer or model,
-              "BENCH_WORKLOAD": json.dumps(workload), "OPENAI_API_KEY": api_key, "BENCH_RUN_ID": str(run.id)}
-    return [{"name": k, "value": v} for k, v in values.items()]
+              "BENCH_WORKLOAD": json.dumps(workload), "BENCH_RUN_ID": str(run.id)}
+    return [{"name": k, "value": v} for k, v in values.items()] + [credentials.runner_env(key_env, api_key)]
 
 
 def build_performance_job(
@@ -49,7 +49,8 @@ def build_performance_job(
     *,
     image: str,
     target_base_url: str,
-    api_key: str,
+    api_key: str | dict | None,
+    credentials: BenchmarkCredentials,
     served_model: str,
     tokenizer: str | None = None,
     volumes: list | None = None,
@@ -71,7 +72,7 @@ def build_performance_job(
         "metadata": {
             "name": name,
             "namespace": run.k8s_namespace,
-            "labels": {"app": "llmops-benchmark", "bench-tool": run.tool, "bench-kind": run.kind},
+            "labels": {"app": "llmops-benchmark", "bench-tool": run.tool, "bench-kind": run.kind, "bench-run": str(run.id)},
         },
         "spec": {
             "backoffLimit": backoff_limit,
@@ -86,7 +87,7 @@ def build_performance_job(
                             "image": image,
                             "imagePullPolicy": "IfNotPresent",
                             "command": ["python", "-c", _runner_source()],
-                            "env": _runner_env(run, target_base_url, served_model, tokenizer, api_key),
+                            "env": _runner_env(run, target_base_url, served_model, tokenizer, api_key, credentials),
                             "volumeMounts": volume_mounts,
                         }
                     ],
@@ -107,7 +108,8 @@ def build_self_serving_bench_job(
     serving_deployment: dict,
     serve_argv: list[str],
     port: int,
-    api_key: str,
+    api_key: str | dict | None,
+    credentials: BenchmarkCredentials,
     served_model: str,
     tokenizer: str | None = None,
     backoff_limit: int = 0,
@@ -127,7 +129,12 @@ def build_self_serving_bench_job(
     src_c = src_pod["containers"][0]
 
     base_url = f"http://localhost:{port}"
-    serve_cmd = " ".join(shlex.quote(a) for a in serve_argv)
+    runner_env = _runner_env(run, base_url, served_model, tokenizer, api_key, credentials, "BENCH_RUNNER_API_KEY")
+    # Keep server credentials independent of the caller's runner key.
+    reserved = {item["name"] for item in runner_env}
+    server_env = credentials.protect_env([e for e in src_c.get("env", []) if e["name"] not in reserved])
+    env = server_env + runner_env
+    serve_cmd = " ".join(credentials.protect_args(serve_argv, env, shell=True))
     benchmark = f"python - <<'PORTAL_RUNNER'\n{_runner_source()}\nPORTAL_RUNNER"
     wait = (
         "python - \"$SRV\" <<'PY'\n"
@@ -155,10 +162,6 @@ def build_self_serving_bench_job(
         f"{benchmark}\n"
     )
 
-    runner_env = _runner_env(run, base_url, served_model, tokenizer, api_key)
-    reserved = {item["name"] for item in runner_env}
-    env = [e for e in src_c.get("env", []) if e["name"] not in reserved] + runner_env
-
     container = {
         "name": "serve-bench",
         "image": src_c["image"],
@@ -171,7 +174,9 @@ def build_self_serving_bench_job(
     if src_c.get("securityContext"):
         container["securityContext"] = src_c["securityContext"]
     pod_spec: dict = {"restartPolicy": "Never", "containers": [container]}
-    for key in ("hostIPC", "initContainers", "imagePullSecrets"):
+    if src_pod.get("initContainers"):
+        pod_spec["initContainers"] = [credentials.protect_container(c) for c in src_pod["initContainers"]]
+    for key in ("hostIPC", "imagePullSecrets"):
         if src_pod.get(key):
             pod_spec[key] = src_pod[key]
     if src_pod.get("volumes"):
@@ -187,7 +192,7 @@ def build_self_serving_bench_job(
         "metadata": {
             "name": name,
             "namespace": run.k8s_namespace,
-            "labels": {"app": "llmops-benchmark", "bench-tool": run.tool, "bench-kind": run.kind},
+            "labels": {"app": "llmops-benchmark", "bench-tool": run.tool, "bench-kind": run.kind, "bench-run": str(run.id)},
         },
         "spec": {
             "backoffLimit": backoff_limit,
@@ -205,7 +210,8 @@ def build_job_manifest(
     *,
     image: str,
     target_base_url: str,
-    api_key: str,
+    api_key: str | None,
+    credentials: BenchmarkCredentials,
     bench_model: str | None = None,
     tokenizer: str | None = None,
     volumes: list | None = None,
@@ -232,6 +238,7 @@ def build_job_manifest(
             "namespace": run.k8s_namespace,
             "labels": {
                 "app": "llmops-benchmark",
+                "bench-run": str(run.id),
                 "bench-tool": run.tool,
                 "bench-kind": run.kind,
             },
@@ -261,7 +268,7 @@ def build_job_manifest(
                                 {"name": "BENCH_KIND", "value": run.kind},
                                 {"name": "BENCH_MODEL", "value": bench_model or run.model_name},
                                 {"name": "BENCH_TARGET_URL", "value": target_base_url},
-                                {"name": "BENCH_API_KEY", "value": api_key},
+                                credentials.runner_env("BENCH_API_KEY", api_key),
                                 {"name": "BENCH_PARAMS_JSON", "value": json.dumps(run.params)},
                                 {"name": "BENCH_RUN_ID", "value": str(run.id)},
                             ],

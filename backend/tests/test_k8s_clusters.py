@@ -108,12 +108,12 @@ def _perf_run():
     )
 
 
-def test_vllm_bench_job_mounts_nfs_when_set():
+def test_vllm_bench_job_mounts_nfs_when_set(bench_credentials):
     vols, mounts = nfs_override_volumes(
         {"nfs_server": "nfs.local", "nfs_path": "/export/models", "nfs_mount_path": "/models"}
     )
     job = build_performance_job(
-        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        _perf_run(), image="vllm:latest", target_base_url="http://t", credentials=bench_credentials, api_key="k",
         served_model="m", tokenizer="/models/m", volumes=vols, volume_mounts=mounts,
     )
     spec = job["spec"]["template"]["spec"]
@@ -123,19 +123,19 @@ def test_vllm_bench_job_mounts_nfs_when_set():
     assert mount["mountPath"] == "/models" and mount["readOnly"] is True
 
 
-def test_vllm_bench_job_mounts_pvc_for_deployment_target():
+def test_vllm_bench_job_mounts_pvc_for_deployment_target(bench_credentials):
     vols, mounts = legacy_pvc_volumes("weights", "/models")
     job = build_performance_job(
-        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        _perf_run(), image="vllm:latest", target_base_url="http://t", credentials=bench_credentials, api_key="k",
         served_model="m", volumes=vols, volume_mounts=mounts,
     )
     vol = job["spec"]["template"]["spec"]["volumes"][0]
     assert vol["persistentVolumeClaim"]["claimName"] == "weights"
 
 
-def test_vllm_bench_job_no_volume_when_unset():
+def test_vllm_bench_job_no_volume_when_unset(bench_credentials):
     job = build_performance_job(
-        _perf_run(), image="vllm:latest", target_base_url="http://t", api_key="k",
+        _perf_run(), image="vllm:latest", target_base_url="http://t", credentials=bench_credentials, api_key="k",
         served_model="m",
     )
     spec = job["spec"]["template"]["spec"]

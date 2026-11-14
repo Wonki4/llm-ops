@@ -12,6 +12,12 @@ from app.clients.litellm import LiteLLMClient, get_litellm_client
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 from app.main import app
+from app.services.benchmark_credentials import BenchmarkCredentials
+
+
+@pytest.fixture
+def bench_credentials():
+    return BenchmarkCredentials(uuid.uuid4())
 
 
 # ─── Mock Users ───────────────────────────────────────────────

@@ -22,34 +22,34 @@ def _job_volumes(manifest):
     return pod["volumes"], pod["containers"][0]["volumeMounts"]
 
 
-def test_bench_job_takes_prebuilt_volumes():
+def test_bench_job_takes_prebuilt_volumes(bench_credentials):
     vols = [{"name": "model-weights", "nfs": {"server": "s", "path": "/p", "readOnly": True}}]
     mounts = [{"name": "model-weights", "mountPath": "/models", "readOnly": True}]
-    m = build_performance_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m",
+    m = build_performance_job(_run(), image="i", target_base_url="http://t", credentials=bench_credentials, api_key="k", served_model="m",
                              volumes=vols, volume_mounts=mounts)
     assert _job_volumes(m) == (vols, mounts)
-    m = build_performance_job(_run(), image="i", target_base_url="http://t", api_key="k", served_model="m")
+    m = build_performance_job(_run(), image="i", target_base_url="http://t", credentials=bench_credentials, api_key="k", served_model="m")
     pod = m["spec"]["template"]["spec"]
     assert pod.get("volumes", []) == [] and pod["containers"][0].get("volumeMounts", []) == []
 
 
-def test_deployment_target_mounts_its_storages_read_only():
+def test_deployment_target_mounts_its_storages_read_only(bench_credentials):
     from app.api.benchmarks import _build_bench_job
 
     storages = [legacy_entry("models-pvc", "/models")]
     dep = types.SimpleNamespace(model_path="/models/llama", image="vllm:1", storages=storages, vllm_extra_args=["--served-model-name","my-alias"])
-    m = _build_bench_job(_run(), deployment=dep, target_base="http://t", api_key="k", image_override=None)
+    m = _build_bench_job(_run(), deployment=dep, target_base="http://t", credentials=bench_credentials, api_key="k", image_override=None)
     vols, mounts = _job_volumes(m)
     assert vols == [{"name": "model-weights", "persistentVolumeClaim": {"claimName": "models-pvc", "readOnly": True}}]
     assert mounts == [{"name": "model-weights", "mountPath": "/models", "readOnly": True}]
 
 
-def test_raw_target_uses_bench_vols():
+def test_raw_target_uses_bench_vols(bench_credentials):
     from app.api.benchmarks import _build_bench_job
 
     bench = ([{"name": "model-weights", "nfs": {"server": "s", "path": "/p", "readOnly": True}}],
              [{"name": "model-weights", "mountPath": "/m", "readOnly": True}])
-    m = _build_bench_job(_run(model_name="llama"), deployment=None, target_base="http://t", api_key="k",
+    m = _build_bench_job(_run(model_name="llama"), deployment=None, target_base="http://t", credentials=bench_credentials, api_key="k",
                          image_override=None, bench_vols=bench)
     assert _job_volumes(m) == bench
 
