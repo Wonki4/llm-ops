@@ -642,7 +642,7 @@
     "sections": {
       "cacheSettings": "캐시 설정 (suffix별)",
       "timezonePricing": "시간대 요금",
-      "costInfo": "비용 정보",
+      "costInfo": "LiteLLM 기본단가",
       "modelLimits": "모델 제한",
       "features": "기능",
       "catalogInfo": "카탈로그 정보",
@@ -687,15 +687,10 @@
     }
   },
   "modelCostSchedule": {
-    "defaultPricing": "기본 단가",
-    "portalManaged": "시간대 요금이 없을 때는 다음 동기화에서 포털 기본 단가를 적용합니다.",
-    "liteLLMManaged": "기본 단가는 LiteLLM을 따릅니다. 새 금액을 저장하면 포털에서 관리합니다.",
-    "followLiteLLM": "LiteLLM 단가 따르기",
-    "defaultSaved": "기본 단가를 저장했습니다.",
-    "registerForDefaults": "기본 단가를 설정하려면 모델을 카탈로그에 등록하세요.",
-    "configPricing": "LiteLLM 설정 파일에 등록된 배포는 해당 파일에서 과금 단가를 변경하세요.",
-    "unset": "설정 안 됨",
-    "description": "시간대별 토큰 단가. 매칭 룰 없으면 카탈로그 기본 단가로 복귀.",
+    "defaultPricing": "LiteLLM 기본단가",
+    "deployment": "배포 ID",
+    "noLivePrices": "LiteLLM에서 조회된 배포 단가가 없습니다.",
+    "description": "시간대 규칙이 끝나면 LiteLLM의 현재 기본단가로 과금합니다.",
     "addRule": "룰 추가",
     "noRules": "등록된 룰이 없습니다.",
     "rule": {

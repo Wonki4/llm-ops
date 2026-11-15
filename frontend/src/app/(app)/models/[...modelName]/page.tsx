@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelPrice } from "@/lib/model-pricing";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
@@ -7,7 +8,6 @@ import { useTranslations } from "next-intl";
 
 import { useMe, useModelSummary, useModels, type ModelSummary } from "@/hooks/use-api";
 import { AccessGroupBadges } from "@/components/access-group-badges";
-import { DefaultCostForm } from "@/components/model-default-cost-form";
 import { ModelPersonalUsersCard } from "@/components/model-personal-users-card";
 import { Badge } from "@/components/ui/badge";
 import { buildAccessGroupIndex } from "@/lib/access-groups";
@@ -23,13 +23,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 
 function num(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-/** Render a per-token cost as price per 1M tokens. */
-function pricePerM(costPerToken: unknown): string {
-  const c = num(costPerToken);
-  if (c === null) return "—";
-  return `$${(c * 1_000_000).toFixed(2)} / 1M`;
 }
 
 function fmt(v: unknown, digits = 2, suffix = ""): string {
@@ -130,33 +123,35 @@ function AccuracyDetailTab({ acc }: { acc: ModelSummary["accuracy"] }) {
 
 function PricingDetailTab({ summary }: { summary: ModelSummary }) {
   const t = useTranslations("modelCostSchedule");
-  const { data: me } = useMe();
   // days_of_week is 1=Mon..7=Sun (ISO); render localized short labels (월·화 / Mon·Tue).
   const dayNames = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
-  const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
-  const baseIn = summary.catalog?.default_input_cost_per_token ?? get(info, "input_cost_per_token");
-  const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
-  const baseCacheRead =
-    summary.catalog?.default_cache_read_cost_per_token ?? get(info, "cache_read_input_token_cost");
-  const configOnly = get(info, "db_model") === false;
-  const showEditor = me?.role === "super_user";
   return (
     <div className="space-y-4">
-      {showEditor && (
-        <DefaultCostForm key={summary.model_name} modelName={summary.model_name} catalog={summary.catalog}
-          configOnly={configOnly} liveInput={num(get(info, "input_cost_per_token"))}
-          liveOutput={num(get(info, "output_cost_per_token"))} />
-      )}
-      <KVTable
-        rows={showEditor && summary.catalog && !configOnly ? [["기본 Cache Read", pricePerM(baseCacheRead)]] : [
-          ["기본 Input", pricePerM(baseIn)],
-          ["기본 Output", pricePerM(baseOut)],
-          ["기본 Cache Read", pricePerM(baseCacheRead)],
-        ]}
-      />
+      <h3 className="text-sm font-medium">{t("defaultPricing")}</h3>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>{t("deployment")}</TableHead>
+            <TableHead>Input</TableHead><TableHead>Output</TableHead><TableHead>Cache Read</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {summary.deployment_prices.map((price) => (
+            <TableRow key={price.id}>
+              <TableCell className="font-mono text-xs">{price.id}</TableCell>
+              <TableCell>{formatModelPrice(price.input_cost_per_token)}</TableCell>
+              <TableCell>{formatModelPrice(price.output_cost_per_token)}</TableCell>
+              <TableCell>{formatModelPrice(price.cache_read_input_token_cost)}</TableCell>
+            </TableRow>
+          ))}
+          {!summary.deployment_prices.length && (
+            <TableRow><TableCell colSpan={4}>{t("noLivePrices")}</TableCell></TableRow>
+          )}
+        </TableBody>
+      </Table>
       {summary.cost_schedule.length > 0 ? (
         <div className="space-y-1.5">
-          <span className="text-xs font-medium text-muted-foreground">시간대 요금 (UTC)</span>
+          <span className="text-xs font-medium text-muted-foreground">시간대 요금 ({summary.schedule_timezone})</span>
           <Table>
             <TableHeader>
               <TableRow>
@@ -177,9 +172,9 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
                   <TableCell>
                     {[...s.days_of_week].sort((a, b) => a - b).map((d) => dayNames[d - 1] ?? d).join(", ")}
                   </TableCell>
-                  <TableCell className="tabular-nums">{pricePerM(s.input_cost_per_token)}</TableCell>
-                  <TableCell className="tabular-nums">{pricePerM(s.output_cost_per_token)}</TableCell>
-                  <TableCell className="tabular-nums">{pricePerM(s.cache_read_cost_per_token)}</TableCell>
+                  <TableCell className="tabular-nums">{formatModelPrice(s.input_cost_per_token)}</TableCell>
+                  <TableCell className="tabular-nums">{formatModelPrice(s.output_cost_per_token)}</TableCell>
+                  <TableCell className="tabular-nums">{formatModelPrice(s.cache_read_cost_per_token)}</TableCell>
                   <TableCell className="tabular-nums">{s.priority}</TableCell>
                 </TableRow>
               ))}
@@ -249,8 +244,11 @@ export default function ModelDetailPage() {
 
   const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
   const iconProvider = String(get(info, "litellm_provider") ?? provider);
-  const baseIn = summary.catalog?.default_input_cost_per_token ?? get(info, "input_cost_per_token");
-  const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
+  const deploymentPrices = summary.deployment_prices;
+  function priceLabel(field: "input_cost_per_token" | "output_cost_per_token") {
+    const prices = new Set(deploymentPrices.map((deployment) => deployment[field]));
+    return prices.size > 1 ? "배포별 상이" : formatModelPrice([...prices][0]);
+  }
   const ctx = num(get(info, "max_input_tokens")) ?? num(get(info, "max_tokens"));
   const maxOut = num(get(info, "max_output_tokens"));
 
@@ -283,8 +281,8 @@ export default function ModelDetailPage() {
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="모달리티" value={<ModalityValue info={info} />} />
-        <StatCard label="Input price" value={pricePerM(baseIn)} />
-        <StatCard label="Output price" value={pricePerM(baseOut)} />
+        <StatCard label="Input price" value={priceLabel("input_cost_per_token")} />
+        <StatCard label="Output price" value={priceLabel("output_cost_per_token")} />
         <StatCard
           label="Context"
           value={ctx !== null ? `${ctx.toLocaleString()} tok` : "—"}

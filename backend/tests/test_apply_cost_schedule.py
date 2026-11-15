@@ -1,287 +1,187 @@
-"""Regression tests for ownership of scheduled deployment prices."""
+"""Time windows are applied to each deployment's native LiteLLM billing rules."""
 
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
 import pytest
 
-from app.db.models.custom_model_catalog import CustomModelCatalog
-from app.db.models.custom_model_cost_schedule import CustomAppliedCostSchedule, CustomModelCostSchedule
+from app.clients.litellm import LiteLLMClient
+from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.jobs import apply_cost_schedule as job
 
 INPUT = "input_cost_per_token"
 OUTPUT = "output_cost_per_token"
 CACHE = "cache_read_input_token_cost"
+MONDAY = datetime(2026, 11, 16, 15, tzinfo=UTC)  # midnight Tuesday in Seoul
 
 
-class PricingStore:
-    def __init__(self):
-        self.catalog = CustomModelCatalog(
-            model_name="m", default_input_cost_per_token=3, default_output_cost_per_token=4
-        )
-        self.rule = CustomModelCostSchedule(
-            model_name="m",
-            days_of_week=list(range(1, 8)),
-            hour_start_local=0,
-            hour_end_local=24,
-            priority=0,
-            enabled=False,
-            input_cost_per_token=8,
-            output_cost_per_token=9,
-        )
-        self.rules = [self.rule]
-        self.receipts = {}
-        self.versions = {}
-        self.models = {}
-        self.clock = datetime(2026, 1, 1, tzinfo=UTC)
-        self.locked = False
-        self.fail_writes = set()
-        self.proxy = SimpleNamespace(
-            get_model_info=AsyncMock(side_effect=lambda: list(self.models.values())),
-            update_model=AsyncMock(side_effect=self.write),
-        )
-
-    def deploy(self, mid, input_rate, output_rate, *, editable=True):
-        self.models[mid] = {"model_name": "m", "model_info": {"id": mid, "db_model": editable}, "litellm_params": {}}
-        self.direct(mid, {INPUT: input_rate, OUTPUT: output_rate})
-
-    def direct(self, mid, rates):
-        self.clock += timedelta(seconds=1)
-        self.versions[mid] = self.clock
-        self.models[mid]["litellm_params"].update(rates)
-
-    async def write(self, mid, *, litellm_params):
-        if mid in self.fail_writes:
-            raise RuntimeError("proxy rejected update")
-        self.direct(mid, litellm_params)
-        return {"updated_at": self.clock.isoformat()}
-
-    async def revisions(self, ids):
-        return {mid: self.versions[mid] for mid in ids if mid in self.versions}
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *_):
-        pass
-
-    async def scalar(self, stmt):
-        assert "pg_try_advisory_xact_lock" in str(stmt)
-        return not self.locked
-
-    async def scalars(self, stmt):
-        rows = {
-            CustomAppliedCostSchedule: self.receipts.values(),
-            CustomModelCatalog: [self.catalog],
-            CustomModelCostSchedule: self.rules,
-        }[stmt.column_descriptions[0]["entity"]]
-        return SimpleNamespace(all=lambda: list(rows))
-
-    async def merge(self, receipt):
-        self.receipts[receipt.deployment_id] = receipt
-
-    async def delete(self, receipt):
-        del self.receipts[receipt.deployment_id]
-
-    async def execute(self, statement, params):
-        assert "AND NOT default_cost_managed" in str(statement)
-        self.catalog.default_input_cost_per_token = params["i"]
-        self.catalog.default_output_cost_per_token = params["o"]
-        return SimpleNamespace(rowcount=1)
-
-    async def commit(self):
-        pass
-
-
-@pytest.fixture
-def store(monkeypatch):
-    store = PricingStore()
-    monkeypatch.setattr(job, "async_session_factory", lambda: store)
-    monkeypatch.setattr(job, "_current_revisions", store.revisions)
-    monkeypatch.setattr(job, "LiteLLMClient", lambda: store.proxy)
-    return store
-
-
-def _local_rule(days: list[int], start: int, end: int) -> CustomModelCostSchedule:
+def rule(days, start, end, price=8, cache=None):
     return CustomModelCostSchedule(
         model_name="m",
         days_of_week=days,
         hour_start_local=start,
         hour_end_local=end,
-        input_cost_per_token=1e-06,
-        output_cost_per_token=1e-06,
-        priority=0,
+        input_cost_per_token=price,
+        output_cost_per_token=9,
+        cache_read_cost_per_token=cache,
         enabled=True,
+        priority=0,
     )
 
 
-def test_rule_matches_uses_local_weekday_no_utc_shift():
-    """A KST Sat+Sun rule matches Sat/Sun and not Fri — no off-by-one day shift.
-
-    Regression for the bug where picking 토일 stored/showed 금토: rules are now
-    matched against `now` already converted to the schedule timezone, so the
-    weekday is taken verbatim (no UTC round-trip that rolled the day back).
-    """
-    kst = ZoneInfo("Asia/Seoul")
-    rule = _local_rule([6, 7], 0, 24)  # Sat+Sun, all day, in KST
-    sat = datetime(2026, 6, 20, 3, 0, tzinfo=kst)  # Saturday (isoweekday 6)
-    sun = datetime(2026, 6, 21, 23, 0, tzinfo=kst)  # Sunday (7)
-    fri = datetime(2026, 6, 19, 3, 0, tzinfo=kst)  # Friday (5)
-    assert sat.isoweekday() == 6 and sun.isoweekday() == 7 and fri.isoweekday() == 5
-    assert job._rule_matches(rule, sat) is True
-    assert job._rule_matches(rule, sun) is True
-    assert job._rule_matches(rule, fri) is False
+def compile_rules(*rules, now=MONDAY, zone="Asia/Seoul"):
+    return job._native_schedule(rules, list(job._week_slots(now, ZoneInfo(zone))), now)
 
 
-@pytest.mark.asyncio
-async def test_keep_direct_price_equal_to_inactive_rule(store):
-    store.deploy("a", 8, 9)
+def test_overnight_and_overlap_end_at_correct_utc_boundary():
+    high = rule([1], 23, 2, price=0, cache=0)
+    low = rule([1], 22, 6)
+    block, active = compile_rules(high, low)
+    assert active and block[INPUT] == block[CACHE] == 0
+    assert block["windows"] == [{"weekdays": [1], "hours_utc": "14:00-17:00"}]
+    block, active = compile_rules(high, low, now=MONDAY + timedelta(hours=2))
+    assert active and block[CACHE] is None
+    assert block["windows"] == [
+        {"weekdays": [1], "hours_utc": "13:00-14:00"},
+        {"weekdays": [1], "hours_utc": "17:00-21:00"},
+    ]
+    _, active = compile_rules(high, low, now=MONDAY + timedelta(hours=6))
+    assert not active
+
+
+def test_midnight_and_fractional_timezone():
+    block, _ = compile_rules(rule([2], 0, 12), zone="Asia/Kathmandu")
+    assert block["windows"] == [
+        {"weekdays": [1], "hours_utc": "18:15-00:00"},
+        {"weekdays": [2], "hours_utc": "00:00-06:15"},
+    ]
+
+
+def test_dst_fall_back_includes_both_occurrences_of_local_hour():
+    now = datetime(2026, 11, 1, 5, 30, tzinfo=UTC)
+    block, active = compile_rules(rule([7], 1, 2), zone="America/New_York", now=now)
+    assert active and block["windows"] == [{"weekdays": [7], "hours_utc": "05:00-07:00"}]
+
+
+def test_external_schedule_is_preserved_and_restored():
+    external = {"hours_utc": "03:00-05:00", INPUT: 3}
+    block, _ = compile_rules(rule([2], 0, 3))
+    assert job._desired_schedule(external, block, False) == external
+    managed = job._desired_schedule(external, block, True)
+    assert managed[job.PREVIOUS_SCHEDULE] == external
+    assert managed["hours_utc"] == []
+    assert job._desired_schedule(managed, block, True) == managed
+    restored = job._desired_schedule(managed, None, False)
+    assert restored["hours_utc"] == external["hours_utc"] and restored[INPUT] == 3
+    assert restored["windows"] == [] and restored[OUTPUT] is None
+
+
+def deployment(mid, cost):
+    return {"model_name": "m", "model_info": {"id": mid, "db_model": True}, "litellm_params": {INPUT: cost, OUTPUT: 4}}
+
+
+@pytest.fixture
+def worker(monkeypatch):
+    proxy = MagicMock(spec=LiteLLMClient)
+    db = AsyncMock()
+    rules, receipts = [], []
+    db.scalars.side_effect = lambda query: (
+        rules if query.column_descriptions[0]["entity"] is CustomModelCostSchedule else receipts
+    )
+    factory = MagicMock()
+    factory.begin.return_value.__aenter__.return_value = db
+    monkeypatch.setattr(job, "async_session_factory", factory)
+    monkeypatch.setattr(job, "LiteLLMClient", lambda: proxy)
+    return SimpleNamespace(proxy=proxy, db=db, rules=rules, receipts=receipts)
+
+
+async def test_only_patch_windows_per_deployment_even_after_direct_base_edits(monkeypatch, worker):
+    a, b, config = (deployment(mid, cost) for mid, cost in [("a", 3), ("b", 0), ("config", 4)])
+    config["model_info"]["db_model"] = False
+    proxy, db = worker.proxy, worker.db
+    proxy.get_model_info.return_value = [a, b, config]
+
+    async def patch(mid, block, *, legacy_restore):
+        assert legacy_restore is None
+        {"a": a, "b": b}[mid]["model_info"]["off_peak_pricing"] = block
+
+    proxy.set_cost_schedule.side_effect = patch
+    worker.rules.append(rule(range(1, 8), 0, 24))
+    monkeypatch.setattr(job, "_current_revisions", AsyncMock(side_effect=AssertionError("unexpected base-price read")))
+    db.scalar.return_value = False
+    assert (await job.apply_cost_schedule())["deployments_updated"] == 0
+    proxy.get_model_info.assert_not_called()
+    db.scalar.return_value = True
     result = await job.apply_cost_schedule()
-    assert result["refreshed_defaults"] == 1
-    assert store.catalog.default_input_cost_per_token == 8
-    assert store.catalog.default_output_cost_per_token == 9
-    assert not store.receipts
-    store.proxy.update_model.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_restore_only_deployments_and_fields_actually_written(store):
-    store.deploy("a", 8, 9)
-    store.deploy("b", 8, 0)
-    store.rule.enabled = True
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 1
-    assert set(store.receipts) == {"b"}
-    assert store.receipts["b"].previous_rates == {OUTPUT: 0}
-    assert store.receipts["b"].applied_rates == {OUTPUT: 9}
+    assert result["deployments_updated"] == 2 and result["skipped_config"] == 1
+    a["litellm_params"][INPUT] = 12
     assert (await job.apply_cost_schedule())["deployments_updated"] == 0
-    store.rules.clear()
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 1
-    store.proxy.update_model.assert_awaited_with("b", litellm_params={OUTPUT: 0})
-    assert not store.receipts
+    worker.rules.clear()
+    assert (await job.apply_cost_schedule())["deployments_updated"] == 2
+    assert a["model_info"]["off_peak_pricing"] == job.EMPTY_SCHEDULE
+    assert [x["litellm_params"][INPUT] for x in (a, b, config)] == [12, 0, 4]
     assert (await job.apply_cost_schedule())["deployments_updated"] == 0
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("edits", [{INPUT: 8, OUTPUT: 9}, {INPUT: 5, OUTPUT: 7}])
-async def test_external_write_after_schedule_beats_old_receipt(store, edits):
-    store.deploy("a", 3, 4)
-    store.rule.enabled = True
-    await job.apply_cost_schedule()
-    store.direct("a", edits)
-    store.rule.enabled = False
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 0
-    assert store.models["a"]["litellm_params"] == edits
-    assert not store.receipts
-
-
-@pytest.mark.asyncio
-async def test_keep_original_price_through_overlapping_schedules(store):
-    store.deploy("a", 0, 4)
-    store.models["a"]["model_info"][CACHE] = 1
-    store.rule.enabled = True
-    store.rule.cache_read_cost_per_token = 0
-    await job.apply_cost_schedule()
-    assert store.models["a"]["litellm_params"][CACHE] == 0
-    store.rule.input_cost_per_token = 6
-    store.rule.cache_read_cost_per_token = None
-    await job.apply_cost_schedule()
-    assert store.models["a"]["litellm_params"][CACHE] == 1
-    assert store.receipts["a"].previous_rates == {INPUT: 0, OUTPUT: 4}
-    store.rule.enabled = False
-    await job.apply_cost_schedule()
-    store.proxy.update_model.assert_awaited_with("a", litellm_params={INPUT: 0, OUTPUT: 4})
-
-
-@pytest.mark.asyncio
-async def test_failed_apply_or_restore_retries_without_claiming_other_deployments(store):
-    store.deploy("a", 3, 4)
-    store.deploy("b", 0, 1)
-    store.rule.enabled = True
-    store.fail_writes.add("b")
+@pytest.mark.parametrize(
+    ("revision", "live", "expected"),
+    [
+        (MONDAY, 8, {INPUT: None, OUTPUT: 0}),
+        (MONDAY + timedelta(seconds=1), 8, None),
+        (MONDAY, 13, None),
+    ],
+)
+async def test_legacy_handoff_only_reverts_a_confirmed_write(monkeypatch, worker, revision, live, expected):
+    worker.proxy.get_model_info.return_value = [deployment("a", live)]
+    receipt = SimpleNamespace(
+        deployment_id="a",
+        model_name="m",
+        litellm_updated_at=MONDAY,
+        applied_rates={INPUT: 8, OUTPUT: 4},
+        previous_rates={INPUT: None, OUTPUT: 0},
+    )
+    worker.receipts.append(receipt)
+    worker.rules.append(rule(range(1, 8), 0, 24))
+    monkeypatch.setattr(job, "_current_revisions", AsyncMock(return_value={"a": revision}))
     result = await job.apply_cost_schedule()
-    assert result["errors"] == 1
-    assert set(store.receipts) == {"a"}
-    store.fail_writes = {"a"}
-    store.rule.enabled = False
-    store.direct("b", {INPUT: 8, OUTPUT: 9})
+    assert result["errors"] == 0
+    assert worker.proxy.set_cost_schedule.await_args.kwargs["legacy_restore"] == expected
+    worker.db.delete.assert_awaited_once_with(receipt)
+
+
+async def test_failed_handoff_keeps_receipt_for_retry(monkeypatch, worker):
+    worker.proxy.get_model_info.return_value = [deployment("a", 3)]
+    worker.proxy.set_cost_schedule.side_effect = RuntimeError("offline")
+    worker.receipts.append(
+        SimpleNamespace(
+            deployment_id="a",
+            model_name="m",
+            litellm_updated_at=MONDAY,
+            applied_rates={INPUT: 3},
+            previous_rates={INPUT: 0},
+        )
+    )
+    monkeypatch.setattr(job, "_current_revisions", AsyncMock(return_value={"a": MONDAY}))
     assert (await job.apply_cost_schedule())["errors"] == 1
-    assert set(store.receipts) == {"a"}
-    store.fail_writes.clear()
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 1
-    assert not store.receipts
-    assert store.models["b"]["litellm_params"] == {INPUT: 8, OUTPUT: 9}
+    worker.db.delete.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_managed_default_restored_after_rule_deletion_and_external_edit(store):
-    store.deploy("a", 12, 15)
-    store.catalog.default_cost_managed = True
-    store.catalog.default_input_cost_per_token = 0
-    store.rule.enabled = True
-    await job.apply_cost_schedule()
-    store.rules.clear()
-    store.direct("a", {INPUT: 20, OUTPUT: 30})
-    await job.apply_cost_schedule()
-    store.proxy.update_model.assert_awaited_with("a", litellm_params={INPUT: 0, OUTPUT: 4})
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 0
+async def test_only_retire_unlisted_receipts_for_confirmed_deletions(worker, monkeypatch):
+    deleted, hidden = (SimpleNamespace(deployment_id=mid) for mid in ("deleted", "hidden"))
+    worker.proxy.get_model_info.return_value = []
+    worker.receipts.extend([deleted, hidden])
+    monkeypatch.setattr(job, "_current_revisions", AsyncMock(return_value={"hidden": MONDAY}))
+    assert (await job.apply_cost_schedule())["errors"] == 0
+    worker.db.delete.assert_awaited_once_with(deleted)
+    worker.proxy.set_cost_schedule.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_config_defined_models_are_skipped_and_unspecified_cache_is_untouched(store):
-    store.deploy("cfg", 1, 2, editable=False)
-    store.deploy("db", 1, 2)
-    store.rule.enabled = True
-    assert (await job.apply_cost_schedule())["skipped_config"] == 1
-    store.proxy.update_model.assert_awaited_once_with("db", litellm_params={INPUT: 8, OUTPUT: 9})
-    assert set(store.receipts) == {"db"}
-
-
-@pytest.mark.asyncio
-async def test_no_write_for_unowned_partial_price_or_concurrent_pass(store):
-    store.catalog.default_input_cost_per_token = None
-    store.catalog.default_output_cost_per_token = None
-    store.deploy("a", 2, None)
-    store.locked = True
-    await job.apply_cost_schedule()
-    store.proxy.get_model_info.assert_not_called()
-    store.locked = False
-    await job.apply_cost_schedule()
-    store.proxy.update_model.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_missing_baseline_keeps_only_unrestored_field_until_price_is_available(store):
-    store.deploy("a", 0, 2)
-    store.rule.cache_read_cost_per_token = 1
-    store.rule.enabled = True
-    await job.apply_cost_schedule()
-    store.rule.enabled = False
-    result = await job.apply_cost_schedule()
-    assert result["missing_default"] == 1
-    assert store.models["a"]["litellm_params"] == {INPUT: 0, OUTPUT: 2, CACHE: 1}
-    assert store.receipts["a"].previous_rates == {CACHE: None}
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 0
-    store.catalog.default_cache_read_cost_per_token = 0
-    await job.apply_cost_schedule()
-    store.proxy.update_model.assert_awaited_with("a", litellm_params={CACHE: 0})
-    assert not store.receipts
-
-
-@pytest.mark.asyncio
-async def test_direct_write_during_pass_is_seen_before_restore(store, monkeypatch):
-    store.deploy("a", 3, 4)
-    store.rule.enabled = True
-    await job.apply_cost_schedule()
-    store.rule.enabled = False
-    snapshot = dict(store.versions)
-    store.direct("a", {INPUT: 8, OUTPUT: 9})
-    monkeypatch.setattr(job, "_current_revisions", AsyncMock(side_effect=[snapshot, dict(store.versions)]))
-    result = await job.apply_cost_schedule()
-    assert result["deployments_updated"] == 0
-    assert result["errors"] == 1
-    assert "a" in store.receipts
-    monkeypatch.setattr(job, "_current_revisions", store.revisions)
-    assert (await job.apply_cost_schedule())["deployments_updated"] == 0
-    assert not store.receipts
+async def test_native_update_payload_never_echoes_litellm_params():
+    proxy = LiteLLMClient()
+    proxy._request = AsyncMock()
+    await proxy.set_cost_schedule("m", job.EMPTY_SCHEDULE)
+    proxy._request.assert_awaited_once_with(
+        "PATCH", "/model/m/update", json={"model_info": {"id": "m", "off_peak_pricing": job.EMPTY_SCHEDULE}}
+    )

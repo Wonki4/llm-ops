@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -22,7 +22,6 @@ class CustomModelCatalog(CustomBase):
 
     Links to LiteLLM model_name but stores additional metadata
     like descriptions, status lifecycle, and per-status scheduled dates.
-    Default token prices can follow LiteLLM or be managed by a portal administrator.
     """
 
     __tablename__ = "custom_model_catalog"
@@ -45,13 +44,6 @@ class CustomModelCatalog(CustomBase):
         index=True,
     )
     visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
-    # Manual pricing takes precedence over baseline discovery from LiteLLM.
-    default_cost_managed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    # Fallback token costs applied when no cost schedule rule matches.
-    default_input_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
-    default_output_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # Fallback prompt-caching read price (snapshotted from LiteLLM); None if unset.
-    default_cache_read_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     status_change_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)

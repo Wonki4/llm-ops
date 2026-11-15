@@ -4,21 +4,25 @@ import logging
 import uuid
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
-from sqlalchemy import select, func as sa_func, text as sa_text
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func as sa_func
+from sqlalchemy import select
+from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import get_current_user, require_super_user
-from app.config import settings
-from app.clients.litellm import LiteLLMClient, get_litellm_client
+from app.clients.litellm import BASE_PRICE_FIELDS, LiteLLMClient, deployment_base_prices, get_litellm_client
 from app.clients.redis import (
     catalog_delete as redis_delete,
+)
+from app.clients.redis import (
     catalog_get as redis_get,
+)
+from app.clients.redis import (
     catalog_set as redis_set,
 )
+from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
@@ -26,10 +30,13 @@ from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/models", tags=["models"])
 
 
 class CreateModelCatalogEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     model_name: str
     display_name: str
     description: str | None = None
@@ -41,15 +48,14 @@ class CreateModelCatalogEntry(BaseModel):
 
 
 class UpdateModelCatalogEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     display_name: str | None = None
     description: str | None = None
     icon_url: str | None = None
     status: ModelStatus | None = None
     status_schedule: dict | None = None
     visible: bool | None = None
-    default_input_cost_per_token: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    default_output_cost_per_token: float | None = Field(default=None, ge=0, allow_inf_nan=False)
-    follow_litellm_pricing: bool = False
 
 
 def _serialize_model(m: CustomModelCatalog) -> dict:
@@ -62,10 +68,6 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "status": m.status.value,
         "status_schedule": m.status_schedule,
         "visible": m.visible,
-        "default_cost_managed": bool(m.default_cost_managed),
-        "default_input_cost_per_token": m.default_input_cost_per_token,
-        "default_output_cost_per_token": m.default_output_cost_per_token,
-        "default_cache_read_cost_per_token": m.default_cache_read_cost_per_token,
         "status_change_date": m.status_change_date.isoformat() if m.status_change_date else None,
         "created_by": m.created_by,
         "updated_by": m.updated_by,
@@ -84,6 +86,7 @@ def _sanitize_litellm_info(lm: dict) -> dict:
     params = sanitized.get("litellm_params")
     if isinstance(params, dict):
         sanitized["litellm_params"] = {k: v for k, v in params.items() if k not in SENSITIVE_LITELLM_FIELDS}
+    sanitized["model_info"] = {**(lm.get("model_info") or {}), **deployment_base_prices(lm)}
     return sanitized
 
 
@@ -410,10 +413,7 @@ async def update_catalog_entry(
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Catalog entry not found")
 
-    update_data = body.model_dump(exclude_unset=True, exclude={"follow_litellm_pricing"})
-    edits_price = bool({"default_input_cost_per_token", "default_output_cost_per_token"} & update_data.keys())
-    if body.follow_litellm_pricing and edits_price:
-        raise HTTPException(422, "Choose either LiteLLM pricing or explicit default prices")
+    update_data = body.model_dump(exclude_unset=True)
 
     # Track status changes with history
     previous_status = entry.status
@@ -423,14 +423,6 @@ async def update_catalog_entry(
 
     for field, value in update_data.items():
         setattr(entry, field, value)
-
-    if body.follow_litellm_pricing:
-        # Retain the last baseline so an active schedule can still revert.
-        entry.default_cost_managed = False
-    elif edits_price:
-        entry.default_cost_managed = (
-            entry.default_input_cost_per_token is not None or entry.default_output_cost_per_token is not None
-        )
 
     entry.updated_by = user.user_id
     await db.flush()
@@ -562,16 +554,19 @@ async def model_summary(
         raise HTTPException(status_code=404, detail="Model not found")
 
     litellm_info = None
+    deployment_prices = []
     try:
         for lm in await litellm.get_model_info():
             if lm.get("model_name") != model_name:
                 continue
             # A name may group config-file and editable database deployments.
-            editable = (lm.get("model_info") or {}).get("db_model") is not False
-            if litellm_info is None or editable:
-                litellm_info = _sanitize_litellm_info(lm)
-            if editable:
-                break
+            runtime = _sanitize_litellm_info(lm)
+            info = runtime["model_info"]
+            deployment_prices.append({key: info.get(key) for key in ("id", *BASE_PRICE_FIELDS)})
+            if litellm_info is None or (
+                litellm_info["model_info"].get("db_model") is False and info.get("db_model") is not False
+            ):
+                litellm_info = runtime
     except Exception:
         logger.error("Failed to fetch LiteLLM model info for %s", model_name, exc_info=True)
 
@@ -621,6 +616,8 @@ async def model_summary(
         "model_name": model_name,
         "catalog": _serialize_model(catalog) if catalog else None,
         "litellm_info": litellm_info,
+        "deployment_prices": deployment_prices,
+        "schedule_timezone": settings.schedule_timezone,
         "cost_schedule": cost_schedule,
         "performance": _latest("performance"),
         "accuracy": _latest("accuracy"),
@@ -702,14 +699,14 @@ class CostScheduleRequest(BaseModel):
     days_of_week: list[int]  # 1..7 ISO weekdays (in the schedule timezone)
     hour_start_local: int  # 0..23, local wall-clock hour
     hour_end_local: int  # 1..24; <= start means day-spanning
-    input_cost_per_token: float
-    output_cost_per_token: float
-    cache_read_cost_per_token: float | None = None
+    input_cost_per_token: float = Field(ge=0, allow_inf_nan=False)
+    output_cost_per_token: float = Field(ge=0, allow_inf_nan=False)
+    cache_read_cost_per_token: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     priority: int = 0
     enabled: bool = True
 
 
-def _validate_cost_schedule(body: CostScheduleRequest) -> None:
+def _validated_schedule_values(body: CostScheduleRequest) -> dict:
     if not body.days_of_week or any(d < 1 or d > 7 for d in body.days_of_week):
         raise HTTPException(status_code=400, detail="days_of_week must be non-empty ints in 1..7")
     if body.hour_start_local < 0 or body.hour_start_local > 23:
@@ -718,13 +715,10 @@ def _validate_cost_schedule(body: CostScheduleRequest) -> None:
         raise HTTPException(status_code=400, detail="hour_end_local must be in 1..24")
     if body.hour_start_local == body.hour_end_local:
         raise HTTPException(status_code=400, detail="hour_start_local and hour_end_local must differ")
-    if body.input_cost_per_token < 0 or body.output_cost_per_token < 0:
-        raise HTTPException(status_code=400, detail="costs must be non-negative")
-    if body.cache_read_cost_per_token is not None and body.cache_read_cost_per_token < 0:
-        raise HTTPException(status_code=400, detail="cache_read_cost_per_token must be non-negative")
+    return {**body.model_dump(), "days_of_week": sorted(set(body.days_of_week))}
 
 
-@router.get("/{model_name}/cost-schedule")
+@router.get("/{model_name:path}/cost-schedule")
 async def list_cost_schedule(
     model_name: str,
     user: CustomUser = Depends(require_super_user),
@@ -739,85 +733,18 @@ async def list_cost_schedule(
     return {"model_name": model_name, "rules": [_serialize_cost_schedule(r) for r in result.scalars().all()]}
 
 
-async def _snapshot_default_cost_if_missing(
-    db: AsyncSession,
-    litellm: LiteLLMClient,
-    model_name: str,
-) -> None:
-    """Capture the current LiteLLM cost as the catalog default before saving a rule.
-
-    The cost-schedule worker reverts to `catalog.default_*_cost_per_token` when
-    no rule is active. If the admin never set those, the worker's revert path
-    silently skips and the model stays stuck on whatever the last active rule
-    set. Snapshotting on rule create/update closes that gap automatically.
-
-    Idempotent: only fills the side that is currently null, so an admin's
-    explicit catalog default always wins. No-op when the catalog row doesn't
-    exist or LiteLLM has no cost for this model.
-    """
-    result = await db.execute(
-        select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name).with_for_update()
-    )
-    catalog = result.scalar_one_or_none()
-    if catalog is None:
-        return
-    in_set = catalog.default_input_cost_per_token is not None
-    out_set = catalog.default_output_cost_per_token is not None
-    cache_read_set = catalog.default_cache_read_cost_per_token is not None
-    if in_set and out_set and cache_read_set:
-        return
-    try:
-        deployments = await litellm.get_model_info()
-    except Exception:
-        logger.exception(
-            "cost-schedule: failed to fetch LiteLLM model_info for default snapshot of %s",
-            model_name,
-        )
-        return
-    for d in deployments:
-        if d.get("model_name") != model_name:
-            continue
-        params = d.get("litellm_params") or {}
-        info = d.get("model_info") or {}
-
-        def effective_cost(key: str) -> float | None:
-            return params[key] if params.get(key) is not None else info.get(key)
-
-        in_cost = effective_cost("input_cost_per_token")
-        out_cost = effective_cost("output_cost_per_token")
-        cache_read_cost = effective_cost("cache_read_input_token_cost")
-        if not in_set and in_cost is not None:
-            catalog.default_input_cost_per_token = float(in_cost)
-        if not out_set and out_cost is not None:
-            catalog.default_output_cost_per_token = float(out_cost)
-        if not cache_read_set and cache_read_cost is not None:
-            catalog.default_cache_read_cost_per_token = float(cache_read_cost)
-        await db.flush()
-        return
-
-
-@router.post("/{model_name}/cost-schedule", status_code=status.HTTP_201_CREATED)
+@router.post("/{model_name:path}/cost-schedule", status_code=status.HTTP_201_CREATED)
 async def create_cost_schedule(
     model_name: str,
     body: CostScheduleRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Create a cost schedule rule for a model (Super User only)."""
-    _validate_cost_schedule(body)
-    await _snapshot_default_cost_if_missing(db, litellm, model_name)
     rule = CustomModelCostSchedule(
         id=uuid.uuid4(),
         model_name=model_name,
-        days_of_week=sorted(set(body.days_of_week)),
-        hour_start_local=body.hour_start_local,
-        hour_end_local=body.hour_end_local,
-        input_cost_per_token=body.input_cost_per_token,
-        output_cost_per_token=body.output_cost_per_token,
-        cache_read_cost_per_token=body.cache_read_cost_per_token,
-        priority=body.priority,
-        enabled=body.enabled,
+        **_validated_schedule_values(body),
         created_by=user.user_id,
         updated_by=user.user_id,
     )
@@ -833,23 +760,14 @@ async def update_cost_schedule(
     body: CostScheduleRequest,
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
-    litellm: LiteLLMClient = Depends(get_litellm_client),
 ) -> dict:
     """Update a cost schedule rule (Super User only)."""
-    _validate_cost_schedule(body)
-    result = await db.execute(select(CustomModelCostSchedule).where(CustomModelCostSchedule.id == uuid.UUID(rule_id)))
-    rule = result.scalar_one_or_none()
+    values = _validated_schedule_values(body)
+    rule = await db.get(CustomModelCostSchedule, uuid.UUID(rule_id))
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
-    await _snapshot_default_cost_if_missing(db, litellm, rule.model_name)
-    rule.days_of_week = sorted(set(body.days_of_week))
-    rule.hour_start_local = body.hour_start_local
-    rule.hour_end_local = body.hour_end_local
-    rule.input_cost_per_token = body.input_cost_per_token
-    rule.output_cost_per_token = body.output_cost_per_token
-    rule.cache_read_cost_per_token = body.cache_read_cost_per_token
-    rule.priority = body.priority
-    rule.enabled = body.enabled
+    for field, value in values.items():
+        setattr(rule, field, value)
     rule.updated_by = user.user_id
     await db.flush()
     await db.refresh(rule)
@@ -863,8 +781,7 @@ async def delete_cost_schedule(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Delete a cost schedule rule (Super User only)."""
-    result = await db.execute(select(CustomModelCostSchedule).where(CustomModelCostSchedule.id == uuid.UUID(rule_id)))
-    rule = result.scalar_one_or_none()
+    rule = await db.get(CustomModelCostSchedule, uuid.UUID(rule_id))
     if not rule:
         raise HTTPException(status_code=404, detail="Rule not found")
     await db.delete(rule)

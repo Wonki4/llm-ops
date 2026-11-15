@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { apiFetch } from "@/lib/api";
+import { pricePerMillion, TOKENS_PER_MILLION } from "@/lib/model-pricing";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,45 +14,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
 // ─── Types ──────────────────────────────────────────────────────
-
-interface CostRule {
-  id: string;
-  model_name: string;
-  days_of_week: number[]; // 1=Mon..7=Sun, in the schedule timezone
-  hour_start_local: number;
-  hour_end_local: number;
-  timezone: string; // IANA name the hours/days are authored in (e.g. Asia/Seoul)
-  input_cost_per_token: number;
-  output_cost_per_token: number;
-  cache_read_cost_per_token: number | null;
-  priority: number;
-  enabled: boolean;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-}
-
-interface CostScheduleResponse {
-  model_name: string;
-  rules: CostRule[];
-}
-
-// Rules are authored, stored, and displayed in the schedule timezone
-// (settings.schedule_timezone on the backend, surfaced as rule.timezone). The
-// backend converts the current time into that zone when matching, so no UTC
-// round-trip is needed here — what you pick is exactly what's stored.
-
-// ─── Hooks ──────────────────────────────────────────────────────
-
-function useCostSchedule(modelName: string | null) {
-  return useQuery({
-    queryKey: ["cost-schedule", modelName],
-    queryFn: () =>
-      apiFetch<CostScheduleResponse>(`/api/models/${encodeURIComponent(modelName!)}/cost-schedule`),
-    enabled: !!modelName,
-  });
-}
 
 interface RuleBody {
   days_of_week: number[];
@@ -64,43 +26,25 @@ interface RuleBody {
   enabled: boolean;
 }
 
-function useCreateCostRule(modelName: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (body: RuleBody) =>
-      apiFetch<CostRule>(`/api/models/${encodeURIComponent(modelName)}/cost-schedule`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-schedule", modelName] });
-    },
+interface CostRule extends RuleBody {
+  id: string;
+  timezone: string;
+}
+
+function useCostSchedule(modelName: string) {
+  return useQuery({
+    queryKey: ["cost-schedule", modelName],
+    queryFn: () =>
+      apiFetch<{ rules: CostRule[] }>(`/api/models/${encodeURIComponent(modelName)}/cost-schedule`),
   });
 }
 
-function useUpdateCostRule(modelName: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, body }: { id: string; body: RuleBody }) =>
-      apiFetch<CostRule>(`/api/models/cost-schedule/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-schedule", modelName] });
-    },
-  });
-}
-
-function useDeleteCostRule(modelName: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) =>
-      apiFetch<{ deleted: boolean }>(`/api/models/cost-schedule/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["cost-schedule", modelName] });
-    },
-  });
+function useRefreshCostRules(modelName: string) {
+  const client = useQueryClient();
+  return () => {
+    client.invalidateQueries({ queryKey: ["cost-schedule", modelName] });
+    client.invalidateQueries({ queryKey: ["model-summary", modelName] });
+  };
 }
 
 // ─── Form state ─────────────────────────────────────────────────
@@ -116,14 +60,8 @@ interface FormState {
   enabled: boolean;
 }
 
-// LiteLLM stores cost as per-1-token (e.g. 0.00000125). Humans think in
-// per-1M-tokens (e.g. $1.25), and the rest of the portal already shows costs
-// that way, so the form converts at the boundary: divide by 1M on submit,
-// multiply by 1M when loading.
-const PER_MILLION = 1_000_000;
-
 function toPerMillion(perToken: number): string {
-  return (perToken * PER_MILLION).toString();
+  return (perToken * TOKENS_PER_MILLION).toString();
 }
 
 function ruleToForm(rule: CostRule | null): FormState {
@@ -160,9 +98,9 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
   if (hs === he) return t("validation.sameStartEnd");
   const inCostPerMillion = Number(form.inputCost);
   const outCostPerMillion = Number(form.outputCost);
-  if (!Number.isFinite(inCostPerMillion) || inCostPerMillion < 0)
+  if (!form.inputCost.trim() || !Number.isFinite(inCostPerMillion) || inCostPerMillion < 0)
     return t("validation.invalidInputCost");
-  if (!Number.isFinite(outCostPerMillion) || outCostPerMillion < 0)
+  if (!form.outputCost.trim() || !Number.isFinite(outCostPerMillion) || outCostPerMillion < 0)
     return t("validation.invalidOutputCost");
   // Cache-read is optional: "" = leave unset (null = don't touch LiteLLM's value).
   const cacheReadTrimmed = form.cacheReadCost.trim();
@@ -171,15 +109,15 @@ function formToBody(form: FormState, t: ReturnType<typeof useTranslations>): Rul
     const cacheReadPerMillion = Number(cacheReadTrimmed);
     if (!Number.isFinite(cacheReadPerMillion) || cacheReadPerMillion < 0)
       return t("validation.invalidCacheReadCost");
-    cacheReadPerToken = cacheReadPerMillion / PER_MILLION;
+    cacheReadPerToken = cacheReadPerMillion / TOKENS_PER_MILLION;
   }
 
   return {
     days_of_week: [...form.daysKst].sort((a, b) => a - b),
     hour_start_local: hs,
     hour_end_local: he,
-    input_cost_per_token: inCostPerMillion / PER_MILLION,
-    output_cost_per_token: outCostPerMillion / PER_MILLION,
+    input_cost_per_token: inCostPerMillion / TOKENS_PER_MILLION,
+    output_cost_per_token: outCostPerMillion / TOKENS_PER_MILLION,
     cache_read_cost_per_token: cacheReadPerToken,
     priority: Number(form.priority) || 0,
     enabled: form.enabled,
@@ -230,9 +168,19 @@ function RuleForm({
   const t = useTranslations("modelCostSchedule");
   const tc = useTranslations("common");
   const [form, setForm] = useState<FormState>(ruleToForm(rule));
-  const createMutation = useCreateCostRule(modelName);
-  const updateMutation = useUpdateCostRule(modelName);
-  const pending = createMutation.isPending || updateMutation.isPending;
+  const refreshRules = useRefreshCostRules(modelName);
+  const save = useMutation({
+    mutationFn: (body: RuleBody) => apiFetch<CostRule>(
+      rule ? `/api/models/cost-schedule/${rule.id}` : `/api/models/${encodeURIComponent(modelName)}/cost-schedule`,
+      { method: rule ? "PUT" : "POST", body: JSON.stringify(body) },
+    ),
+    onSuccess: () => {
+      refreshRules();
+      toast.success(t(rule ? "toast.ruleSaved" : "toast.ruleAdded"));
+      onDone();
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : t(rule ? "toast.saveFailed" : "toast.addFailed")),
+  });
 
   function handleSave() {
     const result = formToBody(form, t);
@@ -240,26 +188,7 @@ function RuleForm({
       toast.error(result);
       return;
     }
-    if (rule) {
-      updateMutation.mutate(
-        { id: rule.id, body: result },
-        {
-          onSuccess: () => {
-            toast.success(t("toast.ruleSaved"));
-            onDone();
-          },
-          onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.saveFailed")),
-        },
-      );
-    } else {
-      createMutation.mutate(result, {
-        onSuccess: () => {
-          toast.success(t("toast.ruleAdded"));
-          onDone();
-        },
-        onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.addFailed")),
-      });
-    }
+    save.mutate(result);
   }
 
   return (
@@ -355,8 +284,8 @@ function RuleForm({
         </label>
       </div>
       <div className="flex gap-1">
-        <Button size="sm" onClick={handleSave} disabled={pending}>
-          {pending ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
+        <Button size="sm" onClick={handleSave} disabled={save.isPending}>
+          {save.isPending ? <Loader2 className="size-3 animate-spin" /> : <Save className="size-3" />}
           {tc("save")}
         </Button>
         <Button size="sm" variant="ghost" onClick={onDone}>
@@ -372,7 +301,15 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
   const t = useTranslations("modelCostSchedule");
   const tc = useTranslations("common");
   const [editing, setEditing] = useState(false);
-  const deleteMutation = useDeleteCostRule(modelName);
+  const refreshRules = useRefreshCostRules(modelName);
+  const deleteMutation = useMutation({
+    mutationFn: () => apiFetch(`/api/models/cost-schedule/${rule.id}`, { method: "DELETE" }),
+    onSuccess: () => {
+      refreshRules();
+      toast.success(t("toast.ruleDeleted"));
+    },
+    onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.deleteFailed")),
+  });
 
   if (editing) {
     return <RuleForm modelName={modelName} rule={rule} onDone={() => setEditing(false)} />;
@@ -385,10 +322,7 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
 
   function handleDelete() {
     if (!confirm(t("confirm.deleteRule"))) return;
-    deleteMutation.mutate(rule.id, {
-      onSuccess: () => toast.success(t("toast.ruleDeleted")),
-      onError: (err) => toast.error(err instanceof Error ? err.message : t("toast.deleteFailed")),
-    });
+    deleteMutation.mutate();
   }
 
   return (
@@ -423,11 +357,8 @@ function RuleRow({ modelName, rule }: { modelName: string; rule: CostRule }) {
           </div>
         </div>
         <div className="text-[11px] font-mono text-muted-foreground">
-          in ${(rule.input_cost_per_token * PER_MILLION).toFixed(2)} · out $
-          {(rule.output_cost_per_token * PER_MILLION).toFixed(2)}
-          {rule.cache_read_cost_per_token != null
-            ? ` · cache $${(rule.cache_read_cost_per_token * PER_MILLION).toFixed(2)}`
-            : ""}{" "}
+          in {pricePerMillion(rule.input_cost_per_token)} · out {pricePerMillion(rule.output_cost_per_token)}
+          {rule.cache_read_cost_per_token != null && ` · cache ${pricePerMillion(rule.cache_read_cost_per_token)}`}{" "}
           / 1M
         </div>
       </CardContent>

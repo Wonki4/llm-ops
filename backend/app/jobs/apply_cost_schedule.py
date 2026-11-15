@@ -1,17 +1,18 @@
-"""Apply time-of-day prices and restore confirmed worker writes per LiteLLM deployment."""
+"""Publish time windows to LiteLLM, which selects the rate when billing a request."""
 
 import asyncio
 import logging
 import time
-from datetime import UTC, datetime
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
+from datetime import UTC, datetime, timedelta
+from itertools import groupby
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import select, text
 
-from app.clients.litellm import LiteLLMClient
+from app.clients.litellm import BASE_PRICE_FIELDS, LiteLLMClient, deployment_base_prices
 from app.config import settings
-from app.db.models.custom_model_catalog import CustomModelCatalog
 from app.db.models.custom_model_cost_schedule import CustomAppliedCostSchedule, CustomModelCostSchedule
 from app.db.session import async_session_factory, litellm_session_factory
 
@@ -28,60 +29,17 @@ def schedule_tz() -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _rule_matches(rule: CustomModelCostSchedule, now: datetime) -> bool:
-    """True when local `now` falls inside this rule's window for the right weekday.
-
-    `now` must already be in the schedule timezone. Day-spanning rules
-    (hour_end_local <= hour_start_local) are interpreted as:
-      - active from `hour_start_local` on a day in `days_of_week`
-      - through `hour_end_local` of the following day
-    """
-    days = set(rule.days_of_week or [])
-    if not days:
-        return False
-
-    current_dow = now.isoweekday()  # 1=Mon..7=Sun
-    yesterday_dow = ((current_dow - 1 - 1) % 7) + 1
-    hour = now.hour
-    start = rule.hour_start_local
-    end = rule.hour_end_local
-
-    if end > start:
-        return current_dow in days and start <= hour < end
-
-    # Day-spanning (e.g. start=22, end=6 → Mon 22:00 to Tue 06:00 for days={Mon})
-    if current_dow in days and hour >= start:
-        return True
-    if yesterday_dow in days and hour < end:
-        return True
-    return False
-
-
-def _pick_rule(rules: list[CustomModelCostSchedule], now: datetime) -> CustomModelCostSchedule | None:
-    """Highest-priority enabled rule whose window covers `now`."""
-    active = [r for r in rules if r.enabled and _rule_matches(r, now)]
-    if not active:
-        return None
-    active.sort(key=lambda r: r.priority, reverse=True)
-    return active[0]
-
-
-PRICE_FIELDS = {
-    "input_cost_per_token": "input_cost_per_token",
-    "output_cost_per_token": "output_cost_per_token",
-    "cache_read_input_token_cost": "cache_read_cost_per_token",
-}
-
-
-def _utc_revision(value: str | datetime) -> datetime:
-    revision = datetime.fromisoformat(value) if isinstance(value, str) else value
-    # Prisma stores its PostgreSQL timestamps in UTC without a timezone.
-    return revision.replace(tzinfo=UTC) if revision.tzinfo is None else revision.astimezone(UTC)
+def _rule_matches(rule: CustomModelCostSchedule, local: datetime) -> bool:
+    day, hour = local.isoweekday(), local.hour
+    start, end = rule.hour_start_local, rule.hour_end_local
+    if start < end:
+        return day in rule.days_of_week and start <= hour < end
+    # After midnight an overnight rule still belongs to the previous weekday.
+    yesterday = (day - 2) % 7 + 1
+    return (day in rule.days_of_week and hour >= start) or (yesterday in rule.days_of_week and hour < end)
 
 
 async def _current_revisions(ids: list[str]) -> dict[str, datetime]:
-    if not ids:
-        return {}
     # /model/info omits updated_at on the open-source proxy. Only read the two
     # columns needed to distinguish a later direct write, including an equal price.
     async with litellm_session_factory() as db:
@@ -89,252 +47,176 @@ async def _current_revisions(ids: list[str]) -> dict[str, datetime]:
             text('SELECT model_id, updated_at FROM "LiteLLM_ProxyModelTable" WHERE model_id = ANY(:ids)'),
             {"ids": ids},
         )
-        return {mid: _utc_revision(stamp) for mid, stamp in result}
+        return {
+            mid: stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp.astimezone(UTC) for mid, stamp in result
+        }
 
 
-def _live_rates(deployment: dict) -> dict[str, float | None]:
-    params = deployment.get("litellm_params") or {}
-    info = deployment.get("model_info") or {}
-    return {key: params[key] if params.get(key) is not None else info.get(key) for key in PRICE_FIELDS}
+# LiteLLM shallow-merges the nested cost-map entry in memory. Explicitly
+# replace both window forms and clear optional rates left by a previous rule.
+EMPTY_SCHEDULE = {
+    "hours_utc": [],
+    "windows": [],
+    "weekday_timezone": "UTC",
+    **dict.fromkeys((*BASE_PRICE_FIELDS, "output_cost_per_reasoning_token", "cache_creation_input_token_cost")),
+}
+PREVIOUS_SCHEDULE = "_litellm_ops_previous_schedule"
 
 
-async def _save_receipt(receipt: CustomAppliedCostSchedule) -> None:
-    # A transient portal DB failure must retry the receipt, never the LiteLLM write.
-    for attempt in range(2):
-        try:
-            async with async_session_factory() as db:
-                await db.merge(receipt)
-                await db.commit()
-            return
-        except OperationalError:
-            if attempt:
-                raise
+def _week_slots(now: datetime, zone: ZoneInfo) -> Iterator[tuple[datetime, datetime, datetime]]:
+    """UTC segments split at midnight and every change of the local wall-clock hour."""
+    start = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    for day in range(7):
+        midnight = start + timedelta(days=day)
+        end = midnight + timedelta(days=1)
+        cursor = midnight
+        while cursor < end:
+            local = cursor.astimezone(zone)
+            following = min(end, cursor + timedelta(minutes=60 - local.minute))
+            yield cursor, following, local
+            cursor = following
 
 
-async def _reconcile_deployment(
-    litellm: LiteLLMClient,
-    model_name: str,
-    deployment: dict,
-    catalog: CustomModelCatalog | None,
-    rule: CustomModelCostSchedule | None,
-    receipt: CustomAppliedCostSchedule | None,
-    revision: datetime | None,
-) -> tuple[dict[str, float | None], bool]:
-    """Return effective rates and whether a proxy write occurred."""
-    mid = deployment["model_info"]["id"]
-    live = _live_rates(deployment)
-    defaults = {key: getattr(catalog, f"default_{attr}", None) for key, attr in PRICE_FIELDS.items()}
-    owned = receipt is not None and (
-        receipt.model_name == model_name
+def _native_schedule(
+    rules: list[CustomModelCostSchedule], slots: Iterable[tuple[datetime, datetime, datetime]], now: datetime
+) -> tuple[dict | None, bool]:
+    """LiteLLM accepts one rate per schedule. Publish every window with the current or next winning rate."""
+
+    def window_key(slot):
+        start, _, local = slot
+        rule = next((r for r in rules if _rule_matches(r, local)), None)
+        if rule is None:
+            return start.isoweekday(), None
+        return start.isoweekday(), {
+            "input_cost_per_token": rule.input_cost_per_token,
+            "output_cost_per_token": rule.output_cost_per_token,
+            "cache_read_input_token_cost": rule.cache_read_cost_per_token,
+        }
+
+    periods = []
+    for (_, rates), adjacent in groupby(slots, key=window_key):
+        if rates is not None:
+            span = list(adjacent)
+            periods.append((span[0][0], span[-1][1], rates))
+    if not periods:
+        return None, False
+
+    start, end, selected = next((period for period in periods if period[1] > now), periods[0])
+    windows = [
+        {"weekdays": [begin.isoweekday()], "hours_utc": f"{begin:%H:%M}-{finish:%H:%M}"}
+        for begin, finish, rates in sorted(periods, key=lambda period: period[0].isoweekday())
+        if rates == selected
+    ]
+    return {**EMPTY_SCHEDULE, **selected, "windows": windows}, start <= now < end
+
+
+def _desired_schedule(current: dict, schedule: dict | None, active: bool) -> dict:
+    owned = PREVIOUS_SCHEDULE in current
+    original = current.get(PREVIOUS_SCHEDULE, current)
+    # Preserve provider-configured off-peak pricing outside portal rule hours.
+    if schedule and (active or not (original.get("hours_utc") or original.get("windows"))):
+        return {**schedule, PREVIOUS_SCHEDULE: original if original != EMPTY_SCHEDULE else {}}
+    if owned:
+        return {**EMPTY_SCHEDULE, **original}
+    return current
+
+
+async def _legacy_restore(receipt: CustomAppliedCostSchedule, model: dict) -> dict:
+    """The #275 worker handoff is the only path that may write base prices."""
+    mid = receipt.deployment_id
+    revision = (await _current_revisions([mid])).get(mid)
+    if revision is None:
+        raise RuntimeError("Cannot verify the legacy price against the LiteLLM database")
+    live = deployment_base_prices(model)
+    if (
+        receipt.model_name == model["model_name"]
         and receipt.litellm_updated_at == revision
-        and all(live[key] == value for key, value in receipt.applied_rates.items())
-    )
-    previous = receipt.previous_rates if owned else {}
-    # If the previous LiteLLM value was absent, a subsequently configured numeric
-    # baseline can finish the restore. LiteLLM ignores null values on model/update.
-    targets = {key: value if value is not None else defaults[key] for key, value in previous.items()}
-    scheduled = {}
-    if rule is not None:
-        scheduled = {key: value for key, attr in PRICE_FIELDS.items() if (value := getattr(rule, attr)) is not None}
-        targets.update(scheduled)
-    elif catalog is not None and catalog.default_cost_managed:
-        targets.update({key: value for key, value in defaults.items() if value is not None})
-
-    changes = {key: value for key, value in targets.items() if value is not None and live[key] != value}
-    if changes:
-        if owned and rule is None and not (catalog and catalog.default_cost_managed):
-            # Other deployments in this pass may have taken time. Recheck before issuing the restore.
-            if (await _current_revisions([mid])).get(mid) != revision:
-                raise RuntimeError("Deployment changed before price restoration; retry on the next pass")
-        response = await litellm.update_model(mid, litellm_params=changes)
-        # Keep the original baseline across successive rules. An unchanged field
-        # without a previous write was never ours to restore.
-        before = {key: None for key, value in targets.items() if value is None and key in previous}
-        for key, rate in scheduled.items():
-            if key in previous or key in changes:
-                baseline = previous.get(key, live[key] if live[key] is not None else defaults[key])
-                if baseline != rate:
-                    before[key] = baseline
-        live.update(changes)
-        if before:
-            await _save_receipt(
-                CustomAppliedCostSchedule(
-                    deployment_id=mid,
-                    model_name=model_name,
-                    litellm_updated_at=_utc_revision(response["updated_at"]),
-                    previous_rates=before,
-                    applied_rates={key: live[key] for key in before},
-                )
-            )
-            return live, True
-    elif owned and (rule is not None or any(value is None for value in targets.values())):
-        return live, False
-
-    if receipt is not None:
-        async with async_session_factory() as db:
-            await db.delete(receipt)
-            await db.commit()
-    return live, bool(changes)
+        and all(live.get(key) == value for key, value in receipt.applied_rates.items())
+    ):
+        return {key: value for key, value in receipt.previous_rates.items() if key in BASE_PRICE_FIELDS}
+    return {}
 
 
 async def apply_cost_schedule() -> dict:
-    """Serialize passes so a second worker cannot act on a pre-write snapshot."""
-    async with async_session_factory() as lock_db:
-        acquired = await lock_db.scalar(
+    stats = dict(catalogs_processed=0, deployments_updated=0, errors=0, skipped_config=0)
+    async with async_session_factory.begin() as db:
+        if not await db.scalar(
             text("SELECT pg_try_advisory_xact_lock(hashtextextended('portal.apply_cost_schedule', 0))")
-        )
-        if not acquired:
-            return {"catalogs_processed": 0, "deployments_updated": 0, "errors": 0}
-        return await _apply_cost_schedule()
-
-
-async def _apply_cost_schedule() -> dict:
-    now = datetime.now(UTC).astimezone(schedule_tz())
-    stats = dict(
-        catalogs_processed=0, deployments_updated=0, errors=0, skipped_config=0, missing_default=0, refreshed_defaults=0
-    )
-    async with async_session_factory() as db:
-        rules = (await db.scalars(select(CustomModelCostSchedule))).all()
-        receipts = (await db.scalars(select(CustomAppliedCostSchedule))).all()
-        tracked_names = {r.model_name for r in (*rules, *receipts)}
-        catalogs = (
-            await db.scalars(
-                select(CustomModelCatalog).where(
-                    CustomModelCatalog.model_name.in_(tracked_names)
-                    | CustomModelCatalog.default_input_cost_per_token.isnot(None)
-                    | CustomModelCatalog.default_output_cost_per_token.isnot(None)
-                )
+        ):
+            return stats
+        now = datetime.now(UTC)
+        slots = list(_week_slots(now, schedule_tz()))
+        rules = await db.scalars(
+            select(CustomModelCostSchedule)
+            .where(CustomModelCostSchedule.enabled.is_(True))
+            .order_by(
+                CustomModelCostSchedule.priority.desc(), CustomModelCostSchedule.created_at, CustomModelCostSchedule.id
             )
-        ).all()
+        )
+        by_model = defaultdict(list)
+        for rule in rules:
+            by_model[rule.model_name].append(rule)
+        schedules = {name: _native_schedule(group, slots, now) for name, group in by_model.items()}
+        stats["catalogs_processed"] = len(schedules)
+        receipts = {r.deployment_id: r for r in await db.scalars(select(CustomAppliedCostSchedule))}
 
-    rules_by_model: dict[str, list[CustomModelCostSchedule]] = {}
-    for rule in rules:
-        rules_by_model.setdefault(rule.model_name, []).append(rule)
-    by_id = {r.deployment_id: r for r in receipts}
-    by_name = {c.model_name: c for c in catalogs}
-    targets = tracked_names | by_name.keys()
-    if not targets:
-        return stats
+        proxy = LiteLLMClient()
+        try:
+            models = await proxy.get_model_info()
+            if (
+                not schedules
+                and not receipts
+                and not any(
+                    PREVIOUS_SCHEDULE in ((model.get("model_info") or {}).get("off_peak_pricing") or {})
+                    for model in models
+                )
+            ):
+                return stats
+            await proxy.check_cost_schedule_support()
+        except Exception:
+            logger.exception("Cannot synchronize LiteLLM time-of-day pricing")
+            stats["errors"] += 1
+            return stats
 
-    active_rules = {name: _pick_rule(rules_by_model.get(name, []), now) for name in targets}
-    litellm = LiteLLMClient()
-    try:
-        models = await litellm.get_model_info()
-    except Exception:
-        logger.exception("Failed to read LiteLLM deployment prices")
-        stats["errors"] += 1
-        return stats
-
-    grouped: dict[str, list[dict]] = {}
-    tracked_ids = set(by_id)
-    for model in models:
-        name = model.get("model_name")
-        if name not in targets:
-            continue
-        grouped.setdefault(name, []).append(model)
-        info = model.get("model_info") or {}
-        # Verify access to the same proxy database before the first scheduled write.
-        if active_rules[name] and info.get("id") and info.get("db_model") is not False:
-            tracked_ids.add(info["id"])
-    try:
-        revisions = await _current_revisions(list(tracked_ids))
-    except Exception:
-        logger.exception("Cannot verify price writes against the configured LiteLLM database")
-        stats["errors"] += 1
-        return stats
-
-    for name in targets:
-        stats["catalogs_processed"] += 1
-        catalog = by_name.get(name)
-        rule = active_rules[name]
-        observed = set()
-        failed = False
-        skipped_config = False
-        missing_default = False
-        for deployment in grouped.get(name, []):
-            info = deployment.get("model_info") or {}
+        for model in models:
+            info = model.get("model_info") or {}
             mid = info.get("id")
+            receipt = receipts.pop(mid, None)
             if not mid:
                 continue
-            if info.get("db_model") is False:
-                skipped_config = True
-                continue
-            receipt = by_id.get(mid)
             try:
-                if mid in tracked_ids and mid not in revisions:
-                    raise RuntimeError("Proxy deployment is missing from the configured LiteLLM database")
-                if receipt and receipt.litellm_updated_at == revisions.get(mid):
-                    missing_default |= any(
-                        value is None and getattr(catalog, f"default_{PRICE_FIELDS[key]}", None) is None
-                        for key, value in receipt.previous_rates.items()
-                    )
-                live, changed = await _reconcile_deployment(
-                    litellm, name, deployment, catalog, rule, receipt, revisions.get(mid)
-                )
-                stats["deployments_updated"] += int(changed)
-                observed.add(tuple(live.values()))
+                current = info.get("off_peak_pricing") or {}
+                schedule, active = schedules.get(model.get("model_name"), (None, False))
+                desired = _desired_schedule(current, schedule, active)
+                if desired == current and receipt is None:
+                    continue
+                if info.get("db_model") is False:
+                    stats["skipped_config"] += 1
+                    continue
+                restore = await _legacy_restore(receipt, model) if receipt else {}
+                if desired != current or restore:
+                    await proxy.set_cost_schedule(mid, desired, legacy_restore=restore or None)
+                    stats["deployments_updated"] += 1
+                if receipt:
+                    await db.delete(receipt)
             except Exception:
-                failed = True
+                logger.exception("Failed to sync time-of-day pricing for %s", mid)
                 stats["errors"] += 1
-                logger.exception("Failed to reconcile price for %s (id=%s)", name, mid)
 
-        stats["skipped_config"] += int(skipped_config)
-        stats["missing_default"] += int(missing_default)
-        if missing_default:
-            logger.warning("No numeric baseline to restore for one or more scheduled prices on %s", name)
-        # A shared catalog row cannot represent conflicting per-deployment prices.
-        if (
-            failed
-            or missing_default
-            or rule is not None
-            or not catalog
-            or catalog.default_cost_managed
-            or len(observed) != 1
-        ):
-            continue
-        din, dout, dcr = observed.pop()
-        if din is None or dout is None:
-            continue
-        stored = (
-            catalog.default_input_cost_per_token,
-            catalog.default_output_cost_per_token,
-            catalog.default_cache_read_cost_per_token,
-        )
-        if (din, dout, dcr if dcr is not None else stored[2]) == stored:
-            continue
-        async with async_session_factory() as db:
-            result = await db.execute(
-                text(
-                    "UPDATE custom_model_catalog SET default_input_cost_per_token = :i, "
-                    "default_output_cost_per_token = :o, "
-                    "default_cache_read_cost_per_token = COALESCE(:cr, default_cache_read_cost_per_token) "
-                    "WHERE model_name = :m AND NOT default_cost_managed"
-                ),
-                {"i": din, "o": dout, "cr": dcr, "m": name},
-            )
-            await db.commit()
-            stats["refreshed_defaults"] += result.rowcount
-
-    # A deleted deployment has no price to restore. Never infer deletion from a filtered proxy listing.
-    listed_ids = {(m.get("model_info") or {}).get("id") for m in models}
-    removed = by_id.keys() - revisions.keys() - listed_ids
-    if removed:
-        async with async_session_factory() as db:
-            await db.execute(
-                delete(CustomAppliedCostSchedule).where(CustomAppliedCostSchedule.deployment_id.in_(removed))
-            )
-            await db.commit()
+        if receipts:
+            # Some IDs may be hidden from the API. Only retire receipts for confirmed deletions.
+            try:
+                existing = await _current_revisions(list(receipts))
+                for mid in receipts.keys() - existing.keys():
+                    await db.delete(receipts[mid])
+            except Exception:
+                logger.exception("Failed to check deleted deployments with legacy price receipts")
+                stats["errors"] += 1
     return stats
 
 
 async def cost_schedule_loop(interval_seconds: int = 300) -> None:
-    """Run the cost schedule evaluator on a fixed cadence.
-
-    Each pass is aligned to a wall-clock multiple of the interval (e.g. every
-    :00/:05/.../:55 for the 300s default). Rules are hour-granular, so an
-    on-the-hour transition like 04:00 is caught by the 04:00 pass and applied
-    within seconds of the boundary — not up to a full interval late.
-    """
+    """Align passes to the clock so adjacent hourly rates switch at the boundary."""
     logger.info("Starting cost schedule worker (interval=%ds, boundary-aligned)", interval_seconds)
     while True:
         try:

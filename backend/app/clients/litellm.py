@@ -11,6 +11,15 @@ from app.config import settings
 from app.services.personal_access import NO_DEFAULT_MODELS
 
 
+BASE_PRICE_FIELDS = ("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost")
+
+
+def deployment_base_prices(deployment: dict) -> dict[str, float | None]:
+    params = deployment.get("litellm_params") or {}
+    info = deployment.get("model_info") or {}
+    return {key: params[key] if params.get(key) is not None else info.get(key) for key in BASE_PRICE_FIELDS}
+
+
 class LiteLLMClient:
     """Wrapper around LiteLLM proxy management endpoints.
 
@@ -243,12 +252,20 @@ class LiteLLMClient:
         """``/access_group/{name}/delete``: untag every DB deployment (config models keep theirs)."""
         return await self._request("DELETE", f"/access_group/{quote(name, safe='')}/delete")
 
-    async def update_model(self, model_id: str, *, litellm_params: dict | None = None) -> dict:
-        """Update a deployment's litellm_params (e.g. input/output_cost_per_token)."""
-        payload: dict[str, Any] = {"model_info": {"id": model_id}}
-        if litellm_params is not None:
-            payload["litellm_params"] = litellm_params
-        return await self._request("POST", "/model/update", json=payload)
+    async def check_cost_schedule_support(self) -> None:
+        info = await self._request("GET", "/public/model_hub/info")
+        version = str(info.get("litellm_version", "")).lstrip("v")
+        release = version.split(".")[:2]
+        if len(release) != 2 or not all(part.isdecimal() for part in release) or tuple(map(int, release)) < (1, 102):
+            raise RuntimeError(f"Time-of-day pricing requires LiteLLM 1.102.0 or later (proxy reports {version!r})")
+
+    async def set_cost_schedule(
+        self, model_id: str, off_peak: dict, *, legacy_restore: dict | None = None
+    ) -> dict:
+        payload = {"model_info": {"id": model_id, "off_peak_pricing": off_peak}}
+        if legacy_restore:
+            payload["litellm_params"] = legacy_restore
+        return await self._request("PATCH", f"/model/{quote(model_id, safe='')}/update", json=payload)
 
     async def create_model(
         self,
