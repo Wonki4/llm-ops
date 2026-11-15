@@ -687,6 +687,15 @@
     }
   },
   "modelCostSchedule": {
+    "defaultPricing": "Default pricing",
+    "portalManaged": "When no scheduled rate applies, the next sync applies the portal default.",
+    "liteLLMManaged": "Default prices follow LiteLLM. Saving new prices gives the portal control.",
+    "rulePriceNote": "If both rates set directly in LiteLLM match a configured schedule, the next sync may restore the saved default.",
+    "followLiteLLM": "Follow LiteLLM pricing",
+    "defaultSaved": "Default pricing saved.",
+    "registerForDefaults": "Register this model in the catalog to set its default pricing.",
+    "configPricing": "For deployments defined in the LiteLLM config file, update billing rates in that file.",
+    "unset": "Unset",
     "description": "Token cost by time of day. Falls back to catalog default cost when no rule matches.",
     "addRule": "Add Rule",
     "noRules": "No rules registered.",

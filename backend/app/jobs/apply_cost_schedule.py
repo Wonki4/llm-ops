@@ -83,7 +83,7 @@ async def apply_cost_schedule() -> dict:
     skipped_config: set[str] = set()
     missing_default: set[str] = set()
     # model_name -> (input, output) base cost to write back into the catalog default
-    default_updates: dict[str, tuple[float, float]] = {}
+    default_updates: dict[str, tuple[float, float, float | None]] = {}
 
     litellm = LiteLLMClient()
 
@@ -182,7 +182,13 @@ async def apply_cost_schedule() -> dict:
             # (and differs from the stored default), it's a not-yet-reverted rule
             # leftover — fall through to revert it. Otherwise the live cost IS the
             # base: adopt it as the new default and leave the model as-is.
-            if active_rule is None and catalog is not None and current_in is not None and current_out is not None:
+            if (
+                active_rule is None
+                and catalog is not None
+                and not catalog.default_cost_managed
+                and current_in is not None
+                and current_out is not None
+            ):
                 rule_pairs = {(r.input_cost_per_token, r.output_cost_per_token) for r in rules}
                 stored = (catalog.default_input_cost_per_token, catalog.default_output_cost_per_token)
                 live = (current_in, current_out)
@@ -194,7 +200,9 @@ async def apply_cost_schedule() -> dict:
             # cache_read only forces a push when a target is set (None = leave
             # LiteLLM's value unchanged, mirroring its merge semantics).
             cache_read_changed = target_cache_read is not None and current_cache_read != target_cache_read
-            if current_in == target_in and current_out == target_out and not cache_read_changed:
+            input_changed = target_in is not None and current_in != target_in
+            output_changed = target_out is not None and current_out != target_out
+            if not (input_changed or output_changed or cache_read_changed):
                 continue
             update_params = {
                 "input_cost_per_token": target_in,
@@ -230,7 +238,7 @@ async def apply_cost_schedule() -> dict:
                         "UPDATE custom_model_catalog "
                         "SET default_input_cost_per_token = :i, default_output_cost_per_token = :o, "
                         "default_cache_read_cost_per_token = COALESCE(:cr, default_cache_read_cost_per_token) "
-                        "WHERE model_name = :m"
+                        "WHERE model_name = :m AND NOT default_cost_managed"
                     ),
                     {"i": din, "o": dout, "cr": dcr, "m": mname},
                 )

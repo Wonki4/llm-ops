@@ -7,6 +7,7 @@ import { useMe, useModelStatusHistory } from "@/hooks/use-api";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelCacheSection } from "@/components/model-cache-section";
+import { DefaultCostForm } from "@/components/model-default-cost-form";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import {
   Sheet,
@@ -157,6 +158,10 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
           {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.timezonePricing")}</h4>
+              <DefaultCostForm key={model.model_name} modelName={model.model_name} catalog={catalog}
+                configOnly={litellmInfo?.model_info?.db_model === false}
+                liveInput={litellmInfo?.model_info?.input_cost_per_token}
+                liveOutput={litellmInfo?.model_info?.output_cost_per_token} />
               <ModelCostScheduleSection modelName={model.model_name} />
             </section>
           )}

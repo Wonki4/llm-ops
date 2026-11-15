@@ -22,7 +22,7 @@ class CustomModelCatalog(CustomBase):
 
     Links to LiteLLM model_name but stores additional metadata
     like descriptions, status lifecycle, and per-status scheduled dates.
-    Cost info comes from LiteLLM model_info (not stored in catalog).
+    Default token prices can follow LiteLLM or be managed by a portal administrator.
     """
 
     __tablename__ = "custom_model_catalog"
@@ -45,6 +45,8 @@ class CustomModelCatalog(CustomBase):
         index=True,
     )
     visible: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # Manual pricing takes precedence over baseline discovery from LiteLLM.
+    default_cost_managed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # Fallback token costs applied when no cost schedule rule matches.
     default_input_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_output_cost_per_token: Mapped[float | None] = mapped_column(Float, nullable=True)

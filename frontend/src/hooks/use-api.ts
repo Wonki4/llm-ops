@@ -652,7 +652,8 @@ export function useUpdateCatalogEntry() {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: (_data, variables) => {
+    onSuccess: (entry, variables) => {
+      qc.invalidateQueries({ queryKey: ["model-summary", entry.model_name] });
       qc.invalidateQueries({ queryKey: queryKeys.modelCatalog });
       qc.invalidateQueries({ queryKey: queryKeys.models });
       qc.invalidateQueries({ queryKey: queryKeys.modelStatusHistory(variables.catalogId) });
@@ -977,15 +978,7 @@ export interface ModelSummaryBenchmark {
 
 export interface ModelSummary {
   model_name: string;
-  catalog: {
-    display_name?: string;
-    description?: string | null;
-    icon_url?: string | null;
-    status?: string;
-    default_input_cost_per_token?: number | null;
-    default_output_cost_per_token?: number | null;
-    default_cache_read_cost_per_token?: number | null;
-  } | null;
+  catalog: ModelCatalog | null;
   litellm_info: Record<string, unknown> | null;
   cost_schedule: Array<{
     days_of_week: number[];

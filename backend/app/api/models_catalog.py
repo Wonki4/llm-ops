@@ -7,7 +7,7 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, func as sa_func, text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,8 +47,9 @@ class UpdateModelCatalogEntry(BaseModel):
     status: ModelStatus | None = None
     status_schedule: dict | None = None
     visible: bool | None = None
-    default_input_cost_per_token: float | None = None
-    default_output_cost_per_token: float | None = None
+    default_input_cost_per_token: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    default_output_cost_per_token: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    follow_litellm_pricing: bool = False
 
 
 def _serialize_model(m: CustomModelCatalog) -> dict:
@@ -61,6 +62,7 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
         "status": m.status.value,
         "status_schedule": m.status_schedule,
         "visible": m.visible,
+        "default_cost_managed": bool(m.default_cost_managed),
         "default_input_cost_per_token": m.default_input_cost_per_token,
         "default_output_cost_per_token": m.default_output_cost_per_token,
         "default_cache_read_cost_per_token": m.default_cache_read_cost_per_token,
@@ -401,12 +403,17 @@ async def update_catalog_entry(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Update a model catalog entry (Super User only)."""
-    result = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.id == uuid.UUID(catalog_id)))
+    result = await db.execute(
+        select(CustomModelCatalog).where(CustomModelCatalog.id == uuid.UUID(catalog_id)).with_for_update()
+    )
     entry = result.scalar_one_or_none()
     if not entry:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Catalog entry not found")
 
-    update_data = body.model_dump(exclude_unset=True)
+    update_data = body.model_dump(exclude_unset=True, exclude={"follow_litellm_pricing"})
+    edits_price = bool({"default_input_cost_per_token", "default_output_cost_per_token"} & update_data.keys())
+    if body.follow_litellm_pricing and edits_price:
+        raise HTTPException(422, "Choose either LiteLLM pricing or explicit default prices")
 
     # Track status changes with history
     previous_status = entry.status
@@ -416,6 +423,14 @@ async def update_catalog_entry(
 
     for field, value in update_data.items():
         setattr(entry, field, value)
+
+    if body.follow_litellm_pricing:
+        # Retain the last baseline so an active schedule can still revert.
+        entry.default_cost_managed = False
+    elif edits_price:
+        entry.default_cost_managed = (
+            entry.default_input_cost_per_token is not None or entry.default_output_cost_per_token is not None
+        )
 
     entry.updated_by = user.user_id
     await db.flush()
@@ -523,7 +538,7 @@ class ModelCacheEntry(BaseModel):
         extra = "allow"
 
 
-@router.get("/{model_name}/summary")
+@router.get("/{model_name:path}/summary")
 async def model_summary(
     model_name: str,
     user: CustomUser = Depends(get_current_user),
@@ -549,8 +564,13 @@ async def model_summary(
     litellm_info = None
     try:
         for lm in await litellm.get_model_info():
-            if lm.get("model_name") == model_name:
+            if lm.get("model_name") != model_name:
+                continue
+            # A name may group config-file and editable database deployments.
+            editable = (lm.get("model_info") or {}).get("db_model") is not False
+            if litellm_info is None or editable:
                 litellm_info = _sanitize_litellm_info(lm)
+            if editable:
                 break
     except Exception:
         logger.error("Failed to fetch LiteLLM model info for %s", model_name, exc_info=True)
@@ -736,7 +756,7 @@ async def _snapshot_default_cost_if_missing(
     exist or LiteLLM has no cost for this model.
     """
     result = await db.execute(
-        select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name)
+        select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name).with_for_update()
     )
     catalog = result.scalar_one_or_none()
     if catalog is None:
@@ -759,9 +779,13 @@ async def _snapshot_default_cost_if_missing(
             continue
         params = d.get("litellm_params") or {}
         info = d.get("model_info") or {}
-        in_cost = params.get("input_cost_per_token") or info.get("input_cost_per_token")
-        out_cost = params.get("output_cost_per_token") or info.get("output_cost_per_token")
-        cache_read_cost = params.get("cache_read_input_token_cost") or info.get("cache_read_input_token_cost")
+
+        def effective_cost(key: str) -> float | None:
+            return params[key] if params.get(key) is not None else info.get(key)
+
+        in_cost = effective_cost("input_cost_per_token")
+        out_cost = effective_cost("output_cost_per_token")
+        cache_read_cost = effective_cost("cache_read_input_token_cost")
         if not in_set and in_cost is not None:
             catalog.default_input_cost_per_token = float(in_cost)
         if not out_set and out_cost is not None:
