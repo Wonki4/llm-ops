@@ -108,6 +108,10 @@ export interface ApiKey {
 export type StatusSchedule = Partial<Record<ModelStatus, string>>;
 
 export interface ModelCatalog {
+  default_cost_managed: boolean;
+  default_input_cost_per_token?: number | null;
+  default_output_cost_per_token?: number | null;
+  default_cache_read_cost_per_token?: number | null;
   id: string;
   model_name: string;
   display_name: string;
@@ -246,6 +250,9 @@ export interface CreateModelCatalogRequest {
 }
 
 export interface UpdateModelCatalogRequest {
+  follow_litellm_pricing?: boolean;
+  default_input_cost_per_token?: number;
+  default_output_cost_per_token?: number;
   display_name?: string;
   description?: string;
   icon_url?: string | null;

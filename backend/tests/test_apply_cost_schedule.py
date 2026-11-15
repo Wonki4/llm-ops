@@ -224,9 +224,10 @@ async def test_active_rule_without_cache_read_omits_key(monkeypatch):
 async def test_no_rule_refreshes_default_from_live_base(monkeypatch):
     """No rule active + live base differs from the stored default (and isn't a
     rule price) -> adopt the live cost as the new default, don't push."""
-    monkeypatch.setattr(
-        job, "async_session_factory", lambda: _FakeSession([], [_catalog("m")])  # default 1e-06/2e-06
-    )
+    write_session = _FakeSession([], [])
+    write_session.execute = AsyncMock()
+    sessions = [_FakeSession([], [_catalog("m")]), write_session]
+    monkeypatch.setattr(job, "async_session_factory", MagicMock(side_effect=sessions))
     fake = MagicMock()
     # Live cost 5e-06/5e-06 — a new base, not one of the model's rule prices.
     fake.get_model_info = AsyncMock(return_value=[_deployment_with_override("m", "m1", 5e-06)])
@@ -237,3 +238,35 @@ async def test_no_rule_refreshes_default_from_live_base(monkeypatch):
 
     assert result["refreshed_defaults"] == 1
     fake.update_model.assert_not_awaited()  # model already at its base; no revert push
+
+    statement, _ = write_session.execute.await_args.args
+    assert "AND NOT default_cost_managed" in str(statement)
+
+
+@pytest.mark.asyncio
+async def test_managed_default_restored_after_active_rule(monkeypatch):
+    catalog = _catalog("m")
+    catalog.default_cost_managed = True
+    catalog.default_input_cost_per_token = 0
+    rule = _allday_rule(None)
+    deployment = _deployment_with_override("m", "m1", 5e-6)
+    monkeypatch.setattr(job, "async_session_factory", lambda: _FakeSession([rule], [catalog]))
+    fake = MagicMock()
+    fake.get_model_info = AsyncMock(return_value=[deployment])
+    fake.update_model = AsyncMock()
+    monkeypatch.setattr(job, "LiteLLMClient", lambda: fake)
+
+    await job.apply_cost_schedule()
+    params = fake.update_model.await_args.kwargs["litellm_params"]
+    assert params == {"input_cost_per_token": 1e-6, "output_cost_per_token": 1e-6}
+    deployment["litellm_params"].update(params)
+
+    # Deleting the rule also removes its price from the worker's list of known rule prices.
+    monkeypatch.setattr(job, "async_session_factory", lambda: _FakeSession([], [catalog]))
+    result = await job.apply_cost_schedule()
+    assert result["refreshed_defaults"] == 0
+    assert result["deployments_updated"] == 1
+    params = fake.update_model.await_args.kwargs["litellm_params"]
+    assert params == {"input_cost_per_token": 0, "output_cost_per_token": 2e-6}
+    deployment["litellm_params"].update(params)
+    assert (await job.apply_cost_schedule())["deployments_updated"] == 0

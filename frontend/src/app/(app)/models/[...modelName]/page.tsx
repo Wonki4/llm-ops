@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 
 import { useMe, useModelSummary, useModels, type ModelSummary } from "@/hooks/use-api";
 import { AccessGroupBadges } from "@/components/access-group-badges";
+import { DefaultCostForm } from "@/components/model-default-cost-form";
 import { ModelPersonalUsersCard } from "@/components/model-personal-users-card";
 import { Badge } from "@/components/ui/badge";
 import { buildAccessGroupIndex } from "@/lib/access-groups";
@@ -129,6 +130,7 @@ function AccuracyDetailTab({ acc }: { acc: ModelSummary["accuracy"] }) {
 
 function PricingDetailTab({ summary }: { summary: ModelSummary }) {
   const t = useTranslations("modelCostSchedule");
+  const { data: me } = useMe();
   // days_of_week is 1=Mon..7=Sun (ISO); render localized short labels (월·화 / Mon·Tue).
   const dayNames = [t("mon"), t("tue"), t("wed"), t("thu"), t("fri"), t("sat"), t("sun")];
   const info = get(summary.litellm_info, "model_info") ?? summary.litellm_info;
@@ -136,10 +138,17 @@ function PricingDetailTab({ summary }: { summary: ModelSummary }) {
   const baseOut = summary.catalog?.default_output_cost_per_token ?? get(info, "output_cost_per_token");
   const baseCacheRead =
     summary.catalog?.default_cache_read_cost_per_token ?? get(info, "cache_read_input_token_cost");
+  const configOnly = get(info, "db_model") === false;
+  const showEditor = me?.role === "super_user";
   return (
     <div className="space-y-4">
+      {showEditor && (
+        <DefaultCostForm key={summary.model_name} modelName={summary.model_name} catalog={summary.catalog}
+          configOnly={configOnly} liveInput={num(get(info, "input_cost_per_token"))}
+          liveOutput={num(get(info, "output_cost_per_token"))} />
+      )}
       <KVTable
-        rows={[
+        rows={showEditor && summary.catalog && !configOnly ? [["기본 Cache Read", pricePerM(baseCacheRead)]] : [
           ["기본 Input", pricePerM(baseIn)],
           ["기본 Output", pricePerM(baseOut)],
           ["기본 Cache Read", pricePerM(baseCacheRead)],
