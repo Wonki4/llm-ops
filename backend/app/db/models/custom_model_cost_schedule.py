@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Float, Integer, SmallInteger, String, func
-from sqlalchemy.dialects.postgresql import ARRAY, UUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import CustomBase
@@ -40,3 +40,15 @@ class CustomModelCostSchedule(CustomBase):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
+
+
+class CustomAppliedCostSchedule(CustomBase):
+    """Last confirmed schedule write still eligible for restoration, per deployment."""
+
+    __tablename__ = "custom_applied_cost_schedule"
+
+    deployment_id: Mapped[str] = mapped_column(String, primary_key=True)
+    model_name: Mapped[str] = mapped_column(String, nullable=False)
+    litellm_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    previous_rates: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    applied_rates: Mapped[dict] = mapped_column(JSONB, nullable=False)

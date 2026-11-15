@@ -3,6 +3,7 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_gpu_profile import CustomGpuProfile  # noqa: F401
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_catalog import CustomModelCatalog
+from app.db.models.custom_model_cost_schedule import CustomAppliedCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_serving_grant import CustomServingGrant, CustomServingGrantEvent
 from app.db.models.custom_serving_recipe import CustomServingRecipe
@@ -15,6 +16,7 @@ __all__ = [
     "CustomUser",
     "CustomTeamJoinRequest",
     "CustomModelCatalog",
+    "CustomAppliedCostSchedule",
     "CustomModelStatusHistory",
     "CustomTrustedSystem",
     "CustomK8sCluster",
