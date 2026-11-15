@@ -26,12 +26,11 @@ import {
 } from "@/components/ui/select";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import type { ModelStatus, ModelWithCatalog, Team } from "@/types";
-import { buildAccessGroupIndex, expandTeamModels } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandTeamModels, hasAllTeamModels } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
 
 // ─── Constants ────────────────────────────────────────────────
 
-const ALL_PROXY_MODELS = "all-proxy-models";
 /** Synthetic "team" id for the user's personal-key scope (Beta). */
 const PERSONAL_ID = "__personal__";
 
@@ -44,12 +43,6 @@ const STATUS_OPTIONS: { value: ModelStatus }[] = [
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────
-
-/** A team has "all models" access when it lists the all-proxy sentinel or has no
- * explicit models (LiteLLM treats an empty list as no restriction). */
-function hasAllModels(team: Team): boolean {
-  return team.models.includes(ALL_PROXY_MODELS) || team.models.length === 0;
-}
 
 // A resolved row in the model table: the team's model name plus its merged
 // catalog/litellm record (null when the name has no matching deployed/catalog model).
@@ -101,7 +94,7 @@ export default function ModelDashboardPage() {
     let rows: ModelRow[];
     if (isPersonal || !selectedTeam) {
       rows = personalRows;
-    } else if (hasAllModels(selectedTeam)) {
+    } else if (hasAllTeamModels(selectedTeam)) {
       rows = (models ?? [])
         .filter((m) => m.catalog && m.catalog.visible !== false)
         .map((m) => ({ name: m.model_name, model: m }));
@@ -145,7 +138,7 @@ export default function ModelDashboardPage() {
   const hasActiveFilters = !!(query.trim() || statusFilter);
 
   function teamModelLabel(team: Team): string {
-    return hasAllModels(team)
+    return hasAllTeamModels(team)
       ? t("byTeam.allModels")
       : t("byTeam.modelCount", { count: expandTeamModels(team, accessGroupIndex, modelsByName).length });
   }

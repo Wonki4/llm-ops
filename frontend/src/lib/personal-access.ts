@@ -1,8 +1,13 @@
 import type { ModelWithCatalog, PersonalAccess } from "@/types";
-import { type AccessGroupIndex, type ExpandedGrant, expandModelGrants } from "@/lib/access-groups";
+import {
+  ALL_PROXY_MODELS,
+  NO_DEFAULT_MODELS,
+  type AccessGroupIndex,
+  type ExpandedGrant,
+  expandModelGrants,
+} from "@/lib/access-groups";
 
-export const NO_DEFAULT_MODELS = "no-default-models";
-export const ALL_PROXY_MODELS = "all-proxy-models";
+export { ALL_PROXY_MODELS, NO_DEFAULT_MODELS, grantEntries } from "@/lib/access-groups";
 
 /** Mirrors backend personal_access.grant_state. */
 export function grantState(models: string[] | null | undefined): PersonalAccess {
@@ -10,11 +15,6 @@ export function grantState(models: string[] | null | undefined): PersonalAccess 
   if (names.length === 0 || names.every((m) => m === NO_DEFAULT_MODELS)) return "none";
   if (names.includes(ALL_PROXY_MODELS)) return "all";
   return "custom";
-}
-
-/** The custom entries (model / group names) without sentinels. */
-export function grantEntries(models: string[] | null | undefined): string[] {
-  return (models ?? []).filter((m) => m && m !== NO_DEFAULT_MODELS && m !== ALL_PROXY_MODELS);
 }
 
 /**
@@ -35,5 +35,5 @@ export function expandPersonalScope(
       .filter((m) => m.catalog && m.catalog.visible !== false)
       .map((m) => ({ name: m.model_name, model: m, viaGroup: null }));
   }
-  return expandModelGrants(grantEntries(models), index, modelsByName);
+  return expandModelGrants(models ?? [], index, modelsByName);
 }

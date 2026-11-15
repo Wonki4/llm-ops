@@ -1,5 +1,18 @@
 import type { ModelWithCatalog, Team } from "@/types";
 
+export const NO_DEFAULT_MODELS = "no-default-models";
+export const ALL_PROXY_MODELS = "all-proxy-models";
+
+/** LiteLLM also grants unrestricted access to legacy teams with a literal empty list. */
+export function hasAllTeamModels(team: Pick<Team, "models">): boolean {
+  return team.models.length === 0 || team.models.includes(ALL_PROXY_MODELS);
+}
+
+/** The model and access-group names, excluding LiteLLM's scope markers. */
+export function grantEntries(models: string[] | null | undefined): string[] {
+  return (models ?? []).filter((m) => m && m !== NO_DEFAULT_MODELS && m !== ALL_PROXY_MODELS);
+}
+
 /**
  * LiteLLM model access groups: each model may list `model_info.access_groups`;
  * a team or key whose `models` contains a group name can call every model in
@@ -40,8 +53,7 @@ export function expandModelGrants(
 ): ExpandedGrant[] {
   const out: ExpandedGrant[] = [];
   const seen = new Set<string>();
-  for (const grant of grants) {
-    if (grant === "all-proxy-models") continue;
+  for (const grant of grantEntries(grants)) {
     const members = index.get(grant);
     if (members && !modelsByName.has(grant)) {
       for (const m of members) {

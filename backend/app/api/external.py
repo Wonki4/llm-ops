@@ -169,8 +169,8 @@ async def update_team_budget_by_name(
     in that case.
 
     Set `create_if_missing: true` to auto-create the team when no match is
-    found. Created teams have an empty models list and no admins; the budget
-    fields from this request are applied at creation time.
+    found. New teams can call models once access is granted. They start with
+    no admins and the budget fields supplied in this request.
     """
     team_row = await _resolve_team(
         litellm_db, team_alias=team_alias, missing_ok=body.create_if_missing
@@ -182,7 +182,6 @@ async def update_team_budget_by_name(
         )
         new_team = await litellm.create_team(
             team_alias=team_alias,
-            models=[],
             **update_fields,
         )
         new_team_id = new_team.get("team_id", "")

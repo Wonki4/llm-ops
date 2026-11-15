@@ -4,7 +4,7 @@ import { use, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMyTeams, useCreateKey, usePortalSettings, useTeamDetail, useModels, useMe } from "@/hooks/use-api";
-import { buildAccessGroupIndex, expandModelGrants } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandModelGrants, grantEntries, hasAllTeamModels } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
 import { Users, AlertTriangle } from "lucide-react";
 import {
@@ -113,6 +113,7 @@ export default function CreateKeyPage({
   const createKeyMutation = useCreateKey();
   const { data: portalSettings } = usePortalSettings();
   const t = useTranslations("keys");
+  const teamLabels = useTranslations("teams");
   const tc = useTranslations("common");
 
   // Personal keys (Beta): offered only while the portal switch is on; a grant
@@ -133,6 +134,7 @@ export default function CreateKeyPage({
   const selectedTeam: Team | undefined = teams?.find(
     (t) => t.team_id === selectedTeamId
   );
+  const teamGrants = grantEntries(selectedTeam?.models);
 
   const { data: teamDetail } = useTeamDetail(personal ? "" : selectedTeamId);
   const { data: allModels } = useModels();
@@ -349,9 +351,11 @@ export default function CreateKeyPage({
               <div className="space-y-2">
                 <Label>{t("labelModels")}</Label>
                 <div className="flex flex-wrap gap-2">
-                  {selectedTeam.models.length > 0 || (selectedTeam.unified_access_groups ?? []).length > 0 ? (
+                  {hasAllTeamModels(selectedTeam) ? (
+                    <Badge variant="secondary">{teamLabels("allModels")}</Badge>
+                  ) : teamGrants.length > 0 || (selectedTeam.unified_access_groups ?? []).length > 0 ? (
                     <>
-                      {selectedTeam.models.map((model) => {
+                      {teamGrants.map((model) => {
                         const members = accessGroupIndex.get(model);
                         return members ? (
                           <Badge

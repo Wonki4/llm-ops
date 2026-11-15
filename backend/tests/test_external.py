@@ -147,11 +147,28 @@ async def test_by_name_missing_with_flag_creates_team(
     # create_if_missing must NOT be forwarded to the LiteLLM payload
     litellm_client.create_team.assert_awaited_once_with(
         team_alias="new-team-x",
-        models=[],
         max_budget=100,
         budget_duration="30d",
     )
     litellm_client.update_team.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("options", "expected"),
+    [
+        ({}, ["no-default-models"]),
+        ({"models": []}, ["no-default-models"]),
+        ({"models": ["shared-model"]}, ["shared-model"]),
+    ],
+)
+async def test_create_team_sends_model_scope_to_litellm(monkeypatch, options, expected):
+    client = LiteLLMClient()
+    request = AsyncMock()
+    monkeypatch.setattr(client, "_request", request)
+    await client.create_team(team_alias="new-team", **options)
+    request.assert_awaited_once_with(
+        "POST", "/team/new", json={"team_alias": "new-team", "models": expected},
+    )
 
 
 # ─── by-name endpoint: ambiguous alias ─────────────────────────────────
