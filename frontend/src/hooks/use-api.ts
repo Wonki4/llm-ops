@@ -980,6 +980,13 @@ export interface ModelSummary {
   model_name: string;
   catalog: ModelCatalog | null;
   litellm_info: Record<string, unknown> | null;
+  deployment_prices: Array<{
+    id: string;
+    input_cost_per_token: number | null;
+    output_cost_per_token: number | null;
+    cache_read_input_token_cost: number | null;
+  }>;
+  schedule_timezone: string;
   cost_schedule: Array<{
     days_of_week: number[];
     hour_start_local: number;

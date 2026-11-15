@@ -642,7 +642,7 @@
     "sections": {
       "cacheSettings": "Cache Settings (per suffix)",
       "timezonePricing": "Timezone Pricing",
-      "costInfo": "Cost Info",
+      "costInfo": "LiteLLM base prices",
       "modelLimits": "Model Limits",
       "features": "Features",
       "catalogInfo": "Catalog Info",
@@ -687,15 +687,10 @@
     }
   },
   "modelCostSchedule": {
-    "defaultPricing": "Default pricing",
-    "portalManaged": "When no scheduled rate applies, the next sync applies the portal default.",
-    "liteLLMManaged": "Default prices follow LiteLLM. Saving new prices gives the portal control.",
-    "followLiteLLM": "Follow LiteLLM pricing",
-    "defaultSaved": "Default pricing saved.",
-    "registerForDefaults": "Register this model in the catalog to set its default pricing.",
-    "configPricing": "For deployments defined in the LiteLLM config file, update billing rates in that file.",
-    "unset": "Unset",
-    "description": "Token cost by time of day. Falls back to catalog default cost when no rule matches.",
+    "defaultPricing": "LiteLLM base prices",
+    "deployment": "Deployment ID",
+    "noLivePrices": "No deployment prices available from LiteLLM.",
+    "description": "When a time window ends, billing uses the current LiteLLM base prices.",
     "addRule": "Add Rule",
     "noRules": "No rules registered.",
     "rule": {

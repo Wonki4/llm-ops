@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelPrice } from "@/lib/model-pricing";
 import { useState, useMemo } from "react";
 import { Plus, Pencil, Trash2, Package, Server, BookOpen, History, ArrowRight, Loader2, Search, X } from "lucide-react";
 import { toast } from "sonner";
@@ -83,12 +84,6 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────
-
-function formatCost(cost: number | null | undefined): string {
-  if (cost == null) return "-";
-  if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
-}
 
 function formatContextLength(tokens: number | null | undefined): string {
   if (tokens == null) return "-";
@@ -409,18 +404,6 @@ export default function ModelManagementPage() {
     return model.catalog?.display_name ?? model.model_name;
   }
 
-  function getInputCost(model: ModelWithCatalog): number | null | undefined {
-    return (model.litellm_info?.model_info as Record<string, unknown>)?.input_cost_per_token as number | null | undefined;
-  }
-
-  function getOutputCost(model: ModelWithCatalog): number | null | undefined {
-    return (model.litellm_info?.model_info as Record<string, unknown>)?.output_cost_per_token as number | null | undefined;
-  }
-
-  function getCacheReadCost(model: ModelWithCatalog): number | null | undefined {
-    return (model.litellm_info?.model_info as Record<string, unknown>)?.cache_read_input_token_cost as number | null | undefined;
-  }
-
   function getNextTransitionDate(catalog: ModelCatalog | null): string | null {
     if (!catalog?.status_schedule) return null;
 
@@ -641,13 +624,13 @@ export default function ModelManagementPage() {
 
                     {/* Costs */}
                     <TableCell className="text-sm">
-                      {formatCost(getInputCost(model))}
+                      {formatModelPrice(model.litellm_info?.model_info?.input_cost_per_token)}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {formatCost(getOutputCost(model))}
+                      {formatModelPrice(model.litellm_info?.model_info?.output_cost_per_token)}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {formatCost(getCacheReadCost(model))}
+                      {formatModelPrice(model.litellm_info?.model_info?.cache_read_input_token_cost)}
                     </TableCell>
 
                     <TableCell className="text-sm">

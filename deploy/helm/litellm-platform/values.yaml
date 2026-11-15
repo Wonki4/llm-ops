@@ -35,6 +35,8 @@ backend:
     port: 8000
   env:
     APP_DATABASE_URL: ""
+    APP_LITELLM_DATABASE_URL: ""
+    APP_SCHEDULE_TIMEZONE: "Asia/Seoul"
     APP_LITELLM_BASE_URL: ""
     APP_BENCHMARK_ACCURACY_IMAGE: "llmops-benchmark:portal-v1"
     APP_LITELLM_ADMIN_API_KEY: "sk-1234"
@@ -162,6 +164,12 @@ prometheus:
     enabled: true
     storageClass: ""
     size: 10Gi
+
+# Match the Compose proxy version for native weekday-aware off-peak pricing.
+litellm-helm:
+  image:
+    repository: ghcr.io/berriai/litellm
+    tag: v1.102.0
 
 litellm:
   enabled: true

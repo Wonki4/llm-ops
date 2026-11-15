@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelPrice } from "@/lib/model-pricing";
 import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -7,7 +8,6 @@ import { useMe, useModelStatusHistory } from "@/hooks/use-api";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelCacheSection } from "@/components/model-cache-section";
-import { DefaultCostForm } from "@/components/model-default-cost-form";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import {
   Sheet,
@@ -67,11 +67,6 @@ function formatDateTime(dateStr: string | null | undefined, localeTag: string): 
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function formatCost(cost: number | null | undefined): string {
-  if (cost == null) return "-";
-  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M tokens`;
 }
 
 function renderBoolean(value: boolean | null | undefined): string {
@@ -158,10 +153,6 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
           {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.timezonePricing")}</h4>
-              <DefaultCostForm key={model.model_name} modelName={model.model_name} catalog={catalog}
-                configOnly={litellmInfo?.model_info?.db_model === false}
-                liveInput={litellmInfo?.model_info?.input_cost_per_token}
-                liveOutput={litellmInfo?.model_info?.output_cost_per_token} />
               <ModelCostScheduleSection modelName={model.model_name} />
             </section>
           )}
@@ -175,15 +166,15 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
                   <CardContent className="pt-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Input Cost</span>
-                      <span>{formatCost(litellmInfo.model_info.input_cost_per_token)}</span>
+                      <span>{formatModelPrice(litellmInfo.model_info.input_cost_per_token)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Output Cost</span>
-                      <span>{formatCost(litellmInfo.model_info.output_cost_per_token)}</span>
+                      <span>{formatModelPrice(litellmInfo.model_info.output_cost_per_token)}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">Cache Read Cost</span>
-                      <span>{formatCost(litellmInfo.model_info.cache_read_input_token_cost)}</span>
+                      <span>{formatModelPrice(litellmInfo.model_info.cache_read_input_token_cost)}</span>
                     </div>
                   </CardContent>
                 </Card>

@@ -43,7 +43,7 @@ class CustomModelCostSchedule(CustomBase):
 
 
 class CustomAppliedCostSchedule(CustomBase):
-    """Last confirmed schedule write still eligible for restoration, per deployment."""
+    """Legacy worker receipt, consumed once when transitioning to native LiteLLM time windows."""
 
     __tablename__ = "custom_applied_cost_schedule"
 

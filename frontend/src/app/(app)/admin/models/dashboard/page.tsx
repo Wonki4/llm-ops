@@ -1,5 +1,6 @@
 "use client";
 
+import { formatModelPrice } from "@/lib/model-pricing";
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import {
@@ -127,12 +128,6 @@ function formatDate(dateStr: string | null | undefined, localeTag: string): stri
     month: "2-digit",
     day: "2-digit",
   });
-}
-
-function formatCost(cost: number | null | undefined): string {
-  if (cost == null) return "-";
-  if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
 }
 
 function formatRelativeTime(dateStr: string, t: ReturnType<typeof useTranslations>, localeTag: string): string {
@@ -757,13 +752,13 @@ export default function ModelDashboardPage() {
                         )}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {formatCost(m.litellm_info?.model_info?.input_cost_per_token)}
+                        {formatModelPrice(m.litellm_info?.model_info?.input_cost_per_token)}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {formatCost(m.litellm_info?.model_info?.output_cost_per_token)}
+                        {formatModelPrice(m.litellm_info?.model_info?.output_cost_per_token)}
                       </TableCell>
                       <TableCell className="text-xs font-mono text-muted-foreground">
-                        {formatCost(m.litellm_info?.model_info?.cache_read_input_token_cost)}
+                        {formatModelPrice(m.litellm_info?.model_info?.cache_read_input_token_cost)}
                       </TableCell>
                       <TableCell>
                         {(() => {

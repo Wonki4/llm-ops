@@ -1,3 +1,4 @@
+import { formatModelPrice } from "@/lib/model-pricing";
 import Link from "next/link";
 import { useState } from "react";
 import { Copy, Check } from "lucide-react";
@@ -40,12 +41,6 @@ const STATUS_INDEX: Record<ModelStatus, number> = {
   deprecating: 3,
   deprecated: 4,
 };
-
-function formatCost(cost: number | null | undefined): string {
-  if (cost == null) return "-";
-  if (cost === 0) return "$ 0";
-  return `$ ${(cost * 1_000_000).toFixed(2)} / 1M`;
-}
 
 /** Context window = max input tokens (falling back to max tokens), as "N tok". */
 function formatContext(model: ModelWithCatalog | null): string {
@@ -197,13 +192,13 @@ export function ModelTable({
               )}
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
-              {formatCost(model?.litellm_info?.model_info?.input_cost_per_token)}
+              {formatModelPrice(model?.litellm_info?.model_info?.input_cost_per_token)}
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
-              {formatCost(model?.litellm_info?.model_info?.output_cost_per_token)}
+              {formatModelPrice(model?.litellm_info?.model_info?.output_cost_per_token)}
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
-              {formatCost(model?.litellm_info?.model_info?.cache_read_input_token_cost)}
+              {formatModelPrice(model?.litellm_info?.model_info?.cache_read_input_token_cost)}
             </TableCell>
             <TableCell className="font-mono text-xs text-muted-foreground">
               {formatContext(model)}
