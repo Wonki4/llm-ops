@@ -161,6 +161,14 @@ async def create_recipe(body: serving_recipes.RecipeBody) -> dict:
     return await _run(serving.create_recipe, body=body)
 
 
+async def update_recipe(recipe_id: str, patch: dict) -> dict:
+    """Edit a saved serving recipe by ID from list_recipes. Only the template is updated.
+    Use a JSON Merge Patch of recipe fields: nested objects merge, arrays replace, null removes a key.
+    Return the saved recipe and its validation warnings. Existing deployments keep their current settings.
+    """
+    return await _run(serving.update_recipe, recipe_id=recipe_id, patch=patch)
+
+
 async def preview_deployment_from_recipe(recipe_id: str, target: serving.DeployTarget) -> dict:
     """Preview the target deployment's LiteLLM registration and aggregated ingress before applying the recipe."""
     return await _run(serving.preview_deployment, recipe_id=recipe_id, target=target)
@@ -213,5 +221,6 @@ def register_tools(server: MCPServer) -> None:
     for fn in (preview_recipe, preview_deployment_from_recipe, preview_deployment_recipe_patch,
                get_rollout_status, get_deployment_diagnostics):
         server.tool(annotations=READ_ONLY)(fn)
-    for fn in (create_recipe, deploy_from_recipe, apply_deployment_recipe_patch, retry_aggregated_router, smoke_test_deployment):
+    for fn in (create_recipe, update_recipe, deploy_from_recipe, apply_deployment_recipe_patch,
+               retry_aggregated_router, smoke_test_deployment):
         server.tool(annotations=ToolAnnotations(read_only_hint=False))(fn)

@@ -374,16 +374,22 @@ async def update_recipe(
     recipe = await _by_id(db, recipe_id)
     if not recipe:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+    return await save_recipe_update(recipe, body, user, db)
+
+
+async def save_recipe_update(
+    recipe: CustomServingRecipe, body: RecipeBody, user: CustomUser, db: AsyncSession, *, fields: set[str] | None = None
+) -> dict:
     clash = await _by_name(db, body.name)
     if clash and clash.id != recipe.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A recipe with this name already exists")
     await _check_known_storages(db, body)
-    fields = body.model_dump()
-    if "hf_repo_id" not in body.model_fields_set and getattr(recipe, "hf_repo_id", None):
-        del fields["hf_repo_id"]  # Older clients cannot send this field.
-    else:
-        fields["hf_repo_id"] = body.hf_repo_id or repo_id_from_path(body.model_path)
-    for k, v in fields.items():
+    updates = body.model_dump(include=fields)
+    if fields is None and "hf_repo_id" not in body.model_fields_set:
+        updates.pop("hf_repo_id")  # Preserve the saved ID for older REST clients.
+    if "hf_repo_id" in updates or ("model_path" in updates and not getattr(recipe, "hf_repo_id", None)):
+        updates["hf_repo_id"] = body.hf_repo_id or repo_id_from_path(body.model_path)
+    for k, v in updates.items():
         setattr(recipe, k, v)
     recipe.updated_by = user.user_id
     await db.flush()
