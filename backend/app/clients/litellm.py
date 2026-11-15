@@ -8,6 +8,7 @@ from urllib.parse import quote
 import httpx
 
 from app.config import settings
+from app.services.personal_access import NO_DEFAULT_MODELS
 
 
 class LiteLLMClient:
@@ -187,14 +188,15 @@ class LiteLLMClient:
         models: list[str] | None = None,
         **kwargs: Any,
     ) -> dict:
-        """Create a new team via /team/new.
+        """Create a team with access only to the supplied models.
 
         Extra budget/limit fields (max_budget, budget_duration, tpm_limit,
         rpm_limit, ...) are passed straight through as kwargs.
         """
         payload: dict[str, Any] = {
             "team_alias": team_alias,
-            "models": models if models is not None else [],
+            # LiteLLM treats a literal empty list as unrestricted team access.
+            "models": models or [NO_DEFAULT_MODELS],
             **kwargs,
         }
         return await self._request("POST", "/team/new", json=payload)

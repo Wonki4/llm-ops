@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useMyTeams, useMe } from "@/hooks/use-api";
+import { grantEntries, hasAllTeamModels } from "@/lib/access-groups";
 import {
   Card,
   CardContent,
@@ -124,9 +125,9 @@ export default function MyTeamsPage() {
                     <div className="flex items-center gap-2">
                       <Badge variant="secondary" className="gap-1">
                         <Boxes className="size-3" />
-                        {team.models.includes("all-proxy-models")
+                        {hasAllTeamModels(team)
                           ? t("allModels")
-                          : t("modelCount", { count: team.models.length })}
+                          : t("modelCount", { count: grantEntries(team.models).length })}
                       </Badge>
                     </div>
                   </CardContent>

@@ -14,7 +14,7 @@ import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
-import { buildAccessGroupIndex, expandTeamModels, type AccessGroupIndex } from "@/lib/access-groups";
+import { buildAccessGroupIndex, expandTeamModels, hasAllTeamModels, type AccessGroupIndex } from "@/lib/access-groups";
 import { TeamBoostHistory } from "@/components/team-boost-history";
 import { TeamServingInventory } from "@/components/team-serving";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -358,7 +358,7 @@ function OverviewTab({
   const myMaxBudget = myMembership.max_budget;
   const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
-  const hasAllProxyModels = team.models.includes("all-proxy-models");
+  const hasAllProxyModels = hasAllTeamModels(team);
   const catalogTeamModels = expandTeamModels(team, accessGroupIndex, modelsByName)
     .map(({ name, model }) => ({ modelName: name, model }))
     .filter(({ model }) => model?.catalog);
@@ -1859,8 +1859,7 @@ export default function TeamDetailPage({
   const activeTab = allowedTabs.includes(requestedTab) ? requestedTab : "overview";
   // Rows for the team's models tab, matching the model dashboard table.
   // all-proxy / no explicit models = access to every model (LiteLLM default).
-  const teamHasAllModels =
-    team.models.includes("all-proxy-models") || team.models.length === 0;
+  const teamHasAllModels = hasAllTeamModels(team);
   const teamModelRows: ModelTableRow[] = teamHasAllModels
     ? (allModels ?? [])
         .filter((m) => m.catalog && m.catalog.visible !== false)

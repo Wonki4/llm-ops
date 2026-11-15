@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
 import { useDiscoverTeams, useCreateJoinRequest } from "@/hooks/use-api";
+import { grantEntries, hasAllTeamModels } from "@/lib/access-groups";
 import { Input } from "@/components/ui/input";
 import { ClampedDescription } from "@/components/clamped-description";
 import { Button } from "@/components/ui/button";
@@ -165,9 +166,9 @@ export default function TeamDiscoveryPage() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Box className="size-4" />
                       <span>
-                        {team.models.includes("all-proxy-models")
+                        {hasAllTeamModels(team)
                           ? t("allModels")
-                          : t("modelCount", { count: team.models.length })}
+                          : t("modelCount", { count: grantEntries(team.models).length })}
                       </span>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
