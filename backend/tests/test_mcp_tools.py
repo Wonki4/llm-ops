@@ -10,6 +10,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 from app.api import gpu_profiles, k8s_clusters, model_deployments, serving_overview, serving_recipes, storages
+from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import GlobalRole
 from app.mcp import tools
 
@@ -42,6 +43,7 @@ WIRING = [
 ]
 ALL_CALLS = [w[0] for w in WIRING] + [
     lambda: tools.whoami(), lambda: tools.preview_recipe(None), lambda: tools.create_recipe(None),
+    lambda: tools.update_recipe(ID, {"description": "updated"}),
     lambda: tools.deploy_from_recipe(ID, None), lambda: tools.preview_deployment_from_recipe(ID, None),
     lambda: tools.preview_deployment_recipe_patch(ID, {}), lambda: tools.apply_deployment_recipe_patch(ID, {}, "test"),
     lambda: tools.get_rollout_status(ID), lambda: tools.get_deployment_diagnostics(ID, "decode"),
@@ -62,7 +64,7 @@ def _recipe(**kw):
         gpu_count=1, gpu_resource_key="nvidia.com/gpu", cpu_request=None, cpu_limit=None,
         memory_request=None, memory_limit=None, node_selector=None, tolerations=None,
         storages=[], vllm_extra_args=["--tensor-parallel-size", "2"],
-        env={"HF_HUB_OFFLINE": "1"}, engine="vllm", engine_args=None,
+        env={"HF_HUB_OFFLINE": "1"}, engine="vllm", engine_args=None, pd_config=None,
         created_by=None, updated_by=None, created_at=None, updated_at=None,
     )
     base.update(kw)
@@ -94,8 +96,14 @@ async def test_registers_serving_tools_with_correct_write_annotations():
 
     listed = await server.list_tools()
 
-    reads = PHASE1_TOOLS | {"preview_recipe", "preview_deployment_from_recipe", "preview_deployment_recipe_patch", "get_rollout_status", "get_deployment_diagnostics"}
-    writes = {"create_recipe", "deploy_from_recipe", "apply_deployment_recipe_patch", "retry_aggregated_router", "smoke_test_deployment"}
+    reads = PHASE1_TOOLS | {
+        "preview_recipe", "preview_deployment_from_recipe", "preview_deployment_recipe_patch",
+        "get_rollout_status", "get_deployment_diagnostics",
+    }
+    writes = {
+        "create_recipe", "update_recipe", "deploy_from_recipe", "apply_deployment_recipe_patch",
+        "retry_aggregated_router", "smoke_test_deployment",
+    }
     assert {t.name for t in listed if t.annotations.read_only_hint} == reads
     assert {t.name for t in listed if not t.annotations.read_only_hint} == writes
 
@@ -110,6 +118,81 @@ async def test_list_recipes_equals_rest_route_output(as_caller, mock_db, super_u
     assert tool_out == rest_out
     assert tool_out["recipes"][0]["env"] == {"HF_HUB_OFFLINE": "1"}  # shown as the UI shows it
     mock_db.commit.assert_awaited()
+
+
+async def test_update_standalone_recipe_merges_only_requested_fields(as_caller, mock_db, super_user):
+    as_caller(super_user)
+    recipe = _recipe(engine_args={"max-model-len": 4096, "seed": 7}, aggregated_router={})
+    mock_db.get.return_value = recipe
+    mock_db.execute.return_value = _result(scalar=recipe)
+    saved = await tools.update_recipe(str(recipe.id), {
+        "engine_args": {"max-model-len": 8192},
+        "env": {"HF_HUB_OFFLINE": None, "LOG_LEVEL": "info"},
+        "vllm_extra_args": ["--enforce-eager"],
+    })
+    mock_db.get.assert_awaited_once_with(CustomServingRecipe, recipe.id, with_for_update=True)
+    assert saved["engine_args"] == {"max-model-len": 8192, "seed": 7}
+    assert saved["env"] == {"LOG_LEVEL": "info"} and saved["vllm_extra_args"] == ["--enforce-eager"]
+    assert saved["name"] == recipe.name and saved["aggregated_router"] == {}
+    assert saved["updated_by"] == super_user.user_id and "warnings" in saved
+    mock_db.commit.assert_awaited_once()
+
+
+@pytest.mark.parametrize(("old_id", "patch", "expected"), [
+    ("Qwen/custom", {"model_path": "Qwen/new"}, "Qwen/custom"),
+    (None, {"model_path": "Qwen/new"}, "Qwen/new"),
+    ("Qwen/custom", {"hf_repo_id": None}, "Qwen/original"),
+    ("Qwen/custom", {"hf_repo_id": None, "model_path": "/weights"}, None),
+    (None, {"description": "updated"}, None),
+])
+async def test_update_recipe_repo_id(as_caller, mock_db, super_user, old_id, patch, expected):
+    as_caller(super_user)
+    recipe = _recipe(model_path="Qwen/original", hf_repo_id=old_id)
+    mock_db.get.return_value = recipe
+    mock_db.execute.return_value = _result(scalar=recipe)
+    saved = await tools.update_recipe(str(recipe.id), patch)
+    assert saved["hf_repo_id"] == expected
+
+
+async def test_update_recipe_switches_mode_and_preserves_other_pool(as_caller, mock_db, super_user):
+    as_caller(super_user)
+    recipe = _recipe(vllm_extra_args=None)
+    mock_db.get.return_value = recipe
+    mock_db.execute.return_value = _result(scalar=recipe)
+    rid = str(recipe.id)
+    pd = await tools.update_recipe(rid, {"serving_mode": "pd", "pd_config": {"prefill": {"gpu_count": 2}}})
+    updated = await tools.update_recipe(rid, {"pd_config": {"decode": {"gpu_count": 3}}})
+    assert updated["pd_config"]["prefill"] == pd["pd_config"]["prefill"]
+    assert updated["pd_config"]["decode"]["gpu_count"] == 3
+    assert (await tools.update_recipe(rid, {"serving_mode": "aggregated"}))["pd_config"] is None
+
+
+@pytest.mark.parametrize(("patch", "error"), [
+    ({"id": ID}, "Unknown recipe fields"),
+    ({"image": None}, "image"),
+    ({"gpu_count": -1}, "gpu_count"),
+    ({"hf_repo_id": "/not/a/repo"}, "owner/model"),
+    ({"name": "taken"}, "409"),
+    ({"storages": [{"storage_id": ID, "mount_path": "/models"}]}, "unknown storage"),
+])
+async def test_update_recipe_rejects_invalid_edits_before_writing(as_caller, mock_db, super_user, patch, error):
+    as_caller(super_user)
+    recipe = _recipe()
+    mock_db.get.return_value = recipe
+    mock_db.execute.return_value = _result(scalar=_recipe(name="taken") if "name" in patch else recipe)
+    with pytest.raises(ToolError, match=error):
+        await tools.update_recipe(str(recipe.id), patch)
+    assert recipe.updated_by is None and recipe.name == "r1"
+    mock_db.flush.assert_not_awaited()
+    mock_db.commit.assert_not_awaited()
+
+
+async def test_update_missing_recipe(as_caller, mock_db, super_user):
+    as_caller(super_user)
+    mock_db.get.return_value = None
+    with pytest.raises(ToolError, match="404: Recipe not found"):
+        await tools.update_recipe(ID, {"description": "updated"})
+    mock_db.commit.assert_not_awaited()
 
 
 @pytest.mark.parametrize("call, module, name, kwargs", WIRING, ids=[w[2] for w in WIRING])

@@ -108,17 +108,20 @@ claude mcp add --transport http --client-id portal-mcp --callback-port 8765 \
 | `get_deployment_events(deployment_id, limit)` | 배포의 상태 이벤트 (최신순, 최대 500) |
 | `serving_overview` | 모델별 레시피 → 배포 → 벤치마크 → 카탈로그 진행 현황 |
 
-배포 복구에는 다음 도구를 사용합니다.
+레시피 편집과 배포 복구에는 다음 도구를 사용합니다.
 
 | 도구 | 동작 |
 |---|---|
 | `preview_recipe`, `create_recipe` | 레시피 YAML과 경고를 미리 보거나 검증한 레시피를 저장합니다. |
+| `update_recipe(recipe_id, patch)` | 저장된 레시피를 부분 수정하고 수정본과 경고를 반환합니다. 중첩 객체는 키별로 병합하고 배열은 통째로 교체합니다. `null`은 해당 키를 제거하며 필수 필드는 검증합니다. |
 | `deploy_from_recipe` | 저장한 레시피 ID와 배포별 설정을 받아 배포 ID와 각 Kubernetes Deployment의 UID·generation이 담긴 `rollout`을 반환합니다. PD의 replica는 `prefill_replicas`, `decode_replicas`로 각각 지정합니다. |
 | `get_rollout_status` | 배포 ID와 방금 받은 `rollout`으로 이번 변경이 반영됐는지 확인합니다. 다른 변경이 먼저 적용되면 해당 풀의 상태가 `Superseded`입니다. PD는 라우터의 Argo CD 상태도 확인합니다. |
 | `get_deployment_diagnostics` | `aggregated`, `prefill`, `decode`, `router` 중 하나를 지정해 Pod 상태와 이벤트, 컨테이너 현재·직전 로그를 읽습니다. 클러스터 자격 증명에 Pod·로그 조회와 core Event 목록 권한이 필요합니다. |
 | `preview_deployment_recipe_patch` | 배포 ID와 JSON Merge Patch를 받아 공유 레시피에서 수정될 필드, 해당 배포에서 달라지는 YAML과 `preview_id`를 반환합니다. 배열은 교체하고 `null`은 키를 지웁니다. |
 | `apply_deployment_recipe_patch` | 같은 배포 ID, 패치, `preview_id`로 적용합니다. 적용 시점에 대상과 변경 내용을 다시 확인하고, 연결된 공유 레시피를 갱신하고 지정한 배포 하나에만 재적용합니다. 다른 배포의 미리보기이거나 변경 내용이 달라졌으면 409를 반환합니다. |
 | `smoke_test_deployment` | 준비된 배포의 고유 LiteLLM 등록 ID로 짧은 chat completion을 수행하고 실제 응답을 처리한 모델 ID까지 확인합니다. |
+
+예를 들어 `list_recipes`에서 찾은 ID로 `update_recipe`에 `{"engine_args":{"max-model-len":8192}}`를 보내면 해당 인자만 바뀝니다. 새 배포와 명시적으로 레시피를 재적용하는 배포가 수정본을 사용합니다.
 
 예를 들어 decode가 알 수 없는 엔진 인자로 재시작한다면 직전 로그에서 인자명을 확인하고
 `{"pd_config":{"decode":{"engine_args":{"해당-인자":null}}}}`로 해당 배포의 변경을 미리 봅니다.

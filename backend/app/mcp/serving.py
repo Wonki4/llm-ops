@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from typing import Literal
 
 from fastapi import HTTPException
@@ -50,6 +51,24 @@ def merge_patch(current, patch):
         else:
             result[key] = merge_patch(result.get(key), value)
     return result
+
+
+async def update_recipe(recipe_id, patch, user, db):
+    unknown = patch.keys() - recipes.RecipeBody.model_fields.keys()
+    if unknown:
+        raise ValueError(f"Unknown recipe fields: {sorted(unknown)}")
+    # Read under a row lock so concurrent patches merge onto the latest saved values.
+    recipe = await db.get(CustomServingRecipe, uuid.UUID(recipe_id), with_for_update=True)
+    if recipe is None:
+        raise HTTPException(404, "Recipe not found")
+    source = recipes._serialize(recipe)
+    current = {key: source[key] for key in recipes.RecipeBody.model_fields}
+    body = recipes.RecipeBody.model_validate(merge_patch(current, patch))
+    fields = set(patch)
+    if body.serving_mode != current["serving_mode"]:
+        # RecipeBody initializes or clears the PD settings when switching modes.
+        fields.add("pd_config")
+    return await recipes.save_recipe_update(recipe, body, user, db, fields=fields)
 
 
 async def recovery_recipe(deployment_id, patch, user, db, *, preview_id=None):
