@@ -1,12 +1,4 @@
-"""Cron job that applies time-of-day cost rules to LiteLLM model deployments.
-
-For every model that has a configured cost catalog entry:
-1. Pick the highest-priority enabled rule whose UTC time window covers now.
-2. If no rule matches, fall back to the catalog's default_*_cost_per_token.
-3. Push the resulting cost to every LiteLLM deployment for that model_name via
-   /model/update, but only when the values actually differ (to avoid pointless
-   writes and proxy reloads).
-"""
+"""Apply time-of-day prices and restore confirmed worker writes per LiteLLM deployment."""
 
 import asyncio
 import logging
@@ -14,13 +6,14 @@ import time
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
+from sqlalchemy.exc import OperationalError
 
-from app.config import settings
 from app.clients.litellm import LiteLLMClient
+from app.config import settings
 from app.db.models.custom_model_catalog import CustomModelCatalog
-from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
-from app.db.session import async_session_factory
+from app.db.models.custom_model_cost_schedule import CustomAppliedCostSchedule, CustomModelCostSchedule
+from app.db.session import async_session_factory, litellm_session_factory
 
 logger = logging.getLogger(__name__)
 
@@ -73,210 +66,265 @@ def _pick_rule(rules: list[CustomModelCostSchedule], now: datetime) -> CustomMod
     return active[0]
 
 
-async def apply_cost_schedule() -> dict:
-    """Run one pass: evaluate all rules and push deltas to LiteLLM."""
-    # Rules are authored in the schedule timezone, so match against local time.
-    now = datetime.now(UTC).astimezone(schedule_tz())
-    catalogs_processed = 0
-    deployments_updated = 0
-    errors = 0
-    skipped_config: set[str] = set()
-    missing_default: set[str] = set()
-    # model_name -> (input, output) base cost to write back into the catalog default
-    default_updates: dict[str, tuple[float, float, float | None]] = {}
+PRICE_FIELDS = {
+    "input_cost_per_token": "input_cost_per_token",
+    "output_cost_per_token": "output_cost_per_token",
+    "cache_read_input_token_cost": "cache_read_cost_per_token",
+}
 
-    litellm = LiteLLMClient()
 
-    async with async_session_factory() as portal_db:
-        rule_result = await portal_db.execute(select(CustomModelCostSchedule))
-        rules_all = rule_result.scalars().all()
+def _utc_revision(value: str | datetime) -> datetime:
+    revision = datetime.fromisoformat(value) if isinstance(value, str) else value
+    # Prisma stores its PostgreSQL timestamps in UTC without a timezone.
+    return revision.replace(tzinfo=UTC) if revision.tzinfo is None else revision.astimezone(UTC)
 
-        catalog_result = await portal_db.execute(
-            select(CustomModelCatalog).where(
-                (CustomModelCatalog.default_input_cost_per_token.isnot(None))
-                | (CustomModelCatalog.default_output_cost_per_token.isnot(None))
-            )
+
+async def _current_revisions(ids: list[str]) -> dict[str, datetime]:
+    if not ids:
+        return {}
+    # /model/info omits updated_at on the open-source proxy. Only read the two
+    # columns needed to distinguish a later direct write, including an equal price.
+    async with litellm_session_factory() as db:
+        result = await db.execute(
+            text('SELECT model_id, updated_at FROM "LiteLLM_ProxyModelTable" WHERE model_id = ANY(:ids)'),
+            {"ids": ids},
         )
-        catalogs = catalog_result.scalars().all()
+        return {mid: _utc_revision(stamp) for mid, stamp in result}
+
+
+def _live_rates(deployment: dict) -> dict[str, float | None]:
+    params = deployment.get("litellm_params") or {}
+    info = deployment.get("model_info") or {}
+    return {key: params[key] if params.get(key) is not None else info.get(key) for key in PRICE_FIELDS}
+
+
+async def _save_receipt(receipt: CustomAppliedCostSchedule) -> None:
+    # A transient portal DB failure must retry the receipt, never the LiteLLM write.
+    for attempt in range(2):
+        try:
+            async with async_session_factory() as db:
+                await db.merge(receipt)
+                await db.commit()
+            return
+        except OperationalError:
+            if attempt:
+                raise
+
+
+async def _reconcile_deployment(
+    litellm: LiteLLMClient,
+    model_name: str,
+    deployment: dict,
+    catalog: CustomModelCatalog | None,
+    rule: CustomModelCostSchedule | None,
+    receipt: CustomAppliedCostSchedule | None,
+    revision: datetime | None,
+) -> tuple[dict[str, float | None], bool]:
+    """Return effective rates and whether a proxy write occurred."""
+    mid = deployment["model_info"]["id"]
+    live = _live_rates(deployment)
+    defaults = {key: getattr(catalog, f"default_{attr}", None) for key, attr in PRICE_FIELDS.items()}
+    owned = receipt is not None and (
+        receipt.model_name == model_name
+        and receipt.litellm_updated_at == revision
+        and all(live[key] == value for key, value in receipt.applied_rates.items())
+    )
+    previous = receipt.previous_rates if owned else {}
+    # If the previous LiteLLM value was absent, a subsequently configured numeric
+    # baseline can finish the restore. LiteLLM ignores null values on model/update.
+    targets = {key: value if value is not None else defaults[key] for key, value in previous.items()}
+    scheduled = {}
+    if rule is not None:
+        scheduled = {key: value for key, attr in PRICE_FIELDS.items() if (value := getattr(rule, attr)) is not None}
+        targets.update(scheduled)
+    elif catalog is not None and catalog.default_cost_managed:
+        targets.update({key: value for key, value in defaults.items() if value is not None})
+
+    changes = {key: value for key, value in targets.items() if value is not None and live[key] != value}
+    if changes:
+        if owned and rule is None and not (catalog and catalog.default_cost_managed):
+            # Other deployments in this pass may have taken time. Recheck before issuing the restore.
+            if (await _current_revisions([mid])).get(mid) != revision:
+                raise RuntimeError("Deployment changed before price restoration; retry on the next pass")
+        response = await litellm.update_model(mid, litellm_params=changes)
+        # Keep the original baseline across successive rules. An unchanged field
+        # without a previous write was never ours to restore.
+        before = {key: None for key, value in targets.items() if value is None and key in previous}
+        for key, rate in scheduled.items():
+            if key in previous or key in changes:
+                baseline = previous.get(key, live[key] if live[key] is not None else defaults[key])
+                if baseline != rate:
+                    before[key] = baseline
+        live.update(changes)
+        if before:
+            await _save_receipt(
+                CustomAppliedCostSchedule(
+                    deployment_id=mid,
+                    model_name=model_name,
+                    litellm_updated_at=_utc_revision(response["updated_at"]),
+                    previous_rates=before,
+                    applied_rates={key: live[key] for key in before},
+                )
+            )
+            return live, True
+    elif owned and (rule is not None or any(value is None for value in targets.values())):
+        return live, False
+
+    if receipt is not None:
+        async with async_session_factory() as db:
+            await db.delete(receipt)
+            await db.commit()
+    return live, bool(changes)
+
+
+async def apply_cost_schedule() -> dict:
+    """Serialize passes so a second worker cannot act on a pre-write snapshot."""
+    async with async_session_factory() as lock_db:
+        acquired = await lock_db.scalar(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended('portal.apply_cost_schedule', 0))")
+        )
+        if not acquired:
+            return {"catalogs_processed": 0, "deployments_updated": 0, "errors": 0}
+        return await _apply_cost_schedule()
+
+
+async def _apply_cost_schedule() -> dict:
+    now = datetime.now(UTC).astimezone(schedule_tz())
+    stats = dict(
+        catalogs_processed=0, deployments_updated=0, errors=0, skipped_config=0, missing_default=0, refreshed_defaults=0
+    )
+    async with async_session_factory() as db:
+        rules = (await db.scalars(select(CustomModelCostSchedule))).all()
+        receipts = (await db.scalars(select(CustomAppliedCostSchedule))).all()
+        tracked_names = {r.model_name for r in (*rules, *receipts)}
+        catalogs = (
+            await db.scalars(
+                select(CustomModelCatalog).where(
+                    CustomModelCatalog.model_name.in_(tracked_names)
+                    | CustomModelCatalog.default_input_cost_per_token.isnot(None)
+                    | CustomModelCatalog.default_output_cost_per_token.isnot(None)
+                )
+            )
+        ).all()
 
     rules_by_model: dict[str, list[CustomModelCostSchedule]] = {}
-    for r in rules_all:
-        rules_by_model.setdefault(r.model_name, []).append(r)
-    catalog_by_model: dict[str, CustomModelCatalog] = {c.model_name: c for c in catalogs}
+    for rule in rules:
+        rules_by_model.setdefault(rule.model_name, []).append(rule)
+    by_id = {r.deployment_id: r for r in receipts}
+    by_name = {c.model_name: c for c in catalogs}
+    targets = tracked_names | by_name.keys()
+    if not targets:
+        return stats
 
-    # Process any model with rules OR a default-cost catalog row.
-    target_models = set(rules_by_model) | set(catalog_by_model)
-    if not target_models:
-        return {"catalogs_processed": 0, "deployments_updated": 0, "errors": 0}
-
+    active_rules = {name: _pick_rule(rules_by_model.get(name, []), now) for name in targets}
+    litellm = LiteLLMClient()
     try:
-        litellm_models = await litellm.get_model_info()
+        models = await litellm.get_model_info()
     except Exception:
-        logger.exception("Failed to fetch LiteLLM model_info for cost schedule")
-        return {"catalogs_processed": 0, "deployments_updated": 0, "errors": 1}
+        logger.exception("Failed to read LiteLLM deployment prices")
+        stats["errors"] += 1
+        return stats
 
-    deployments_by_name: dict[str, list[dict]] = {}
-    for lm in litellm_models:
-        name = lm.get("model_name")
-        if name:
-            deployments_by_name.setdefault(name, []).append(lm)
-
-    for model_name in target_models:
-        catalogs_processed += 1
-        rules = rules_by_model.get(model_name, [])
-        catalog = catalog_by_model.get(model_name)
-        active_rule = _pick_rule(rules, now)
-        if active_rule is not None:
-            target_in = active_rule.input_cost_per_token
-            target_out = active_rule.output_cost_per_token
-            target_cache_read = active_rule.cache_read_cost_per_token
-            source = f"rule:{active_rule.id}"
-        elif catalog is not None:
-            target_in = catalog.default_input_cost_per_token
-            target_out = catalog.default_output_cost_per_token
-            target_cache_read = catalog.default_cache_read_cost_per_token
-            source = "default"
-        else:
-            # Rule expired and no catalog default — skip; admin must register
-            # a default to control reverted price.
+    grouped: dict[str, list[dict]] = {}
+    tracked_ids = set(by_id)
+    for model in models:
+        name = model.get("model_name")
+        if name not in targets:
             continue
+        grouped.setdefault(name, []).append(model)
+        info = model.get("model_info") or {}
+        # Verify access to the same proxy database before the first scheduled write.
+        if active_rules[name] and info.get("id") and info.get("db_model") is not False:
+            tracked_ids.add(info["id"])
+    try:
+        revisions = await _current_revisions(list(tracked_ids))
+    except Exception:
+        logger.exception("Cannot verify price writes against the configured LiteLLM database")
+        stats["errors"] += 1
+        return stats
 
-        deployments = deployments_by_name.get(model_name, [])
-        if not deployments:
-            continue
-
-        for deployment in deployments:
-            info = deployment.get("model_info", {}) or {}
-            params = deployment.get("litellm_params", {}) or {}
+    for name in targets:
+        stats["catalogs_processed"] += 1
+        catalog = by_name.get(name)
+        rule = active_rules[name]
+        observed = set()
+        failed = False
+        skipped_config = False
+        missing_default = False
+        for deployment in grouped.get(name, []):
+            info = deployment.get("model_info") or {}
             mid = info.get("id")
             if not mid:
                 continue
-            # LiteLLM rejects /model/update for config-defined models with a 400
-            # ("Can't edit model. Model in config."). Skip them — both apply and
-            # revert are impossible via the API until the model is stored in the DB.
             if info.get("db_model") is False:
-                skipped_config.add(model_name)
+                skipped_config = True
                 continue
-            # The worker owns the override layer (litellm_params.*_cost_per_token).
-            override_in = params.get("input_cost_per_token")
-            override_out = params.get("output_cost_per_token")
-            override_cache_read = params.get("cache_read_input_token_cost")
-            if target_in is None and target_out is None:
-                # No catalog default to revert to. LiteLLM's /model/update IGNORES
-                # a None cost (merge semantics: None = "leave unchanged"), so we
-                # cannot clear an existing override here — pushing None is a no-op
-                # that just churns a reload every pass. Flag it instead: the admin
-                # must set a default price so the schedule has a baseline to
-                # restore. (No override yet → genuinely nothing to do.)
-                if override_in is not None or override_out is not None:
-                    missing_default.add(model_name)
-                continue
-            current_in = override_in if override_in is not None else info.get("input_cost_per_token")
-            current_out = override_out if override_out is not None else info.get("output_cost_per_token")
-            current_cache_read = (
-                override_cache_read if override_cache_read is not None else info.get("cache_read_input_token_cost")
-            )
-
-            # With no rule active, keep the catalog default in sync with the live
-            # base price. If the live cost matches one of this model's rule prices
-            # (and differs from the stored default), it's a not-yet-reverted rule
-            # leftover — fall through to revert it. Otherwise the live cost IS the
-            # base: adopt it as the new default and leave the model as-is.
-            if (
-                active_rule is None
-                and catalog is not None
-                and not catalog.default_cost_managed
-                and current_in is not None
-                and current_out is not None
-            ):
-                rule_pairs = {(r.input_cost_per_token, r.output_cost_per_token) for r in rules}
-                stored = (catalog.default_input_cost_per_token, catalog.default_output_cost_per_token)
-                live = (current_in, current_out)
-                is_leftover_rule = live in rule_pairs and live != stored
-                if not is_leftover_rule and live != stored:
-                    default_updates[model_name] = (current_in, current_out, current_cache_read)
-                    continue  # already at base; just record it
-
-            # cache_read only forces a push when a target is set (None = leave
-            # LiteLLM's value unchanged, mirroring its merge semantics).
-            cache_read_changed = target_cache_read is not None and current_cache_read != target_cache_read
-            input_changed = target_in is not None and current_in != target_in
-            output_changed = target_out is not None and current_out != target_out
-            if not (input_changed or output_changed or cache_read_changed):
-                continue
-            update_params = {
-                "input_cost_per_token": target_in,
-                "output_cost_per_token": target_out,
-            }
-            if target_cache_read is not None:
-                update_params["cache_read_input_token_cost"] = target_cache_read
+            receipt = by_id.get(mid)
             try:
-                await litellm.update_model(mid, litellm_params=update_params)
-                deployments_updated += 1
-                logger.info(
-                    "Cost schedule: %s id=%s in=%s out=%s (source=%s)",
-                    model_name,
-                    mid,
-                    target_in,
-                    target_out,
-                    source,
+                if mid in tracked_ids and mid not in revisions:
+                    raise RuntimeError("Proxy deployment is missing from the configured LiteLLM database")
+                if receipt and receipt.litellm_updated_at == revisions.get(mid):
+                    missing_default |= any(
+                        value is None and getattr(catalog, f"default_{PRICE_FIELDS[key]}", None) is None
+                        for key, value in receipt.previous_rates.items()
+                    )
+                live, changed = await _reconcile_deployment(
+                    litellm, name, deployment, catalog, rule, receipt, revisions.get(mid)
                 )
+                stats["deployments_updated"] += int(changed)
+                observed.add(tuple(live.values()))
             except Exception:
-                errors += 1
-                logger.exception(
-                    "Failed to update LiteLLM model %s (id=%s)",
-                    model_name,
-                    mid,
-                )
+                failed = True
+                stats["errors"] += 1
+                logger.exception("Failed to reconcile price for %s (id=%s)", name, mid)
 
-    # Persist refreshed baselines (live base prices captured while no rule active).
-    if default_updates:
-        async with async_session_factory() as portal_db:
-            for mname, (din, dout, dcr) in default_updates.items():
-                await portal_db.execute(
-                    text(
-                        "UPDATE custom_model_catalog "
-                        "SET default_input_cost_per_token = :i, default_output_cost_per_token = :o, "
-                        "default_cache_read_cost_per_token = COALESCE(:cr, default_cache_read_cost_per_token) "
-                        "WHERE model_name = :m AND NOT default_cost_managed"
-                    ),
-                    {"i": din, "o": dout, "cr": dcr, "m": mname},
-                )
-            await portal_db.commit()
-        logger.info(
-            "Cost schedule: refreshed catalog default cost for %d model(s) from the "
-            "live base price: %s",
-            len(default_updates),
-            ", ".join(sorted(default_updates)),
+        stats["skipped_config"] += int(skipped_config)
+        stats["missing_default"] += int(missing_default)
+        if missing_default:
+            logger.warning("No numeric baseline to restore for one or more scheduled prices on %s", name)
+        # A shared catalog row cannot represent conflicting per-deployment prices.
+        if (
+            failed
+            or missing_default
+            or rule is not None
+            or not catalog
+            or catalog.default_cost_managed
+            or len(observed) != 1
+        ):
+            continue
+        din, dout, dcr = observed.pop()
+        if din is None or dout is None:
+            continue
+        stored = (
+            catalog.default_input_cost_per_token,
+            catalog.default_output_cost_per_token,
+            catalog.default_cache_read_cost_per_token,
         )
+        if (din, dout, dcr if dcr is not None else stored[2]) == stored:
+            continue
+        async with async_session_factory() as db:
+            result = await db.execute(
+                text(
+                    "UPDATE custom_model_catalog SET default_input_cost_per_token = :i, "
+                    "default_output_cost_per_token = :o, "
+                    "default_cache_read_cost_per_token = COALESCE(:cr, default_cache_read_cost_per_token) "
+                    "WHERE model_name = :m AND NOT default_cost_managed"
+                ),
+                {"i": din, "o": dout, "cr": dcr, "m": name},
+            )
+            await db.commit()
+            stats["refreshed_defaults"] += result.rowcount
 
-    if skipped_config:
-        logger.warning(
-            "Cost schedule: %d model(s) are config-defined in LiteLLM and cannot "
-            "be updated via the API (time-of-day pricing has no effect): %s. "
-            "Register them in the DB (deploy via the portal / /model/new) to enable.",
-            len(skipped_config),
-            ", ".join(sorted(skipped_config)),
-        )
-
-    if missing_default:
-        logger.warning(
-            "Cost schedule: %d model(s) have an active override but no catalog "
-            "default to revert to: %s. LiteLLM ignores a null cost on /model/update, "
-            "so the price stays stuck on the last rule. Set a default price per token "
-            "on the catalog entry so the schedule has a baseline to restore.",
-            len(missing_default),
-            ", ".join(sorted(missing_default)),
-        )
-
-    return {
-        "catalogs_processed": catalogs_processed,
-        "deployments_updated": deployments_updated,
-        "errors": errors,
-        "skipped_config": len(skipped_config),
-        "missing_default": len(missing_default),
-        "refreshed_defaults": len(default_updates),
-    }
+    # A deleted deployment has no price to restore. Never infer deletion from a filtered proxy listing.
+    listed_ids = {(m.get("model_info") or {}).get("id") for m in models}
+    removed = by_id.keys() - revisions.keys() - listed_ids
+    if removed:
+        async with async_session_factory() as db:
+            await db.execute(
+                delete(CustomAppliedCostSchedule).where(CustomAppliedCostSchedule.deployment_id.in_(removed))
+            )
+            await db.commit()
+    return stats
 
 
 async def cost_schedule_loop(interval_seconds: int = 300) -> None:

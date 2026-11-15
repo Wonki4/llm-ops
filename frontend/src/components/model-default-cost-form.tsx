@@ -67,7 +67,6 @@ export function DefaultCostForm({ modelName, catalog, configOnly, liveInput, liv
         {!editing && <Button type="button" size="sm" variant="outline" disabled={update.isPending} onClick={() => setEditing(true)}>{tc("edit")}</Button>}
       </div>
       <p className="text-xs text-muted-foreground">{t(saved.default_cost_managed ? "portalManaged" : "liteLLMManaged")}</p>
-      {editing && <p className="text-xs text-muted-foreground">{t("rulePriceNote")}</p>}
       <div className="grid grid-cols-2 gap-2">
         {([["input", input, t("form.inputCost")], ["output", output, t("form.outputCost")]] as const).map(([name, price, label]) => (
           <label key={name} className="space-y-1 text-xs">
