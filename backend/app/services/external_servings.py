@@ -10,6 +10,8 @@ import asyncio
 import logging
 from typing import Any
 
+from kubernetes_asyncio.client.exceptions import ApiException
+
 from app.clients.k8s import K8sNotConfigured
 from app.services.deployment_status import classify
 from app.services.model_deployment_manifests import LABEL_OWNER, PORTAL_OWNERS
@@ -64,7 +66,7 @@ def to_external_serving(dep: dict) -> dict | None:
 
 
 async def scan_clusters(
-    targets: list[tuple[str | None, str, Any, str]], timeout: float = 5.0
+    targets: list[tuple[str | None, str, Any, str]], timeout: float = 5.0, *, skip_unconfigured_portal: bool = True
 ) -> tuple[list[dict], list[dict]]:
     """Scan (cluster_id, cluster_name, k8s_client, namespace) targets in parallel.
 
@@ -83,7 +85,7 @@ async def scan_clusters(
     servings: list[dict] = []
     errors: list[dict] = []
     for (cluster_id, cluster_name, _, namespace), result in zip(targets, results):
-        if isinstance(result, K8sNotConfigured):
+        if isinstance(result, K8sNotConfigured) and cluster_id is None and skip_unconfigured_portal:
             continue
         if isinstance(result, TimeoutError | asyncio.TimeoutError):
             errors.append(
@@ -91,10 +93,12 @@ async def scan_clusters(
             )
             continue
         if isinstance(result, BaseException):
-            logger.warning("External serving scan failed for %s/%s: %s", cluster_name, namespace, result)
-            errors.append(
-                {"cluster": cluster_name, "namespace": namespace, "message": str(result) or type(result).__name__}
-            )
+            if isinstance(result, ApiException):
+                message = f"list deployments.apps: HTTP {result.status} {result.reason}"
+            else:
+                message = str(result) or type(result).__name__
+            logger.warning("External serving scan failed for %s/%s: %s", cluster_name, namespace, message)
+            errors.append({"cluster": cluster_name, "namespace": namespace, "message": message})
             continue
         for s in result:
             s["cluster_id"] = cluster_id

@@ -187,9 +187,13 @@ async def scan_scopes(
     *,
     representative: bool = True,
 ) -> list[ScanScope]:
+    return scan_targets(await namespace_scopes(db, extra, representative=representative))
+
+
+def scan_targets(scopes: Iterable[NamespaceScope]) -> list[ScanScope]:
     clients: dict[str | None, K8sClient] = {}
     out = []
-    for scope in await namespace_scopes(db, extra, representative=representative):
+    for scope in scopes:
         cid = scope.cluster_id
         if cid not in clients:
             clients[cid] = scope.client()

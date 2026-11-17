@@ -43,7 +43,8 @@ from app.services.clusters import (
     argocd_placement_for,
     default_namespace,
     k8s_for_cluster,
-    scan_scopes,
+    namespace_scopes,
+    scan_targets,
     validate_namespace,
 )
 from app.services.common_labels import load_deployment_copy
@@ -396,22 +397,43 @@ def _serialize_registration(r: CustomExternalServing) -> dict:
 async def list_external_servings(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
+    cluster: str | None = None,
+    ns: str = "",
 ) -> dict:
     """Live-scan for vLLM/SGLang deployments not managed by the portal.
 
-    Looks in the representative cluster's namespace plus wherever a registration
-    lives (so a registered serving never drops off the list), not cluster-wide.
+    The deployments page sends its selection (empty cluster = all, "default" = portal).
+    Callers without a selection use the representative and registered servings.
     """
+    try:
+        namespace = validate_namespace(ns)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     regs = (await db.execute(select(CustomExternalServing))).scalars().all()
-    scopes = await scan_scopes(db, [(r.cluster_id, r.namespace) for r in regs])
-    servings, errors = await scan_clusters(scopes)
+    extra = [(r.cluster_id, r.namespace) for r in regs]
+    if cluster is not None:
+        managed = await db.execute(select(CustomModelDeployment.cluster_id, CustomModelDeployment.namespace).distinct())
+        extra.extend(managed.all())
+        extra.append((None, settings.k8s_default_namespace))
+        if cluster and namespace:
+            extra.append((None if cluster == "default" else cluster, namespace))
+    scopes = await namespace_scopes(db, extra, include_registered=cluster is not None)
+    cluster_scopes = [s for s in scopes if not cluster or (s.cluster_id or "default") == cluster]
+    if cluster and not cluster_scopes:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    selected = [s for s in cluster_scopes if not namespace or s.namespace == namespace]
+    servings, errors = await scan_clusters(scan_targets(selected), skip_unconfigured_portal=cluster != "default")
 
     reg_map = {(str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r for r in regs}
     for s in servings:
         r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))
         s["registration"] = _serialize_registration(r) if r else None
 
-    return {"servings": servings, "errors": errors}
+    return {
+        "servings": servings,
+        "errors": errors,
+        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in cluster_scopes],
+    }
 
 
 @router.get("/external/recipe-draft")
