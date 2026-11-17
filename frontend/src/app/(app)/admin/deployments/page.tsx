@@ -14,7 +14,7 @@ import {
 } from "@/hooks/use-api";
 import type { ModelDeployment } from "@/types";
 import { ServingScopeFilter, useClusterName, useServingScope } from "@/components/serving-scope-filter";
-import { clusterKey, inScope } from "@/lib/serving-scope";
+import { clusterKey, inScope, isScoped } from "@/lib/serving-scope";
 import { ExternalServingRegisterDialog } from "@/components/external-serving-register-dialog";
 import { AdminDeployFromRecipeButton } from "@/components/deploy-from-recipe-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -90,8 +90,8 @@ function DeploymentsList() {
   const settings = useK8sClusterSettings();
   const [scope, setScope] = useServingScope(settings.data);
   const clusterName = useClusterName();
-  const { data: deployments, isLoading } = useModelDeployments();
-  const { data: external, isLoading: externalLoading } = useExternalServings();
+  const { data: deployments, isLoading, error: deploymentsError } = useModelDeployments();
+  const { data: external, isLoading: externalLoading, error: externalError } = useExternalServings(settings.data ? scope : null);
   const unregister = useUnregisterExternalServing();
 
   const [registerTarget, setRegisterTarget] = useState<ExternalServing | null>(null);
@@ -105,14 +105,13 @@ function DeploymentsList() {
   const loading = isLoading || externalLoading;
   const allServings = external?.servings ?? [];
   const scanErrors = external?.errors ?? [];
-  const scopeItems = [...(deployments ?? []), ...allServings];
+  const scopeItems = [...(deployments ?? []), ...(external?.scopes ?? [])];
   const groups = groupByScope(
     (deployments ?? []).filter((d) => inScope(scope, d)),
     allServings.filter((s) => inScope(scope, s)),
     clusterName,
   );
-  const isEmpty = scopeItems.length === 0;
-  const scopeEmpty = !isEmpty && groups.length === 0;
+  const hasErrors = !!(deploymentsError || externalError || scanErrors.length);
 
   return (
     <div className="space-y-6">
@@ -129,25 +128,33 @@ function DeploymentsList() {
         <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} settings={settings.data} />
       </div>
 
-      {scanErrors.length > 0 && (
-        <div className="flex items-center gap-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 px-4 py-3 text-sm">
-          <AlertTriangle className="size-4 shrink-0 text-yellow-600" />
-          <span>{t("scanErrors", { clusters: scanErrors.map((e) => (e.namespace ? `${e.cluster}/${e.namespace}` : e.cluster)).join(", ") })}</span>
-        </div>
-      )}
-
       <Card>
         <CardHeader>
           <CardTitle className="text-base">{t("listTitle")}</CardTitle>
           <CardDescription>{t("listHint")}</CardDescription>
         </CardHeader>
         <CardContent>
+          {hasErrors && (
+            <div role="alert" className="mb-3 flex items-start gap-2 rounded-md border border-yellow-300 bg-yellow-50 dark:bg-yellow-950/30 px-4 py-3 text-sm">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0 text-yellow-600" />
+              <div>
+                <p>{t("scanErrors")}</p>
+                {deploymentsError && <p>{deploymentsError.message}</p>}
+                {externalError && <p>{externalError.message}</p>}
+                {scanErrors.map((e) => (
+                  <p key={`${e.cluster}/${e.namespace}`}>
+                    <span className="font-mono">{[e.cluster, e.namespace].filter(Boolean).join("/")}</span> · {e.message}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
           {loading ? (
             <div className="flex justify-center py-12"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
-          ) : isEmpty || scopeEmpty ? (
+          ) : groups.length === 0 ? !hasErrors && (
             <div className="flex flex-col items-center justify-center rounded-lg border border-dashed py-16">
               <Server className="size-10 text-muted-foreground mb-3" />
-              <p className="text-muted-foreground">{isEmpty ? t("empty") : ts("scopeEmpty")}</p>
+              <p className="text-muted-foreground">{isScoped(scope) ? ts("scopeEmpty") : t("empty")}</p>
             </div>
           ) : (
             <div className="rounded-md border">

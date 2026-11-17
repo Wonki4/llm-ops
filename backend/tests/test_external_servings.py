@@ -6,6 +6,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.clients.k8s import K8sClient, K8sNotConfigured
 from app.services.deployment_status import classify
@@ -283,7 +284,7 @@ async def test_get_external_servings_scans_representative_and_registered_namespa
 
     captured = {}
 
-    async def _fake_scan(targets, timeout=5.0):
+    async def _fake_scan(targets, **kwargs):
         captured["targets"] = targets
         serving = _serving(cluster_id=str(prod_id), cluster_name="prod", name="prod-vllm", namespace="ml")
         return [serving], []
@@ -301,6 +302,69 @@ async def test_get_external_servings_scans_representative_and_registered_namespa
     registration = resp.json()["servings"][0]["registration"]
     assert registration["model_name"] == "qwen-72b"
     assert registration["litellm_model_id"] == "litellm-prod-1"
+
+
+async def test_selected_cluster_discovers_deployment_before_registration(admin_client, mock_db):
+    rep = types.SimpleNamespace(id=uuid.uuid4(), name="primary", namespace="ml", is_default=True)
+    other = types.SimpleNamespace(id=uuid.uuid4(), name="secondary", namespace="ml", is_default=False)
+    managed = MagicMock()
+    managed.all.return_value = [(other.id, "team-b")]
+    mock_db.execute.side_effect = [_exec_result([]), managed, _exec_result([rep, other])]
+    kube = _fake_client([_raw_dep(name="secondary-vllm", namespace="ml")])
+    with patch("app.services.clusters._client_for_row", return_value=kube) as make_client:
+        resp = await admin_client.get("/api/model-deployments/external", params={"cluster": str(other.id), "ns": "ml"})
+    assert resp.status_code == 200
+    make_client.assert_called_once_with(other)
+    kube.list_deployments.assert_awaited_once_with("ml")
+    body = resp.json()
+    assert body["errors"] == []
+    assert [(s["cluster_id"], s["deployment_name"], s["registration"]) for s in body["servings"]] == [
+        (str(other.id), "secondary-vllm", None)
+    ]
+    assert {s["namespace"] for s in body["scopes"]} == {"ml", "team-b"}
+
+
+async def test_explicit_all_clusters_scans_known_namespaces_and_keeps_partial_results(admin_client, mock_db):
+    rep = types.SimpleNamespace(id=uuid.uuid4(), name="primary", namespace="main", is_default=True)
+    other = types.SimpleNamespace(id=uuid.uuid4(), name="secondary", namespace="ml", is_default=False)
+    mock_db.execute.side_effect = [_exec_result([]), _exec_result([]), _exec_result([rep, other])]
+    primary = _fake_client(error=ApiException(status=403, reason="Forbidden"))
+    secondary = _fake_client([_raw_dep(namespace="ml")])
+    with (
+        patch("app.services.clusters._client_for_row", side_effect=lambda row: primary if row == rep else secondary),
+        patch("app.services.clusters.K8sClient", return_value=_fake_client(error=K8sNotConfigured())),
+    ):
+        resp = await admin_client.get("/api/model-deployments/external?cluster=&ns=")
+    assert resp.status_code == 200
+    primary.list_deployments.assert_awaited_once_with("main")
+    secondary.list_deployments.assert_awaited_once_with("ml")
+    assert [s["cluster_id"] for s in resp.json()["servings"]] == [str(other.id)]
+    assert resp.json()["errors"] == [
+        {"cluster": "primary", "namespace": "main", "message": "list deployments.apps: HTTP 403 Forbidden"}
+    ]
+
+
+async def test_explicit_portal_namespace_uses_portal_client_and_reports_missing_config(admin_client, mock_db):
+    rep = types.SimpleNamespace(id=uuid.uuid4(), name="primary", namespace="ml", is_default=True)
+    mock_db.execute.side_effect = [_exec_result([]), _exec_result([]), _exec_result([rep])]
+    portal = _fake_client(error=K8sNotConfigured("no kubeconfig"))
+    with (
+        patch("app.services.clusters._client_for_row") as make_registered,
+        patch("app.services.clusters.K8sClient", return_value=portal),
+    ):
+        resp = await admin_client.get("/api/model-deployments/external?cluster=default&ns=team-a")
+    assert resp.status_code == 200
+    make_registered.assert_not_called()
+    portal.list_deployments.assert_awaited_once_with("team-a")
+    assert resp.json()["errors"] == [{"cluster": "default", "namespace": "team-a", "message": "no kubeconfig"}]
+
+
+async def test_missing_cluster_does_not_scan_portal(admin_client, mock_db):
+    mock_db.execute.side_effect = [_exec_result([]), _exec_result([]), _exec_result([])]
+    with patch("app.services.clusters.K8sClient") as make_portal:
+        resp = await admin_client.get("/api/model-deployments/external", params={"cluster": str(uuid.uuid4())})
+    assert resp.status_code == 404
+    make_portal.assert_not_called()
 
 
 # ─── scan_scopes ─────────────────────────────────────────────

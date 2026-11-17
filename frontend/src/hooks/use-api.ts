@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PdRole } from "@/lib/pd-serving";
+import { scopeQuery, type ScopedItem, type ServingScope } from "@/lib/serving-scope";
 import { apiFetch } from "@/lib/api";
 import { runSequential } from "@/lib/bulk-review";
 import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
@@ -1441,6 +1442,7 @@ export interface ExternalServing {
 export interface ExternalServingsResponse {
   servings: ExternalServing[];
   errors: { cluster: string; namespace?: string; message: string }[];
+  scopes: ScopedItem[];
 }
 
 /** Reverse-parse a live non-portal Deployment into recipe form values (nothing is saved). */
@@ -1461,10 +1463,12 @@ export function useExternalRecipeDraft(
   });
 }
 
-export function useExternalServings() {
+export function useExternalServings(scope?: ServingScope | null) {
+  const query = scope ? scopeQuery(scope, true) : "";
   return useQuery({
-    queryKey: ["external-servings"],
-    queryFn: () => apiFetch<ExternalServingsResponse>("/api/model-deployments/external"),
+    queryKey: ["external-servings", query],
+    queryFn: () => apiFetch<ExternalServingsResponse>(`/api/model-deployments/external${query}`),
+    enabled: scope !== null,
   });
 }
 
