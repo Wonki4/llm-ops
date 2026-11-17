@@ -1298,12 +1298,18 @@ export interface LinkedLlmdStack {
 }
 
 export interface ServingOverview {
+  scopes: { cluster_id: string | null; namespace: string }[];
+  errors: { cluster: string; namespace: string; message: string }[];
   models: ServingOverviewRow[];
   /** Stacks whose selector picks no known server. */
   unlinked_stacks: (LinkedLlmdStack & { target_model_name: string })[];
 }
 
 export interface ServingOverviewRow {
+  external_servings: {
+    deployment_name: string; cluster_id: string | null; namespace: string; engine: ServingEngine;
+    status: string; replicas: number; ready_replicas: number; litellm_model_id: string | null;
+  }[];
   model_name: string;
   recipes: { id: string; name: string; engine: ServingEngine }[];
   deployments: {

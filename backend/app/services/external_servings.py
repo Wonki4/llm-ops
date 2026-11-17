@@ -1,18 +1,28 @@
 """Discovery of externally-deployed vLLM/SGLang servings.
 
-Live-scans clusters (no persistence): a Deployment counts as an external
+Live-scans Kubernetes Deployments: a Deployment counts as an external
 serving when any container image name contains "vllm" or "sglang" and it does
 NOT carry the portal's managed-by label. Pure functions + a parallel scan
-helper; the API layer owns DB access and LiteLLM registration.
+helper and the scoped discovery used by the two admin serving screens.
 """
 
 import asyncio
 import logging
+from collections.abc import Iterable
 from typing import Any
+from uuid import UUID
 
+from fastapi import HTTPException
 from kubernetes_asyncio.client.exceptions import ApiException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.clients.k8s import K8sNotConfigured
+from app.config import settings
+from app.db.models.custom_external_serving import CustomExternalServing
+from app.db.models.custom_llmd_stack import CustomLlmdStack
+from app.db.models.custom_model_deployment import CustomModelDeployment
+from app.services.clusters import namespace_scopes, scan_targets, validate_namespace
 from app.services.deployment_status import classify
 from app.services.model_deployment_manifests import LABEL_OWNER, PORTAL_OWNERS
 
@@ -105,3 +115,51 @@ async def scan_clusters(
             s["cluster_name"] = cluster_name
             servings.append(s)
     return servings, errors
+
+
+def serialize_registration(r: CustomExternalServing) -> dict:
+    return {
+        "id": str(r.id),
+        "model_name": r.model_name,
+        "api_base": r.api_base,
+        "litellm_model_id": r.litellm_model_id,
+    }
+
+
+async def discover_servings(
+    db: AsyncSession, cluster: str | None, ns: str, *, extra_scopes: Iterable[tuple[UUID | None, str]] = (),
+) -> dict:
+    """List live external deployments, their matching registrations and available namespace filters."""
+    try:
+        namespace = validate_namespace(ns)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    regs = (await db.execute(select(CustomExternalServing))).scalars().all()
+    extra = [(r.cluster_id, r.namespace) for r in regs] + list(extra_scopes)
+    if cluster is not None:
+        known = select(CustomModelDeployment.cluster_id, CustomModelDeployment.namespace).union(
+            select(CustomLlmdStack.cluster_id, CustomLlmdStack.namespace)
+        )
+        extra.extend((await db.execute(known)).all())
+        extra.append((None, settings.k8s_default_namespace))
+        if cluster and namespace:
+            extra.append((None if cluster == "default" else cluster, namespace))
+    scopes = await namespace_scopes(db, extra, include_registered=cluster is not None)
+    cluster_scopes = [s for s in scopes if not cluster or (s.cluster_id or "default") == cluster]
+    if cluster and not cluster_scopes:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    selected = [s for s in cluster_scopes if not namespace or s.namespace == namespace]
+    errors = []
+    targets = scan_targets(selected, errors=errors)
+    servings, scan_errors = await scan_clusters(targets, skip_unconfigured_portal=cluster != "default")
+
+    reg_map = {(str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r for r in regs}
+    for s in servings:
+        r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))
+        s["registration"] = serialize_registration(r) if r else None
+
+    return {
+        "servings": servings,
+        "errors": errors + scan_errors,
+        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in cluster_scopes],
+    }

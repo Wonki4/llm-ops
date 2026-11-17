@@ -871,7 +871,7 @@
     "createdAt": "Created",
     "colCluster": "Cluster",
     "externalBadge": "External",
-    "externalHint": "External serving discovered in the selected scope. All namespaces includes the cluster's configured namespace and namespaces with a portal deployment or serving registration.",
+    "externalHint": "External serving discovered in the selected scope. All namespaces includes the cluster's configured namespace and namespaces with a portal deployment, serving registration, or llm-d stack.",
     "scanErrors": "Could not load the complete deployment list.",
     "register": "Register",
     "registered": "Registered",
@@ -2276,6 +2276,8 @@
     "scopeAllNamespaces": "All namespaces",
     "scopePortalCluster": "Portal default",
     "scopeReset": "Clear",
+    "externalServing": "External",
+    "loadError": "Could not load the complete serving overview.",
     "scopeEmpty": "Nothing runs in this cluster/namespace.",
     "groupSummary": "{count} servings · {ready} Ready · {gpus} GPU",
     "groupGpuHint": "GPUs requested by portal deployments (external servings are not counted)."

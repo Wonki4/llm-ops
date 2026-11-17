@@ -58,6 +58,8 @@ def _stack(**kw):
     base = dict(
         id=uuid.uuid4(),
         name="stack-m",
+        namespace="ns",
+        cluster_id=None,
         target_model_name="m",
         values_snapshot={"router": {"modelServers": {"matchLabels": {"llm-d.ai/model": "m"}}}},
     )
@@ -83,10 +85,10 @@ def test_row_joins_every_stage():
 
 def test_deployments_and_stacks_carry_their_cluster_and_namespace():
     cid = uuid.uuid4()
-    rows = _rows([_dep(cluster_id=cid, namespace="team-a")], [_stack(cluster_id=None, namespace="llm")], [], [], [])
+    rows = _rows([_dep(cluster_id=cid, namespace="team-a")], [_stack(cluster_id=cid, namespace="team-a")], [], [], [])
     d, st = rows[0]["deployments"][0], rows[0]["llmd_stacks"][0]
     assert (d["cluster_id"], d["namespace"]) == (str(cid), "team-a")
-    assert (st["cluster_id"], st["namespace"]) == (None, "llm")
+    assert (st["cluster_id"], st["namespace"]) == (str(cid), "team-a")
 
 
 def test_models_without_deployment_still_listed_and_sorted():
@@ -132,17 +134,22 @@ def test_stack_links_by_selector_not_by_target_name():
 def test_external_serving_links_through_registration():
     ext = {
         "deployment_name": "vllm-qwen",
+        "cluster_id": None, "engine": "vllm", "ready_replicas": 1, "replicas": 1,
+        "registration": {"model_name": "qwen3-32b", "litellm_model_id": "lm-1"},
         "namespace": "ml",
         "status": "Ready",
         "labels": {"llm-d.ai/model": "Qwen3-32B"},
     }
-    reg = types.SimpleNamespace(namespace="ml", deployment_name="vllm-qwen", model_name="qwen3-32b")
     st = _stack(
-        name="ext",
+        name="ext", namespace="ml",
         target_model_name="qwen3-32b",
         values_snapshot={"router": {"modelServers": {"matchLabels": {"llm-d.ai/model": "Qwen3-32B"}}}},
     )
-    out = build_overview([], [st], [], [], [], external_servings=[ext], external_registrations=[reg])
+    wrong_ns = _stack(namespace="elsewhere", values_snapshot=st.values_snapshot)
+    wrong_cluster = _stack(cluster_id=uuid.uuid4(), namespace="ml", values_snapshot=st.values_snapshot)
+    out = build_overview([], [st, wrong_ns, wrong_cluster], [], [], [], external_servings=[ext])
+    assert {s["id"] for s in out["unlinked_stacks"]} == {str(wrong_ns.id), str(wrong_cluster.id)}
+    assert out["models"][0]["litellm_registered"]
     assert [r["model_name"] for r in out["models"]] == ["qwen3-32b"]
     assert out["models"][0]["llmd_stacks"][0]["servers"][0]["kind"] == "external"
 

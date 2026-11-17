@@ -190,12 +190,21 @@ async def scan_scopes(
     return scan_targets(await namespace_scopes(db, extra, representative=representative))
 
 
-def scan_targets(scopes: Iterable[NamespaceScope]) -> list[ScanScope]:
+def scan_targets(scopes: Iterable[NamespaceScope], *, errors: list[dict] | None = None) -> list[ScanScope]:
     clients: dict[str | None, K8sClient] = {}
     out = []
     for scope in scopes:
         cid = scope.cluster_id
         if cid not in clients:
-            clients[cid] = scope.client()
+            try:
+                clients[cid] = scope.client()
+            except Exception:
+                if errors is None:
+                    raise
+                errors.append({
+                    "cluster": scope.name, "namespace": scope.namespace,
+                    "message": "Could not load cluster credentials",
+                })
+                continue
         out.append((cid, scope.name, clients[cid], scope.namespace))
     return out

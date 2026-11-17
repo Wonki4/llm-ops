@@ -43,6 +43,7 @@ def portal_server(dep: Any) -> dict:
         "id": str(dep.id),
         "model_name": dep.model_name,
         "name": dep.model_name,
+        "cluster_id": str(dep.cluster_id) if getattr(dep, "cluster_id", None) else None,
         "namespace": dep.namespace,
         "status": dep.status,
         "serving_mode": getattr(dep, "serving_mode", None) or "aggregated",
@@ -56,10 +57,16 @@ def external_server(serving: dict, registered_model_name: str | None) -> dict:
         "id": None,
         "model_name": registered_model_name,
         "name": serving.get("deployment_name"),
+        "cluster_id": serving.get("cluster_id"),
         "namespace": serving.get("namespace"),
         "status": serving.get("status"),
         "labels": serving.get("labels") or {},
     }
+
+
+def _same_scope(stack: Any, server: dict) -> bool:
+    cid = str(stack.cluster_id) if getattr(stack, "cluster_id", None) else None
+    return cid == server["cluster_id"] and stack.namespace == server["namespace"]
 
 
 def link_stacks(stacks: list, servers: list[dict]) -> dict[str, dict]:
@@ -69,7 +76,9 @@ def link_stacks(stacks: list, servers: list[dict]) -> dict[str, dict]:
         selector = stack_selector(getattr(stack, "values_snapshot", None) or getattr(stack, "helm_values", None) or {})
         out[str(stack.id)] = {
             "selector": selector,
-            "servers": [srv for srv in servers if selector_matches(selector, srv["labels"])],
+            "servers": [
+                srv for srv in servers if _same_scope(stack, srv) and selector_matches(selector, srv["labels"])
+            ],
         }
     return out
 
@@ -79,5 +88,6 @@ def stacks_for_server(server: dict, stacks: list) -> list:
     return [
         s
         for s in stacks
-        if selector_matches(stack_selector(getattr(s, "values_snapshot", None) or {}), server["labels"])
+        if _same_scope(s, server)
+        and selector_matches(stack_selector(getattr(s, "values_snapshot", None) or {}), server["labels"])
     ]

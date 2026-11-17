@@ -212,7 +212,7 @@ def _serving(cluster_id=None, cluster_name="default", name="ext-vllm", namespace
 async def test_get_external_servings(client_for_user, super_user, mock_db):
     # execute #1: registrations (none) / execute #2: registered clusters (none)
     mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([])])
-    with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
+    with patch("app.services.external_servings.scan_clusters", AsyncMock(return_value=([_serving()], []))):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/model-deployments/external")
     assert resp.status_code == 200
@@ -233,7 +233,7 @@ async def test_get_external_servings_joins_registration(client_for_user, super_u
     reg.api_base = "https://ext.example.com"
     reg.litellm_model_id = "litellm-abc"
     mock_db.execute = AsyncMock(side_effect=[_exec_result([reg]), _exec_result([])])
-    with patch("app.api.model_deployments.scan_clusters", AsyncMock(return_value=([_serving()], []))):
+    with patch("app.services.external_servings.scan_clusters", AsyncMock(return_value=([_serving()], []))):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/model-deployments/external")
     body = resp.json()
@@ -244,7 +244,7 @@ async def test_get_external_servings_joins_registration(client_for_user, super_u
 async def test_get_external_servings_reports_cluster_errors(client_for_user, super_user, mock_db):
     mock_db.execute = AsyncMock(side_effect=[_exec_result([]), _exec_result([])])
     with patch(
-        "app.api.model_deployments.scan_clusters",
+        "app.services.external_servings.scan_clusters",
         AsyncMock(return_value=([], [{"cluster": "prod", "message": "scan timed out after 5s"}])),
     ):
         async with client_for_user(super_user) as client:
@@ -291,7 +291,7 @@ async def test_get_external_servings_scans_representative_and_registered_namespa
 
     with (
         patch("app.services.clusters._client_for_row", MagicMock(return_value=MagicMock())),
-        patch("app.api.model_deployments.scan_clusters", AsyncMock(side_effect=_fake_scan)),
+        patch("app.services.external_servings.scan_clusters", AsyncMock(side_effect=_fake_scan)),
     ):
         async with client_for_user(super_user) as client:
             resp = await client.get("/api/model-deployments/external")
@@ -304,24 +304,36 @@ async def test_get_external_servings_scans_representative_and_registered_namespa
     assert registration["litellm_model_id"] == "litellm-prod-1"
 
 
-async def test_selected_cluster_discovers_deployment_before_registration(admin_client, mock_db):
+async def test_unregistered_serving_visible_in_both_selected_views(admin_client, mock_db):
     rep = types.SimpleNamespace(id=uuid.uuid4(), name="primary", namespace="ml", is_default=True)
     other = types.SimpleNamespace(id=uuid.uuid4(), name="secondary", namespace="ml", is_default=False)
+    # A registration with the same namespace and deployment name on another cluster must not match.
+    reg = types.SimpleNamespace(cluster_id=rep.id, namespace="ml", deployment_name="secondary-vllm")
     managed = MagicMock()
     managed.all.return_value = [(other.id, "team-b")]
-    mock_db.execute.side_effect = [_exec_result([]), managed, _exec_result([rep, other])]
+    discovery = [_exec_result([reg]), managed, _exec_result([rep, other])]
+    mock_db.execute.side_effect = [*discovery, *[_exec_result([]) for _ in range(5)], *discovery]
     kube = _fake_client([_raw_dep(name="secondary-vllm", namespace="ml")])
+    params = {"cluster": str(other.id), "ns": "ml"}
     with patch("app.services.clusters._client_for_row", return_value=kube) as make_client:
-        resp = await admin_client.get("/api/model-deployments/external", params={"cluster": str(other.id), "ns": "ml"})
-    assert resp.status_code == 200
-    make_client.assert_called_once_with(other)
-    kube.list_deployments.assert_awaited_once_with("ml")
-    body = resp.json()
-    assert body["errors"] == []
+        listed = await admin_client.get("/api/model-deployments/external", params=params)
+        home = await admin_client.get("/api/admin/serving/overview", params=params)
+    assert listed.status_code == home.status_code == 200
+    assert [c.args for c in make_client.call_args_list] == [(other,), (other,)]
+    assert [c.args for c in kube.list_deployments.await_args_list] == [("ml",), ("ml",)]
+    body = listed.json()
+    overview = home.json()
+    assert body["errors"] == overview["errors"] == []
     assert [(s["cluster_id"], s["deployment_name"], s["registration"]) for s in body["servings"]] == [
         (str(other.id), "secondary-vllm", None)
     ]
+    assert body["scopes"] == overview["scopes"]
     assert {s["namespace"] for s in body["scopes"]} == {"ml", "team-b"}
+    row, = overview["models"]
+    sv, = row["external_servings"]
+    assert row["model_name"] == sv["deployment_name"] == body["servings"][0]["deployment_name"]
+    assert (sv["cluster_id"], sv["namespace"]) == (str(other.id), "ml")
+    assert not row["litellm_registered"] and row["deployments"] == row["llmd_stacks"] == []
 
 
 async def test_explicit_all_clusters_scans_known_namespaces_and_keeps_partial_results(admin_client, mock_db):
@@ -342,6 +354,30 @@ async def test_explicit_all_clusters_scans_known_namespaces_and_keeps_partial_re
     assert resp.json()["errors"] == [
         {"cluster": "primary", "namespace": "main", "message": "list deployments.apps: HTTP 403 Forbidden"}
     ]
+
+
+async def test_overview_keeps_partial_results_when_cluster_config_is_broken(admin_client, mock_db):
+    unavailable = types.SimpleNamespace(id=uuid.uuid4(), name="broken", namespace="ml", is_default=True)
+    other = types.SimpleNamespace(id=uuid.uuid4(), name="secondary", namespace="ml", is_default=False)
+    mock_db.execute.side_effect = [
+        *[_exec_result([]) for _ in range(7)], _exec_result([unavailable, other]),
+    ]
+    secondary = _fake_client([_raw_dep(namespace="ml")])
+
+    def client_for_row(row):
+        if row.id == unavailable.id:
+            raise ValueError("invalid kubeconfig")
+        return secondary
+
+    with (
+        patch("app.services.clusters._client_for_row", side_effect=client_for_row),
+        patch("app.services.clusters.K8sClient", return_value=_fake_client(error=K8sNotConfigured())),
+    ):
+        resp = await admin_client.get("/api/admin/serving/overview?cluster=&ns=")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["models"][0]["external_servings"][0]["cluster_id"] == str(other.id)
+    assert [(e["cluster"], e["namespace"]) for e in body["errors"]] == [("broken", "ml")]
 
 
 async def test_explicit_portal_namespace_uses_portal_client_and_reports_missing_config(admin_client, mock_db):
