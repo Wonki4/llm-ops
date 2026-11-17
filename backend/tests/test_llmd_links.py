@@ -40,7 +40,7 @@ def _dep(**kw):
 
 
 def _stack(values, **kw):
-    base = dict(id=uuid.uuid4(), name="stack", values_snapshot=values)
+    base = dict(id=uuid.uuid4(), name="stack", namespace="ns", values_snapshot=values)
     base.update(kw)
     return types.SimpleNamespace(**base)
 
@@ -79,7 +79,9 @@ def test_link_by_label_not_by_name():
         },
         registered_model_name="qwen3-32b",
     )
-    by_llmd_label = _stack({"router": {"modelServers": {"matchLabels": {"llm-d.ai/model": "Qwen3-32B"}}}}, name="ext")
+    by_llmd_label = _stack(
+        {"router": {"modelServers": {"matchLabels": {"llm-d.ai/model": "Qwen3-32B"}}}}, name="ext", namespace="ml"
+    )
     by_legacy = _stack(
         {"inferenceExtension": {"endpointsServer": {"endpointSelector": "llm-ops/model-name=cpu-demo"}}}, name="legacy"
     )

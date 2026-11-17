@@ -11,7 +11,7 @@ import { ModelStatusBadge } from "@/components/model-status-badge";
 import { AdminDeployFromRecipeButton } from "@/components/deploy-from-recipe-dialog";
 import { ServingRoleView, TeamServingHome } from "@/components/team-serving";
 import { ServingScopeFilter, useServingScope } from "@/components/serving-scope-filter";
-import { inScope, isScoped, scopeQuery } from "@/lib/serving-scope";
+import { clusterKey, isScoped, scopeQuery } from "@/lib/serving-scope";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -55,31 +55,20 @@ export default function ServingHomePage() {
 
 function ServingHome() {
   const t = useTranslations("serving");
-  const { data, isLoading } = useServingOverview();
   const settings = useK8sClusterSettings();
   const [scope, setScope] = useServingScope(settings.data);
+  const { data, isLoading, error } = useServingOverview(settings.data ? scope : null);
   const scoped = isScoped(scope);
-  const scopeItems = [
-    ...(data?.models ?? []).flatMap((r) => [...r.deployments, ...r.llmd_stacks]),
-    ...(data?.unlinked_stacks ?? []),
-  ];
-  // Scoped: keep only the deployments/stacks in scope, and only models that still have one.
-  const rows = scoped
-    ? data?.models
-        .map((r) => ({
-          ...r,
-          deployments: r.deployments.filter((d) => inScope(scope, d)),
-          llmd_stacks: r.llmd_stacks.filter((st) => inScope(scope, st)),
-        }))
-        .filter((r) => r.deployments.length > 0 || r.llmd_stacks.length > 0)
-    : data?.models;
-  const unlinked = (data?.unlinked_stacks ?? []).filter((st) => inScope(scope, st));
+  const rows = data?.models ?? [];
+  const unlinked = data?.unlinked_stacks ?? [];
+  const errors = data?.errors ?? [];
+  const hasErrors = !!error || errors.length > 0;
 
   const stats = {
-    models: rows?.length ?? 0,
-    ready: rows?.filter((r) => r.deployments.some((d) => d.status === "Ready")).length ?? 0,
-    benchmarked: rows?.filter((r) => r.performance || r.accuracy).length ?? 0,
-    catalogued: rows?.filter((r) => r.catalog).length ?? 0,
+    models: rows.length,
+    ready: rows.filter((r) => [...r.deployments, ...r.external_servings].some(d => d.status === "Ready")).length,
+    benchmarked: rows.filter(r => r.performance || r.accuracy).length,
+    catalogued: rows.filter(r => r.catalog).length,
   };
 
   if (!settings.data) {
@@ -102,22 +91,29 @@ function ServingHome() {
         </div>
       </div>
 
-      <ServingScopeFilter scope={scope} onChange={setScope} items={scopeItems} settings={settings.data} />
+      <ServingScopeFilter scope={scope} onChange={setScope} items={data?.scopes ?? []} settings={settings.data} />
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {(["models", "ready", "benchmarked", "catalogued"] as const).map((k) => (
           <Card key={k}>
             <CardContent className="pt-6">
               <div className="text-sm text-muted-foreground">{t(`stat.${k}`)}</div>
-              <div className="text-2xl font-bold tabular-nums">{isLoading ? "–" : stats[k]}</div>
+              <div className="text-2xl font-bold tabular-nums">{isLoading || !data ? "–" : stats[k]}</div>
             </CardContent>
           </Card>
         ))}
       </div>
 
+      {hasErrors && <div role="alert" className="rounded-md border p-3 text-sm">
+        <p>{t("loadError")}</p>
+        {error && <p>{error.message}</p>}
+        {errors.map(e => <p key={`${e.cluster}/${e.namespace}`}>
+          <code>{e.cluster}/{e.namespace}</code> · {e.message}
+        </p>)}
+      </div>}
       {isLoading ? (
         <div className="h-40 animate-pulse rounded-lg bg-muted" />
-      ) : !rows || rows.length === 0 ? (
+      ) : rows.length === 0 ? !hasErrors && (
         <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
           {scoped ? t("scopeEmpty") : <>{t("empty")} <Link href="/admin/recipes/new" className="underline">{t("emptyCta")}</Link></>}
         </div>
@@ -170,7 +166,7 @@ function ServingHome() {
 
 function OverviewRow({ row }: { row: ServingOverviewRow }) {
   const t = useTranslations("serving");
-  const engine = row.deployments[0]?.engine ?? row.recipes[0]?.engine;
+  const engine = row.deployments[0]?.engine ?? row.external_servings[0]?.engine ?? row.recipes[0]?.engine;
   const gpuType = row.deployments.find((d) => d.gpu_type)?.gpu_type ?? null;
   const isPd = row.deployments.some((d) => d.serving_mode === "pd");
   const perf = row.performance;
@@ -214,7 +210,7 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
       </TableCell>
 
       <TableCell className="align-top">
-        {row.deployments.length === 0 && row.llmd_stacks.length === 0 ? (
+        {row.deployments.length === 0 && row.external_servings.length === 0 && row.llmd_stacks.length === 0 ? (
           <NextStep href={row.recipes.length > 0 ? "/admin/recipes" : "/admin/recipes/new"} label={t("next.deploy")} />
         ) : (
           <div className="flex flex-col gap-1">
@@ -227,6 +223,17 @@ function OverviewRow({ row }: { row: ServingOverviewRow }) {
                 {d.litellm_model_id && <CheckCircle2 className="size-3.5 text-green-600" aria-label={t("registered")} />}
               </Link>
             ))}
+            {row.external_servings.map(s => {
+              const scope = { cluster: clusterKey(s.cluster_id), ns: s.namespace };
+              return <Link key={`${scope.cluster}/${s.namespace}/${s.deployment_name}`}
+                href={`/admin/deployments${scopeQuery(scope)}`} className="inline-flex flex-wrap items-center gap-2 text-sm hover:underline">
+                <Badge variant="outline">{t("externalServing")}</Badge>
+                <span>{s.deployment_name}</span>
+                <Badge variant={deployVariant(s.status)}>{s.status}</Badge>
+                <span className="tabular-nums text-muted-foreground">{s.ready_replicas}/{s.replicas}</span>
+                {s.litellm_model_id && <CheckCircle2 className="size-3.5 text-green-600" aria-label={t("registered")} />}
+              </Link>;
+            })}
             {row.llmd_stacks.map((s) => (
               <Link
                 key={s.id}

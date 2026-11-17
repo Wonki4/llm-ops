@@ -43,12 +43,10 @@ from app.services.clusters import (
     argocd_placement_for,
     default_namespace,
     k8s_for_cluster,
-    namespace_scopes,
-    scan_targets,
     validate_namespace,
 )
 from app.services.common_labels import load_deployment_copy
-from app.services.external_servings import scan_clusters
+from app.services.external_servings import discover_servings, serialize_registration
 from app.services.gpu_profile_store import UnknownGpuTypeError, cluster_label_key, list_profiles, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, match_profile, resolve_placement, validate_profile_name
 from app.services.litellm_registration import (
@@ -384,15 +382,6 @@ async def list_deployments(
     return {"deployments": out}
 
 
-def _serialize_registration(r: CustomExternalServing) -> dict:
-    return {
-        "id": str(r.id),
-        "model_name": r.model_name,
-        "api_base": r.api_base,
-        "litellm_model_id": r.litellm_model_id,
-    }
-
-
 @router.get("/external")
 async def list_external_servings(
     user: CustomUser = Depends(require_super_user),
@@ -405,35 +394,7 @@ async def list_external_servings(
     The deployments page sends its selection (empty cluster = all, "default" = portal).
     Callers without a selection use the representative and registered servings.
     """
-    try:
-        namespace = validate_namespace(ns)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    regs = (await db.execute(select(CustomExternalServing))).scalars().all()
-    extra = [(r.cluster_id, r.namespace) for r in regs]
-    if cluster is not None:
-        managed = await db.execute(select(CustomModelDeployment.cluster_id, CustomModelDeployment.namespace).distinct())
-        extra.extend(managed.all())
-        extra.append((None, settings.k8s_default_namespace))
-        if cluster and namespace:
-            extra.append((None if cluster == "default" else cluster, namespace))
-    scopes = await namespace_scopes(db, extra, include_registered=cluster is not None)
-    cluster_scopes = [s for s in scopes if not cluster or (s.cluster_id or "default") == cluster]
-    if cluster and not cluster_scopes:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    selected = [s for s in cluster_scopes if not namespace or s.namespace == namespace]
-    servings, errors = await scan_clusters(scan_targets(selected), skip_unconfigured_portal=cluster != "default")
-
-    reg_map = {(str(r.cluster_id) if r.cluster_id else None, r.namespace, r.deployment_name): r for r in regs}
-    for s in servings:
-        r = reg_map.get((s["cluster_id"], s["namespace"], s["deployment_name"]))
-        s["registration"] = _serialize_registration(r) if r else None
-
-    return {
-        "servings": servings,
-        "errors": errors,
-        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in cluster_scopes],
-    }
+    return await discover_servings(db, cluster, ns)
 
 
 @router.get("/external/recipe-draft")
@@ -526,7 +487,7 @@ async def register_external_serving(
     )
     db.add(reg)
     await db.flush()
-    return {"registration": _serialize_registration(reg)}
+    return {"registration": serialize_registration(reg)}
 
 
 @router.delete("/external/register/{registration_id}")

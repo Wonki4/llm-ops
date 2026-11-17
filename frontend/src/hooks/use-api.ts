@@ -1491,7 +1491,9 @@ export function useRegisterExternalServing() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["external-servings"] }),
+    onSuccess: () => Promise.all(["external-servings", "serving-overview"].map(key =>
+      queryClient.invalidateQueries({ queryKey: [key] })
+    )),
   });
 }
 
@@ -1500,7 +1502,9 @@ export function useUnregisterExternalServing() {
   return useMutation({
     mutationFn: (registrationId: string) =>
       apiFetch(`/api/model-deployments/external/register/${registrationId}`, { method: "DELETE" }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["external-servings"] }),
+    onSuccess: () => Promise.all(["external-servings", "serving-overview"].map(key =>
+      queryClient.invalidateQueries({ queryKey: [key] })
+    )),
   });
 }
 
@@ -1925,11 +1929,12 @@ export function useLlmdDefaultValues() {
 
 // ─── Serving home ─────────────────────────────────────────────
 
-export function useServingOverview() {
+export function useServingOverview(scope: ServingScope | null) {
+  const query = scope ? scopeQuery(scope, true) : "";
   return useQuery({
-    queryKey: ["serving-overview"],
-    queryFn: () =>
-      apiFetch<ServingOverview>("/api/admin/serving/overview"),
+    queryKey: ["serving-overview", query],
+    queryFn: () => apiFetch<ServingOverview>(`/api/admin/serving/overview${query}`),
+    enabled: scope !== null,
   });
 }
 
