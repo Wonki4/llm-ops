@@ -1,11 +1,13 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslations } from "next-intl";
 import { useMe } from "@/hooks/use-api";
-import { scopeKey, teamScopeParams, useTeamScopes, type TeamScope } from "@/hooks/use-serving-access";
+import { scopeKey, teamScopeParams, teamServingScope, useTeamScopes, type TeamScope } from "@/hooks/use-serving-access";
+import { useServingScope } from "@/components/serving-scope-filter";
+import { scopeQuery } from "@/lib/serving-scope";
 import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -21,14 +23,17 @@ export function ServingRoleView({ children, member }: { children: ReactNode; mem
 export function TeamScopeView({ children }: { children: (scope: TeamScope) => ReactNode }) {
   const t = useTranslations("teamServing");
   const scopes = useTeamScopes();
-  const [choice, setChoice] = useState("");
+  const [choice, setChoice] = useServingScope(undefined);
   if (scopes.isError) return <p role="alert">{scopes.error.message}</p>;
   if (!scopes.data) return <div aria-busy="true" className="h-32 animate-pulse rounded-lg bg-muted" />;
-  const scope = scopes.data.find(s => scopeKey(s) === choice) ?? scopes.data[0];
+  const scope = scopes.data.find(s => scopeKey(s) === `${choice.cluster}/${choice.ns}`) ?? scopes.data[0];
   if (!scope) return <p>{t("noScopes")}</p>;
   return <div className="space-y-4">
     <label className="flex flex-wrap items-center gap-3 text-sm">{t("scope")}
-      <select className="rounded-md border bg-background p-2" value={scopeKey(scope)} onChange={e => setChoice(e.target.value)}>
+      <select className="rounded-md border bg-background p-2" value={scopeKey(scope)} onChange={e => {
+        const selected = scopes.data.find(s => scopeKey(s) === e.target.value);
+        if (selected) setChoice(teamServingScope(selected));
+      }}>
         {scopes.data.map(s => <option key={scopeKey(s)} value={scopeKey(s)}>{s.cluster_name ?? t("portal")} / {s.namespace}</option>)}
       </select>
       <Badge variant="secondary">{t(scope.role)}</Badge>
@@ -115,10 +120,12 @@ export function TeamServingInventory({ teamId }: { teamId: string }) {
 export function TeamServingHome() {
   const t = useTranslations("teamServing");
   return <div className="space-y-5">
-    <div className="flex items-center justify-between gap-4"><h1 className="text-2xl font-bold">{t("title")}</h1>
-      <Link className="text-sm underline" href="/admin/serving/topology">{t("graph")}</Link></div>
+    <h1 className="text-2xl font-bold">{t("title")}</h1>
     <TeamScopeView>{scope => <div key={scopeKey(scope)} className="space-y-4">
-      {scope.role === "operator" && <OperatorDeployButton scope={scope} />}
+      <div className="flex flex-wrap items-center gap-4">
+        <Link className="text-sm underline" href={`/admin/serving/topology${scopeQuery(teamServingScope(scope))}`}>{t("graph")}</Link>
+        {scope.role === "operator" && <OperatorDeployButton scope={scope} />}
+      </div>
       <TeamDeployments scope={scope} />
     </div>}</TeamScopeView>
   </div>;

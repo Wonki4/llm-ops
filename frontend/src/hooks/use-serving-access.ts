@@ -27,6 +27,10 @@ export function scopeKey(scope: TeamScope) {
   return clusterKey(scope.cluster_id) + "/" + scope.namespace;
 }
 
+export function teamServingScope(scope: TeamScope) {
+  return { cluster: clusterKey(scope.cluster_id), ns: scope.namespace };
+}
+
 export function teamScopeParams(scope: TeamScope) {
   const params = new URLSearchParams({ namespace: scope.namespace });
   if (scope.cluster_id) params.set("cluster_id", scope.cluster_id);

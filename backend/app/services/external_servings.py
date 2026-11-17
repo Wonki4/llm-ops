@@ -22,7 +22,7 @@ from app.config import settings
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
-from app.services.clusters import namespace_scopes, scan_targets, validate_namespace
+from app.services.clusters import NamespaceScope, namespace_scopes, scan_targets, validate_namespace
 from app.services.deployment_status import classify
 from app.services.model_deployment_manifests import LABEL_OWNER, PORTAL_OWNERS
 
@@ -126,14 +126,29 @@ def serialize_registration(r: CustomExternalServing) -> dict:
     }
 
 
-async def discover_servings(
-    db: AsyncSession, cluster: str | None, ns: str, *, extra_scopes: Iterable[tuple[UUID | None, str]] = (),
-) -> dict:
-    """List live external deployments, their matching registrations and available namespace filters."""
+async def serving_namespace_scopes(
+    db: AsyncSession, extra: Iterable[tuple[UUID | str | None, str | None]], cluster: str | None, ns: str,
+) -> tuple[list[NamespaceScope], list[NamespaceScope]]:
+    """Resolve the admin's selection even when the namespace has no portal inventory yet."""
     try:
         namespace = validate_namespace(ns)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if cluster == "default" and not namespace:
+        extra = [*extra, (None, settings.k8s_default_namespace)]
+    elif cluster and namespace:
+        extra = [*extra, (None if cluster == "default" else cluster, namespace)]
+    scopes = await namespace_scopes(db, extra, include_registered=cluster is not None)
+    cluster_scopes = [s for s in scopes if not cluster or (s.cluster_id or "default") == cluster]
+    if cluster and not cluster_scopes:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    return scopes, [s for s in cluster_scopes if not namespace or s.namespace == namespace]
+
+
+async def discover_servings(
+    db: AsyncSession, cluster: str | None, ns: str, *, extra_scopes: Iterable[tuple[UUID | None, str]] = (),
+) -> dict:
+    """List live external deployments, their matching registrations and available namespace filters."""
     regs = (await db.execute(select(CustomExternalServing))).scalars().all()
     extra = [(r.cluster_id, r.namespace) for r in regs] + list(extra_scopes)
     if cluster is not None:
@@ -142,13 +157,7 @@ async def discover_servings(
         )
         extra.extend((await db.execute(known)).all())
         extra.append((None, settings.k8s_default_namespace))
-        if cluster and namespace:
-            extra.append((None if cluster == "default" else cluster, namespace))
-    scopes = await namespace_scopes(db, extra, include_registered=cluster is not None)
-    cluster_scopes = [s for s in scopes if not cluster or (s.cluster_id or "default") == cluster]
-    if cluster and not cluster_scopes:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    selected = [s for s in cluster_scopes if not namespace or s.namespace == namespace]
+    scopes, selected = await serving_namespace_scopes(db, extra, cluster, ns)
     errors = []
     targets = scan_targets(selected, errors=errors)
     servings, scan_errors = await scan_clusters(targets, skip_unconfigured_portal=cluster != "default")
@@ -161,5 +170,6 @@ async def discover_servings(
     return {
         "servings": servings,
         "errors": errors + scan_errors,
-        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in cluster_scopes],
+        "scopes": [{"cluster_id": s.cluster_id, "namespace": s.namespace} for s in scopes
+                   if not cluster or (s.cluster_id or "default") == cluster],
     }

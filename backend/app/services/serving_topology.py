@@ -46,15 +46,26 @@ def _pod_owner(metadata, replica_sets):
 
 async def read_routes(k8s, namespace):
     """Keep only routing fields. Never send pod specs or LiteLLM credentials to the UI."""
+    unavailable = {}
+
+    async def list_items(kind, request):
+        try:
+            return (await request).items
+        except Exception as exc:
+            status = getattr(exc, "status", None)
+            unavailable[kind] = f"{kind} (HTTP {status})" if isinstance(status, int) and status else kind
+            logger.info("Cannot list %s in %s (%s)", kind, namespace, type(exc).__name__)
+            return []
+
     async with await k8s._api_client() as api:
         core = client.CoreV1Api(api)
         net = client.NetworkingV1Api(api)
         ingresses, services = await asyncio.gather(
-            net.list_namespaced_ingress(namespace, _request_timeout=8),
-            core.list_namespaced_service(namespace, _request_timeout=8),
+            list_items("Ingress", net.list_namespaced_ingress(namespace, _request_timeout=8)),
+            list_items("Service", core.list_namespaced_service(namespace, _request_timeout=8)),
         )
     paths = []
-    for ingress in ingresses.items:
+    for ingress in ingresses:
         for rule in ingress.spec.rules or []:
             for path in (rule.http.paths if rule.http else []) or []:
                 if path.backend.service:
@@ -69,7 +80,8 @@ async def read_routes(k8s, namespace):
                     )
     return {
         "paths": paths,
-        "services": {s.metadata.name: s.spec.selector or {} for s in services.items},
+        "services": {s.metadata.name: s.spec.selector or {} for s in services},
+        "unavailable": unavailable,
     }
 
 
@@ -131,6 +143,8 @@ class NamespaceSnapshots:
         try:
             async with self.limit:
                 data = await asyncio.wait_for(self.reader(scope.client(), scope.namespace), timeout=12)
+            if data.get("unavailable"):
+                return data
             self.cache[key] = (monotonic() + 30, data)
             self.cache.move_to_end(key)
             if len(self.cache) > 128:
@@ -372,7 +386,7 @@ def add_service(graph, cid, ns, svc, stack, data, expanded):
         return service
     expanded.add(service)
     if not exists:
-        nodes[service]["status"] = "missing"
+        nodes[service]["status"] = "serviceUnavailable" if "Service" in data.get("unavailable", {}) else "missing"
         return service
     selector = stack_selector(stack.values_snapshot or stack.helm_values or {}) if stack else data["services"][svc]
     if not selector:
