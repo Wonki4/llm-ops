@@ -20,8 +20,8 @@ from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import llmd_stacks
-from app.services.clusters import NamespaceScope, namespace_scopes
-from app.services.external_servings import discover_servings
+from app.services.clusters import NamespaceScope
+from app.services.external_servings import discover_servings, serving_namespace_scopes
 from app.services.litellm_registration import litellm_name
 from app.services.llmd_links import external_server, link_stacks, portal_server
 from app.services.llmd_manifests import llmd_service_name
@@ -299,19 +299,25 @@ async def load_topology(db, litellm, cluster, ns, summary, *, permitted: Namespa
     async def scan(scope):
         try:
             data = await route_snapshots.read(scope)
-            if not summary:
-                data = {**data, **await workload_snapshots.read(scope)}
             snapshots[scope.cluster_id, scope.namespace] = {**data, "cluster": scope.name}
+            errors.extend(
+                f"{scope.name} / {scope.namespace} · {reason}" for reason in data.get("unavailable", {}).values()
+            )
+            if not summary:
+                snapshots[scope.cluster_id, scope.namespace].update(await workload_snapshots.read(scope))
         except Exception:
             errors.append(f"{scope.name} / {scope.namespace}")
 
     try:
-        scopes = [permitted] if permitted else await namespace_scopes(db, extra, include_registered=True)
+        if permitted:
+            scopes = selected = [permitted]
+        else:
+            scopes, selected = await serving_namespace_scopes(db, extra, cluster, ns)
+    except HTTPException:
+        raise
     except Exception:
-        scopes = []
+        scopes = selected = []
         errors.append("Kubernetes")
-    selected = [s for s in scopes if (not cluster or (s.cluster_id or "default") == cluster)
-                and (not ns or s.namespace == ns)]
     live, _ = await asyncio.gather(
         litellm.get_model_info(), asyncio.gather(*(scan(scope) for scope in selected)), return_exceptions=True
     )
@@ -332,17 +338,10 @@ async def topology_workloads(
     cluster: str, ns: str, kind: Literal["ingress", "service"], name: str,
     user: CustomUser = Depends(require_super_user), db: AsyncSession = Depends(get_db),
 ) -> dict:
-    # Only serve namespaces the same admin can see in the overview. Resolve the
-    # entry from Kubernetes, so callers cannot supply arbitrary pod selectors.
-    extra = []
-    for model in (CustomModelDeployment, CustomExternalServing, CustomLlmdStack):
-        extra.extend((await db.execute(select(model.cluster_id, model.namespace)
-                                       .where(model.namespace == ns).distinct())).all())
-    scopes = await namespace_scopes(db, extra, include_registered=True)
-    scope = next((s for s in scopes if (s.cluster_id or "default") == cluster and s.namespace == ns), None)
-    if not scope:
+    if not cluster or not ns.strip():
         raise HTTPException(404, "Unknown topology scope")
-    return await load_topology_workloads(db, scope, kind, name)
+    _, selected = await serving_namespace_scopes(db, [], cluster, ns)
+    return await load_topology_workloads(db, selected[0], kind, name)
 
 
 async def load_topology_workloads(db, scope: NamespaceScope, kind, name):
@@ -354,6 +353,8 @@ async def load_topology_workloads(db, scope: NamespaceScope, kind, name):
         else:
             services = {name} if name in routes["services"] else set()
         if not services:
+            if kind.capitalize() in routes.get("unavailable", {}):
+                raise HTTPException(503, "Kubernetes entry point lookup unavailable")
             raise HTTPException(404, "Entry point no longer present")
         workloads = await workload_snapshots.read(scope)
     except HTTPException:

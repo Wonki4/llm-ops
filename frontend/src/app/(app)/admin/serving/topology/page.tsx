@@ -8,7 +8,7 @@ import { ArrowLeft, Box, Boxes, ChevronRight, Cloud, Layers3, Network, RefreshCw
 
 import { apiFetch } from "@/lib/api";
 import { useK8sClusterSettings, useMe } from "@/hooks/use-api";
-import { scopeKey, teamScopeParams, type TeamScope } from "@/hooks/use-serving-access";
+import { scopeKey, teamScopeParams, teamServingScope, type TeamScope } from "@/hooks/use-serving-access";
 import { ServingRoleView, TeamScopeView } from "@/components/team-serving";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -371,14 +371,15 @@ function TeamTopology({scope}: {scope: TeamScope}) {
   if (query.isError) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return <div aria-busy="true" className="h-32 animate-pulse bg-muted" />;
   const graph = query.data;
-  const groups = groupModels(graph, "", {cluster: scope.cluster_id ?? "default", ns: scope.namespace});
+  const selection = teamServingScope(scope);
+  const groups = groupModels(graph, "", selection);
   const internal = groupEntries(graph.entries, groups.cluster, "");
   const locationLabel = () => `${scope.cluster_name ?? ts("scopePortalCluster")} / ${scope.namespace}`;
   return <section className="space-y-3">
-    <Link className="text-sm underline" href="/admin/serving">{t("back")}</Link>
+    <Link className="text-sm underline" href={`/admin/serving${scopeQuery(selection)}`}>{t("back")}</Link>
     <h1 className="text-2xl font-bold">{t("title")}</h1>
     {!graph.litellm_available && <p role="status">{t("unavailable")}</p>}
-    {!!graph.unavailable_scopes.length && <p role="status">{t("partial")} · {locationLabel()}</p>}
+    {!!graph.unavailable_scopes.length && <p role="status">{t("partial")} · {graph.unavailable_scopes.join(", ")}</p>}
     {internal.items.length ? <PagedList items={internal.items} size={10}>{items => items.map(item =>
       <EntryRow key={JSON.stringify([item.entry.kind, item.entry.name])} scope={scope} summary={graph}
         item={item} locationLabel={locationLabel} />)}</PagedList> : <p>{t("noEntries")}</p>}

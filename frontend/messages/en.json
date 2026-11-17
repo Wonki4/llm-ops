@@ -2231,6 +2231,7 @@
         "unresolved": "Unresolved target",
         "ambiguous": "Ambiguous target",
         "missing": "Missing Service",
+        "serviceUnavailable": "Service lookup unavailable",
         "noSelector": "Unknown selector",
         "noPods": "No matching pods",
         "stale": "ID missing in LiteLLM",

@@ -1,12 +1,17 @@
 import asyncio
+from contextlib import nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
+from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.api import serving_overview
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.services import serving_topology
 from app.services.clusters import NamespaceScope, namespace_scopes
-from app.services.serving_topology import NamespaceSnapshots, build_topology
+from app.services.serving_topology import NamespaceSnapshots, build_topology, read_routes
 
 
 def registration(name, mid, base):
@@ -138,9 +143,9 @@ def test_shared_entry_keeps_all_registrations_and_distinct_path_backends():
 
 
 async def test_scoped_summary_reads_pods_only_on_expansion(monkeypatch):
-    scope = NamespaceScope(None, "ns")
-    scopes = [scope, NamespaceScope(None, "other")]
-    monkeypatch.setattr(serving_overview, "namespace_scopes", AsyncMock(return_value=scopes))
+    primary = SimpleNamespace(id="primary", namespace="default", name="Primary", is_default=True)
+    secondary = SimpleNamespace(id="secondary", namespace="default", name="Secondary", is_default=False)
+    scope = NamespaceScope(secondary, "ns")
     data = snapshot()
     routes = AsyncMock(return_value={k: data[k] for k in ("paths", "services")})
     workloads = AsyncMock(return_value={
@@ -150,20 +155,56 @@ async def test_scoped_summary_reads_pods_only_on_expansion(monkeypatch):
     monkeypatch.setattr(serving_overview.workload_snapshots, "read", workloads)
     result = MagicMock()
     result.all.return_value = result.scalars.return_value.all.return_value = []
-    db = SimpleNamespace(execute=AsyncMock(return_value=result), scalars=AsyncMock(return_value=result))
+    cluster_result = MagicMock()
+    cluster_result.scalars.return_value.all.return_value = [primary, secondary]
+
+    def execute(query):
+        return cluster_result if query.column_descriptions[0]["entity"] is CustomK8sCluster else result
+
+    db = SimpleNamespace(execute=AsyncMock(side_effect=execute), scalars=AsyncMock(return_value=result))
     litellm = SimpleNamespace(get_model_info=AsyncMock(return_value=[registration("chat", "one", "https://models.test/chat")]))
-    summary = await serving_overview.serving_topology(None, db, litellm, cluster="default", ns="ns", summary=True)
-    assert summary["partial_coverage"] and len(summary["scopes"]) == 2
-    assert [entry["name"] for entry in summary["entries"]] == ["front"]
+    summary = await serving_overview.serving_topology(None, db, litellm, cluster="secondary", ns="ns", summary=True)
+    assert summary["partial_coverage"] and len(summary["scopes"]) == 3
+    assert [(e["cluster"], e["ns"], e["name"]) for e in summary["entries"]] == [("secondary", "ns", "front")]
     assert all(n["kind"] not in {"pod", "workload"} and n["status"] != "noPods" for n in summary["nodes"])
     routes.assert_awaited_once_with(scope)
     workloads.assert_not_awaited()
-    detail = await serving_overview.topology_workloads("default", "ns", "ingress", "front", None, db)
+    detail = await serving_overview.topology_workloads("secondary", "ns", "ingress", "front", None, db)
+    assert all(call.args == (scope,) for call in routes.await_args_list)
     workloads.assert_awaited_once_with(scope)
     litellm.get_model_info.assert_awaited_once()
     labels = {n["id"]: n["label"] for n in detail["nodes"]}
     assert [(labels[a], labels[b]) for a, b in detail["edges"]] == [("pool", "pod-a")]
     assert [(labels[a], labels[b]) for a, b in detail["ownership_edges"]] == [("pod-a", "chat")]
+    with pytest.raises(HTTPException) as exc:
+        await serving_overview.topology_workloads("unknown", "ns", "ingress", "front", None, db)
+    assert exc.value.status_code == 404
+    assert workloads.await_count == 1
+
+
+@pytest.mark.parametrize("denied", ["Ingress", "Service"])
+async def test_routes_keep_the_readable_resource_on_rbac_denial(monkeypatch, denied):
+    obj = SimpleNamespace
+    name = "pool"
+    svc = obj(metadata=obj(name=name), spec=obj(selector={"app": name}))
+    path = obj(path="/", path_type="Prefix", backend=obj(service=obj(name=name)))
+    ing = obj(metadata=obj(name="front"), spec=obj(rules=[obj(host="models.test", http=obj(paths=[path]))]))
+
+    def listing(kind, item):
+        error = ApiException(status=403) if denied == kind else None
+        return AsyncMock(side_effect=error, return_value=obj(items=[item]))
+
+    net = obj(list_namespaced_ingress=listing("Ingress", ing))
+    core = obj(list_namespaced_service=listing("Service", svc))
+    monkeypatch.setattr(serving_topology.client, "NetworkingV1Api", lambda _: net)
+    monkeypatch.setattr(serving_topology.client, "CoreV1Api", lambda _: core)
+    routes = await read_routes(obj(_api_client=AsyncMock(return_value=nullcontext(None))), "team")
+    assert routes["unavailable"] == {denied: f"{denied} (HTTP 403)"}
+    records = [registration("chat", "id", "http://pool.team.svc/v1" if denied == "Ingress" else "https://models.test/v1")]
+    graph = build_topology(records, {}, [], [], {("secondary", "team"): {**routes, "cluster": "Secondary"}})
+    assert [e["name"] for e in graph["entries"]] == ([name] if denied == "Ingress" else ["front"])
+    service = next(n for n in graph["nodes"] if n["kind"] == "service")
+    assert service["status"] == ("serviceUnavailable" if denied == "Service" else None)
 
 
 def test_origin_is_per_registration_and_respects_custom_endpoints():
