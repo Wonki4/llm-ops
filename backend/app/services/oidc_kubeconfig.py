@@ -6,6 +6,7 @@ tokens when loading an in-memory dict. Refresh here, persist the resulting
 kubeconfig at the call site, then give the client a one-request bearer token.
 """
 
+import asyncio
 import base64
 import copy
 import json
@@ -21,7 +22,12 @@ class OidcKubeconfigError(ValueError):
     """An OIDC kubeconfig cannot provide a usable Kubernetes API token."""
 
 
+class OidcRefreshRequiredError(OidcKubeconfigError):
+    """The stored token must be refreshed under the cluster row lock."""
+
+
 _REFRESH_SKEW_SECONDS = 30
+_REFRESH_TIMEOUT_SECONDS = 15
 
 
 def _selected_user(kubeconfig: dict, context: str) -> dict | None:
@@ -113,6 +119,8 @@ async def _refresh_token(fields: dict) -> None:
             refreshed = response.json()
         except httpx.HTTPStatusError as e:
             raise OidcKubeconfigError(f"OIDC token refresh failed (HTTP {e.response.status_code})") from e
+        except httpx.TimeoutException as e:
+            raise OidcKubeconfigError("OIDC token refresh timed out while contacting the identity provider") from e
         except (httpx.RequestError, ValueError) as e:
             if isinstance(e, OidcKubeconfigError):
                 raise
@@ -137,8 +145,14 @@ async def prepare_oidc_kubeconfig(
     refreshed = _token_expiring(fields.get("id-token"))
     if refreshed:
         if not allow_refresh:
-            raise OidcKubeconfigError("OIDC id-token is expiring; save the cluster, then test the saved connection")
-        await _refresh_token(fields)
+            raise OidcRefreshRequiredError(
+                "OIDC id-token is expiring; save the cluster, then test the saved connection"
+            )
+        try:
+            async with asyncio.timeout(_REFRESH_TIMEOUT_SECONDS):
+                await _refresh_token(fields)
+        except TimeoutError as e:
+            raise OidcKubeconfigError("OIDC token refresh timed out while contacting the identity provider") from e
         if _token_expiring(fields["id-token"]):
             raise OidcKubeconfigError("OIDC refresh returned an already expiring id_token")
     client_config = copy.deepcopy(kubeconfig)
