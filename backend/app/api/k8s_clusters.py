@@ -7,10 +7,12 @@ cluster a deployment/benchmark runs on) is handled later in each menu via the
 cluster ``id``.
 """
 
+import asyncio
 import base64
 import logging
 import ssl
 import uuid
+from contextlib import asynccontextmanager
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -34,6 +36,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/k8s-clusters", tags=["k8s-clusters"])
 
+
+_CLUSTER_WRITE_TIMEOUT_SECONDS = 10
+_SAVED_PROBE_TIMEOUT_SECONDS = 40
 
 _LEGACY_NFS = ("default_nfs_server", "default_nfs_path", "default_nfs_mount_path")
 
@@ -275,6 +280,21 @@ async def create_cluster(
     return _serialize(cluster)
 
 
+@asynccontextmanager
+async def _cluster_write(db: AsyncSession):
+    """Bound lock waits, including the DELETE/UPDATE flush at commit."""
+    try:
+        async with asyncio.timeout(_CLUSTER_WRITE_TIMEOUT_SECONDS):
+            yield
+    except TimeoutError as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Cluster update/delete timed out waiting for the database. "
+            "Another credential refresh or edit may be in progress; retry shortly",
+        ) from e
+
+
 @router.put("/{cluster_id}")
 async def update_cluster(
     cluster_id: str,
@@ -282,63 +302,66 @@ async def update_cluster(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = await db.execute(
-        select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-
-    if body.name is not None:
-        cluster.name = body.name
-    if body.namespace is not None:
-        cluster.namespace = body.namespace
-    if body.argocd_namespace is not None:
-        cluster.argocd_namespace = body.argocd_namespace
-    if body.description is not None:
-        cluster.description = body.description
-    if body.context is not None:
-        cluster.context = body.context
-    if body.gpu_label_key is not None:
-        cluster.gpu_label_key = body.gpu_label_key.strip() or "gpu-type"
-    bench_storage_id = (
-        cluster.bench_storage_id if body.bench_storage_id is None else _bench_storage_uuid(body.bench_storage_id)
-    )
-    bench_mount_path = cluster.bench_mount_path if body.bench_mount_path is None else (body.bench_mount_path or None)
-    await _check_bench_storage(db, bench_storage_id, bench_mount_path)
-    cluster.bench_storage_id = bench_storage_id
-    cluster.bench_mount_path = bench_mount_path
-
-    # Re-validate + re-parse api_server when kubeconfig or context changes.
-    new_kubeconfig = body.kubeconfig if (body.kubeconfig or "").strip() else None
-    if new_kubeconfig is not None or body.context is not None or body.oidc_ca_pem:
-        raw = new_kubeconfig if new_kubeconfig is not None else crypto.decrypt(
-            cluster.kubeconfig_encrypted
+    async with _cluster_write(db):
+        result = await db.execute(
+            select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id)).with_for_update()
         )
-        parsed, api_server = _parse_kubeconfig(raw, cluster.context, body.oidc_ca_pem)
-        cluster.api_server = api_server
-        if new_kubeconfig is not None or body.oidc_ca_pem:
-            cluster.kubeconfig_encrypted = crypto.encrypt(
-                yaml.safe_dump(parsed, sort_keys=False) if body.oidc_ca_pem else new_kubeconfig
+        cluster = result.scalar_one_or_none()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+
+        if body.name is not None:
+            cluster.name = body.name
+        if body.namespace is not None:
+            cluster.namespace = body.namespace
+        if body.argocd_namespace is not None:
+            cluster.argocd_namespace = body.argocd_namespace
+        if body.description is not None:
+            cluster.description = body.description
+        if body.context is not None:
+            cluster.context = body.context
+        if body.gpu_label_key is not None:
+            cluster.gpu_label_key = body.gpu_label_key.strip() or "gpu-type"
+        bench_storage_id = (
+            cluster.bench_storage_id if body.bench_storage_id is None else _bench_storage_uuid(body.bench_storage_id)
+        )
+        bench_mount_path = (
+            cluster.bench_mount_path if body.bench_mount_path is None else (body.bench_mount_path or None)
+        )
+        await _check_bench_storage(db, bench_storage_id, bench_mount_path)
+        cluster.bench_storage_id = bench_storage_id
+        cluster.bench_mount_path = bench_mount_path
+
+        # Re-validate + re-parse api_server when kubeconfig or context changes.
+        new_kubeconfig = body.kubeconfig if (body.kubeconfig or "").strip() else None
+        if new_kubeconfig is not None or body.context is not None or body.oidc_ca_pem:
+            raw = new_kubeconfig if new_kubeconfig is not None else crypto.decrypt(
+                cluster.kubeconfig_encrypted
             )
+            parsed, api_server = _parse_kubeconfig(raw, cluster.context, body.oidc_ca_pem)
+            cluster.api_server = api_server
+            if new_kubeconfig is not None or body.oidc_ca_pem:
+                cluster.kubeconfig_encrypted = crypto.encrypt(
+                    yaml.safe_dump(parsed, sort_keys=False) if body.oidc_ca_pem else new_kubeconfig
+                )
 
-    if body.is_default is not None:
-        cluster.is_default = body.is_default
+        if body.is_default is not None:
+            cluster.is_default = body.is_default
 
-    if body.argocd_host_cluster_id is not None:
-        cluster.argocd_host_cluster_id = await _validate_argocd_host(
-            db, body.argocd_host_cluster_id, cluster.id
-        )
-    if body.argocd_dest_server is not None:
-        cluster.argocd_dest_server = body.argocd_dest_server.strip() or None
+        if body.argocd_host_cluster_id is not None:
+            cluster.argocd_host_cluster_id = await _validate_argocd_host(
+                db, body.argocd_host_cluster_id, cluster.id
+            )
+        if body.argocd_dest_server is not None:
+            cluster.argocd_dest_server = body.argocd_dest_server.strip() or None
 
-    cluster.updated_by = user.user_id
-    await db.flush()
-    if body.is_default:
-        await _unset_other_defaults(db, keep_id=cluster.id)
-    await db.commit()
-    await db.refresh(cluster)
-    return _serialize(cluster)
+        cluster.updated_by = user.user_id
+        await db.flush()
+        if body.is_default:
+            await _unset_other_defaults(db, keep_id=cluster.id)
+        await db.commit()
+        await db.refresh(cluster)
+        return _serialize(cluster)
 
 
 @router.delete("/{cluster_id}")
@@ -347,22 +370,23 @@ async def delete_cluster(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    result = await db.execute(
-        select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    await db.delete(cluster)
-    try:
-        await db.commit()
-    except IntegrityError:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="Cluster is in use by a deployment or benchmark and cannot be deleted",
+    async with _cluster_write(db):
+        result = await db.execute(
+            select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id)).with_for_update()
         )
-    return {"ok": True}
+        cluster = result.scalar_one_or_none()
+        if not cluster:
+            raise HTTPException(status_code=404, detail="Cluster not found")
+        await db.delete(cluster)
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Cluster is in use by a deployment or benchmark and cannot be deleted",
+            )
+        return {"ok": True}
 
 
 @router.post("/test")
@@ -382,18 +406,30 @@ async def test_saved_cluster(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Test a stored cluster's connection."""
-    result = await db.execute(
-        select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise HTTPException(status_code=404, detail="Cluster not found")
+    stage = "reading the saved cluster from the database"
     try:
-        version = await (await k8s_for_cluster(db, cluster.id)).probe()
-        return {"ok": True, "server_version": version, "message": "Connected"}
+        async with asyncio.timeout(_SAVED_PROBE_TIMEOUT_SECONDS):
+            result = await db.execute(
+                select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id))
+            )
+            cluster = result.scalar_one_or_none()
+            if not cluster:
+                raise HTTPException(status_code=404, detail="Cluster not found")
+            client = await k8s_for_cluster(db, cluster.id)
+            stage = "probing the saved cluster"
+            version = await client.probe()
+            return {"ok": True, "server_version": version, "message": "Connected"}
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 — surface any connection error to the admin
-        logger.info("Cluster connection test failed: %s", e)
-        return {"ok": False, "server_version": None, "message": str(e)}
+        # A cancelled database statement leaves the request transaction unusable.
+        await db.rollback()
+        message = str(e) or (
+            f"Cluster connection test timed out while {stage}"
+            if isinstance(e, TimeoutError) else f"Cluster connection test failed ({type(e).__name__})"
+        )
+        logger.info("Cluster connection test failed: %s", message)
+        return {"ok": False, "server_version": None, "message": message}
 
 
 async def _run_probe(parsed: dict, context: str) -> dict:

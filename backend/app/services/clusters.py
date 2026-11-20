@@ -1,5 +1,6 @@
 """Resolve a K8sClient for a registered cluster (or the portal default)."""
 
+import asyncio
 import re
 import uuid
 from collections.abc import Iterable
@@ -13,7 +14,15 @@ from app.clients.k8s import K8sClient
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.session import async_session_factory
 from app.services import crypto
-from app.services.oidc_kubeconfig import oidc_provider_config, prepare_oidc_kubeconfig
+from app.services.oidc_kubeconfig import (
+    OidcKubeconfigError,
+    OidcRefreshRequiredError,
+    oidc_provider_config,
+    prepare_oidc_kubeconfig,
+)
+
+_OIDC_LOAD_TIMEOUT_SECONDS = 25
+_OIDC_LOCK_TIMEOUT_SECONDS = 5
 
 LOCAL_DEST_SERVER = "https://kubernetes.default.svc"
 _DNS_LABEL = re.compile(r"^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$")
@@ -39,20 +48,45 @@ async def _cluster_row(db: AsyncSession, cluster_id: uuid.UUID) -> CustomK8sClus
 
 
 async def _registered_oidc_kubeconfig(cluster_id: uuid.UUID) -> tuple[dict, str]:
-    """Refresh a stored OIDC token once across replicas and save any rotation."""
-    async with async_session_factory() as db:
-        result = await db.execute(
-            select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_id).with_for_update()
-        )
-        row = result.scalar_one_or_none()
-        if row is None:
-            raise ValueError(f"Registered cluster {cluster_id} no longer exists")
-        raw = yaml.safe_load(crypto.decrypt(row.kubeconfig_encrypted))
-        client_config, refreshed = await prepare_oidc_kubeconfig(raw, row.context, allow_refresh=True)
-        if refreshed:
-            row.kubeconfig_encrypted = crypto.encrypt(yaml.safe_dump(raw, sort_keys=False))
-            await db.commit()
-        return client_config, row.context
+    """Use valid tokens without locking; serialize and persist only actual refreshes."""
+    try:
+        async with asyncio.timeout(_OIDC_LOAD_TIMEOUT_SECONDS), async_session_factory() as db:
+            stmt = select(CustomK8sCluster).where(CustomK8sCluster.id == cluster_id)
+            row = (await db.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                raise ValueError(f"Registered cluster {cluster_id} no longer exists")
+            raw = yaml.safe_load(crypto.decrypt(row.kubeconfig_encrypted))
+            try:
+                ready, _ = await prepare_oidc_kubeconfig(raw, row.context, allow_refresh=False)
+                return ready, row.context
+            except OidcRefreshRequiredError:
+                pass
+
+            try:
+                async with asyncio.timeout(_OIDC_LOCK_TIMEOUT_SECONDS):
+                    # NO KEY UPDATE still serializes refreshes but is compatible
+                    # with the FK KEY SHARE held by a pending deployment/benchmark
+                    # in the caller's separate transaction. FOR UPDATE deadlocks it.
+                    # Re-read after acquiring the lock: another replica may have
+                    # rotated the token (or an admin may have edited the config).
+                    row = (await db.execute(
+                        stmt.with_for_update(key_share=True).execution_options(populate_existing=True)
+                    )).scalar_one_or_none()
+            except TimeoutError as e:
+                raise OidcKubeconfigError(
+                    "Timed out waiting for the cluster credentials lock; "
+                    "another token refresh or cluster update may be in progress. Retry shortly"
+                ) from e
+            if row is None:
+                raise ValueError(f"Registered cluster {cluster_id} no longer exists")
+            raw = yaml.safe_load(crypto.decrypt(row.kubeconfig_encrypted))
+            client_config, refreshed = await prepare_oidc_kubeconfig(raw, row.context, allow_refresh=True)
+            if refreshed:
+                row.kubeconfig_encrypted = crypto.encrypt(yaml.safe_dump(raw, sort_keys=False))
+                await db.commit()
+            return client_config, row.context
+    except TimeoutError as e:
+        raise OidcKubeconfigError("Timed out loading or saving the cluster's OIDC credentials") from e
 
 
 def _client_for_row(row: CustomK8sCluster) -> K8sClient:

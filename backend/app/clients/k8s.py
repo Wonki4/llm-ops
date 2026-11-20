@@ -6,6 +6,7 @@ client raises ApiException("not configured") so callers can surface a clean
 error to the admin instead of crashing the request.
 """
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -18,6 +19,9 @@ from app.services.model_deployment_manifests import LABEL_MODEL, LABEL_OWNER, PO
 from app.services.oidc_kubeconfig import prepare_oidc_kubeconfig
 
 logger = logging.getLogger(__name__)
+
+_PROBE_TIMEOUT_SECONDS = 35
+_PROBE_API_TIMEOUT_SECONDS = 10
 
 # Pods bound to a node and still holding resources (LIST pods field selector).
 _ACTIVE_SCHEDULED_PODS = "spec.nodeName!=,status.phase!=Succeeded,status.phase!=Failed"
@@ -97,13 +101,20 @@ class K8sClient:
         return client.ApiClient()
 
     async def probe(self) -> str:
-        """Return the Kubernetes API version using this client's credentials."""
-        api_client = await self._api_client()
+        """Return the API version, with a deadline covering credentials and HTTP."""
+        stage = "loading cluster credentials"
+        api_client = None
         try:
-            info = await client.VersionApi(api_client).get_code()
-            return info.git_version or "unknown"
+            async with asyncio.timeout(_PROBE_TIMEOUT_SECONDS):
+                api_client = await self._api_client()
+                stage = "contacting the Kubernetes API (/version)"
+                info = await client.VersionApi(api_client).get_code(_request_timeout=_PROBE_API_TIMEOUT_SECONDS)
+                return info.git_version or "unknown"
+        except TimeoutError as e:
+            raise TimeoutError(f"Cluster connection test timed out while {stage}") from e
         finally:
-            await api_client.close()
+            if api_client is not None:
+                await api_client.close()
 
     async def scale_deployment(self, namespace: str, name: str, replicas: int) -> None:
         api_client = await self._api_client()
