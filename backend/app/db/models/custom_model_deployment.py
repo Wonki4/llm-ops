@@ -19,6 +19,14 @@ class CustomModelDeployment(CustomBase):
 
     __tablename__ = "custom_model_deployment"
 
+    validation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_recipe_validation.id", ondelete="RESTRICT"), index=True
+    )
+    validation_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_validation_attempt.id", ondelete="RESTRICT")
+    )
+    validation_state: Mapped[str | None] = mapped_column(String(16))  # candidate / retired / published
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     model_name: Mapped[str] = mapped_column(String(256), nullable=False, unique=True, index=True)
     # Name in LiteLLM (/model/new model_name) and the catalog; null = model_name.

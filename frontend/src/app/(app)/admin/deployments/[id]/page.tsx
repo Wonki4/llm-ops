@@ -157,6 +157,7 @@ export default function DeploymentDetailPage() {
 
 function AdminDeploymentDetail() {
   const t = useTranslations("adminDeployments");
+  const tv = useTranslations("recipeValidation");
   const localeTag = useLocaleTag();
   const params = useParams();
   const router = useRouter();
@@ -204,6 +205,7 @@ function AdminDeploymentDetail() {
           <div className="flex items-center gap-2">
             <Server className="size-5" />
             <h1 className="text-2xl font-bold">{dep.model_name}</h1>
+            {dep.validation_id && <Link className="text-sm underline" href={`/admin/benchmarks/validations/${dep.validation_id}`}>{tv("parentJob")}</Link>}
             <StatusBadge status={dep.status} />
             <Badge variant="secondary" className="font-mono text-[10px] uppercase">{dep.engine}</Badge>
             {dep.serving_mode === "pd" && <Badge variant="outline" className="text-[10px]" data-testid="pd-badge">{t("pdBadge")}</Badge>}
@@ -220,17 +222,17 @@ function AdminDeploymentDetail() {
             )}
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" data-testid="reapply-button">
+            {!["candidate", "retired"].includes(dep.validation_state ?? "") && <Button asChild variant="outline" size="sm" data-testid="reapply-button">
               <Link href={`/admin/deployments/${dep.id}/reapply`}>
                 <RefreshCw className="size-3.5" />{t("reapplyButton")}
               </Link>
-            </Button>
+            </Button>}
             <Button asChild variant="outline" size="sm">
               <Link href={`/admin/recipes/new?from=deployment&id=${dep.id}`}>
                 <ScrollText className="size-3.5" />{t("saveAsRecipe")}
               </Link>
             </Button>
-            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending}>
+            <Button variant="outline" size="sm" className="text-destructive hover:text-destructive" onClick={handleDelete} disabled={deleteMut.isPending || dep.validation_state === "candidate" || dep.validation_state === "retired"}>
               {deleteMut.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}{t("deleteButton")}
             </Button>
           </div>
@@ -255,7 +257,7 @@ function AdminDeploymentDetail() {
             <Field label={t("litellmRegistered")}>{dep.litellm_model_id ? `✅ ${dep.litellm_model_id}` : t("notRegistered")}</Field>
             <Field label={t("serviceIp")} mono>{dep.service_cluster_ip || "-"}</Field>
             <Field label={t("lastSynced")}>{fmt(dep.last_synced_at)}</Field>
-            {dep.serving_mode !== "pd" && (
+            {dep.serving_mode !== "pd" && !["candidate", "retired"].includes(dep.validation_state ?? "") && (
               <ReplicaForm id={dep.id} desired={dep.replicas} name={dep.model_name} />
             )}
           </div>
@@ -284,7 +286,7 @@ function AdminDeploymentDetail() {
                       </span>
                       <span className="ml-auto font-mono text-[11px] text-muted-foreground">{t("pdPort")} {PD_VLLM_PORT[role]}</span>
                     </div>
-                    <ReplicaForm id={dep.id} role={role} desired={eff.replicas ?? 1} name={t(role === "prefill" ? "pdPrefill" : "pdDecode")} />
+                    {!["candidate", "retired"].includes(dep.validation_state ?? "") && <ReplicaForm id={dep.id} role={role} desired={eff.replicas ?? 1} name={t(role === "prefill" ? "pdPrefill" : "pdDecode")} />}
                     {st?.message && <p className="text-xs text-muted-foreground">{st.message}</p>}
                     <details>
                       <summary className="cursor-pointer text-sm text-muted-foreground">{t("configSection")}</summary>
@@ -367,7 +369,7 @@ function AdminDeploymentDetail() {
         <summary className="cursor-pointer px-6 text-sm font-medium">{t("configSection")}</summary>
         <div className="mt-4 px-6">
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-            {dep.serving_mode !== "pd" && (
+            {dep.serving_mode !== "pd" && !["candidate", "retired"].includes(dep.validation_state ?? "") && (
               <>
                 <Field label={t("modelPath")} mono>{dep.model_path}</Field>
                 <Field label={t("colImage")} mono>{dep.image}</Field>
@@ -375,7 +377,7 @@ function AdminDeploymentDetail() {
             )}
             <Field label={t("colNamespace")} mono>{dep.namespace}</Field>
             <Field label={t("cluster")} mono>{dep.cluster_id || t("portalDefault")}</Field>
-            {dep.serving_mode !== "pd" && (
+            {dep.serving_mode !== "pd" && !["candidate", "retired"].includes(dep.validation_state ?? "") && (
               <>
                 <Field label={t("colGpu")} mono>{dep.gpu_count} × {dep.gpu_resource_key}</Field>
                 <Field label={t("gpuType")} mono>
@@ -393,7 +395,7 @@ function AdminDeploymentDetail() {
             <Field label={t("createdBy")}>{dep.created_by ?? "-"}</Field>
             <Field label={t("createdAt")}>{fmt(dep.created_at)}</Field>
           </div>
-          {dep.serving_mode !== "pd" && (
+          {dep.serving_mode !== "pd" && !["candidate", "retired"].includes(dep.validation_state ?? "") && (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label={t("probeReadiness")} mono>{probeSummary(dep.probes?.readiness ?? null, READINESS_DEFAULTS)}</Field>
             <Field label={t("probeLiveness")} mono>
@@ -427,7 +429,7 @@ function AdminDeploymentDetail() {
           {dep.aggregated_router != null && (dep.router_apply_error || dep.router_stack?.status_message) && (
             <div role="status" className="mb-2 flex items-center gap-3 text-sm">
               <span>{dep.router_apply_error || dep.router_stack?.status_message}</span>
-              <Button variant="outline" size="sm" disabled={retryRouter.isPending}
+              <Button variant="outline" size="sm" disabled={retryRouter.isPending || ["candidate", "retired"].includes(dep.validation_state ?? "")}
                 onClick={() => retryRouter.mutate(undefined, { onError: (e) => toast.error(e.message) })}>{common("retry")}</Button>
             </div>
           )}

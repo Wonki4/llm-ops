@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { useCreateDeployment, useDefaultNamespace, useGpuNodes, useGpuProfiles, useK8sClusters, useServingRecipes } from "@/hooks/use-api";
+import { useCreateDeployment, useDefaultNamespace, useGpuNodes, useGpuProfiles, useServingRecipes } from "@/hooks/use-api";
 import type { CreateDeploymentBody, PdConfig, ServingRecipe } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import { DeploymentScopeFields } from "@/components/deployment-scope-fields";
 import { RegistrationPreview, useRegistrationPreview } from "@/components/litellm-registration-preview";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
 import { isValidNamespace } from "@/lib/k8s-names";
@@ -79,7 +80,6 @@ function RecipeDeploymentContent({ recipe, initialScope, onSelectRecipe, onClose
   const deployLabel = useTranslations("teamServing");
   const createDep = useCreateDeployment();
   const [choosingRecipe, setChoosingRecipe] = useState(false);
-  const { data: clusters } = useK8sClusters();
 
   const isPd = recipe.serving_mode === "pd";
   const [modelName, setModelName] = useState("");
@@ -233,26 +233,10 @@ function RecipeDeploymentContent({ recipe, initialScope, onSelectRecipe, onClose
             />
             <p className="text-xs text-muted-foreground">{t("deployLitellmNameHint")}</p>
           </Field>
-          <Field label={t("deployNamespace")}>
-            <Input
-              id="deploy-namespace" className="font-mono" value={namespace} placeholder={defaultNs} aria-invalid={nsInvalid}
-              onChange={(e) => setNamespace(e.target.value)}
-            />
-            <p className={nsInvalid ? "text-xs text-destructive" : "text-xs text-muted-foreground"} data-testid="deploy-namespace-hint">
-              {nsInvalid ? t("deployNamespaceInvalid") : t("deployNamespaceHint", { ns: defaultNs })}
-            </p>
-          </Field>
-          <Field label={t("deployCluster")}>
-            <select
-              id="deploy-cluster"
-              className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-              value={clusterId}
-              onChange={(e) => { setClusterId(e.target.value); setGpuTypeChoice(null); }}
-            >
-              <option value="">{t("deployClusterDefault")}</option>
-              {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </Field>
+          <div className="sm:col-span-2"><DeploymentScopeFields clusterId={clusterId} namespace={namespace}
+            onClusterChange={id => { setClusterId(id); setGpuTypeChoice(null); }} onNamespaceChange={setNamespace} />
+            {nsInvalid && <p className="text-xs text-destructive">{t("deployNamespaceInvalid")}</p>}
+          </div>
           <Field label={t("deployGpuType")} span2>
             {hasProfiles ? (
               <>

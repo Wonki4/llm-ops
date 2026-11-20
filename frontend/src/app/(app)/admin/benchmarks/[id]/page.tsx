@@ -71,9 +71,10 @@ export default function AdminBenchmarkDetailPage({
   const localeTag = useLocaleTag();
 
   const { data: run, isLoading } = useBenchmark(id);
+  const tv = useTranslations("recipeValidation");
   const cancelMutation = useCancelBenchmark();
 
-  const canCancel = run && (run.status === "pending" || run.status === "running");
+  const canCancel = run && !run.validation_id && (run.status === "pending" || run.status === "running");
 
   const handleCancel = () => {
     if (!run) return;
@@ -150,7 +151,7 @@ export default function AdminBenchmarkDetailPage({
             size="sm"
             className="text-destructive hover:text-destructive"
             onClick={handleDelete}
-            disabled={deleteMutation.isPending}
+            disabled={deleteMutation.isPending || !!run.validation_id}
           >
             <Trash2 className="size-4 mr-1" />
             {t("delete")}
@@ -158,6 +159,7 @@ export default function AdminBenchmarkDetailPage({
         </div>
       </div>
 
+      {run.validation_id && <Link href={`/admin/benchmarks/validations/${run.validation_id}`} className="block rounded-md border p-3 text-sm underline">{tv("parentJob")}</Link>}
       {experimentOf(run) === "prefix_cache" && <CacheResults run={run}/>}
       {experimentOf(run) === "performance" && <PerformanceResults run={run}/>}
       <Card>

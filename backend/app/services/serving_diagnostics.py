@@ -25,6 +25,7 @@ async def _container(core, namespace, pod_name, status, tail_lines):
     previous = status.last_state and status.last_state.terminated
     result = {
         "name": status.name,
+        "image_id": status.image_id,
         "ready": status.ready,
         "restarts": status.restart_count,
         "reason": reason.reason if reason else "Running",
@@ -49,10 +50,15 @@ async def _container(core, namespace, pod_name, status, tail_lines):
     return result
 
 
-async def workload_diagnostics(k8s: K8sClient, namespace: str, name: str, *, router: bool, tail_lines: int):
+async def workload_diagnostics(
+    k8s: K8sClient, namespace: str, name: str, *, router: bool, tail_lines: int, job: bool = False
+):
     async with await k8s._api_client() as api:
         core = client.CoreV1Api(api)
-        if router:
+        if job:
+            workload = await client.BatchV1Api(api).read_namespaced_job(name, namespace)
+            labels = workload.spec.selector.match_labels
+        elif router:
             workload = await core.read_namespaced_service(name, namespace)
             labels = workload.spec.selector
         else:
@@ -85,6 +91,9 @@ async def workload_diagnostics(k8s: K8sClient, namespace: str, name: str, *, rou
                 {
                     "name": pod.metadata.name,
                     "phase": pod.status.phase,
+                    "scheduled": any(
+                        c.type == "PodScheduled" and c.status == "True" for c in (pod.status.conditions or [])
+                    ),
                     "conditions": [
                         {"type": c.type, "reason": c.reason, "message": c.message}
                         for c in (pod.status.conditions or [])

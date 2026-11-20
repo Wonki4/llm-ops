@@ -13,10 +13,11 @@ type DeployableRecipe = {
   id: string; name: string; hf_repo_id?: string | null; engine: string; serving_mode: string;
 };
 
-export function DeployRecipeBrowser<T extends DeployableRecipe>({ recipes, initialRepo, onSelect }: {
+export function DeployRecipeBrowser<T extends DeployableRecipe>({ recipes, initialRepo, onSelect, selectedIds }: {
   recipes: T[];
   initialRepo?: string | null;
   onSelect: (recipe: T) => void;
+  selectedIds?: Set<string>;
 }) {
   const t = useTranslations("servingRecipes");
   const owners = useMemo(() => groupRecipes(recipes), [recipes]);
@@ -38,7 +39,9 @@ export function DeployRecipeBrowser<T extends DeployableRecipe>({ recipes, initi
       <ul className="max-h-[45dvh] divide-y overflow-y-auto">
         {model.recipes.map(recipe => <li key={recipe.id}>
           <button type="button" className="flex w-full items-center gap-3 px-3 py-3 text-start hover:bg-muted focus-visible:bg-muted"
+            aria-pressed={selectedIds ? selectedIds.has(recipe.id) : undefined}
             onClick={() => onSelect(recipe)}>
+            {selectedIds && <span aria-hidden className="flex size-4 items-center justify-center rounded border">{selectedIds.has(recipe.id) ? "✓" : ""}</span>}
             <span className="min-w-0 flex-1">
               <span className="block break-all text-sm font-medium">{recipe.name}</span>
               <span className="mt-1 flex flex-wrap items-center gap-1.5">

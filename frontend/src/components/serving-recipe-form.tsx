@@ -103,8 +103,12 @@ export function RecipePageHeader({ title, description }: { title: string; descri
  * create so the backend can point that deployment at the new recipe.
  */
 export function ServingRecipeForm({
-  recipe, initial, initialRepo, sourceDeploymentId, children,
+  recipe, initial, initialRepo, sourceDeploymentId, children, onDraftSubmit, submitLabel, cancelHref, draftPending,
 }: {
+  onDraftSubmit?: (body: ServingRecipeInput) => void;
+  submitLabel?: string;
+  cancelHref?: string;
+  draftPending?: boolean;
   recipe?: ServingRecipe;
   initial?: ServingRecipeInput;
   initialRepo?: string | null;
@@ -135,7 +139,7 @@ export function ServingRecipeForm({
   const [previewBody, setPreviewBody] = useState<ServingRecipeInput | null>(null);
   const [previewNonce, setPreviewNonce] = useState(0);
 
-  const saving = createMut.isPending || updateMut.isPending;
+  const saving = draftPending || createMut.isPending || updateMut.isPending;
   const isPd = form.serving_mode === "pd";
   const aggregatedDefaults = useRouterDefaults("aggregated", !isPd && form.aggregated_router != null);
   const pd: PdConfig = form.pd_config ?? {};
@@ -232,6 +236,7 @@ export function ServingRecipeForm({
     e.preventDefault();
     const body = buildBody({ requireName: true });
     if (!body) return;
+    if (onDraftSubmit) { onDraftSubmit(body); return; }
     const opts = {
       onSuccess: (saved: ServingRecipe) => {
         toast.success(recipe ? t("saveSuccess") : t("createSuccess"));
@@ -405,11 +410,11 @@ export function ServingRecipeForm({
             <FileCode2 className="size-4" />{t("previewYaml")}
           </Button>
           <Button asChild type="button" variant="outline" size="sm" disabled={saving}>
-            <Link href={RECIPES_HREF}>{tc("cancel")}</Link>
+            <Link href={cancelHref ?? RECIPES_HREF}>{tc("cancel")}</Link>
           </Button>
           <Button type="submit" size="sm" disabled={saving}>
             {saving && <Loader2 className="size-4 animate-spin" />}
-            {recipe ? t("save") : t("create")}
+            {submitLabel ?? (recipe ? t("save") : t("create"))}
           </Button>
         </div>
         <RecipeYamlPreview key={previewNonce} recipe={previewBody} onClose={() => setPreviewBody(null)} />

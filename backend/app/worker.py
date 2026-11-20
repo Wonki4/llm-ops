@@ -10,6 +10,7 @@ from app.jobs.expire_budget_boosts import budget_boost_loop
 from app.jobs.expire_memberships import membership_expiry_loop
 from app.jobs.reconcile_benchmarks import reconcile_loop as benchmark_reconcile_loop
 from app.jobs.reconcile_deployments import reconcile_loop
+from app.jobs.reconcile_recipe_validations import reconcile_loop as recipe_validation_loop
 from app.jobs.reset_team_membership_budget import team_membership_budget_reset_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -26,6 +27,7 @@ async def main() -> None:
         cost_schedule_loop(interval_seconds=settings.cost_schedule_interval_seconds),
         reconcile_loop(interval_seconds=60),
         benchmark_reconcile_loop(interval_seconds=30),
+        recipe_validation_loop(interval_seconds=10),
     )
 
 

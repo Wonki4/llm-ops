@@ -19,6 +19,13 @@ class CustomBenchmarkRun(CustomBase):
 
     __tablename__ = "custom_benchmark_run"
 
+    validation_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_recipe_validation.id", ondelete="RESTRICT"), index=True
+    )
+    validation_attempt_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("custom_validation_attempt.id", ondelete="RESTRICT"), index=True
+    )
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     model_name: Mapped[str] = mapped_column(String(256), nullable=False, index=True)
     tool: Mapped[str] = mapped_column(String(32), nullable=False)

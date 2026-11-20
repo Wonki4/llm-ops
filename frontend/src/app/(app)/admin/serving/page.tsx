@@ -56,6 +56,7 @@ export default function ServingHomePage() {
 function ServingHome() {
   const t = useTranslations("serving");
   const settings = useK8sClusterSettings();
+  const tValidation = useTranslations("recipeValidation");
   const [scope, setScope] = useServingScope(settings.data);
   const { data, isLoading, error } = useServingOverview(settings.data ? scope : null);
   const scoped = isScoped(scope);
@@ -87,6 +88,7 @@ function ServingHome() {
           <Link href={`/admin/serving/topology${scopeQuery(scope, true)}`} className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm font-medium hover:bg-muted">
             <Network className="size-4" />{t("graph.title")}
           </Link>
+          <Link href={`/admin/benchmarks/validations/new${scopeQuery(scope, true)}`} className="rounded-md border px-3 py-2 text-sm hover:bg-muted">{tValidation("title")}</Link>
           <AdminDeployFromRecipeButton scope={scope} />
         </div>
       </div>

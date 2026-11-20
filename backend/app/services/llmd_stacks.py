@@ -272,9 +272,10 @@ async def apply_stack(db: AsyncSession, stack: CustomLlmdStack, *, verb: str = "
         k8s, argocd_ns, dest_server = await argocd_placement_for(db, stack.cluster_id)
         await k8s.apply_application(argocd_ns, application_for(stack, argocd_ns, dest_server))
         target_k8s = await k8s_for_cluster(db, stack.cluster_id)
-        await target_k8s.create_or_patch(stack.namespace, [ingress_for(stack)])
+        if not getattr(stack, "validation_private", False):
+            await target_k8s.create_or_patch(stack.namespace, [ingress_for(stack)])
         direct = direct_manifests(stack)
-        if direct:
+        if direct and not getattr(stack, "validation_private", False):
             await target_k8s.create_or_patch(stack.namespace, direct)
     except Exception as e:
         logger.exception("ArgoCD Application %s failed for stack %s", verb, stack.name)
@@ -350,6 +351,8 @@ async def create_stack(
 
 
 async def require_independent(db: AsyncSession, stack: CustomLlmdStack) -> None:
+    if getattr(stack, "validation_private", False):
+        raise HTTPException(409, "Manage this validation router from its parent validation job")
     # Only deployment-owned stacks persist a per-deployment ingress path.
     if getattr(stack, "ingress_path", None) is None:
         return
