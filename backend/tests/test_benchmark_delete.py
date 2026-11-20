@@ -8,6 +8,7 @@ def _run(**kw):
     r = MagicMock()
     r.id = uuid.uuid4()
     r.cluster_id = None
+    r.validation_id = None
     r.k8s_job_name = "bench-abc"
     r.k8s_namespace = "team-a"
     r.ephemeral = False
@@ -77,4 +78,16 @@ async def test_delete_missing_run_404(client_for_user, super_user, mock_db):
     async with client_for_user(super_user) as client:
         resp = await client.delete(f"/api/benchmarks/{uuid.uuid4()}")
     assert resp.status_code == 404
+    mock_db.delete.assert_not_awaited()
+
+
+async def test_delete_validation_measurement_preserves_evidence(client_for_user, super_user, mock_db):
+    run = _run(validation_id=uuid.uuid4())
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = run
+    mock_db.execute = AsyncMock(return_value=result)
+    mock_db.delete = AsyncMock()
+    async with client_for_user(super_user) as client:
+        resp = await client.delete(f"/api/benchmarks/{run.id}")
+    assert resp.status_code == 409
     mock_db.delete.assert_not_awaited()

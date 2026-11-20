@@ -23,6 +23,8 @@ export default function AdminRecipesPage() {
 
 function RecipeLibrary() {
   const t = useTranslations("servingRecipes");
+  const tv = useTranslations("recipeValidation");
+  const [validationIds, setValidationIds] = useState<Set<string>>(new Set());
   const query = useServingRecipes();
   const owners = useMemo(() => groupRecipes(query.data ?? []), [query.data]);
   const requested = useSearchParams().get("repo");
@@ -51,6 +53,7 @@ function RecipeLibrary() {
       <Button asChild><Link href="/admin/recipes/new"><Plus />{t("newRecipe")}</Link></Button>
     </header>
 
+    {validationIds.size > 0 && <div className="flex items-center justify-between rounded-md border bg-muted/20 p-3"><span className="text-sm">{tv("selectedCount", { count: validationIds.size })}</span><Button asChild><Link href={`/admin/benchmarks/validations/new?recipes=${[...validationIds].join(",")}`}>{tv("validateSelected")}</Link></Button></div>}
     {query.isPending ? <div className="h-32 animate-pulse rounded-lg bg-muted" />
       : query.isError ? <p role="alert" className="text-destructive">{query.error.message}</p>
       : !selectedModel ? <p className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">{t("empty")}</p>
@@ -76,10 +79,11 @@ function RecipeLibrary() {
           </div>
           <Table>
             <TableHeader><TableRow>
-              <TableHead>{t("recipeName")}</TableHead><TableHead>{t("engine")}</TableHead>
+              <TableHead className="w-10"><span className="sr-only">{tv("choose")}</span></TableHead><TableHead>{t("recipeName")}</TableHead><TableHead>{t("engine")}</TableHead>
               <TableHead>{t("colImage")}</TableHead><TableHead>{t("colGpu")}</TableHead><TableHead className="text-right">{t("colActions")}</TableHead>
             </TableRow></TableHeader>
             <TableBody>{selectedModel.recipes.map(r => <TableRow key={r.id}>
+              <TableCell><input type="checkbox" aria-label={`${tv("choose")}: ${r.name}`} checked={validationIds.has(r.id)} onChange={() => setValidationIds(old => { const next = new Set(old); if (next.has(r.id)) next.delete(r.id); else next.add(r.id); return next; })} /></TableCell>
               <TableCell className="font-medium"><Link href={`/admin/recipes/${r.id}`} className="hover:underline">{r.name}</Link></TableCell>
               <TableCell><div className="flex items-center gap-1">
                 <Badge variant="secondary" className="uppercase">{r.engine}</Badge>

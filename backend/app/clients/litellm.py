@@ -275,6 +275,7 @@ class LiteLLMClient:
         api_base: str,
         api_key: str | None = None,
         extra_params: dict | None = None,
+        model_id: str | None = None,
     ) -> dict:
         """Register a new model deployment in LiteLLM via /model/new.
 
@@ -287,6 +288,8 @@ class LiteLLMClient:
         if extra_params:
             litellm_params.update(extra_params)
         payload = {"model_name": model_name, "litellm_params": litellm_params}
+        if model_id:
+            payload["model_info"] = {"id": model_id}
         return await self._request("POST", "/model/new", json=payload)
 
 

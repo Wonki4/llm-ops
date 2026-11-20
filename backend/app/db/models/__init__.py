@@ -11,6 +11,11 @@ from app.db.models.custom_storage import CustomStorage, CustomStorageBinding
 from app.db.models.custom_team_join_request import CustomTeamJoinRequest
 from app.db.models.custom_trusted_system import CustomTrustedSystem
 from app.db.models.custom_user import CustomUser
+from app.db.models.custom_recipe_validation import (  # noqa: F401
+    CustomRecipeValidation,
+    CustomValidationCandidate,
+    CustomValidationAttempt,
+)
 
 __all__ = [
     "CustomUser",

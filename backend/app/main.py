@@ -27,6 +27,7 @@ from app.api import (
     model_deployments,
     models_catalog,
     portal_settings,
+    recipe_validations,
     serving_access,
     serving_overview,
     serving_recipes,
@@ -80,6 +81,7 @@ app.include_router(access_groups.router)
 app.include_router(admin_usage.router)
 app.include_router(announcements.router)
 app.include_router(model_deployments.router)
+app.include_router(recipe_validations.router)
 app.include_router(benchmarks.router)
 app.include_router(k8s_clusters.router)
 app.include_router(llmd.router)

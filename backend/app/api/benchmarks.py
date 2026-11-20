@@ -330,6 +330,8 @@ def _build_bench_job(
 def _serialize(r: CustomBenchmarkRun) -> dict:
     return {
         "id": str(r.id),
+        "validation_id": str(r.validation_id) if getattr(r, "validation_id", None) else None,
+        "validation_attempt_id": str(r.validation_attempt_id) if getattr(r, "validation_attempt_id", None) else None,
         "model_name": r.model_name,
         "tool": r.tool,
         "kind": r.kind,
@@ -1000,6 +1002,8 @@ async def cancel_benchmark(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
+    if getattr(run, "validation_id", None):
+        raise HTTPException(409, "Cancel measurements from their recipe validation job")
     if run.status in ("succeeded", "failed", "cancelled"):
         return _serialize(run)
 
@@ -1059,6 +1063,8 @@ async def delete_benchmark(
     run = result.scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
+    if getattr(run, "validation_id", None):
+        raise HTTPException(409, "Validation measurements are retained as comparison evidence")
     await _best_effort_teardown(db, run)
     await db.delete(run)
     await db.flush()

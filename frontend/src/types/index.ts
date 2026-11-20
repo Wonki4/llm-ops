@@ -692,6 +692,8 @@ export interface ServingSnapshot {
 }
 
 export interface BenchmarkRun {
+  validation_id?: string | null;
+  validation_attempt_id?: string | null;
   id: string;
   model_name: string;
   deployment_id: string | null;
@@ -750,6 +752,8 @@ export interface LoadPreset {
 
 /** Portal-managed serving deployment. */
 export interface ModelDeployment {
+  validation_id?: string | null;
+  validation_state?: string | null;
   id: string;
   model_name: string;
   cluster_id: string | null;

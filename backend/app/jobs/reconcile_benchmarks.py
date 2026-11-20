@@ -250,7 +250,8 @@ async def reconcile_once() -> dict:
             # ❶ Drive provisioning → running → terminal.
             result = await db.execute(
                 select(CustomBenchmarkRun).where(
-                    CustomBenchmarkRun.status.in_(("provisioning", "pending", "running"))
+                    CustomBenchmarkRun.status.in_(("provisioning", "pending", "running")),
+                    CustomBenchmarkRun.validation_id.is_(None)
                 )
             )
             for run in result.scalars().all():

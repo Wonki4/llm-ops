@@ -149,3 +149,13 @@ diff에서 decode 변경을 확인한 뒤 같은 배포에 적용합니다. 같�
 | Claude Code가 `Protected resource ... does not match ...` 오류 | `APP_MCP_PUBLIC_URL`이 `claude mcp add`에 넣은 URL과 정확히 같은지(스킴·호스트·포트·`/mcp`) |
 | Keycloak `Client not found` (로컬) | Keycloak 컨테이너를 `--force-recreate`로 새로 만들었는지 |
 | 로그인 창이 다시 뜸 | SSO 세션 만료(정상 동작) |
+
+## 레시피 자동 생성·반복 최적화
+
+모델만 지정해 초안부터 만들고 성공한 후보도 계속 개선하려면 MCP 클라이언트에서
+`get_recipe_search_guide`를 먼저 읽고 `conditions.search`가 있는 검증 작업을 시작합니다.
+포털에서 만든 작업은 상세의 `MCP 실행 요청 복사`를 Claude Code/Codex에 전달합니다.
+클라이언트가 레시피를 작성하고, 포털 워커가 고정된 한도 안에서 실행·측정·선정·최종 공개를 담당합니다.
+연결이 끊기면 새 작업을 만들지 말고 같은 ID로 `get_recipe_search_context`를 호출합니다.
+
+[실행 조건, 종료 기준, 폐쇄망 준비와 검증 방법](recipe-validation.md#레시피-자동-생성과-반복-최적화)을 참고하세요.

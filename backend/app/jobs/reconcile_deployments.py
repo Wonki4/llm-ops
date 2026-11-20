@@ -182,6 +182,8 @@ async def reconcile_once() -> dict:
             result = await db.execute(select(CustomModelDeployment))
             deployments = result.scalars().all()
             for dep in deployments:
+                if getattr(dep, "validation_state", None) in ("candidate", "retired"):
+                    continue
                 polled += 1
                 names = k8s_resource_names(dep)
                 k8s = await k8s_for_cluster(db, dep.cluster_id)
@@ -258,7 +260,10 @@ async def reconcile_once() -> dict:
                     await _maybe_alert(db, ev, dep)
 
                 # First-time Ready: register with LiteLLM + auto-create catalog
-                if new_status == "Ready" and not dep.litellm_model_id and (transitioned or router_base):
+                if (
+                    new_status == "Ready" and not dep.litellm_model_id and (transitioned or router_base)
+                    and getattr(dep, "validation_state", None) not in ("candidate", "retired")
+                ):
                     model_id = await _register_with_litellm(litellm, dep, api_base=router_base)
                     if model_id:
                         dep.litellm_model_id = model_id
@@ -311,7 +316,10 @@ async def _reconcile_pd(db: AsyncSession, litellm: LiteLLMClient, k8s, dep: Cust
     prev = dict(dep.pd_status or {})
     router_state: dict = dict(prev.get("router") or {})
 
-    wants_registration = new_status == "Ready" and not dep.litellm_model_id
+    wants_registration = (
+        new_status == "Ready" and not dep.litellm_model_id
+        and getattr(dep, "validation_state", None) not in ("candidate", "retired")
+    )
     api_base = None
     if wants_registration:
         api_base, reason = await _router_target(db, dep)

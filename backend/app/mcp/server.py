@@ -23,6 +23,10 @@ from app.mcp.tools import register_tools
 MCP_PATH = "/mcp"
 
 INSTRUCTIONS = (
+    "For automatic recipe creation and iterative optimization, read get_recipe_search_guide. "
+    "Start or resume one bounded validation search; the MCP client plans candidates, the portal measures and "
+    "ranks them. Improve successful candidates as well as repairing failures; use get_recipe_search_context "
+    "for next action and limits. Never mutate a shared recipe or candidate deployment during a search. "
     "Manage serving recipes and deployments as the logged-in portal super user. "
     "Use update_recipe with a recipe id and a partial patch to edit a saved template independently of deployments. "
     "For deployment recovery, keep the deployment id and rollout returned by deploy_from_recipe or "

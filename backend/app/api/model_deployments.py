@@ -303,6 +303,8 @@ def _serialize(d: CustomModelDeployment, recipe_names: dict[uuid.UUID, str] | No
     recipe_id = getattr(d, "recipe_id", None)
     return {
         "id": str(d.id),
+        "validation_id": str(d.validation_id) if getattr(d, "validation_id", None) else None,
+        "validation_state": getattr(d, "validation_state", None),
         "model_name": d.model_name,
         "litellm_api_base": getattr(d, "litellm_api_base", None),
         "litellm_model_name": getattr(d, "litellm_model_name", None),
@@ -828,6 +830,35 @@ async def create_deployment(
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    dep = await prepare_deployment(db, body, user)
+    k8s = await k8s_for_cluster(db, dep.cluster_id)
+
+    reserved = None
+    if aggregated_router.enabled(dep):
+        reserved = await aggregated_router.prepare(db, dep)
+    elif pd_serving.is_pd(dep) and user.global_role != GlobalRole.SUPER_USER:
+        release = llmd_stacks.require_valid_name(pd_router.stack_name(dep))
+        if await db.scalar(select(CustomLlmdStack.id).where(CustomLlmdStack.argo_app_name == release)):
+            raise HTTPException(409, "The router name for this deployment is already in use")
+
+    # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
+    try:
+        rollout = await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
+    except K8sNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise _apply_error(e, dep)
+
+    if reserved is not None:
+        await aggregated_router.sync(db, dep, reserved=reserved)
+    elif pd_serving.is_pd(dep):
+        await _attach_router(db, dep, body, user.user_id, reuse_existing=user.global_role == GlobalRole.SUPER_USER)
+
+    return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
+
+
+async def prepare_deployment(db, body, user, *, deployment_id=None, persist=True):
+    """Resolve and persist the serving spec before applying resources (no Kubernetes writes)."""
     body = await _inherit_recipe_router(db, body)
     # Uniqueness on model_name
     existing = await db.execute(
@@ -836,7 +867,6 @@ async def create_deployment(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail=f"Deployment for '{body.model_name}' already exists")
 
-    k8s = await k8s_for_cluster(db, body.cluster_id)
     cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
     namespace = body.namespace or await default_namespace(db, cluster_uuid)
     try:
@@ -845,7 +875,7 @@ async def create_deployment(
         raise HTTPException(status_code=400, detail=str(e))
 
     dep = CustomModelDeployment(
-        id=uuid.uuid4(),
+        id=deployment_id or uuid.uuid4(),
         model_name=body.model_name,
         litellm_model_name=body.litellm_model_name,
         litellm_api_base=body.litellm_api_base,
@@ -889,6 +919,8 @@ async def create_deployment(
         check_rollout(dep)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if not persist:
+        return dep
     db.add(dep)
     try:
         await db.flush()
@@ -898,28 +930,7 @@ async def create_deployment(
         raise
     await db.refresh(dep)
 
-    reserved = None
-    if aggregated_router.enabled(dep):
-        reserved = await aggregated_router.prepare(db, dep)
-    elif pd_serving.is_pd(dep) and user.global_role != GlobalRole.SUPER_USER:
-        release = llmd_stacks.require_valid_name(pd_router.stack_name(dep))
-        if await db.scalar(select(CustomLlmdStack.id).where(CustomLlmdStack.argo_app_name == release)):
-            raise HTTPException(409, "The router name for this deployment is already in use")
-
-    # Apply to K8s (P/D: prefill + decode pools, no Ingress — the router is the entry)
-    try:
-        rollout = await k8s.create_or_patch(dep.namespace, build_all(dep, sidecar_image=settings.llmd_sidecar_image))
-    except K8sNotConfigured as e:
-        raise HTTPException(status_code=503, detail=str(e))
-    except Exception as e:
-        raise _apply_error(e, dep)
-
-    if reserved is not None:
-        await aggregated_router.sync(db, dep, reserved=reserved)
-    elif pd_serving.is_pd(dep):
-        await _attach_router(db, dep, body, user.user_id, reuse_existing=user.global_role == GlobalRole.SUPER_USER)
-
-    return {**_serialize(dep), "rollout": rollout, "warnings": await _deploy_warnings(db, dep)}
+    return dep
 
 
 def _registration_key(dep: CustomModelDeployment) -> dict | None:
@@ -956,6 +967,7 @@ async def scale_aggregated(
 
 
 async def scale_deployment_replicas(db, dep, body: ReplicaRequest, user):
+    require_validation_editable(dep)
     if pd_serving.is_pd(dep):
         raise HTTPException(status_code=409, detail="Select the prefill or decode pool to scale a P/D deployment")
     dep.replicas = body.replicas
@@ -976,6 +988,7 @@ async def scale_pool(
 
 
 async def scale_pool_replicas(db, dep, role: pd_serving.Role, body: ReplicaRequest, user):
+    require_validation_editable(dep)
     if not pd_serving.is_pd(dep):
         raise HTTPException(status_code=409, detail="Pool scaling requires a P/D deployment")
     cfg = pd_serving.pd_config_of(dep)
@@ -1037,6 +1050,7 @@ async def _apply_update(
     updates: dict,
     user: CustomUser,
 ) -> dict:
+    require_validation_editable(dep)
     """Set ``updates`` on the row, validate, reapply the manifests; shared by PUT and re-apply."""
     registered_as = _registration_key(dep)
     previous = list(dep.storages or [])
@@ -1122,6 +1136,7 @@ async def reregister_deployment(
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
+    require_validation_editable(dep)
     if dep.status != "Ready":
         raise HTTPException(
             status_code=409, detail=f"Deployment is {dep.status}; only a Ready deployment can be registered"
@@ -1163,7 +1178,14 @@ async def _deployment_or_404(
     dep = result.scalar_one_or_none()
     if not dep:
         raise HTTPException(status_code=404, detail="Deployment not found")
+    if for_update:
+        require_validation_editable(dep)
     return dep
+
+
+def require_validation_editable(dep):
+    if getattr(dep, "validation_state", None) in ("candidate", "retired"):
+        raise HTTPException(409, "Manage this validation deployment from its recipe validation job")
 
 
 async def _recipe_for(db: AsyncSession, dep: CustomModelDeployment, recipe_id: str | None) -> CustomServingRecipe:
@@ -1299,6 +1321,7 @@ async def reapply_recipe(
 async def apply_deployment_recipe(
     db: AsyncSession, dep: CustomModelDeployment, recipe: CustomServingRecipe, litellm: LiteLLMClient, user: CustomUser,
 ) -> dict:
+    require_validation_editable(dep)
     """Apply to the caller's row-locked deployment and link the recipe in the same transaction."""
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     resolved, _ = await _proposed(db, dep, recipe)
@@ -1337,6 +1360,7 @@ async def delete_deployment(
 
 
 async def remove_deployment(db: AsyncSession, dep: CustomModelDeployment, *, strict_cleanup: bool = False) -> dict:
+    require_validation_editable(dep)
     k8s = await k8s_for_cluster(db, dep.cluster_id)
     try:
         await k8s.delete(dep.namespace, k8s_resource_names(dep))

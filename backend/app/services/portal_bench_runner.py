@@ -199,7 +199,17 @@ async def run(session, model, workload, result):
 def chat_inputs(tokenizer_name, workload):
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
+    tokenizer = AutoTokenizer.from_pretrained(
+        tokenizer_name,
+        **({"trust_remote_code": True} if os.environ.get("BENCH_VALIDATION_TRUST_REMOTE_CODE") == "1" else {}),
+    )
+    expected = os.environ.get("BENCH_VALIDATION_TOKENIZER_SHA256")
+    if expected:
+        import hashlib
+
+        actual = hashlib.sha256(json.dumps(tokenizer.get_vocab(), sort_keys=True).encode()).hexdigest()
+        if actual != expected:
+            raise ValueError("Measurement tokenizer changed after asset validation")
     # Each sampled piece comes from ordinary text, not special/undecodable IDs.
     # Server usage is authoritative: the server's chat template also costs tokens.
     vocab = sorted(set(tokenizer.encode(VOCAB_SAMPLE, add_special_tokens=False)))
@@ -313,6 +323,14 @@ async def main():
                 await run(session, model, workload, result)
             else:
                 texts = chat_inputs(os.environ["BENCH_TOKENIZER"], workload)
+                if os.environ.get("BENCH_VALIDATION_WARMUP") == "1":
+                    warm = chat_inputs(
+                        os.environ["BENCH_TOKENIZER"],
+                        {**workload, "seed": workload["seed"] + 11000003, "num_prompts": 1},
+                    )
+                    await stream(session, chat_url(base), dict(
+                        model=model, messages=[{"role": "user", "content": warm[0]}], max_tokens=8, temperature=0,
+                    ))
                 await run_performance(session, chat_url(base), model, workload, texts, result)
     except Exception as exc:
         message = str(exc) or type(exc).__name__

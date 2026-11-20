@@ -17,6 +17,8 @@ from app.db.base import CustomBase
 class CustomLlmdStack(CustomBase):
     __tablename__ = "custom_llmd_stack"
 
+    validation_private: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     # The already-running model the EPP router targets (an existing deployment's

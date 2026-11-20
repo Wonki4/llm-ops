@@ -14,13 +14,14 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from app.api import gpu_profiles, k8s_clusters, model_deployments, serving_recipes, storages
+from app.api import gpu_profiles, k8s_clusters, model_deployments, recipe_validations, serving_recipes, storages
 from app.api import serving_overview as serving_overview_api
 from app.clients.k8s import K8sNotConfigured
 from app.db.models.custom_user import CustomUser
 from app.db.session import async_session_factory
 from app.mcp import serving
 from app.mcp.auth import require_mcp_super_user
+from app.services.validation_protocol import AttemptAnalysis, CandidateAdd, SearchFinish, ValidationCreate
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False)
 
@@ -124,7 +125,8 @@ _DESCRIPTIONS: list[tuple[Callable[..., Awaitable[dict]], str]] = [
     ),
     (
         list_recipes,
-        "Serving recipes, newest first: model repository (hf_repo_id), runtime model path, image, engine and its args, GPU "
+        "Serving recipes, newest first: model repository (hf_repo_id), runtime model path, image, "
+        "engine and its args, GPU "
         "count and resources, env, storages. Each item's `id` is the `recipe_id` `get_recipe` takes.",
     ),
     (get_recipe, "One serving recipe in full. `recipe_id` comes from `list_recipes`."),
@@ -215,7 +217,77 @@ async def smoke_test_deployment(deployment_id: str, rollout: dict[str, serving.R
     return await _run(serving.smoke, deployment_id=deployment_id, rollout=rollout)
 
 
+async def preview_recipe_validation(body: ValidationCreate) -> dict:
+    """Preview frozen recipe candidates and resource bounds without starting GPU work."""
+    return await _run(recipe_validations.preview_validation, body=body)
+
+
+async def start_recipe_validation(body: ValidationCreate) -> dict:
+    """Start fixed comparison or MCP recipe search (conditions.search, optional empty candidates).
+
+    Executes bounded GPU trials and publishes the revalidated winner. Reuse request_key on retries.
+    For automatic recipe creation/tuning, first read get_recipe_search_guide.
+    """
+    return await _run(recipe_validations.create_validation, body=body)
+
+
+async def list_recipe_validations(cluster_id: str | None = None, namespace: str | None = None,
+                                  status: str | None = None, q: str | None = None, offset: int = 0) -> dict:
+    """List portal/MCP validation jobs, newest first."""
+    return await _run(recipe_validations.list_validations, cluster_id=cluster_id, namespace=namespace,
+                      status=status, q=q, sort="created_at", direction="desc", offset=max(offset, 0), limit=20)
+
+
+async def get_recipe_validation(job_id: str) -> dict:
+    """Get candidate ranking, saved diagnostics, measurements and publication state."""
+    return await _run(recipe_validations.get_validation, job_id=job_id)
+
+
+async def cancel_recipe_validation(job_id: str) -> dict:
+    """Cancel through the parent job; it retains evidence and waits for GPU cleanup."""
+    return await _run(recipe_validations.cancel_validation, job_id=job_id)
+
+
+async def add_recipe_validation_candidate(job_id: str, body: CandidateAdd) -> dict:
+    """Submit a draft or source-candidate patch while awaiting input, then measure it.
+
+    Search requires hypothesis and expected_candidate_count. Never edits shared recipes.
+    """
+    return await _run(recipe_validations.add_candidate, job_id=job_id, body=body)
+
+
+async def explain_recipe_validation_attempt(job_id: str, attempt_id: str, body: AttemptAnalysis) -> dict:
+    """Save an LLM diagnosis and proposed recipe patch as evidence. This does not execute or approve the patch."""
+    return await _run(recipe_validations.explain_attempt, job_id=job_id, attempt_id=attempt_id, body=body)
+
+
+async def get_recipe_search_guide() -> dict:
+    """Read the recipe search skill and schemas before autonomously generating and tuning recipes."""
+    return await _run(recipe_validations.search_guide)
+
+
+async def get_recipe_search_context(job_id: str) -> dict:
+    """Resume a search: compact history, best measured candidate, remaining limits and next action."""
+    return await _run(recipe_validations.search_context, job_id=job_id)
+
+
+async def preview_recipe_validation_candidate(job_id: str, body: CandidateAdd) -> dict:
+    """Validate an unsaved recipe or improvement patch and inspect its diff before submission."""
+    return await _run(recipe_validations.preview_candidate, job_id=job_id, body=body)
+
+
+async def finish_recipe_search(job_id: str, body: SearchFinish) -> dict:
+    """Close exploration after cleanup; rank, restore and revalidate the best candidate before publication."""
+    return await _run(recipe_validations.finish_search, job_id=job_id, body=body)
+
+
 def register_tools(server: MCPServer) -> None:
+    for fn in (preview_recipe_validation, list_recipe_validations, get_recipe_validation,
+               get_recipe_search_guide, get_recipe_search_context, preview_recipe_validation_candidate):
+        server.tool(annotations=READ_ONLY)(fn)
+    for fn in (start_recipe_validation, cancel_recipe_validation, add_recipe_validation_candidate,
+               explain_recipe_validation_attempt, finish_recipe_search):
+        server.tool(annotations=ToolAnnotations(read_only_hint=False, idempotent_hint=True))(fn)
     for fn, description in _DESCRIPTIONS:
         server.tool(description=description, annotations=READ_ONLY)(fn)
     for fn in (preview_recipe, preview_deployment_from_recipe, preview_deployment_recipe_patch,

@@ -99,10 +99,14 @@ async def test_registers_serving_tools_with_correct_write_annotations():
     reads = PHASE1_TOOLS | {
         "preview_recipe", "preview_deployment_from_recipe", "preview_deployment_recipe_patch",
         "get_rollout_status", "get_deployment_diagnostics",
+        "preview_recipe_validation", "list_recipe_validations", "get_recipe_validation",
+        "get_recipe_search_guide", "get_recipe_search_context", "preview_recipe_validation_candidate",
     }
     writes = {
         "create_recipe", "update_recipe", "deploy_from_recipe", "apply_deployment_recipe_patch",
         "retry_aggregated_router", "smoke_test_deployment",
+        "start_recipe_validation", "cancel_recipe_validation", "add_recipe_validation_candidate",
+        "explain_recipe_validation_attempt", "finish_recipe_search",
     }
     assert {t.name for t in listed if t.annotations.read_only_hint} == reads
     assert {t.name for t in listed if not t.annotations.read_only_hint} == writes
