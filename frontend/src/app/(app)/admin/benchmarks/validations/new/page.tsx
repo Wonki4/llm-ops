@@ -9,6 +9,7 @@ import { useServingRecipes, useK8sClusterSettings, useBenchmarkPresets, useDefau
 import { useCreateValidation, useValidationPreview } from "@/hooks/use-recipe-validations";
 import { scopeFromParams, PORTAL_CLUSTER, type ServingScope } from "@/lib/serving-scope";
 import { VALIDATIONS, type ValidationConditions, type ValidationCreate } from "@/lib/recipe-validation";
+import { createRequestKey } from "@/lib/request-key";
 import { DeployRecipeBrowser } from "@/components/deploy-recipe-browser";
 import { DeploymentScopeFields } from "@/components/deployment-scope-fields";
 import { useClusterName } from "@/components/serving-scope-filter";
@@ -42,7 +43,7 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
   const [gates, setGates] = useState([{ task: "mmlu", metric: "acc,none", minimum: 0.5 }]);
   const [metric, setMetric] = useState("output_throughput"), [ttft, setTtft] = useState(""), [throughput, setThroughput] = useState("");
   const [limits, setLimits] = useState({ assets: 3600, scheduling: 1800, startup: 7200, measurement: 3600, total: 86400 });
-  const [requestKey] = useState(() => crypto.randomUUID());
+  const [requestKey] = useState(createRequestKey);
   const preview = useValidationPreview(), create = useCreateValidation();
   const selected = ids.map(id => recipes.data?.find(r => r.id === id)).filter(r => r !== undefined);
   const storageIds = automatic ? [] : [...new Set(selected.flatMap(recipeStorageIds))];
