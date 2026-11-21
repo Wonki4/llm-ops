@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { apiFetch } from "@/lib/api";
 import { recipePatch, VALIDATIONS, VALIDATION_API, type ValidationSnapshot } from "@/lib/recipe-validation";
+import { createRequestKey } from "@/lib/request-key";
 import type { ManifestDiff, ServingRecipe, ServingRecipeInput } from "@/types";
 
 export default function AddCandidatePage({ params }: { params: Promise<{ id: string }> }) {
@@ -33,11 +34,14 @@ function Form({ id }: { id: string }) {
   const query = useRecipeValidation(id), recipes = useServingRecipes(), add = useValidationAction(id, "candidates");
   const [recipe, setRecipe] = useState<ServingRecipe | null>(null), [body, setBody] = useState<object | null>(null);
   const [hypothesis, setHypothesis] = useState("");
-  const [requestKey] = useState(() => crypto.randomUUID());
+  const [requestKey] = useState(createRequestKey);
   const preview = useMutation({ mutationFn: (value: object) => apiFetch<{ snapshot: ValidationSnapshot; diff: ManifestDiff }>(`${VALIDATION_API}/${id}/candidate-preview`, { method: "POST", body: JSON.stringify(value) }) });
   const candidate = query.data?.candidates.find(c => c.id === params.get("source"));
   const attempt = candidate?.attempts.find(a => a.id === params.get("attempt"));
   const original = candidate?.snapshot.recipe ?? recipe;
+  // The form spreads its initial values into the draft, so strip record metadata first.
+  const baseline = { ...original } as Record<string, unknown>;
+  for (const key of ["id", "created_by", "updated_by", "created_at", "updated_at", "warnings"]) delete baseline[key];
   const proposed = attempt?.analysis?.proposed_patch;
   if (query.error) return <p role="alert">{query.error.message}</p>;
   if (!query.data) return <p>{t("loading")}</p>;
@@ -48,12 +52,10 @@ function Form({ id }: { id: string }) {
     {!original ? <DeployRecipeBrowser recipes={recipes.data ?? []} onSelect={setRecipe} /> : body && preview.data ? <>
       <ManifestDiffView diff={preview.data.diff} expandAll={false} leftLabel={t("original")} rightLabel={t("newCandidate")} />
       <div className="flex gap-3"><Button variant="outline" onClick={() => setBody(null)}>{t("previous")}</Button><Button disabled={add.isPending} onClick={() => add.mutate(body, { onSuccess: () => router.push(`${VALIDATIONS}/${id}`), onError: e => toast.error(e.message) })}>{t("addAndResume")}</Button></div>
-    </> : <ServingRecipeForm key={candidate?.id ?? recipe?.id} initial={(proposed ? merge(original, proposed) : original) as ServingRecipeInput}
+    </> : <ServingRecipeForm key={candidate?.id ?? recipe?.id} initial={(proposed ? merge(baseline, proposed) : baseline) as ServingRecipeInput}
       submitLabel={t("reviewChanges")} cancelHref={`${VALIDATIONS}/${id}`} draftPending={preview.isPending}
       onDraftSubmit={async draft => {
         // Snapshot-only mutation; shared recipe edits remain on the separate recipe page.
-        const baseline = { ...original } as Record<string, unknown>;
-        for (const key of ["id", "created_by", "updated_by", "created_at", "updated_at", "warnings"]) delete baseline[key];
         if (query.data?.conditions.search && !hypothesis.trim()) { toast.error(t("searchHypothesisRequired")); return; }
         const value = { request_key: requestKey, expected_candidate_count: query.data?.candidates.length, hypothesis: hypothesis || null, ...(candidate ? { source_candidate_id: candidate.id } : { recipe_id: recipe!.id }), patch: recipePatch(baseline, draft) ?? {} };
         try { await preview.mutateAsync(value); setBody(value); } catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
