@@ -8,6 +8,7 @@ import { useAdminTeams } from "@/hooks/use-admin-teams";
 import { useHiddenTeams, useUpdateTeamVisibility, type TeamVisibility } from "@/hooks/use-api";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export function AdminTeamList({ modelName, accessGroup, manageVisibility = false }: {
   modelName?: string;
@@ -65,15 +66,18 @@ export function AdminTeamList({ modelName, accessGroup, manageVisibility = false
           <td className="pr-4">{t(team.access.mode)}</td>
           <td className="pr-4">{modelName ? team.access.effective_models.find(m => m.model_name === modelName)?.via.map(v => ["all", "direct"].includes(v) ? t(v) : v).join(", ") : t("modelCount", { count: team.access.effective_models.length })}</td>
           {manageVisibility && <td className="py-3">
-            {visibility.data ? <select
-              aria-label={tv("scopeLabel", { team: label })}
+            {visibility.data ? <Select
               value={strict ? "strict" : hidden ? "discovery" : "visible"} disabled={disabled}
-              onChange={e => setVisibility(team.team_id, label, e.target.value as TeamVisibility)}
-              className="h-8 rounded-md border border-input bg-background px-2 text-xs">
-              <option value="visible">{tv("visible")}</option>
-              <option value="discovery">{tv("discovery")}</option>
-              <option value="strict">{tv("strict")}</option>
-            </select> : <span aria-busy="true">…</span>}
+              onValueChange={value => setVisibility(team.team_id, label, value as TeamVisibility)}>
+              <SelectTrigger size="sm" className="w-48 text-xs" aria-label={tv("scopeLabel", { team: label })}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="visible">{tv("visible")}</SelectItem>
+                <SelectItem value="discovery">{tv("discovery")}</SelectItem>
+                <SelectItem value="strict">{tv("strict")}</SelectItem>
+              </SelectContent>
+            </Select> : <span aria-busy="true">…</span>}
           </td>}
         </tr>;
       })}</tbody>
