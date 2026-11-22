@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { Suspense, useState, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { Inbox, Search, X, ArrowLeft, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Table,
   TableBody,
@@ -155,18 +156,22 @@ function RequesterHistorySection({ requestId }: { requestId: string | null }) {
   );
 }
 
-export default function AdminRequestsPage() {
+function AdminRequestsPage() {
   const localeTag = useLocaleTag();
-  const { data: me } = useMe();
   const { data: requests, isLoading, isError } = useJoinRequests();
   const approveRequest = useApproveRequest();
   const rejectRequest = useRejectRequest();
   const t = useTranslations("adminRequests");
   const tc = useTranslations("common");
 
-  const [statusTab, setStatusTab] = useState("all");
-  const [typeTab, setTypeTab] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
+  const params=useSearchParams();
+  const statusTab=["pending","approved","rejected"].includes(params.get("status")||"")?params.get("status")!:"all";
+  const typeTab=params.get("type")==="budget"?"budget":"join";
+  const searchQuery=params.get("q")||"";
+  function change(updates:Record<string,string>){const url=new URL(window.location.href);Object.entries(updates).forEach(([k,v])=>url.searchParams.set(k,v));window.history.pushState(null,"",url);}
+  const setStatusTab=(status:string)=>change({status,page:"1"});
+  const setTypeTab=(type:string)=>change({type,page:"1"});
+  const setSearchQuery=(q:string)=>change({q,page:"1"});
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogAction, setDialogAction] = useState<"approve" | "reject">(
     "approve",
@@ -174,7 +179,8 @@ export default function AdminRequestsPage() {
   const [selectedRequest, setSelectedRequest] =
     useState<TeamJoinRequest | null>(null);
   const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
-  const [page, setPage] = useState(1);
+  const page=Math.max(1,Number(params.get("page"))||1);
+  const setPage=(value:number|((previous:number)=>number))=>change({page:String(typeof value === "function" ? value(page):value)});
   const pageSize = 20;
   const [comment, setComment] = useState("");
 
@@ -192,7 +198,7 @@ export default function AdminRequestsPage() {
     if (!requests) return [];
     return requests.filter((req) => {
       const statusMatch = statusTab === "all" || req.status === statusTab;
-      const typeMatch = typeTab === "all" || (req.request_type ?? "join") === typeTab;
+      const typeMatch = (req.request_type ?? "join") === typeTab;
       if (!statusMatch || !typeMatch) return false;
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
@@ -354,13 +360,12 @@ export default function AdminRequestsPage() {
         </div>
         <Tabs value={typeTab} onValueChange={setTypeTab}>
           <TabsList>
-            <TabsTrigger value="all">{t("tabAllTypes")}</TabsTrigger>
             <TabsTrigger value="join">{t("typeJoin")}</TabsTrigger>
             <TabsTrigger value="budget">{t("typeBudget")}</TabsTrigger>
           </TabsList>
         </Tabs>
-        {(searchQuery || typeTab !== "all") && (
-          <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setTypeTab("all"); }}>
+        {(searchQuery || typeTab !== "join") && (
+          <Button variant="ghost" size="sm" onClick={() => { setSearchQuery(""); setTypeTab("join"); }}>
             <X className="size-3.5 mr-1" />
             {t("clearSearch")}
           </Button>
@@ -400,15 +405,11 @@ export default function AdminRequestsPage() {
       )}
 
       {/* Status tabs + Table */}
-      <Tabs value={statusTab} onValueChange={(v) => { setStatusTab(v); setPage(1); }}>
-        <TabsList>
-          <TabsTrigger value="all">{t("tabAll")}</TabsTrigger>
-          <TabsTrigger value="pending">{t("statusPending")}</TabsTrigger>
-          <TabsTrigger value="approved">{t("statusApproved")}</TabsTrigger>
-          <TabsTrigger value="rejected">{t("statusRejected")}</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value={statusTab} className="mt-4">
+      <div>
+        <select aria-label={t("tabAll")} className="rounded border bg-background px-3 py-2 text-sm" value={statusTab} onChange={e=>setStatusTab(e.target.value)}>
+          <option value="all">{t("tabAll")}</option><option value="pending">{t("statusPending")}</option><option value="approved">{t("statusApproved")}</option><option value="rejected">{t("statusRejected")}</option>
+        </select>
+        <div className="mt-4">
           {isLoading ? (
             <TableSkeleton />
           ) : filteredRequests.length > 0 ? (
@@ -561,8 +562,8 @@ export default function AdminRequestsPage() {
               </p>
             </div>
           )}
-        </TabsContent>
-      </Tabs>
+        </div>
+      </div>
 
       {/* Detail Modal */}
       <Dialog open={!!detailRequest} onOpenChange={(open) => !open && setDetailRequest(null)}>
@@ -872,3 +873,5 @@ export default function AdminRequestsPage() {
     </div>
   );
 }
+
+export default function Page(){const me=useMe();const t=useTranslations("portalNavigation");if(me.isPending)return <p aria-busy="true">…</p>;if(me.data?.role!=="super_user"&&me.data?.role!=="team_admin")return <p role="alert">{t("adminOnly")}</p>;return <Suspense><AdminRequestsPage /></Suspense>;}

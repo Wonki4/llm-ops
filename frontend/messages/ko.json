@@ -130,7 +130,9 @@
     "routingGraph": "라우팅 그래프",
     "modelLifecycle": "상태·일정",
     "infrastructure": "인프라",
-    "adminTeams": "팀"
+    "adminTeams": "팀",
+    "adminFinance": "예산·사용량",
+    "adminPolicies": "기본 할당 정책"
   },
   "theme": {
     "light": "라이트",
@@ -677,7 +679,7 @@
     "registered": "등록됨",
     "unregistered": "미등록",
     "add": "추가",
-    "noSuffixes": "등록된 catalog suffix가 없습니다. 포털 설정에서 먼저 추가하세요.",
+    "noSuffixes": "등록된 catalog suffix가 없습니다. 모델 등록·카탈로그의 공통 캐시 설정에서 먼저 추가하세요.",
     "form": {
       "modelPlaceholder": "실제 LiteLLM 모델 식별자",
       "invalidJson": "options이 올바른 JSON 형식이 아닙니다."
@@ -2002,7 +2004,7 @@
       "subpath_dropped": "PVC 마운트에 subPath가 있었지만 레시피로는 표현할 수 없습니다:",
       "shm_volume_dropped": "메모리 기반 볼륨의 크기를 옮기지 못했습니다(sizeLimit가 없거나 /dev/shm이 아님). 멀티 GPU NCCL에 필요하면 공유 메모리 칸에서 정하세요:",
       "volume_unsupported": "PVC 외 볼륨은 지원하지 않아 버렸습니다:",
-      "unregistered_pvc": "등록된 스토리지 바인딩이 없는 PVC라서 건너뛰었습니다. 스토리지 메뉴에서 바인딩을 추가한 뒤 다시 가져오세요:",
+      "unregistered_pvc": "등록된 스토리지 바인딩이 없는 PVC라서 건너뛰었습니다. 인프라의 스토리지 탭에서 바인딩을 추가한 뒤 다시 가져오세요:",
       "pvc_unmounted": "PVC가 서빙 컨테이너에 마운트돼 있지 않습니다. 마운트 경로를 지정하세요:",
       "multi_container": "파드에 사이드카 컨테이너가 있어 레시피로 재현할 수 없습니다. 컨테이너 수:",
       "init_containers": "init 컨테이너는 재현되지 않습니다:",
@@ -2432,7 +2434,7 @@
     "mountPath": "마운트 경로",
     "readOnly": "읽기 전용",
     "addMount": "스토리지 추가",
-    "noStorages": "등록된 스토리지가 없습니다. 관리자 → 스토리지에서 먼저 추가하세요.",
+    "noStorages": "등록된 스토리지가 없습니다. 서빙 → 인프라 → 스토리지에서 먼저 추가하세요.",
     "notBound": "바인딩 없음",
     "modelPathUnder": "{name} 안의 경로입니다.",
     "modelPathOutside": "모델 경로가 붙인 스토리지 안에 있지 않습니다.",
@@ -2780,7 +2782,8 @@
     "field_model": "LiteLLM 제공자/모델",
     "field_api_base": "API 주소 (선택)",
     "field_api_version": "API 버전 (선택)",
-    "field_api_key": "API 키 (변경할 때만 입력)"
+    "field_api_key": "API 키 (변경할 때만 입력)",
+    "commonCache": "공통 캐시 설정"
   },
   "portalTeams": {
     "title": "팀",
@@ -2818,5 +2821,13 @@
     "users": "할당된 사용자",
     "teamBudget": "팀 예산 사용량",
     "unlimited": "무제한"
+  },
+  "portalPolicies": {
+    "title": "기본 할당 정책",
+    "teams": "신규 사용자·팀 정책",
+    "keys": "API 키 기본값",
+    "finance": "예산·사용량",
+    "budget": "예산",
+    "usage": "사용량"
   }
 }
