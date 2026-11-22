@@ -9,6 +9,7 @@ import type { StorageEntry } from "@/types";
 import { StorageBoundOn } from "@/components/storage-bound-on";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 /** Which entry an absolute model path lives under (mirrors backend model_path_warnings). */
 export function storageForPath(path: string, entries: StorageEntry[]): StorageEntry | null | undefined {
@@ -44,20 +45,20 @@ export function StorageMountsEditor({
       )}
       {rows.map((r, i) => (
         <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
-          <select
+          <FormSelect placeholder={t("pickerPlaceholder")}
             id={`${idPrefix}-storage-${i}`}
             aria-label={t("picker")}
-            className="h-9 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+            className="font-mono"
             value={r.storage_id}
-            onChange={(e) => set(i, { storage_id: e.target.value })}
+            onValueChange={(selectedValue) => set(i, { storage_id: selectedValue })}
           >
-            <option value="">{t("pickerPlaceholder")}</option>
+            <FormSelectItem value="">{t("pickerPlaceholder")}</FormSelectItem>
             {(storages ?? []).map((s) => (
-              <option key={s.id} value={s.id} disabled={rows.some((o, j) => j !== i && o.storage_id === s.id)}>
+              <FormSelectItem key={s.id} value={s.id} disabled={rows.some((o, j) => j !== i && o.storage_id === s.id)}>
                 {s.name}{s.binding_count ? "" : ` (${t("notBound")})`}
-              </option>
+              </FormSelectItem>
             ))}
-          </select>
+          </FormSelect>
           <Input
             id={`${idPrefix}-storage-mount-${i}`}
             aria-label={t("mountPath")}

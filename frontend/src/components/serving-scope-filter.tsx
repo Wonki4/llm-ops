@@ -11,6 +11,7 @@ import {
   PORTAL_CLUSTER, type ClusterSettings, type ScopedItem, type ServingScope,
   clusterKey, clusterScope, namespacesIn, scopeFromParams,
 } from "@/lib/serving-scope";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 /** Preserve other view options and retain scope changes in browser history. */
 export function useServingScope(settings: ClusterSettings | undefined): [ServingScope, (next: ServingScope) => void] {
@@ -55,25 +56,24 @@ export function ServingScopeFilter({
   const namespaces = namespacesIn(items, scope.cluster);
   const reset = settings ? clusterScope(settings) : { cluster: "", ns: "" };
   if (scope.ns && !namespaces.includes(scope.ns)) namespaces.unshift(scope.ns);
-  const select = "h-8 rounded-md border border-input bg-transparent px-2 text-sm";
 
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="serving-scope">
-      <select
-        id="scope-cluster" aria-label={t("scopeCluster")} className={select} value={scope.cluster}
-        onChange={(e) => onChange(settings ? clusterScope(settings, e.target.value) : { cluster: e.target.value, ns: "" })}
+      <FormSelect placeholder={t("scopeAllClusters")}
+        id="scope-cluster" aria-label={t("scopeCluster")} size="sm" value={scope.cluster}
+        onValueChange={(selectedValue) => onChange(settings ? clusterScope(settings, selectedValue) : { cluster: selectedValue, ns: "" })}
       >
-        <option value="">{t("scopeAllClusters")}</option>
-        <option value={PORTAL_CLUSTER}>{t("scopePortalCluster")}</option>
-        {(clusters ?? []).map((c) => <option key={c.id} value={clusterKey(c.id)}>{c.name}</option>)}
-      </select>
-      <select
-        id="scope-namespace" aria-label={t("scopeNamespace")} className={`${select} font-mono`} value={scope.ns}
-        onChange={(e) => onChange({ ...scope, ns: e.target.value })}
+        <FormSelectItem value="">{t("scopeAllClusters")}</FormSelectItem>
+        <FormSelectItem value={PORTAL_CLUSTER}>{t("scopePortalCluster")}</FormSelectItem>
+        {(clusters ?? []).map((c) => <FormSelectItem key={c.id} value={clusterKey(c.id)}>{c.name}</FormSelectItem>)}
+      </FormSelect>
+      <FormSelect placeholder={t("scopeAllNamespaces")}
+        id="scope-namespace" aria-label={t("scopeNamespace")} size="sm" className="font-mono" value={scope.ns}
+        onValueChange={(selectedValue) => onChange({ ...scope, ns: selectedValue })}
       >
-        <option value="">{t("scopeAllNamespaces")}</option>
-        {namespaces.map((ns) => <option key={ns} value={ns}>{ns}</option>)}
-      </select>
+        <FormSelectItem value="">{t("scopeAllNamespaces")}</FormSelectItem>
+        {namespaces.map((ns) => <FormSelectItem key={ns} value={ns}>{ns}</FormSelectItem>)}
+      </FormSelect>
       {(scope.cluster !== reset.cluster || scope.ns !== reset.ns) && (
         <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => onChange(reset)}>
           <X className="size-3.5" />{t("scopeReset")}

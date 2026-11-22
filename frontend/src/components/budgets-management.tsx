@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { Budget } from "@/types";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300, 500, 1000] as const;
 const DEFAULT_PAGE_SIZE = 50;
@@ -549,15 +550,16 @@ export function BudgetManagement() {
               <p className="text-sm text-muted-foreground">
                 {t("pagination", { total: data.total, start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, data.total) })}
               </p>
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              <FormSelect
+                aria-label={t("perPage", { size: pageSize })}
+                size="sm"
                 value={pageSize}
-                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                onValueChange={(selectedValue) => { setPageSize(Number(selectedValue)); setPage(1); }}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>{t("perPage", { size })}</option>
+                  <FormSelectItem key={size} value={size}>{t("perPage", { size })}</FormSelectItem>
                 ))}
-              </select>
+              </FormSelect>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>

@@ -20,6 +20,7 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export function AllocationPolicies() {
   const [tab]=usePageTab(["teams","keys"],"teams");const params=useSearchParams();const t=useTranslations("portalPolicies");
@@ -292,24 +293,24 @@ function TeamAddSelect({
   disabled?: boolean;
 }) {
   return (
-    <select
+    <FormSelect placeholder={placeholder}
       id={id}
       disabled={disabled}
-      className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+      className="w-full"
       value=""
-      onChange={(e) => {
-        if (e.target.value) onAdd(e.target.value);
+      onValueChange={(selectedValue) => {
+        if (selectedValue) onAdd(selectedValue);
       }}
     >
-      <option value="">{placeholder}</option>
+      <FormSelectItem value="">{placeholder}</FormSelectItem>
       {teams
         .filter((tm) => !exclude.includes(tm.team_id))
         .map((tm) => (
-          <option key={tm.team_id} value={tm.team_id}>
+          <FormSelectItem key={tm.team_id} value={tm.team_id}>
             {tm.team_alias || tm.team_id}
-          </option>
+          </FormSelectItem>
         ))}
-    </select>
+    </FormSelect>
   );
 }
 

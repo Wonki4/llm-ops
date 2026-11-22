@@ -30,6 +30,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 import { PerfWorkloadFields, AccuracyParamsFields, DEFAULT_PERF_PARAMS, DEFAULT_ACCURACY_PARAMS, matchedPresetKey, type PerfParams } from "@/components/benchmark-workload-fields";
+import { FormSelect, FormSelectItem, FormSelectGroup } from "@/components/ui/form-select";
 
 const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
   vllm_serving: "performance",
@@ -37,7 +38,7 @@ const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
   lm_eval: "accuracy",
 };
 
-// Encodes a discovered external serving into a single <select> option value.
+// Encodes a discovered external serving into a single dropdown option value.
 function externalKey(s: ExternalServing): string {
   return `ext::${s.cluster_id ?? ""}::${s.namespace}::${s.deployment_name}`;
 }
@@ -510,27 +511,27 @@ function SingleRunForm({experiment, source}: {experiment: "performance" | "accur
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="cluster">{t("clusterLabel")}</Label>
-              <select
+              <FormSelect placeholder={t("clusterDefault")}
                 id="cluster"
-                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                className="w-full"
                 value={activeExternal ? activeExternal.cluster_id ?? "" : clusterId}
-                onChange={(e) => setClusterId(e.target.value)}
+                onValueChange={(selectedValue) => setClusterId(selectedValue)}
                 disabled={!!activeExternal}
               >
-                <option value="">{t("clusterDefault")}</option>
+                <FormSelectItem value="">{t("clusterDefault")}</FormSelectItem>
                 {(clusters ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
+                  <FormSelectItem key={c.id} value={c.id}>
                     {c.name}
                     {c.is_default ? " ★" : ""}
                     {c.api_server ? ` — ${c.api_server}` : ""}
-                  </option>
+                  </FormSelectItem>
                 ))}
                 {activeExternal &&
                   activeExternal.cluster_id &&
                   !(clusters ?? []).some((c) => c.id === activeExternal.cluster_id) && (
-                    <option value={activeExternal.cluster_id}>{activeExternal.cluster_name}</option>
+                    <FormSelectItem value={activeExternal.cluster_id}>{activeExternal.cluster_name}</FormSelectItem>
                   )}
-              </select>
+              </FormSelect>
               <p className="text-xs text-muted-foreground">{t("clusterHint")}</p>
             </div>
 
@@ -547,36 +548,36 @@ function SingleRunForm({experiment, source}: {experiment: "performance" | "accur
                 <p className="text-xs text-muted-foreground">{t("tabCloneHint")}</p>
                 <div className="space-y-1.5">
                   <Label htmlFor="clone_target">{t("deploymentLabel")}</Label>
-                  <select
+                  <FormSelect placeholder={t("deploymentNone")}
                     id="clone_target"
-                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    className="w-full"
                     value={externalTarget ? externalKey(externalTarget) : deploymentId}
-                    onChange={(e) => handleCloneTargetChange(e.target.value)}
+                    onValueChange={(selectedValue) => handleCloneTargetChange(selectedValue)}
                   >
-                    <option value="">{t("deploymentNone")}</option>
-                    <optgroup label={t("targetGroupPortal")}>
+                    <FormSelectItem value="">{t("deploymentNone")}</FormSelectItem>
+                    <FormSelectGroup label={t("targetGroupPortal")}>
                       {allDeployments.map((d) => {
                         const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
                         return (
-                          <option key={d.id} value={d.id} disabled={d.serving_mode === "pd"}>
+                          <FormSelectItem key={d.id} value={d.id} disabled={d.serving_mode === "pd"}>
                             {d.model_name} — {d.gpu_count}×{gpu}
                             {d.serving_mode === "pd" ? " · P/D" : ""}
                             {d.memory_limit ? ` · ${d.memory_limit}` : ""}
                             {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
-                          </option>
+                          </FormSelectItem>
                         );
                       })}
-                    </optgroup>
+                    </FormSelectGroup>
                     {kind !== "accuracy" && servings.length > 0 && (
-                      <optgroup label={t("targetGroupExternal")}>
+                      <FormSelectGroup label={t("targetGroupExternal")}>
                         {servings.map((s) => (
-                          <option key={externalKey(s)} value={externalKey(s)}>
+                          <FormSelectItem key={externalKey(s)} value={externalKey(s)}>
                             {s.deployment_name} ({s.engine} · {s.namespace})
-                          </option>
+                          </FormSelectItem>
                         ))}
-                      </optgroup>
+                      </FormSelectGroup>
                     )}
-                  </select>
+                  </FormSelect>
                   <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
                   {allDeployments.some((d) => d.serving_mode === "pd") && (
                     <p className="text-xs text-muted-foreground">{t("pdTargetNote")}</p>
@@ -595,17 +596,17 @@ function SingleRunForm({experiment, source}: {experiment: "performance" | "accur
                 <details><summary className="cursor-pointer text-sm">{t("servingOverridesLabel")}</summary>
                 <div className="space-y-1.5">
                   <Label htmlFor="bench_gpu_type">{t("gpuTypeLabel")}</Label>
-                  <select
+                  <FormSelect placeholder={t("gpuTypeNone")}
                     id="bench_gpu_type"
-                    className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                    className="w-full"
                     value={overridesGpuType}
-                    onChange={(e) => setOverridesGpuType(e.target.value)}
+                    onValueChange={(selectedValue) => setOverridesGpuType(selectedValue)}
                   >
-                    <option value="">{t("gpuTypeNone")}</option>
+                    <FormSelectItem value="">{t("gpuTypeNone")}</FormSelectItem>
                     {(gpuProfiles?.profiles ?? []).filter((p) => p.enabled).map((p) => (
-                      <option key={p.id} value={p.name}>{p.name}{p.vram_gb ? ` · ${p.vram_gb} GB` : ""}</option>
+                      <FormSelectItem key={p.id} value={p.name}>{p.name}{p.vram_gb ? ` · ${p.vram_gb} GB` : ""}</FormSelectItem>
                     ))}
-                  </select>
+                  </FormSelect>
                   <p className="text-xs text-muted-foreground">{t("gpuTypeHint")}</p>
                 </div>
                 <div className="space-y-1.5">
@@ -626,27 +627,27 @@ function SingleRunForm({experiment, source}: {experiment: "performance" | "accur
                 <p className="text-xs text-muted-foreground">{t("tabDirectHint")}</p>
                 <div className="space-y-1.5">
                   <Label htmlFor="direct_target">{t("deploymentLabel")}</Label>
-                  <select
+                  <FormSelect placeholder={t("deploymentNone")}
                     id="direct_target"
-                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                    className="w-full"
                     value={directDeploymentId}
-                    onChange={(e) => {
+                    onValueChange={(selectedValue) => {
                       setExternalTarget(null);
-                      setDeploymentId(e.target.value);
+                      setDeploymentId(selectedValue);
                     }}
                   >
-                    <option value="">{t("deploymentNone")}</option>
+                    <FormSelectItem value="">{t("deploymentNone")}</FormSelectItem>
                     {readyDeployments.map((d) => {
                       const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
                       return (
-                        <option key={d.id} value={d.id}>
+                        <FormSelectItem key={d.id} value={d.id}>
                           {d.model_name} — {d.gpu_count}×{gpu}
                           {d.serving_mode === "pd" ? " · P/D → router" : ""}
                           {d.memory_limit ? ` · ${d.memory_limit}` : ""}
-                        </option>
+                        </FormSelectItem>
                       );
                     })}
-                  </select>
+                  </FormSelect>
                   <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
                   {directDeploymentId && selectedDeployment && (
                     <p className="font-mono text-xs text-muted-foreground">
@@ -691,20 +692,20 @@ function SingleRunForm({experiment, source}: {experiment: "performance" | "accur
               <TabsContent value="model" className="space-y-4 pt-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="model_name">{t("modelLabel")}</Label>
-                  <select
+                  <FormSelect placeholder={t("modelPlaceholder")}
                     id="model_name"
-                    className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm disabled:opacity-50"
+                    className="w-full"
                     value={modelName}
-                    onChange={(e) => setModelName(e.target.value)}
+                    onValueChange={(selectedValue) => setModelName(selectedValue)}
                     disabled={modelsLoading}
                   >
-                    <option value="">{t("modelPlaceholder")}</option>
+                    <FormSelectItem value="">{t("modelPlaceholder")}</FormSelectItem>
                     {modelOptions.map((m) => (
-                      <option key={m} value={m}>
+                      <FormSelectItem key={m} value={m}>
                         {m}
-                      </option>
+                      </FormSelectItem>
                     ))}
-                  </select>
+                  </FormSelect>
                   <p className="text-xs text-muted-foreground">{t("modelHint")}</p>
                 </div>
               </TabsContent>

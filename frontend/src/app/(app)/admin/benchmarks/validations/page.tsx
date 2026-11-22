@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export default function ValidationsPage() { return <Suspense><List /></Suspense>; }
 function List() {
@@ -35,9 +36,9 @@ function List() {
     <div className="flex flex-wrap items-center gap-3">
       <ServingScopeFilter scope={scope} onChange={v => { setScope(v); setOffset(0); }} items={rows} settings={settings.data} />
       <Input aria-label={t("search")} placeholder={t("search")} className="max-w-64" value={q} onChange={e => { setQ(e.target.value); setOffset(0); }} />
-      <select aria-label={t("status")} className="h-9 rounded-md border bg-background px-2 text-sm" value={status} onChange={e => { setStatus(e.target.value); setOffset(0); }}>
-        <option value="">{t("allStatuses")}</option>{["queued", "running", "awaiting_input", "cancelling", "succeeded", "failed", "cancelled"].map(s => <option value={s} key={s}>{t(`status_${s}`)}</option>)}
-      </select>
+      <FormSelect placeholder={t("allStatuses")} aria-label={t("status")} value={status} onValueChange={selectedValue => { setStatus(selectedValue); setOffset(0); }}>
+        <FormSelectItem value="">{t("allStatuses")}</FormSelectItem>{["queued", "running", "awaiting_input", "cancelling", "succeeded", "failed", "cancelled"].map(s => <FormSelectItem value={s} key={s}>{t(`status_${s}`)}</FormSelectItem>)}
+      </FormSelect>
     </div>
     {query.error && <p role="alert" className="text-destructive">{query.error.message}</p>}
     <div className="rounded-lg border"><Table><TableHeader><TableRow>

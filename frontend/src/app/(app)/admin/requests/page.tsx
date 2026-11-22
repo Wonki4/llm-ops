@@ -38,6 +38,7 @@ import type { TeamJoinRequest, JoinRequestStatus, RequestType } from "@/types";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import type { BulkItemResult, BulkProgress } from "@/lib/bulk-review";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 function StatusBadge({ status }: { status: JoinRequestStatus }) {
   const t = useTranslations("adminRequests");
@@ -406,9 +407,9 @@ function AdminRequestsPage() {
 
       {/* Status tabs + Table */}
       <div>
-        <select aria-label={t("tabAll")} className="rounded border bg-background px-3 py-2 text-sm" value={statusTab} onChange={e=>setStatusTab(e.target.value)}>
-          <option value="all">{t("tabAll")}</option><option value="pending">{t("statusPending")}</option><option value="approved">{t("statusApproved")}</option><option value="rejected">{t("statusRejected")}</option>
-        </select>
+        <FormSelect aria-label={t("tabAll")} value={statusTab} onValueChange={selectedValue=>setStatusTab(selectedValue)}>
+          <FormSelectItem value="all">{t("tabAll")}</FormSelectItem><FormSelectItem value="pending">{t("statusPending")}</FormSelectItem><FormSelectItem value="approved">{t("statusApproved")}</FormSelectItem><FormSelectItem value="rejected">{t("statusRejected")}</FormSelectItem>
+        </FormSelect>
         <div className="mt-4">
           {isLoading ? (
             <TableSkeleton />

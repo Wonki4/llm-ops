@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { linesToTolerations, tolerationsToLines } from "@/lib/placement";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type FormState = {
   name: string; label_key: string; label_value: string; gpu_resource_key: string;
@@ -125,15 +126,15 @@ export function GpuProfilesCard() {
             <CardDescription>{t("description")}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <FormSelect placeholder={t("portalDefaultCluster")}
               aria-label={t("clusterSelect")}
-              className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+              size="sm"
               value={clusterId ?? ""}
-              onChange={(e) => { setClusterId(e.target.value || null); setScanOn(false); }}
+              onValueChange={(selectedValue) => { setClusterId(selectedValue || null); setScanOn(false); }}
             >
-              <option value="">{t("portalDefaultCluster")}</option>
-              {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              <FormSelectItem value="">{t("portalDefaultCluster")}</FormSelectItem>
+              {(clusters ?? []).map((c) => <FormSelectItem key={c.id} value={c.id}>{c.name}</FormSelectItem>)}
+            </FormSelect>
             <Button size="sm" onClick={() => openCreate()}><Plus className="size-3.5" />{t("addButton")}</Button>
           </div>
         </div>

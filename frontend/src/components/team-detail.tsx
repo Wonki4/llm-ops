@@ -64,6 +64,7 @@ import {
   X,
 } from "lucide-react";
 import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const BUDGET_PRESETS = ["7", "30", "90", "365", "permanent"] as const;
 
@@ -235,17 +236,19 @@ function BudgetRequestDialog({ teamId, currentBudget, maxAmount, allowedDays }: 
           <div>
             <label className="text-sm font-medium">{hasAllowedDays ? t("budgetPeriodLabel") : t("budgetDurationLabel")}</label>
             {hasAllowedDays ? (
-              <select
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+              <FormSelect
+                className="w-full"
+                aria-label={t("budgetPeriodLabel")}
+                placeholder={t("budgetPresetPermanent")}
                 value={durationDays}
-                onChange={(e) => setDurationDays(e.target.value)}
+                onValueChange={(selectedValue) => setDurationDays(selectedValue)}
               >
                 {allowedDays!.map((p) => (
-                  <option key={p} value={p === "permanent" ? "" : p}>
+                  <FormSelectItem key={p} value={p === "permanent" ? "" : p}>
                     {t(`budgetPreset${p === "permanent" ? "Permanent" : p}`)}
-                  </option>
+                  </FormSelectItem>
                 ))}
-              </select>
+              </FormSelect>
             ) : (
               <>
                 <Input

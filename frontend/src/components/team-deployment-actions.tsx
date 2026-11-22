@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useMe } from "@/hooks/use-api";
 import { scopeKey, teamScopeParams, type TeamScope } from "@/hooks/use-serving-access";
 import { apiFetch } from "@/lib/api";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type Pool = "prefill" | "decode";
 interface Recipe {
@@ -107,11 +108,11 @@ function OperatorRecipeDialog({scope, deployment, close}: {
       <form hidden={showBrowser} className="space-y-4" onSubmit={submit}>
         <fieldset disabled={save.isPending} className="space-y-3">
           {deployment ? <label className="grid gap-1 text-sm">{td("reapplyRecipe")}
-            <select className="h-9 w-full rounded-md border bg-background px-2" required value={recipe?.id ?? ""}
-              onChange={e => setSelected(e.target.value)}>
-              <option value="" disabled>{td("reapplyPickRecipe")}</option>
+            <FormSelect placeholder={td("reapplyPickRecipe")} className="w-full" required value={recipe?.id ?? ""}
+              onValueChange={selectedValue => setSelected(selectedValue)}>
+              <FormSelectItem value="" disabled>{td("reapplyPickRecipe")}</FormSelectItem>
               <RecipeOptions recipes={options} label={r => `${r.name} · ${r.engine} · ${r.serving_mode}`} />
-            </select>
+            </FormSelect>
           </label> : recipe && <SelectedRecipe recipe={recipe} onChange={() => setChoosingRecipe(true)} />}
           {deployment ? <p className="text-sm text-muted-foreground">{td("reapplyDesc")}</p> : <>
             <label className="grid gap-1 text-sm">{tr("deployModelName")}
