@@ -150,6 +150,7 @@ export interface LiteLLMModelInfo {
 }
 
 export interface ModelWithCatalog {
+  registrations?: LiteLLMModelInfo[];
   model_name: string;
   litellm_info: LiteLLMModelInfo | null;
   catalog: ModelCatalog | null;

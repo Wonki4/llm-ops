@@ -22,6 +22,7 @@ from app.clients.redis import (
 from app.clients.redis import (
     catalog_set as redis_set,
 )
+from app.services.model_registry import merge_models
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
@@ -111,38 +112,7 @@ async def list_models(
 
     is_admin = user.global_role == GlobalRole.SUPER_USER
 
-    # Merge: catalog entry + LiteLLM runtime info
-    models = []
-    for lm in litellm_models:
-        model_name = lm.get("model_name", "")
-        catalog_entry = catalog_map.pop(model_name, None)
-        # Non-admin: skip models without catalog or hidden models
-        if not is_admin:
-            if not catalog_entry:
-                continue
-            if catalog_entry.get("visible") is False:
-                continue
-        models.append(
-            {
-                "model_name": model_name,
-                "litellm_info": _sanitize_litellm_info(lm),
-                "catalog": catalog_entry,
-            }
-        )
-
-    # Add catalog-only entries (not yet in LiteLLM)
-    for name, entry in catalog_map.items():
-        if not is_admin and entry.get("visible") is False:
-            continue
-        models.append(
-            {
-                "model_name": name,
-                "litellm_info": None,
-                "catalog": entry,
-            }
-        )
-
-    return {"models": models}
+    return {"models": merge_models(litellm_models, catalog_map, admin=is_admin, sanitize=_sanitize_litellm_info)}
 
 
 @router.get("/catalog")
