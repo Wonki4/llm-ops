@@ -209,6 +209,15 @@ export function ServingAccessTab() {
   </div>;
 }
 
+export function TeamServingPermissions({teamId, name}: {teamId: string; name: string}) {
+  const t = useTranslations("teamServing");
+  const settings = useK8sClusterSettings();
+  if (settings.isError) return <p role="alert">{settings.error.message}</p>;
+  if (!settings.data) return <p aria-busy="true">…</p>;
+  const clusters: Cluster[] = [{id:null,name:t("portal")}, ...settings.data.clusters.map(({id,name})=>({id,name}))];
+  return <TeamPermissions team={{id:teamId,name,exists:true}} clusters={clusters} />;
+}
+
 function TeamPermissions({ team, clusters }: {team: Team; clusters: Cluster[]}) {
   const t = useTranslations("teamServing");
   const tc = useTranslations("common");
