@@ -112,23 +112,24 @@
     "adminDashboard": "Admin Dashboard",
     "adminModels": "Catalog",
     "adminDeployments": "Deployments",
-    "adminRecipes": "Serving Recipes",
+    "adminRecipes": "Recipes",
     "adminStorages": "Storage",
     "adminBudgets": "Budget Management",
     "adminUsers": "User Management",
     "adminAccessGroups": "Model Access Groups",
     "adminUsage": "Usage",
-    "adminBenchmarks": "Benchmarks",
+    "adminBenchmarks": "Validation & benchmarks",
     "adminLlmd": "llm-d",
     "adminSettings": "Portal Settings",
     "adminSectionLabel": "Admin",
     "logout": "Log out",
     "servingSectionLabel": "Serving",
-    "servingHome": "Serving home",
+    "servingHome": "Operations",
     "modelsSectionLabel": "Model management",
     "peopleSectionLabel": "Teams & users",
     "routingGraph": "Routing graph",
-    "modelLifecycle": "Lifecycle & schedule"
+    "modelLifecycle": "Lifecycle & schedule",
+    "infrastructure": "Infrastructure"
   },
   "theme": {
     "light": "Light",
@@ -2270,7 +2271,7 @@
     "registered": "Registered in LiteLLM",
     "hidden": "Hidden",
     "tabDeployments": "Serving deployments",
-    "tabLlmd": "llm-d stacks",
+    "tabLlmd": "Routers & llm-d",
     "unlinkedTitle": "{count} llm-d stack(s) not linked to any server",
     "unlinkedHint": "Their label selector picks no portal deployment or scanned external serving.",
     "unlinkedTarget": "target: {model}",
@@ -2701,6 +2702,11 @@
     "stop_client_finished": "The client or administrator ended exploration."
   },
   "portalNavigation": {
-    "adminOnly": "Portal administrator access is required."
+    "adminOnly": "Portal administrator access is required.",
+    "infrastructure": "Infrastructure",
+    "clusters": "Clusters & ArgoCD",
+    "storages": "Storage",
+    "gpu": "GPU profiles",
+    "pods": "Pod defaults"
   }
 }

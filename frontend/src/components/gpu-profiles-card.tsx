@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Cpu, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -56,7 +57,14 @@ function toBody(f: FormState): GpuProfileInput {
 export function GpuProfilesCard() {
   const t = useTranslations("gpuProfiles");
   const { data: clusters } = useK8sClusters();
-  const [clusterId, setClusterId] = useState<string | null>(null);
+  const params = useSearchParams();
+  const router = useRouter();
+  const selected = params.get("cluster") ?? clusters?.find(c => c.is_default)?.id ?? "default";
+  const clusterId = selected === "default" || selected === "" ? null : selected;
+  function setClusterId(id: string | null) {
+    const query = new URLSearchParams(params.toString()); query.set("cluster", id || "default");
+    router.push(`?${query}`, {scroll: false});
+  }
   const { data, isLoading } = useGpuProfiles(clusterId);
   const [scanOn, setScanOn] = useState(false);
   const nodes = useGpuNodes(clusterId, scanOn);
