@@ -5,14 +5,13 @@ import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, nullcontext
 
-from app.api import admin_teams
-
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
     access_groups,
+    admin_teams,
     admin_usage,
     admin_users,
     announcements,
@@ -26,8 +25,8 @@ from app.api import (
     keys,
     llmd,
     me,
-    model_deployments,
     model_connections,
+    model_deployments,
     models_catalog,
     portal_settings,
     recipe_validations,

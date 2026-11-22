@@ -3,6 +3,7 @@
 from urllib.parse import urlsplit, urlunsplit
 
 from app.clients.litellm import deployment_base_prices
+from app.services.serving_topology import _cloud_provider, _endpoint
 
 
 def safe_api_base(value: str | None) -> str | None:
@@ -38,7 +39,7 @@ def registration_view(row: dict, managed: dict[str, dict] | None = None) -> dict
         "origin": "cluster"
         if owner
         else "cloud"
-        if not params.get("api_base") or info.get("portal_connection_type") == "external"
+        if _cloud_provider(params, info, _endpoint(params.get("api_base")))
         else "unknown",
         "editable": info.get("db_model") is True and not owner,
         "access_groups": info.get("access_groups") or [],

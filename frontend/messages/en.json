@@ -115,7 +115,7 @@
     "adminRecipes": "Recipes",
     "adminStorages": "Storage",
     "adminBudgets": "Budget Management",
-    "adminUsers": "User Management",
+    "adminUsers": "Users",
     "adminAccessGroups": "Model Access Groups",
     "adminUsage": "Usage",
     "adminBenchmarks": "Validation & benchmarks",
@@ -2458,7 +2458,7 @@
   },
   "accessGroups": {
     "pageTitle": "Model Access Groups",
-    "pageDescription": "Manage groups of models and grant personal-key access to users by group. The group name goes into the user's personal-key grant — the same value as \"Personal key access\" on the user page.",
+    "pageDescription": "Group models and assign access to teams and individual users. Grants edited on team and user pages appear here as well.",
     "newGroup": "New group",
     "noGroups": "No model access groups.",
     "groupCounts": "{models} models · {users} users",

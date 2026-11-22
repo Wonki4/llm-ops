@@ -22,7 +22,6 @@ from app.clients.redis import (
 from app.clients.redis import (
     catalog_set as redis_set,
 )
-from app.services.model_registry import merge_models
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
@@ -30,6 +29,7 @@ from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db
+from app.services.model_registry import merge_models
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -78,7 +78,7 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
 
 
 # Allowlist public fields: provider credentials may have arbitrary names inside params.
-PUBLIC_PARAMS = {"model", "rpm", "tpm", "timeout", "max_retries", "stream_timeout", "weight"}
+PUBLIC_PARAMS = {"model", "custom_llm_provider", "rpm", "tpm", "timeout", "max_retries", "stream_timeout", "weight"}
 PUBLIC_INFO = {"id", "db_model", "litellm_provider", "mode", "base_model", "max_tokens", "max_input_tokens",
                "max_output_tokens", "input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
                "cache_creation_input_token_cost", "access_groups", "off_peak_pricing"}
@@ -90,8 +90,11 @@ def _sanitize_litellm_info(lm: dict) -> dict:
     return {
         "model_name": lm.get("model_name", ""),
         "litellm_params": {k: v for k, v in (lm.get("litellm_params") or {}).items() if k in PUBLIC_PARAMS},
-        "model_info": {**{k: v for k, v in info.items() if k in PUBLIC_INFO or k.startswith("supports_")},
-                       **deployment_base_prices(lm)},
+        "model_info": {
+            **{k: v for k, v in info.items()
+               if k in PUBLIC_INFO or (k.startswith("supports_") and isinstance(v, bool))},
+            **deployment_base_prices(lm),
+        },
     }
 
 
@@ -598,7 +601,7 @@ async def model_summary(
     }
 
 
-@router.get("/{model_name}/cache")
+@router.get("/{model_name:path}/cache")
 async def get_model_cache(
     model_name: str,
     user: CustomUser = Depends(require_super_user),
@@ -612,7 +615,7 @@ async def get_model_cache(
     return {"model_name": model_name, "suffixes": suffixes, "entries": entries}
 
 
-@router.put("/{model_name}/cache/{suffix}")
+@router.put("/{model_name:path}/cache/{suffix}")
 async def set_model_cache_entry(
     model_name: str,
     suffix: str,
@@ -632,7 +635,7 @@ async def set_model_cache_entry(
     return {"model_name": model_name, "suffix": suffix, **data}
 
 
-@router.delete("/{model_name}/cache/{suffix}")
+@router.delete("/{model_name:path}/cache/{suffix}")
 async def delete_model_cache_entry(
     model_name: str,
     suffix: str,

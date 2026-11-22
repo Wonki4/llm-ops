@@ -156,3 +156,13 @@ async def test_summary_finds_editable_deployment_for_shared_model_name(admin_cli
     assert [p["id"] for p in prices] == ["file", "db", "second"]
     assert [p["input_cost_per_token"] for p in prices] == [None, 0, 3e-6]
     assert prices[1]["cache_read_input_token_cost"] == 0
+
+
+async def test_namespaced_model_cache_link(admin_client, monkeypatch):
+    from app.api import models_catalog
+    monkeypatch.setattr(models_catalog, "_get_allowed_suffixes", AsyncMock(return_value=["default"]))
+    read = AsyncMock(return_value=None)
+    monkeypatch.setattr(models_catalog, "redis_get", read)
+    response = await admin_client.get("/api/models/org/model/cache")
+    assert response.status_code == 200
+    read.assert_awaited_once_with("default", "org/model")

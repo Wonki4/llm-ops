@@ -150,7 +150,7 @@ function GroupDetail({
           <Trash2 className="size-3.5" />{t("deleteGroup")}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-6"><PageTabs label={group.name} active={tab} tabs={["models","teams","users"].map(id=>{const q=new URLSearchParams(params.toString());q.set("tab",id);return {id,label:tp(id),href:`?${q}`};})} />
+      <CardContent className="space-y-6"><PageTabs label={group.name} active={tab} tabs={["models","teams","users"].map(id=>{const q=new URLSearchParams(params.toString());q.set("tab",id);return {id,label:tp(id === "models" ? "model" : id),href:`?${q}`};})} />
         {tab === "teams" && <AdminTeamList accessGroup={group.name} />}
         {tab === "models" && <section className="space-y-2">
           <div className="flex items-center justify-between">
