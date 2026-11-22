@@ -1,6 +1,7 @@
 """Portal settings endpoints (Super User only)."""
 
 import json
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -156,6 +157,39 @@ async def update_hidden_teams(
         )
     await db.commit()
     return {"hidden_teams": base, "hidden_teams_strict": strict}
+
+
+class TeamVisibilityBody(BaseModel):
+    mode: Literal["visible", "discovery", "strict"]
+
+
+@router.patch("/hidden-teams/{team_id}")
+async def update_team_visibility(
+    team_id: str,
+    body: TeamVisibilityBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Change one team's visibility without replacing other teams' settings."""
+    # Update both rows in the same order as the legacy bulk PUT. PostgreSQL's
+    # row locks serialize concurrent changes while preserving unrelated IDs.
+    for key, selected in (
+        ("hidden_teams", body.mode == "discovery"),
+        ("hidden_teams_strict", body.mode == "strict"),
+    ):
+        await db.execute(
+            text(
+                "INSERT INTO custom_portal_settings (key, value, updated_by) "
+                "VALUES (:key, :addition, :updated_by) "
+                "ON CONFLICT (key) DO UPDATE SET value = CAST("
+                "(CAST(custom_portal_settings.value AS jsonb) - CAST(:team_id AS text)) || CAST(:addition AS jsonb) "
+                "AS text), updated_by = :updated_by, updated_at = now()"
+            ),
+            {"key": key, "addition": json.dumps([team_id] if selected else []),
+             "team_id": team_id, "updated_by": user.user_id},
+        )
+    await db.commit()
+    return await get_hidden_teams(user=user, db=db)
 
 
 class PodLabelsBody(BaseModel):

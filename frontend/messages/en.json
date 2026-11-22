@@ -1072,16 +1072,7 @@
     "ruleDeleteSuccess": "Rule deleted.",
     "deleteFailed": "Delete failed",
     "noExtraRules": "No extra rules registered.",
-    "hideTeamsTitle": "Hide Teams",
-    "hideTeamsDescription": "Hidden teams leave team discovery. By default their members still see them in My Teams and Keys; strict mode hides them from members too. Admins always see everything.",
-    "hiddenModeDefault": "Discovery only",
-    "hiddenModeStrict": "Members too (admins only)",
-    "teamHideModeSuccess": "Hide mode updated",
-    "hiddenTeamSelectPlaceholder": "Select a team to hide…",
-    "teamHideSuccess": "Team added to hidden list.",
-    "teamUnhideSuccess": "Team removed from hidden list.",
     "removeFailed": "Remove failed",
-    "noHiddenTeams": "No hidden teams.",
     "saveSuccess": "Settings saved.",
     "saveFailed": "Save failed",
     "clusters": {
@@ -2756,5 +2747,16 @@
     "finance": "Budgets and usage",
     "budget": "Budgets",
     "usage": "Usage"
+  },
+  "teamVisibility": {
+    "title": "Hide team",
+    "hint": "Hide teams from discovery, or also hide them from members’ team and key lists.",
+    "toggleLabel": "Hide {team}",
+    "scopeLabel": "Visibility scope for {team}",
+    "discovery": "Hide from discovery",
+    "strict": "Hide from members too",
+    "visible": "Visible",
+    "saved": "Updated visibility for {team}.",
+    "loadError": "Could not load team visibility settings."
   }
 }

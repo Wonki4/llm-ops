@@ -193,3 +193,17 @@ async def test_update_hidden_teams_strict_wins_on_overlap(admin_client: AsyncCli
     payloads = [c.args[1]["value"] for c in mock_db.execute.await_args_list]
     assert json.dumps(["team-a"]) in payloads
     assert json.dumps(["team-b"]) in payloads
+
+
+@pytest.mark.parametrize("mode", ["visible", "discovery", "strict"])
+async def test_team_visibility_requires_portal_admin(user_client, mock_db, mode):
+    response = await user_client.patch("/api/settings/hidden-teams/team-1", json={"mode": mode})
+    assert response.status_code == 403
+    mock_db.execute.assert_not_awaited()
+
+
+@pytest.mark.parametrize("body", [{}, {"mode": "unknown"}])
+async def test_team_visibility_rejects_invalid_mode(admin_client, mock_db, body):
+    response = await admin_client.patch("/api/settings/hidden-teams/team-1", json=body)
+    assert response.status_code == 422
+    mock_db.execute.assert_not_awaited()

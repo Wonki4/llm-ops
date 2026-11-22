@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Settings, Save, EyeOff, X, Plus } from "lucide-react";
+import { Loader2, Settings, Save, X, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 
-import { usePortalSettings, useUpdatePortalSettings, useHiddenTeams, useUpdateHiddenTeams, useDefaultTeamRules, useUpdateDefaultTeamRules, useDiscoverTeams } from "@/hooks/use-api";
+import { usePortalSettings, useUpdatePortalSettings, useDefaultTeamRules, useUpdateDefaultTeamRules, useDiscoverTeams } from "@/hooks/use-api";
 import { PageTabs, usePageTab } from "@/components/page-tabs";
 import type { PortalSettings, DefaultTeamRule } from "@/hooks/use-api";
 import { Badge } from "@/components/ui/badge";
@@ -33,8 +33,6 @@ function PolicyFields({tab,settings}:{tab:string;settings:PortalSettings}) {
   const tc = useTranslations("common");
 
   const updateMutation = useUpdatePortalSettings();
-  const { data: hiddenTeams } = useHiddenTeams();
-  const updateHiddenTeams = useUpdateHiddenTeams();
 
   const { data: allTeams } = useDiscoverTeams();
   const teamAlias = new Map((allTeams ?? []).map((tm) => [tm.team_id, tm.team_alias]));
@@ -269,109 +267,6 @@ function PolicyFields({tab,settings}:{tab:string;settings:PortalSettings}) {
                   <p className="text-sm text-muted-foreground">{t("noExtraRules")}</p>
                 )}
               </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <EyeOff className="size-4" />
-                {t("hideTeamsTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("hideTeamsDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <TeamAddSelect
-                teams={allTeams ?? []}
-                exclude={[...(hiddenTeams?.hidden_teams ?? []), ...(hiddenTeams?.hidden_teams_strict ?? [])]}
-                placeholder={t("hiddenTeamSelectPlaceholder")}
-                disabled={updateHiddenTeams.isPending}
-                onAdd={(id) => {
-                  updateHiddenTeams.mutate(
-                    {
-                      hidden_teams: [...(hiddenTeams?.hidden_teams ?? []), id],
-                      hidden_teams_strict: hiddenTeams?.hidden_teams_strict ?? [],
-                    },
-                    {
-                      onSuccess: () => toast.success(t("teamHideSuccess")),
-                      onError: (err) => toast.error(err instanceof Error ? err.message : t("addFailed")),
-                    },
-                  );
-                }}
-              />
-              {(() => {
-                const base = hiddenTeams?.hidden_teams ?? [];
-                const strictList = hiddenTeams?.hidden_teams_strict ?? [];
-                const rows = [
-                  ...base.map((id) => ({ id, strict: false })),
-                  ...strictList.map((id) => ({ id, strict: true })),
-                ];
-                if (rows.length === 0) {
-                  return <p className="text-sm text-muted-foreground">{t("noHiddenTeams")}</p>;
-                }
-                const save = (
-                  body: { hidden_teams: string[]; hidden_teams_strict: string[] },
-                  successMsg: string,
-                ) =>
-                  updateHiddenTeams.mutate(body, {
-                    onSuccess: () => toast.success(successMsg),
-                    onError: (err) =>
-                      toast.error(err instanceof Error ? err.message : t("removeFailed")),
-                  });
-                return (
-                  <div className="space-y-2">
-                    {rows.map(({ id, strict }) => (
-                      <div
-                        key={id}
-                        className="flex items-center justify-between gap-3 rounded-md border px-3 py-2"
-                      >
-                        <span className="truncate text-sm font-medium">{teamLabel(id)}</span>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <select
-                            className="h-8 rounded-md border border-input bg-background px-2 text-xs"
-                            value={strict ? "strict" : "default"}
-                            disabled={updateHiddenTeams.isPending}
-                            onChange={(e) => {
-                              const toStrict = e.target.value === "strict";
-                              save(
-                                {
-                                  hidden_teams: toStrict
-                                    ? base.filter((x) => x !== id)
-                                    : [...base, id],
-                                  hidden_teams_strict: toStrict
-                                    ? [...strictList, id]
-                                    : strictList.filter((x) => x !== id),
-                                },
-                                t("teamHideModeSuccess"),
-                              );
-                            }}
-                          >
-                            <option value="default">{t("hiddenModeDefault")}</option>
-                            <option value="strict">{t("hiddenModeStrict")}</option>
-                          </select>
-                          <button
-                            type="button"
-                            className="rounded-full p-1 hover:bg-muted-foreground/20"
-                            onClick={() =>
-                              save(
-                                {
-                                  hidden_teams: base.filter((x) => x !== id),
-                                  hidden_teams_strict: strictList.filter((x) => x !== id),
-                                },
-                                t("teamUnhideSuccess"),
-                              )
-                            }
-                          >
-                            <X className="size-3" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
             </CardContent>
           </Card>
 

@@ -811,26 +811,32 @@ export interface HiddenTeamsSettings {
   hidden_teams_strict: string[];
 }
 
-export function useHiddenTeams() {
+export function useHiddenTeams(enabled = true) {
   return useQuery({
     queryKey: ["hidden-teams"],
     queryFn: () => apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams"),
+    enabled,
   });
 }
 
-export function useUpdateHiddenTeams() {
+export type TeamVisibility = "visible" | "discovery" | "strict";
+
+export function useUpdateTeamVisibility() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: HiddenTeamsSettings) =>
-      apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams", {
-        method: "PUT",
-        body: JSON.stringify(body),
+    mutationFn: ({ teamId, mode }: { teamId: string; mode: TeamVisibility }) =>
+      apiFetch<HiddenTeamsSettings>(`/api/settings/hidden-teams/${encodeURIComponent(teamId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ mode }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hidden-teams"] });
-      qc.invalidateQueries({ queryKey: ["portal-settings"] });
-      qc.invalidateQueries({ queryKey: queryKeys.myTeams });
-      qc.invalidateQueries({ queryKey: queryKeys.discoverTeams });
+    onSuccess: async (data) => {
+      qc.setQueryData(["hidden-teams"], data);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["hidden-teams"] }),
+        qc.invalidateQueries({ queryKey: ["portal-settings"] }),
+        qc.invalidateQueries({ queryKey: ["teams"] }),
+        qc.invalidateQueries({ queryKey: ["keys"] }),
+      ]);
     },
   });
 }
