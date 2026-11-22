@@ -2764,6 +2764,21 @@
     "previous": "이전",
     "next": "다음",
     "actor": "변경자",
-    "time": "변경 시각"
+    "time": "변경 시각",
+    "newConnection": "외부 연결 추가",
+    "editConnection": "연결 수정",
+    "deleteConnection": "연결 삭제",
+    "deleteConnectionConfirm": "연결 {id}만 삭제합니다. Kubernetes 배포와 다른 연결은 유지됩니다.",
+    "readOnly": "읽기 전용",
+    "actions": "관리",
+    "credentialHint": "기존 자격 증명은 표시하지 않습니다. 비워 둔 키와 입력하지 않은 설정은 보존됩니다. 기본 단가는 LiteLLM에서 관리합니다.",
+    "providerOptions": "제공자 추가 설정 (JSON)",
+    "providerOptionsHint": "변경할 항목만 입력하세요. 저장된 비밀 값은 불러오지 않습니다.",
+    "jsonObject": "JSON 객체를 입력하세요.",
+    "field_model_name": "운영 호출명",
+    "field_model": "LiteLLM 제공자/모델",
+    "field_api_base": "API 주소 (선택)",
+    "field_api_version": "API 버전 (선택)",
+    "field_api_key": "API 키 (변경할 때만 입력)"
   }
 }

@@ -2764,6 +2764,21 @@
     "previous": "Previous",
     "next": "Next",
     "actor": "Changed by",
-    "time": "Changed at"
+    "time": "Changed at",
+    "newConnection": "Add external connection",
+    "editConnection": "Edit connection",
+    "deleteConnection": "Delete connection",
+    "deleteConnectionConfirm": "Delete connection {id}? Kubernetes workloads and other connections are preserved.",
+    "readOnly": "Read only",
+    "actions": "Actions",
+    "credentialHint": "Existing credentials are never displayed. Blank keys and unspecified settings are preserved. Manage base pricing in LiteLLM.",
+    "providerOptions": "Additional provider settings (JSON)",
+    "providerOptionsHint": "Enter only settings to change. Stored secret values are never loaded.",
+    "jsonObject": "Enter a JSON object.",
+    "field_model_name": "Model alias",
+    "field_model": "LiteLLM provider/model",
+    "field_api_base": "API base (optional)",
+    "field_api_version": "API version (optional)",
+    "field_api_key": "API key (only to replace)"
   }
 }

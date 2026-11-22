@@ -35,7 +35,11 @@ def registration_view(row: dict, managed: dict[str, dict] | None = None) -> dict
         "api_version": params.get("api_version"),
         "db_model": info.get("db_model") is True,
         "managed": owner,
-        "origin": "cluster" if owner else "cloud" if not params.get("api_base") else "unknown",
+        "origin": "cluster"
+        if owner
+        else "cloud"
+        if not params.get("api_base") or info.get("portal_connection_type") == "external"
+        else "unknown",
         "editable": info.get("db_model") is True and not owner,
         "access_groups": info.get("access_groups") or [],
         "prices": deployment_base_prices(row),
