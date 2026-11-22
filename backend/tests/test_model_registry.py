@@ -39,3 +39,14 @@ def test_registration_projection_does_not_return_credentials():
     assert not registration_view(r, {"a": {"id": "dep"}})["editable"]
     r["model_info"]["db_model"] = False
     assert not registration_view(r)["editable"]
+
+
+def test_external_api_classification_matches_routing_graph():
+    from app.services.serving_topology import _cloud_provider, _endpoint
+    r = row("external")
+    r["litellm_params"]["api_base"] = "https://private-api.example/v1"
+    assert registration_view(r)["origin"] == "unknown"
+    r["model_info"]["portal_connection_type"] = "external"
+    assert registration_view(r)["origin"] == "cloud"
+    assert _cloud_provider(r["litellm_params"], r["model_info"], _endpoint(r["litellm_params"]["api_base"]))
+    assert registration_view(r, {"external": {"id": "dep"}})["origin"] == "cluster"

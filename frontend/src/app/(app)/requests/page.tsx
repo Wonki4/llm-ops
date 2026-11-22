@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { usePageTab } from "@/components/page-tabs";
 import { Inbox, Search, X, ArrowLeft, ArrowRight } from "lucide-react";
 
 import { useJoinRequests } from "@/hooks/use-api";
@@ -62,10 +63,10 @@ function formatDate(dateStr: string, localeTag: string) {
   });
 }
 
-export default function MyRequestsPage() {
+function MyRequestsPage() {
   const localeTag = useLocaleTag();
   const { data: requests, isLoading, isError } = useJoinRequests(undefined, undefined, true);
-  const [statusTab, setStatusTab] = useState("all");
+  const [statusTab, setStatusTab] = usePageTab(["all","pending","approved","rejected"],"all");
   const [searchQuery, setSearchQuery] = useState("");
   const [detailRequest, setDetailRequest] = useState<TeamJoinRequest | null>(null);
   const [page, setPage] = useState(1);
@@ -314,3 +315,5 @@ export default function MyRequestsPage() {
     </div>
   );
 }
+
+export default function Page(){return <Suspense><MyRequestsPage /></Suspense>;}

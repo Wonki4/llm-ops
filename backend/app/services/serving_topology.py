@@ -172,6 +172,9 @@ _CLOUD_HOSTS = {
 
 
 def _cloud_provider(params, info, url):
+    if info.get("portal_connection_type") == "external":
+        prefix = (params.get("model") or "").partition("/")[0]
+        return _CLOUD_PROVIDERS.get(prefix, "External API")
     if params.get("api_base"):
         if url is None:
             return None

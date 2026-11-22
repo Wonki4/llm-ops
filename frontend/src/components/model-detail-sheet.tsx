@@ -145,14 +145,14 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
           {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.cacheSettings")}</h4>
-              <Link className="text-sm underline" href={`/admin/models/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=cache`}>{t("sections.cacheSettings")} →</Link>
+              <Link className="text-sm underline" href={`/admin/models/detail/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=cache`}>{t("sections.cacheSettings")} →</Link>
             </section>
           )}
 
           {model && isSuperUser && (
             <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.timezonePricing")}</h4>
-              <Link className="text-sm underline" href={`/admin/models/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=pricing`}>{t("sections.timezonePricing")} →</Link>
+              <Link className="text-sm underline" href={`/admin/models/detail/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=pricing`}>{t("sections.timezonePricing")} →</Link>
             </section>
           )}
 

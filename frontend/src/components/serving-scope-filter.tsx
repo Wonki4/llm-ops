@@ -9,10 +9,10 @@ import { useK8sClusters } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
 import {
   PORTAL_CLUSTER, type ClusterSettings, type ScopedItem, type ServingScope,
-  clusterKey, clusterScope, namespacesIn, scopeFromParams, scopeQuery,
+  clusterKey, clusterScope, namespacesIn, scopeFromParams,
 } from "@/lib/serving-scope";
 
-/** The scope in the URL and a setter that rewrites it in place (no history entry, no scroll). */
+/** Preserve other view options and retain scope changes in browser history. */
 export function useServingScope(settings: ClusterSettings | undefined): [ServingScope, (next: ServingScope) => void] {
   const params = useSearchParams();
   const router = useRouter();
@@ -20,8 +20,15 @@ export function useServingScope(settings: ClusterSettings | undefined): [Serving
   const scope = useMemo(() => scopeFromParams(params, settings), [params, settings]);
   const includeEmpty = !!settings;
   const setScope = useCallback(
-    (next: ServingScope) => router.replace(`${pathname}${scopeQuery(next, includeEmpty)}`, { scroll: false }),
-    [router, pathname, includeEmpty],
+    (next: ServingScope) => {
+      const query = new URLSearchParams(params.toString());
+      for (const key of ["cluster", "ns"] as const) {
+        if (next[key] || includeEmpty) query.set(key, next[key]);
+        else query.delete(key);
+      }
+      router.push(`${pathname}${query.size ? `?${query}` : ""}`, { scroll: false });
+    },
+    [router, pathname, includeEmpty, params],
   );
   return [scope, setScope];
 }

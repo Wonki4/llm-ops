@@ -1808,7 +1808,7 @@ export default function TeamDetailPage({
     const url = new URL(window.location.href);
     if (tab === "overview") url.searchParams.delete("tab");
     else url.searchParams.set("tab", tab);
-    window.history.replaceState(null, "", url);
+    window.history.pushState(null, "", url);
   }
   const [deletingKeyId, setDeletingKeyId] = useState<string | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);

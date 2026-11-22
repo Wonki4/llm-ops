@@ -1,5 +1,7 @@
 "use client";
 
+import { Suspense } from "react";
+import { usePageTab } from "@/components/page-tabs";
 import { formatModelPrice } from "@/lib/model-pricing";
 import { Loader2 } from "lucide-react";
 import Link from "next/link";
@@ -214,10 +216,11 @@ function InfoDetailTab({ litellm }: { litellm: Record<string, unknown> | null })
   return <KVTable rows={rows} />;
 }
 
-export default function ModelDetailPage() {
+function ModelDetailPage() {
+  const [tab,setTab]=usePageTab(["info","pricing","performance","accuracy"],"info");
   const params = useParams();
   const raw = params.modelName;
-  const modelName = Array.isArray(raw) ? raw.map(decodeURIComponent).join("/") : decodeURIComponent(raw ?? "");
+  const modelName = Array.isArray(raw) ? raw.join("/") : (raw ?? "");
 
   const { data: summary, isLoading, error } = useModelSummary(modelName || null);
 
@@ -292,7 +295,7 @@ export default function ModelDetailPage() {
 
       <AdminPersonalUsers modelName={summary.model_name} />
 
-      <Tabs defaultValue="info" className="w-full">
+      <Tabs value={tab} onValueChange={setTab} className="w-full">
         <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
           <TabsTrigger value="info" className="flex-none px-1">모델 정보</TabsTrigger>
           <TabsTrigger value="pricing" className="flex-none px-1">가격 상세</TabsTrigger>
@@ -356,3 +359,5 @@ function PersonalUsableChip({ modelName }: { modelName: string }) {
     </div>
   );
 }
+
+export default function Page(){return <Suspense><ModelDetailPage /></Suspense>;}
