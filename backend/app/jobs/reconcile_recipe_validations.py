@@ -295,7 +295,16 @@ async def tick(db, job, *, current=None):
         job.message = reason
         if any(p.get("status") == "Superseded" for p in status["pools"].values()):
             fail(active, "superseded", "A validation workload was changed outside its parent job", current)
-        elif reason in ("gpu_oom", "memory_limit", "configuration_error", "restarting", "probe_restart"):
+        elif reason in ("gpu_oom", "memory_limit", "configuration_error", "restarting") or (
+            reason == "probe_restart"
+            and any(
+                c.get("restarts", 0) > 0
+                for info in evidence.values()
+                if isinstance(info, dict)
+                for pod in info.get("pods", [])
+                for c in pod.get("containers", [])
+            )
+        ):
             fail(active, reason, "Candidate failed during startup; diagnostic evidence is retained", current)
         elif status["ready"]:
             images = runtime_images(evidence)

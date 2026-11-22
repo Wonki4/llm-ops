@@ -186,6 +186,9 @@ def asset_jobs(dep, attempt, protocol):
             "tokenizer_revision": effective_flag(flags, "--tokenizer-revision"),
             "trust_remote_code": "--trust-remote-code" in flags,
             "tokenizer": protocol.get("tokenizer"),
+            "workload_tokenizer_revision": attempt.state.get("restore_assets", {})
+            .get(str(index), {})
+            .get("workload_tokenizer_revision"),
             "airgap": protocol["airgap"],
         }
         container.setdefault("env", []).append({"name": "VALIDATION_ASSETS", "value": json.dumps(cfg)})
@@ -461,6 +464,7 @@ async def benchmark(db, job, attempt, dep, run):
     )
     manifest["spec"]["activeDeadlineSeconds"] = job.conditions["time_limits"]["measurement"]
     pod = manifest["spec"]["template"]["spec"]
+    pod["tolerations"] = deepcopy(pool.tolerations or [])
     if run.kind == "accuracy":
         asset_source = Path(__file__).with_name("validation_asset_runner.py").read_text()
         verify = (
@@ -469,6 +473,16 @@ async def benchmark(db, job, attempt, dep, run):
             "actual = scope['inspect_assets'](json.loads(os.environ['VALIDATION_ASSETS']))\n"
             "if actual['weights_sha256'] != os.environ['VALIDATION_DATASETS_SHA256']:\n"
             "    raise ValueError('Evaluation datasets changed after asset validation')\n"
+            "path, _ = scope['tokenizer_location'](os.environ['BENCH_TOKENIZER'], "
+            "os.environ.get('BENCH_TOKENIZER_REVISION') or None, os.environ.get('HF_HUB_OFFLINE') == '1')\n"
+            "from transformers import AutoTokenizer\n"
+            "import hashlib\n"
+            "trust = os.environ.get('BENCH_VALIDATION_TRUST_REMOTE_CODE') == '1'\n"
+            "tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=trust)\n"
+            "actual_hash = hashlib.sha256(json.dumps(tokenizer.get_vocab(), sort_keys=True).encode()).hexdigest()\n"
+            "if actual_hash != os.environ['BENCH_VALIDATION_TOKENIZER_SHA256']:\n"
+            "    raise ValueError('Evaluation tokenizer changed after validation')\n"
+            "os.environ['BENCH_TOKENIZER'] = path\n"
             "runpy.run_path('/app/entrypoint.py', run_name='__main__')\n"
         )
         pod["containers"][0]["command"] = ["python", "-c", verify]
@@ -502,15 +516,29 @@ async def benchmark(db, job, attempt, dep, run):
             if asset.get("server_tokenizer"):
                 container["env"] = [e for e in container["env"] if e["name"] != "BENCH_TOKENIZER"]
                 container["env"].append({"name": "BENCH_TOKENIZER", "value": asset["server_tokenizer"]})
+                container["env"] += [
+                    {"name": "BENCH_TOKENIZER_REVISION", "value": asset.get("tokenizer_revision") or ""},
+                    {"name": "BENCH_VALIDATION_TOKENIZER_SHA256", "value": asset["server_tokenizer_sha256"]},
+                    {
+                        "name": "BENCH_VALIDATION_TRUST_REMOTE_CODE",
+                        "value": "1" if "--trust-remote-code" in engine_flags(pool) else "0",
+                    },
+                ]
         if (
             run.kind == "performance"
             and run.params.get("experiment") != "prefix_cache"
             and asset.get("tokenizer_sha256")
         ):
-            names = {"BENCH_TOKENIZER", "BENCH_VALIDATION_TOKENIZER_SHA256", "BENCH_VALIDATION_TRUST_REMOTE_CODE"}
+            names = {
+                "BENCH_TOKENIZER",
+                "BENCH_TOKENIZER_REVISION",
+                "BENCH_VALIDATION_TOKENIZER_SHA256",
+                "BENCH_VALIDATION_TRUST_REMOTE_CODE",
+            }
             container["env"] = [e for e in container["env"] if e["name"] not in names]
             container["env"] += [
                 {"name": "BENCH_TOKENIZER", "value": asset["tokenizer"]},
+                {"name": "BENCH_TOKENIZER_REVISION", "value": asset.get("workload_tokenizer_revision") or ""},
                 {"name": "BENCH_VALIDATION_TOKENIZER_SHA256", "value": asset["tokenizer_sha256"]},
                 {
                     "name": "BENCH_VALIDATION_TRUST_REMOTE_CODE",
