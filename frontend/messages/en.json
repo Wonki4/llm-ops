@@ -123,8 +123,12 @@
     "adminSettings": "Portal Settings",
     "adminSectionLabel": "Admin",
     "logout": "Log out",
-    "servingSectionLabel": "Model serving",
-    "servingHome": "Serving home"
+    "servingSectionLabel": "Serving",
+    "servingHome": "Serving home",
+    "modelsSectionLabel": "Model management",
+    "peopleSectionLabel": "Teams & users",
+    "routingGraph": "Routing graph",
+    "modelLifecycle": "Lifecycle & schedule"
   },
   "theme": {
     "light": "Light",
@@ -2695,5 +2699,8 @@
     "stop_search_time_limit": "Search time limit reached.",
     "stop_no_improvement": "Search ended after the configured trials without meaningful improvement.",
     "stop_client_finished": "The client or administrator ended exploration."
+  },
+  "portalNavigation": {
+    "adminOnly": "Portal administrator access is required."
   }
 }

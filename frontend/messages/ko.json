@@ -123,8 +123,12 @@
     "adminSettings": "포털 설정",
     "adminSectionLabel": "관리자",
     "logout": "로그아웃",
-    "servingSectionLabel": "모델 서빙",
-    "servingHome": "서빙 홈"
+    "servingSectionLabel": "서빙",
+    "servingHome": "서빙 홈",
+    "modelsSectionLabel": "모델 관리",
+    "peopleSectionLabel": "팀·사용자 관리",
+    "routingGraph": "라우팅 그래프",
+    "modelLifecycle": "상태·일정"
   },
   "theme": {
     "light": "라이트",
@@ -2695,5 +2699,8 @@
     "stop_search_time_limit": "탐색 시간 한도에 도달했습니다.",
     "stop_no_improvement": "정해진 후보 수 동안 유의미한 개선이 없어 탐색을 종료했습니다.",
     "stop_client_finished": "클라이언트 또는 관리자가 탐색을 종료했습니다."
+  },
+  "portalNavigation": {
+    "adminOnly": "포털 관리자만 사용할 수 있습니다."
   }
 }
