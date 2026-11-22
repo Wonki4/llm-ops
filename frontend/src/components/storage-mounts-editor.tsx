@@ -39,7 +39,7 @@ export function StorageMountsEditor({
     <div className="space-y-2" data-testid={`${idPrefix}-storages`}>
       {(storages ?? []).length === 0 && (
         <p className="text-xs text-muted-foreground">
-          {t("noStorages")} <Link className="underline" href="/admin/storages">{t("title")}</Link>
+          {t("noStorages")} <Link className="underline" href="/admin/infrastructure?tab=storages">{t("title")}</Link>
         </p>
       )}
       {rows.map((r, i) => (

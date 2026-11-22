@@ -25,3 +25,19 @@ test("nested and sibling routes select exactly their owning menu", () => {
   }
   assert.equal(activeNavigation("/admin/serving/topology", visibleNavigation("user", true)), "servingHome");
 });
+
+test("administration exposes the final three groups without duplicate settings", () => {
+  const items=visibleNavigation("super_user",false);
+  assert.deepEqual(items.filter(i=>i.group==="serving").map(i=>i.key),["servingHome","adminDeployments","adminRecipes","adminBenchmarks","infrastructure"]);
+  assert.deepEqual(items.filter(i=>i.group==="models").map(i=>i.key),["adminModels","routingGraph","modelLifecycle"]);
+  assert.deepEqual(items.filter(i=>i.group==="people").map(i=>i.key),["adminTeams","adminUsers","adminAccessGroups","adminRequests","adminFinance","adminPolicies"]);
+});
+const legacySource=await readFile(new URL("../src/lib/legacy-navigation.ts",import.meta.url),"utf8");
+const legacyJs=ts.transpileModule(legacySource,{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText;
+const {legacySettingsLocation}=await import(`data:text/javascript;base64,${Buffer.from(legacyJs).toString("base64")}`);
+test("legacy settings preserve team and cluster deep links",()=>{
+  assert.equal(legacySettingsLocation("tab=clusters&cluster=B&ns=serving"),"/admin/infrastructure?tab=clusters&cluster=B&ns=serving");
+  assert.equal(legacySettingsLocation("tab=clusters&team=B","#serving-grants"),"/admin/teams/B?tab=serving&team=B");
+  assert.equal(legacySettingsLocation("tab=teams"),"/admin/policies?tab=teams");
+  assert.equal(legacySettingsLocation(""),"/admin/policies?tab=keys");
+});

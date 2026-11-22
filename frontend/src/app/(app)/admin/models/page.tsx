@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { useModels, useCreateCatalogEntry } from "@/hooks/use-api";
 import { useModelConnections } from "@/hooks/use-model-connections";
 import { ModelConnectionDialog } from "@/components/model-connection-dialog";
+import { CommonCacheSettings } from "@/components/common-cache-settings";
 import { AdminPage } from "@/components/admin-page";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ function Models() {
     (status === "all" || m.catalog?.status === status) && (source === "all" || (source === "document" ? !m.litellm_info : origins.get(m.model_name)?.has(source))));
   return <div className="space-y-6">
     <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">{t("title")}</h1><div className="flex gap-2"><Button onClick={()=>setConnecting(true)}>{t("newConnection")}</Button><Button variant="outline" onClick={() => setCreating(true)}>{t("newDocument")}</Button></div></div>
+    <details className="rounded border p-3"><summary className="cursor-pointer text-sm">{t("commonCache")}</summary><div className="mt-3 max-w-2xl"><CommonCacheSettings /></div></details>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[["total",models.length],["registered",models.filter(m=>m.litellm_info).length],["catalog",models.filter(m=>m.catalog).length],["connections",connections.data?.length ?? "—"]].map(([label,value]) => <div key={label} className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">{t(String(label))}</p><p className="text-2xl font-semibold">{query.isPending ? "—" : value}</p></div>)}</div>
     {(query.isError || connections.isError) && <p role="alert">{query.error?.message || connections.error?.message}</p>}
     <div className="flex flex-wrap gap-3"><Input className="max-w-sm" aria-label={t("search")} placeholder={t("search")} value={search} onChange={e=>filter("q",e.target.value)} />

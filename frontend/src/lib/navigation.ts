@@ -33,9 +33,8 @@ export const navigation: NavigationItem[] = [
   { key: "adminUsers", href: "/admin/users", roles: admin, group: "people" },
   { key: "adminAccessGroups", href: "/admin/access-groups", roles: admin, group: "people" },
   { key: "adminRequests", href: "/admin/requests", roles: ["team_admin", "super_user"], group: "people" },
-  { key: "adminBudgets", href: "/admin/budgets", roles: admin, group: "people" },
-  { key: "adminUsage", href: "/admin/usage", roles: admin, group: "people" },
-  { key: "adminSettings", href: "/admin/settings", roles: admin, group: "people" },
+  { key: "adminFinance", href: "/admin/finance", matches: ["/admin/budgets", "/admin/usage"], roles: admin, group: "people" },
+  { key: "adminPolicies", href: "/admin/policies", roles: admin, group: "people" },
 ];
 
 export function visibleNavigation(role: UserRole, servingAccess: boolean) {

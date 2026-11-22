@@ -130,7 +130,9 @@
     "routingGraph": "Routing graph",
     "modelLifecycle": "Lifecycle & schedule",
     "infrastructure": "Infrastructure",
-    "adminTeams": "Teams"
+    "adminTeams": "Teams",
+    "adminFinance": "Budgets and usage",
+    "adminPolicies": "Default allocation policies"
   },
   "theme": {
     "light": "Light",
@@ -2432,7 +2434,7 @@
     "mountPath": "Mount path",
     "readOnly": "Read-only",
     "addMount": "Add storage",
-    "noStorages": "No storages registered. Add one under Admin → Storage first.",
+    "noStorages": "No storages registered. Add one under Serving → Infrastructure → Storage first.",
     "notBound": "Not bound",
     "modelPathUnder": "Path is inside {name}.",
     "modelPathOutside": "The model path is not inside any mounted storage.",
@@ -2780,7 +2782,8 @@
     "field_model": "LiteLLM provider/model",
     "field_api_base": "API base (optional)",
     "field_api_version": "API version (optional)",
-    "field_api_key": "API key (only to replace)"
+    "field_api_key": "API key (only to replace)",
+    "commonCache": "Common cache settings"
   },
   "portalTeams": {
     "title": "Teams",
@@ -2818,5 +2821,13 @@
     "users": "Assigned users",
     "teamBudget": "Team budget usage",
     "unlimited": "Unlimited"
+  },
+  "portalPolicies": {
+    "title": "Default allocation policies",
+    "teams": "New user and team policies",
+    "keys": "API key defaults",
+    "finance": "Budgets and usage",
+    "budget": "Budgets",
+    "usage": "Usage"
   }
 }
