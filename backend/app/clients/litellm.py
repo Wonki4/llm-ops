@@ -272,25 +272,34 @@ class LiteLLMClient:
         *,
         model_name: str,
         litellm_model: str,
-        api_base: str,
+        api_base: str | None = None,
         api_key: str | None = None,
         extra_params: dict | None = None,
         model_id: str | None = None,
+        model_info: dict | None = None,
     ) -> dict:
         """Register a new model deployment in LiteLLM via /model/new.
 
         `litellm_model` includes the provider prefix (e.g. 'hosted_vllm/<served-name>').
         Returns LiteLLM's deployment record.
         """
-        litellm_params: dict[str, Any] = {"model": litellm_model, "api_base": api_base}
+        litellm_params: dict[str, Any] = {"model": litellm_model}
+        if api_base is not None:
+            litellm_params["api_base"] = api_base
         if api_key:
             litellm_params["api_key"] = api_key
         if extra_params:
             litellm_params.update(extra_params)
         payload = {"model_name": model_name, "litellm_params": litellm_params}
-        if model_id:
-            payload["model_info"] = {"id": model_id}
+        if model_info or model_id:
+            payload["model_info"] = {**(model_info or {}), **({"id": model_id} if model_id else {})}
         return await self._request("POST", "/model/new", json=payload)
+
+    async def update_model_connection(self, model_id: str, *, params: dict, model_name: str | None = None) -> dict:
+        payload: dict[str, Any] = {"litellm_params": params}
+        if model_name is not None:
+            payload["model_name"] = model_name
+        return await self._request("PATCH", f"/model/{quote(model_id, safe='')}/update", json=payload)
 
 
 def get_litellm_client() -> LiteLLMClient:

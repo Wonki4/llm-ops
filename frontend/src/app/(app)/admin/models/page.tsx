@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { useModels, useCreateCatalogEntry } from "@/hooks/use-api";
 import { useModelConnections } from "@/hooks/use-model-connections";
+import { ModelConnectionDialog } from "@/components/model-connection-dialog";
 import { AdminPage } from "@/components/admin-page";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ function Models() {
   const params = useSearchParams(); const router = useRouter();
   const search = params.get("q") || ""; const source = params.get("source") || "all";
   const status = params.get("status") || "all";
+  const [connecting, setConnecting] = useState(false);
   const [creating, setCreating] = useState(false); const [name, setName] = useState("");
   const create = useCreateCatalogEntry();
   function filter(key: string, value: string) {const q = new URLSearchParams(params.toString());q.set(key,value);router.replace(`?${q}`, {scroll:false});}
@@ -28,7 +30,7 @@ function Models() {
   const rows = models.filter(m => (!search || `${m.model_name} ${m.catalog?.display_name || ""}`.toLowerCase().includes(search.toLowerCase())) &&
     (status === "all" || m.catalog?.status === status) && (source === "all" || (source === "document" ? !m.litellm_info : origins.get(m.model_name)?.has(source))));
   return <div className="space-y-6">
-    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">{t("title")}</h1><Button onClick={() => setCreating(true)}>{t("newDocument")}</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-bold">{t("title")}</h1><div className="flex gap-2"><Button onClick={()=>setConnecting(true)}>{t("newConnection")}</Button><Button variant="outline" onClick={() => setCreating(true)}>{t("newDocument")}</Button></div></div>
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[["total",models.length],["registered",models.filter(m=>m.litellm_info).length],["catalog",models.filter(m=>m.catalog).length],["connections",connections.data?.length ?? "—"]].map(([label,value]) => <div key={label} className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">{t(String(label))}</p><p className="text-2xl font-semibold">{query.isPending ? "—" : value}</p></div>)}</div>
     {(query.isError || connections.isError) && <p role="alert">{query.error?.message || connections.error?.message}</p>}
     <div className="flex flex-wrap gap-3"><Input className="max-w-sm" aria-label={t("search")} placeholder={t("search")} value={search} onChange={e=>filter("q",e.target.value)} />
@@ -40,6 +42,7 @@ function Models() {
         <TableCell>{m.registrations?.length ?? (m.litellm_info ? 1 : 0)}</TableCell><TableCell>{m.catalog ? <Badge variant="secondary">{statusLabel(m.catalog.status)}</Badge> : t("unregistered")}</TableCell>
         <TableCell>{m.litellm_info ? [...(origins.get(m.model_name) || [])].map(o=><Badge className="mr-1" variant="outline" key={o}>{t(o)}</Badge>) : <Badge variant="outline">{t("document")}</Badge>}</TableCell></TableRow>)}</TableBody></Table>
     {!query.isPending && !rows.length && <p className="text-muted-foreground">{t("empty")}</p>}
+    {connecting && <ModelConnectionDialog onClose={()=>setConnecting(false)} />}
     <Dialog open={creating} onOpenChange={setCreating}><DialogContent><DialogHeader><DialogTitle>{t("newDocument")}</DialogTitle></DialogHeader><p className="text-sm text-muted-foreground">{t("documentHint")}</p><Input aria-label={t("model")} placeholder={t("model")} value={name} onChange={e=>setName(e.target.value)} /><Button disabled={!name.trim() || create.isPending} onClick={async()=>{try {await create.mutateAsync({model_name:name.trim(),display_name:name.trim(),status:"testing",is_external:true});router.push(`/admin/models/${name.trim().split("/").map(encodeURIComponent).join("/")}?tab=catalog`);} catch(e){toast.error((e as Error).message);}}}>{t("save")}</Button></DialogContent></Dialog>
   </div>;
 }

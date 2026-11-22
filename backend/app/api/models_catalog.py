@@ -77,18 +77,22 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
     }
 
 
-# Fields to strip from litellm_params (may contain secrets)
-SENSITIVE_LITELLM_FIELDS = {"api_key", "api_base", "api_version", "custom_llm_provider"}
+# Allowlist public fields: provider credentials may have arbitrary names inside params.
+PUBLIC_PARAMS = {"model", "rpm", "tpm", "timeout", "max_retries", "stream_timeout", "weight"}
+PUBLIC_INFO = {"id", "db_model", "litellm_provider", "mode", "base_model", "max_tokens", "max_input_tokens",
+               "max_output_tokens", "input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
+               "cache_creation_input_token_cost", "access_groups", "off_peak_pricing"}
 
 
 def _sanitize_litellm_info(lm: dict) -> dict:
-    """Remove sensitive fields from LiteLLM model info before sending to frontend."""
-    sanitized = dict(lm)
-    params = sanitized.get("litellm_params")
-    if isinstance(params, dict):
-        sanitized["litellm_params"] = {k: v for k, v in params.items() if k not in SENSITIVE_LITELLM_FIELDS}
-    sanitized["model_info"] = {**(lm.get("model_info") or {}), **deployment_base_prices(lm)}
-    return sanitized
+    """Expose model capabilities and pricing, never provider authentication or private metadata."""
+    info = lm.get("model_info") or {}
+    return {
+        "model_name": lm.get("model_name", ""),
+        "litellm_params": {k: v for k, v in (lm.get("litellm_params") or {}).items() if k in PUBLIC_PARAMS},
+        "model_info": {**{k: v for k, v in info.items() if k in PUBLIC_INFO or k.startswith("supports_")},
+                       **deployment_base_prices(lm)},
+    }
 
 
 @router.get("")
