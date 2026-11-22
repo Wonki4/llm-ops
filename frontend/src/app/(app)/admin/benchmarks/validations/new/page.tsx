@@ -18,6 +18,7 @@ import { DEFAULT_PERF_PARAMS, DEFAULT_ACCURACY_PARAMS, PerfWorkloadFields, Accur
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export default function NewValidationPage() { return <Suspense><Load /></Suspense>; }
 function Load() {
@@ -95,7 +96,7 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
       <Card><CardHeader><CardTitle>{t("target")}</CardTitle></CardHeader><CardContent className="space-y-4">
         <DeploymentScopeFields clusterId={cluster} namespace={namespace} onClusterChange={setCluster} onNamespaceChange={setNamespace} />
         <div className="grid gap-4 sm:grid-cols-2"><Field label={t("gpuLimit")}><Input type="number" min={1} max={1024} value={gpuLimit} onChange={e => setGpuLimit(Number(e.target.value))} required /></Field>
-          <Field label={t("gpuType")}><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={gpuType} onChange={e => setGpuType(e.target.value)}><option value="">{t("recipeGpu")}</option>{gpu.data?.profiles.filter(p => p.enabled).map(p => <option key={p.name}>{p.name}</option>)}</select></Field></div>
+          <Field label={t("gpuType")}><FormSelect aria-label={t("gpuType")} placeholder={t("recipeGpu")} className="w-full" value={gpuType} onValueChange={selectedValue => setGpuType(selectedValue)}><FormSelectItem value="">{t("recipeGpu")}</FormSelectItem>{gpu.data?.profiles.filter(p => p.enabled).map(p => <FormSelectItem value={p.name} key={p.name}>{p.name}</FormSelectItem>)}</FormSelect></Field></div>
         <StorageResolutionPreview storageIds={storageIds} clusterId={cluster || null} namespace={body.namespace} onBlockedChange={setStorageBlocked} />
         <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={airgap} onChange={e => setAirgap(e.target.checked)} />{t("airgap")}</label>
         <p className="text-xs text-muted-foreground">{t("assetsHint")}</p>
@@ -113,7 +114,7 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
         </div>}
       </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("requirements")}</CardTitle></CardHeader><CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-3"><Field label={t("selectionMetric")}><select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={metric} onChange={e => setMetric(e.target.value)}>{["output_throughput", "p99_ttft_ms", "request_throughput", "throughput_per_gpu"].map(m => <option key={m} value={m}>{t(`metric_${m}`)}</option>)}</select></Field><Field label={t("ttftCeiling")}><Input type="number" min={0.01} value={ttft} onChange={e => setTtft(e.target.value)} /></Field><Field label={t("throughputFloor")}><Input type="number" min={0.01} value={throughput} onChange={e => setThroughput(e.target.value)} /></Field></div>
+        <div className="grid gap-4 sm:grid-cols-3"><Field label={t("selectionMetric")}><FormSelect aria-label={t("selectionMetric")} className="w-full" value={metric} onValueChange={selectedValue => setMetric(selectedValue)}>{["output_throughput", "p99_ttft_ms", "request_throughput", "throughput_per_gpu"].map(m => <FormSelectItem key={m} value={m}>{t(`metric_${m}`)}</FormSelectItem>)}</FormSelect></Field><Field label={t("ttftCeiling")}><Input type="number" min={0.01} value={ttft} onChange={e => setTtft(e.target.value)} /></Field><Field label={t("throughputFloor")}><Input type="number" min={0.01} value={throughput} onChange={e => setThroughput(e.target.value)} /></Field></div>
         <p className="text-xs text-muted-foreground">{t("alternativeHint")}</p>
         <div className="grid gap-4 sm:grid-cols-3">{(Object.keys(limits) as (keyof typeof limits)[]).map(k => <Field key={k} label={t(`limit_${k}`)}><Input type="number" min={60} value={limits[k]} onChange={e => setLimits({ ...limits, [k]: Number(e.target.value) })} required /></Field>)}</div>
         <div className="grid gap-4 sm:grid-cols-2"><Field label={t("jobName")}><Input value={name} onChange={e => setName(e.target.value)} required maxLength={256} /></Field><Field label={t("alias")}><Input value={alias} onChange={e => setAlias(e.target.value)} required maxLength={256} /></Field><Field label={t("ingress")}><Input value={host} onChange={e => setHost(e.target.value)} required placeholder="model.internal.example.com" /></Field></div>

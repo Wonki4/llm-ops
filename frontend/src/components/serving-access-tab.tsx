@@ -16,6 +16,7 @@ import { useDiscoverTeams, useK8sClusterSettings } from "@/hooks/use-api";
 import type { ServingRole } from "@/hooks/use-serving-access";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 interface Scope {
   cluster_id: string | null;
@@ -30,7 +31,6 @@ interface Cluster { id: string | null; name: string }
 
 const api = "/api/admin/serving/grants";
 const queryKey = ["serving-grants"];
-const selectClass = "h-9 min-w-0 rounded-md border border-input bg-background px-2 text-sm";
 const scopeKey = (g: Scope) => JSON.stringify([g.cluster_id, g.namespace]);
 
 function groupByCluster(grants: Scope[], clusterName: (id: string | null) => string) {
@@ -123,13 +123,13 @@ function ClusterGrantTable({ group, editor }: ClusterGrantTableProps) {
               </TableHead>
               <TableCell>
                 {editor ? (
-                  <select className="h-8 max-w-full rounded-md border bg-background px-1 text-sm"
+                  <FormSelect size="sm" className="max-w-full"
                     aria-label={t("scopeRole", {ns: scope.namespace, cluster: group.name})}
                     disabled={!editor.canChangeRole} value={scope.role}
-                    onChange={e => editor.changeRole(scope, e.target.value as ServingRole)}>
-                    <option value="viewer">{t("viewer")}</option>
-                    <option value="operator">{t("operator")}</option>
-                  </select>
+                    onValueChange={selectedValue => editor.changeRole(scope, selectedValue as ServingRole)}>
+                    <FormSelectItem value="viewer">{t("viewer")}</FormSelectItem>
+                    <FormSelectItem value="operator">{t("operator")}</FormSelectItem>
+                  </FormSelect>
                 ) : (
                   <Badge variant={scope.role === "operator" ? "secondary" : "outline"}>{t(scope.role)}</Badge>
                 )}
@@ -310,11 +310,11 @@ function TeamEditor({team, grants, clusters, onClose}: {team: Team; grants: Gran
       <fieldset disabled={save.isPending} className="min-w-0 space-y-4">
         {team.exists && <form onSubmit={e => {e.preventDefault(); addScopes();}} className="grid gap-3 rounded-lg border bg-muted/25 p-3 sm:grid-cols-2">
           <label className="grid gap-1 text-xs font-medium">{t("cluster")}
-            <select className={selectClass} value={cluster} onChange={e => setCluster(e.target.value)}>
-              {clusters.map(c => <option key={c.id ?? "default"} value={c.id ?? ""}>{c.name}</option>)}</select></label>
+            <FormSelect className="w-full" placeholder={clusterName(null)} value={cluster} onValueChange={selectedValue => setCluster(selectedValue)}>
+              {clusters.map(c => <FormSelectItem key={c.id ?? "default"} value={c.id ?? ""}>{c.name}</FormSelectItem>)}</FormSelect></label>
           <label className="grid gap-1 text-xs font-medium">{t("role")}
-            <select className={selectClass} value={role} onChange={e => setRole(e.target.value as ServingRole)}>
-              <option value="viewer">{t("viewer")}</option><option value="operator">{t("operator")}</option></select></label>
+            <FormSelect className="w-full" value={role} onValueChange={selectedValue => setRole(selectedValue as ServingRole)}>
+              <FormSelectItem value="viewer">{t("viewer")}</FormSelectItem><FormSelectItem value="operator">{t("operator")}</FormSelectItem></FormSelect></label>
           <label className="grid gap-1 text-xs font-medium sm:col-span-2">{t("namespaces")}
             <Input value={names} onChange={e => setNames(e.target.value)} placeholder={t("namespaceExample")} /></label>
           <Button type="submit" className="w-fit" variant="outline" size="sm" disabled={!names.trim()}><Plus />{t("addScopes")}</Button>

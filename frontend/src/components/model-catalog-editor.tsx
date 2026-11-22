@@ -6,6 +6,7 @@ import { useCreateCatalogEntry, useUpdateCatalogEntry, useDeleteCatalogEntry } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type { ModelWithCatalog, ModelStatus } from "@/types";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const statuses: ModelStatus[] = ["testing", "prerelease", "lts", "deprecating", "deprecated"];
 export function ModelCatalogEditor({model}: {model: ModelWithCatalog}) {
@@ -33,7 +34,7 @@ export function ModelCatalogEditor({model}: {model: ModelWithCatalog}) {
     <label className="block space-y-1"><span>{t("displayName")}</span><Input value={name} onChange={e => setName(e.target.value)} /></label>
     <label className="block space-y-1"><span>{t("description")}</span><textarea className="min-h-24 w-full rounded-md border bg-background p-2" value={description} onChange={e => setDescription(e.target.value)} /></label>
     <label className="block space-y-1"><span>{t("icon")}</span><Input value={icon} onChange={e => setIcon(e.target.value)} /></label>
-    <label className="flex items-center gap-3">{t("status")}<select className="rounded border bg-background p-2" value={status} onChange={e => setStatus(e.target.value as ModelStatus)}>{statuses.map(s => <option key={s} value={s}>{statusLabel(s)}</option>)}</select></label>
+    <label className="flex items-center gap-3">{t("status")}<FormSelect value={status} onValueChange={selectedValue => setStatus(selectedValue as ModelStatus)}>{statuses.map(s => <FormSelectItem key={s} value={s}>{statusLabel(s)}</FormSelectItem>)}</FormSelect></label>
     <label className="flex items-center gap-2"><input type="checkbox" checked={visible} onChange={e => setVisible(e.target.checked)} />{t("visible")}</label>
     <fieldset className="grid gap-2"><legend className="mb-2 font-medium">{t("schedule")}</legend>{statuses.map(s => <label key={s} className="flex items-center justify-between gap-3">{statusLabel(s)}<Input className="w-48" type="date" value={schedule[s] || ""} onChange={e => setSchedule({...schedule, [s]:e.target.value})} /></label>)}</fieldset>
     <div className="flex gap-3"><Button disabled={busy || !name.trim()} onClick={save}>{t("save")}</Button>

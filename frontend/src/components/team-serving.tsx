@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OperatorDeployButton, OperatorDeploymentActions } from "@/components/team-deployment-actions";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export function ServingRoleView({ children, member }: { children: ReactNode; member: ReactNode }) {
   const me = useMe();
@@ -30,12 +31,12 @@ export function TeamScopeView({ children }: { children: (scope: TeamScope) => Re
   if (!scope) return <p>{t("noScopes")}</p>;
   return <div className="space-y-4">
     <label className="flex flex-wrap items-center gap-3 text-sm">{t("scope")}
-      <select className="rounded-md border bg-background p-2" value={scopeKey(scope)} onChange={e => {
-        const selected = scopes.data.find(s => scopeKey(s) === e.target.value);
+      <FormSelect value={scopeKey(scope)} onValueChange={selectedValue => {
+        const selected = scopes.data.find(s => scopeKey(s) === selectedValue);
         if (selected) setChoice(teamServingScope(selected));
       }}>
-        {scopes.data.map(s => <option key={scopeKey(s)} value={scopeKey(s)}>{s.cluster_name ?? t("portal")} / {s.namespace}</option>)}
-      </select>
+        {scopes.data.map(s => <FormSelectItem key={scopeKey(s)} value={scopeKey(s)}>{s.cluster_name ?? t("portal")} / {s.namespace}</FormSelectItem>)}
+      </FormSelect>
       <Badge variant="secondary">{t(scope.role)}</Badge>
     </label>
     {children(scope)}

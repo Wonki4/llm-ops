@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export function TeamModelAccess({teamId}: {teamId:string}) {
   const query = useTeamAccess(teamId); const t=useTranslations("portalTeams"); const [edit,setEdit]=useState(false);
@@ -27,7 +28,7 @@ function AccessEditor({teamId,initial,onClose}:{teamId:string;initial:TeamAccess
   const t=useTranslations("portalTeams");const cache=useQueryClient();const [mode,setMode]=useState(initial.mode);const [selection,setSelection]=useState(initial.selection);const [q,setQ]=useState("");const [pending,setPending]=useState(false);
   function toggle(name:string) {setSelection(v=>v.includes(name)?v.filter(n=>n!==name):[...v,name]);}
   return <Dialog open onOpenChange={o=>{if(!o&&!pending)onClose();}}><DialogContent className="max-h-[85vh] overflow-y-auto"><DialogHeader><DialogTitle>{t("modelAccess")}</DialogTitle><DialogDescription>{t("accessHint")}</DialogDescription></DialogHeader>
-    <select className="rounded border bg-background p-2" aria-label={t("directAccess")} value={mode} onChange={e=>setMode(e.target.value as TeamAccess["mode"])}>{["none","custom","all"].map(m=><option value={m} key={m}>{t(m)}</option>)}</select>
+    <FormSelect aria-label={t("directAccess")} value={mode} onValueChange={selectedValue=>setMode(selectedValue as TeamAccess["mode"])}>{["none","custom","all"].map(m=><FormSelectItem value={m} key={m}>{t(m)}</FormSelectItem>)}</FormSelect>
     {mode==="custom" && <><Input placeholder={t("search")} value={q} onChange={e=>setQ(e.target.value)} />{[["model",initial.available_models],["group",Object.keys(initial.available_groups)]] .map(([kind,names])=><fieldset key={String(kind)}><legend className="font-semibold">{t(String(kind))}</legend><div className="max-h-44 overflow-y-auto">{(names as string[]).filter(n=>n.toLowerCase().includes(q.toLowerCase())).map(n=><label className="flex items-center gap-2 py-1" key={n}><input type="checkbox" checked={selection.includes(n)} onChange={()=>toggle(n)} />{n}</label>)}</div></fieldset>)}</>}
     <Button disabled={pending || (mode==="custom"&&!selection.length)} onClick={async()=>{setPending(true);try{await apiFetch(`/api/admin/teams/${encodeURIComponent(teamId)}/access`,{method:"PUT",body:JSON.stringify({mode,selection,expected_models:initial.models})});await cache.invalidateQueries();onClose();}catch(e){toast.error((e as Error).message);}finally{setPending(false);}}}>{t("save")}</Button>
   </DialogContent></Dialog>;

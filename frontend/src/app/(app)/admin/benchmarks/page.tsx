@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const STATUS_STYLES: Record<BenchmarkRun["status"], string> = {
   provisioning: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
@@ -138,31 +139,29 @@ export default function AdminBenchmarksPage() {
             className="pl-8 h-9"
           />
         </div>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        <FormSelect placeholder={te("allExperiments")}
           aria-label={te("experiment")}
           value={experiment}
-          onChange={(e) => setExperiment(e.target.value)}
+          onValueChange={(selectedValue) => setExperiment(selectedValue)}
         >
-          <option value="">{te("allExperiments")}</option>
+          <FormSelectItem value="">{te("allExperiments")}</FormSelectItem>
           {EXPERIMENTS.map((value) => (
-            <option key={value} value={value}>
+            <FormSelectItem key={value} value={value}>
               {te(value)}
-            </option>
+            </FormSelectItem>
           ))}
-        </select>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        </FormSelect>
+        <FormSelect placeholder={t("allStatuses")} aria-label={t("allStatuses")}
           value={status}
-          onChange={(e) => setStatus(e.target.value)}
+          onValueChange={(selectedValue) => setStatus(selectedValue)}
         >
-          <option value="">{t("allStatuses")}</option>
+          <FormSelectItem value="">{t("allStatuses")}</FormSelectItem>
           {STATUS_OPTIONS.map((value) => (
-            <option key={value} value={value}>
+            <FormSelectItem key={value} value={value}>
               {ts(value)}
-            </option>
+            </FormSelectItem>
           ))}
-        </select>
+        </FormSelect>
         {(experiment || status || model) && (
           <button
             type="button"

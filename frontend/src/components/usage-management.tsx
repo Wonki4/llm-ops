@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300] as const;
 const DEFAULT_PAGE_SIZE = 50;
@@ -182,21 +183,20 @@ export function UsageManagement() {
             />
           </div>
         )}
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        <FormSelect placeholder={t("teamAll")} aria-label={t("teamAll")}
           value={teamId}
-          onChange={(e) => {
-            setTeamId(e.target.value);
+          onValueChange={(selectedValue) => {
+            setTeamId(selectedValue);
             setPage(1);
           }}
         >
-          <option value="">{t("teamAll")}</option>
+          <FormSelectItem value="">{t("teamAll")}</FormSelectItem>
           {data?.teams.map((tm) => (
-            <option key={tm.team_id} value={tm.team_id}>
+            <FormSelectItem key={tm.team_id} value={tm.team_id}>
               {tm.team_alias || tm.team_id}
-            </option>
+            </FormSelectItem>
           ))}
-        </select>
+        </FormSelect>
         {hasFilters && (
           <Button
             variant="ghost"
@@ -345,20 +345,21 @@ export function UsageManagement() {
                   end: Math.min(page * pageSize, data.total),
                 })}
               </p>
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              <FormSelect
+                aria-label={t("perPage", { size: pageSize })}
+                size="sm"
                 value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
+                onValueChange={(selectedValue) => {
+                  setPageSize(Number(selectedValue));
                   setPage(1);
                 }}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
+                  <FormSelectItem key={size} value={size}>
                     {t("perPage", { size })}
-                  </option>
+                  </FormSelectItem>
                 ))}
-              </select>
+              </FormSelect>
             </div>
             <div className="flex items-center gap-2">
               <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(page - 1)}>

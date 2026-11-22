@@ -20,6 +20,7 @@ import { isValidNamespace } from "@/lib/k8s-names";
 import { DeployRecipeBrowser, SelectedRecipe } from "@/components/deploy-recipe-browser";
 import { PORTAL_CLUSTER, type ServingScope } from "@/lib/serving-scope";
 import { mapToLines, resolvePlacementPreview, tolerationsToLines } from "@/lib/placement";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export function AdminDeployFromRecipeButton({ scope }: { scope: ServingScope }) {
   const t = useTranslations("teamServing");
@@ -240,19 +241,19 @@ function RecipeDeploymentContent({ recipe, initialScope, onSelectRecipe, onClose
           <Field label={t("deployGpuType")} span2>
             {hasProfiles ? (
               <>
-                <select
+                <FormSelect placeholder={t("deployGpuTypeNone")}
                   id="deploy-gpu-type"
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  className="w-full"
                   value={selected ? gpuType : ""}
-                  onChange={(e) => setGpuType(e.target.value)}
+                  onValueChange={(selectedValue) => setGpuType(selectedValue)}
                 >
-                  <option value="">{t("deployGpuTypeNone")}</option>
+                  <FormSelectItem value="">{t("deployGpuTypeNone")}</FormSelectItem>
                   {profiles.map((p) => {
                     const a = availability[p.name];
                     const label = a ? `${p.name} · ${t("deployAvailable", { available: a.available, total: a.total })}` : p.name;
-                    return <option key={p.id} value={p.name}>{label}</option>;
+                    return <FormSelectItem key={p.id} value={p.name}>{label}</FormSelectItem>;
                   })}
-                </select>
+                </FormSelect>
                 {gpuTypeMissing && <p className="text-xs text-destructive">{t("deployGpuTypeRequired")}</p>}
               </>
             ) : (

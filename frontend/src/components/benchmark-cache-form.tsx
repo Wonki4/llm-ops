@@ -13,6 +13,7 @@ import { useBenchmarkPresets, useCreateBenchmark, useK8sClusters, useModelDeploy
 import { apiFetch } from "@/lib/api";
 import type { BenchmarkPreviewResponse } from "@/hooks/use-api";
 import type { BenchmarkRun, CreateBenchmarkRequest, LoadPreset, ModelDeployment } from "@/types";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 function supportsClone(deployment: ModelDeployment) {
   const flags = deployment.vllm_extra_args ?? [];
@@ -74,11 +75,11 @@ export function CacheForm({ source }: { source?: BenchmarkRun }) {
   }}>
     <Card><CardHeader><CardTitle>{f("deploymentLabel")}</CardTitle></CardHeader>
       <CardContent className="space-y-2">
-        <select aria-label={f("deploymentLabel")} className="h-10 w-full rounded-md border bg-background px-3 text-sm"
-          value={deploymentId} onChange={e => setDeploymentId(e.target.value)} required>
-          <option value="">{t("chooseDeployment")}</option>
-          {deployments?.map(d => <option key={d.id} value={d.id}>{d.model_name} · {clusters?.find(c => c.id === d.cluster_id)?.name ?? f("clusterDefault")} / {d.namespace}</option>)}
-        </select>
+        <FormSelect placeholder={t("chooseDeployment")} aria-label={f("deploymentLabel")} className="data-[size=default]:h-10 w-full"
+          value={deploymentId} onValueChange={selectedValue => setDeploymentId(selectedValue)} required>
+          <FormSelectItem value="">{t("chooseDeployment")}</FormSelectItem>
+          {deployments?.map(d => <FormSelectItem key={d.id} value={d.id}>{d.model_name} · {clusters?.find(c => c.id === d.cluster_id)?.name ?? f("clusterDefault")} / {d.namespace}</FormSelectItem>)}
+        </FormSelect>
         <p className="text-sm text-muted-foreground">{selected && !eligible ? t("unsupported") : t("cloneHint")}</p>
         {source && deployments && !selected && <p className="text-sm text-destructive">{t("missingTarget")}</p>}
       </CardContent>

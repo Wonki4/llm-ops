@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { ManifestYamlView } from "@/components/manifest-yaml-view";
 import { cn } from "@/lib/utils";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const INGRESS_PLACEHOLDER = "<ingress-host>";
 
@@ -70,15 +71,15 @@ export function RecipeYamlPanel({
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
         <div className="space-y-1">
           <Label htmlFor="preview-cluster" className="text-[11px] font-normal text-muted-foreground">{t("deployCluster")}</Label>
-          <select
+          <FormSelect placeholder={t("deployClusterDefault")}
             id="preview-cluster"
-            className={cn("w-full rounded-md border border-input bg-transparent px-2", small)}
+            size="sm" className="w-full text-xs"
             value={clusterId}
-            onChange={(e) => { setClusterId(e.target.value); apply({ clusterId: e.target.value }); }}
+            onValueChange={(selectedValue) => { setClusterId(selectedValue); apply({ clusterId: selectedValue }); }}
           >
-            <option value="">{t("deployClusterDefault")}</option>
-            {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+            <FormSelectItem value="">{t("deployClusterDefault")}</FormSelectItem>
+            {(clusters ?? []).map((c) => <FormSelectItem key={c.id} value={c.id}>{c.name}</FormSelectItem>)}
+          </FormSelect>
         </div>
         <div className="space-y-1">
           <Label htmlFor="preview-namespace" className="text-[11px] font-normal text-muted-foreground">{t("deployNamespace")}</Label>

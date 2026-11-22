@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ENGINE_ARG_FIELDS, argLabelKey, type EngineArgField } from "@/lib/serving-engines";
 import { cn } from "@/lib/utils";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 /** The label column of a form row: fixed width beside the control, stacked above it on phones. */
 export const ROW_GRID = "grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-start";
@@ -108,14 +109,14 @@ export function EngineArgsFields({
         );
       case "select":
         return (
-          <select
+          <FormSelect
             id={id}
             value={String(get(f.key) ?? "")}
-            onChange={(e) => onChange(f.key, e.target.value)}
-            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            onValueChange={(selectedValue) => onChange(f.key, selectedValue)}
+            className="w-full"
           >
-            {f.options.map((o) => <option key={o} value={o}>{o === "" ? "—" : o}</option>)}
-          </select>
+            {f.options.map((o) => <FormSelectItem key={o} value={o}>{o === "" ? "—" : o}</FormSelectItem>)}
+          </FormSelect>
         );
       default:
         return null;

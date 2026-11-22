@@ -34,6 +34,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type FormState = {
   name: string;
@@ -359,21 +360,21 @@ export function ClusterSettingsTab() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="cluster-argocd-host">{t("argocdHostLabel")}</Label>
-                <select
+                <FormSelect placeholder={t("argocdHostSelf")}
                   id="cluster-argocd-host"
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  className="w-full"
                   value={form.argocd_host_cluster_id}
-                  onChange={(e) => setForm({ ...form, argocd_host_cluster_id: e.target.value })}
+                  onValueChange={(selectedValue) => setForm({ ...form, argocd_host_cluster_id: selectedValue })}
                 >
-                  <option value="">{t("argocdHostSelf")}</option>
+                  <FormSelectItem value="">{t("argocdHostSelf")}</FormSelectItem>
                   {(clusters ?? [])
                     .filter((k) => k.id !== editing?.id)
                     .map((k) => (
-                      <option key={k.id} value={k.id}>
+                      <FormSelectItem key={k.id} value={k.id}>
                         {k.name}
-                      </option>
+                      </FormSelectItem>
                     ))}
-                </select>
+                </FormSelect>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cluster-argocd-dest">{t("argocdDestLabel")}</Label>
@@ -434,15 +435,15 @@ export function ClusterSettingsTab() {
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="cluster-bench-storage">{t("benchStorageLabel")}</Label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <select
+                <FormSelect placeholder={t("benchStorageNone")}
                   id="cluster-bench-storage"
-                  className="h-9 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+                  className="font-mono"
                   value={form.bench_storage_id}
-                  onChange={(e) => setForm({ ...form, bench_storage_id: e.target.value })}
+                  onValueChange={(selectedValue) => setForm({ ...form, bench_storage_id: selectedValue })}
                 >
-                  <option value="">{t("benchStorageNone")}</option>
-                  {(storages ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                  <FormSelectItem value="">{t("benchStorageNone")}</FormSelectItem>
+                  {(storages ?? []).map((s) => <FormSelectItem key={s.id} value={s.id}>{s.name}</FormSelectItem>)}
+                </FormSelect>
                 <Input
                   id="cluster-bench-mount"
                   className="font-mono"

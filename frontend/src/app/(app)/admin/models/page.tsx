@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableHeader, TableHead, TableRow, TableBody, TableCell } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 function Models() {
   const t = useTranslations("portalModels"); const statusLabel = useTranslations("modelStatus");
@@ -34,8 +35,8 @@ function Models() {
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[["total",models.length],["registered",models.filter(m=>m.litellm_info).length],["catalog",models.filter(m=>m.catalog).length],["connections",connections.data?.length ?? "—"]].map(([label,value]) => <div key={label} className="rounded-lg border bg-background p-4"><p className="text-sm text-muted-foreground">{t(String(label))}</p><p className="text-2xl font-semibold">{query.isPending ? "—" : value}</p></div>)}</div>
     {(query.isError || connections.isError) && <p role="alert">{query.error?.message || connections.error?.message}</p>}
     <div className="flex flex-wrap gap-3"><Input className="max-w-sm" aria-label={t("search")} placeholder={t("search")} value={search} onChange={e=>filter("q",e.target.value)} />
-      <select className="rounded border bg-background p-2" aria-label={t("source")} value={source} onChange={e=>filter("source",e.target.value)}>{["all","cluster","cloud","unknown","document"].map(s=><option key={s} value={s}>{t(s)}</option>)}</select>
-      <select className="rounded border bg-background p-2" aria-label={t("status")} value={status} onChange={e=>filter("status",e.target.value)}><option value="all">{t("all")}</option>{["testing","prerelease","lts","deprecating","deprecated"].map(s=><option key={s} value={s}>{statusLabel(s)}</option>)}</select>
+      <FormSelect aria-label={t("source")} value={source} onValueChange={selectedValue=>filter("source",selectedValue)}>{["all","cluster","cloud","unknown","document"].map(s=><FormSelectItem key={s} value={s}>{t(s)}</FormSelectItem>)}</FormSelect>
+      <FormSelect aria-label={t("status")} value={status} onValueChange={selectedValue=>filter("status",selectedValue)}><FormSelectItem value="all">{t("all")}</FormSelectItem>{["testing","prerelease","lts","deprecating","deprecated"].map(s=><FormSelectItem key={s} value={s}>{statusLabel(s)}</FormSelectItem>)}</FormSelect>
     </div>
     <Table><TableHeader><TableRow>{["model","connections","catalog","source"].map(k=><TableHead key={k}>{t(k)}</TableHead>)}</TableRow></TableHeader>
       <TableBody>{rows.map(m=><TableRow key={m.model_name}><TableCell><Link className="font-medium underline" href={`/admin/models/detail/${m.model_name.split("/").map(encodeURIComponent).join("/")}`}>{m.catalog?.display_name || m.model_name}</Link><p className="font-mono text-xs text-muted-foreground">{m.model_name}</p></TableCell>

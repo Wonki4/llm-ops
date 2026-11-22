@@ -22,6 +22,7 @@ import { FormCard, FormSection } from "@/components/form-section";
 import { RecipeRepositoryIcon } from "@/components/recipe-repository-icon";
 import { splitEngineArgs } from "@/lib/recipe-drafts";
 import { DEFAULT_PD_FRAMEWORK, defaultPdExtras, defaultSidecar, retargetPdExtras, PD_FRAMEWORKS, PD_ROLES, POOL_KEYS, effectiveRole, poolOf, type PdRole } from "@/lib/pd-serving";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export const RECIPES_HREF = "/admin/recipes";
 
@@ -303,14 +304,14 @@ export function ServingRecipeForm({
       </Field>
       {isPd && (
         <Field id="recipe-pd-framework" label={t("pdFramework")} hint={t("pdFrameworkHint")}>
-          <select
+          <FormSelect
             id="recipe-pd-framework"
-            className="h-9 w-48 rounded-md border border-input bg-transparent px-3 text-sm"
+            className="w-48"
             value={pd.framework ?? DEFAULT_PD_FRAMEWORK}
-            onChange={(e) => setPd({ framework: e.target.value as PdFramework })}
+            onValueChange={(selectedValue) => setPd({ framework: selectedValue as PdFramework })}
           >
-            {PD_FRAMEWORKS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
+            {PD_FRAMEWORKS.map((f) => <FormSelectItem key={f.value} value={f.value}>{f.label}</FormSelectItem>)}
+          </FormSelect>
         </Field>
       )}
       <Field id="recipe-name" label={t("recipeName")} hint={t("recipeNameHint")} required>

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const KINDS: StorageKind[] = ["weights", "cache", "data", "other"];
 
@@ -44,15 +45,14 @@ export function StorageList() {
 
       <div className="flex flex-wrap items-center gap-2">
         <Input className="w-64" placeholder={t("search")} value={q} onChange={(e) => setQ(e.target.value)} />
-        <select
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+        <FormSelect placeholder={t("allKinds")}
           value={kind}
-          onChange={(e) => setKind(e.target.value)}
+          onValueChange={(selectedValue) => setKind(selectedValue)}
           aria-label={t("kind")}
         >
-          <option value="">{t("allKinds")}</option>
-          {KINDS.map((k) => <option key={k} value={k}>{t(`kind_${k}`)}</option>)}
-        </select>
+          <FormSelectItem value="">{t("allKinds")}</FormSelectItem>
+          {KINDS.map((k) => <FormSelectItem key={k} value={k}>{t(`kind_${k}`)}</FormSelectItem>)}
+        </FormSelect>
         <div className="ml-auto flex items-center gap-2">
           <Input
             id="new-storage-name"
