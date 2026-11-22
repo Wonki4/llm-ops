@@ -5,6 +5,8 @@ import traceback
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, nullcontext
 
+from app.api import admin_teams
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -69,6 +71,7 @@ app.add_middleware(
 # Register routers
 app.include_router(auth.router)
 app.include_router(me.router)
+app.include_router(admin_teams.router)
 app.include_router(teams.router)
 app.include_router(keys.router)
 app.include_router(team_requests.router)

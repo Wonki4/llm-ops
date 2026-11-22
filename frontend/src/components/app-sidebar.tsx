@@ -66,7 +66,7 @@ export function AppSidebar() {
     myTeams: Users, discoverTeams: Globe, myKeys: Key, myRequests: Inbox, servingHome: Workflow,
     adminRecipes: ScrollText, infrastructure: HardDrive, adminDeployments: Server, adminBenchmarks: FlaskConical,
     adminModels: Boxes, routingGraph: Network, modelLifecycle: Calendar, adminDashboard: BarChart3,
-    adminRequests: ShieldCheck, adminBudgets: DollarSign, adminUsers: UserCog, adminAccessGroups: Layers,
+    adminTeams: Users, adminRequests: ShieldCheck, adminBudgets: DollarSign, adminUsers: UserCog, adminAccessGroups: Layers,
     adminUsage: BarChart3, adminSettings: Settings};
   function toggle(group: NavigationGroup, open: boolean) {
     const next = {...collapsed, [group]: open};

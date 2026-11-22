@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useState } from "react";
+import { Suspense, use, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -30,6 +30,8 @@ import {
 import type { AdminUserKey, AdminUserTeam } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { ModelLimitOverrides } from "@/components/model-limit-overrides";
+import { AdminPage } from "@/components/admin-page";
+import { usePageTab } from "@/components/page-tabs";
 import { PersonalAccessCard } from "@/components/personal-access-card";
 import { ModelLimitEditor, type ModelOption } from "@/components/model-limit-editor";
 import { Button } from "@/components/ui/button";
@@ -85,11 +87,13 @@ function formatDateShort(dateStr: string | null, localeTag: string): string {
   });
 }
 
-export default function AdminUserDetailPage({
+function AdminUserDetailPage({
   params,
 }: {
   params: Promise<{ userId: string }>;
 }) {
+  const [tab,setTab]=usePageTab(["teams","personal","keys"],"teams");
+  const tp=useTranslations("portalTeams");
   const t = useTranslations("adminUsers");
   const tc = useTranslations("common");
   const tm = useTranslations("modelLimits");
@@ -322,12 +326,13 @@ export default function AdminUserDetailPage({
         </Card>
       </div>
 
-      <PersonalAccessCard userId={user.user_id} profile={user} personalKeyCount={keys.filter((k) => k.personal).length} />
 
-      <Tabs defaultValue="teams" className="space-y-4">
+
+      <Tabs value={tab} onValueChange={setTab} className="space-y-4">
         <div className="flex items-center justify-between">
           <TabsList>
             <TabsTrigger value="teams">{t("tabTeams", { count: teams.length })}</TabsTrigger>
+            <TabsTrigger value="personal">{tp("personal")}</TabsTrigger>
             <TabsTrigger value="keys">{t("tabKeys", { count: keys.length })}</TabsTrigger>
           </TabsList>
           <Button size="sm" onClick={() => setAssignOpen(true)}>
@@ -336,6 +341,7 @@ export default function AdminUserDetailPage({
           </Button>
         </div>
 
+        <TabsContent value="personal"><PersonalAccessCard userId={user.user_id} profile={user} personalKeyCount={keys.filter((k) => k.personal).length} /></TabsContent>
         <TabsContent value="teams" className="space-y-2">
           {teams.length === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
@@ -724,3 +730,5 @@ export default function AdminUserDetailPage({
     </div>
   );
 }
+
+export default function Page(props:{params:Promise<{userId:string}>}){return <AdminPage><Suspense><AdminUserDetailPage {...props} /></Suspense></AdminPage>;}

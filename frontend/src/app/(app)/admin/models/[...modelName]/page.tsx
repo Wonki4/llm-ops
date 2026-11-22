@@ -5,6 +5,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useModels, useModelPersonalUsers } from "@/hooks/use-api";
 import { useModelConnections } from "@/hooks/use-model-connections";
+import { AdminTeamList } from "@/components/admin-team-list";
 import { AdminPage } from "@/components/admin-page";
 import { PageTabs, usePageTab } from "@/components/page-tabs";
 import { ModelCatalogEditor } from "@/components/model-catalog-editor";
@@ -24,10 +25,11 @@ function Pricing({name}: {name:string}) {
       <div className="mt-2 flex flex-wrap gap-6">{["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost"].map(k => <span key={k}>{t(k)}: {formatModelPrice(c.prices[k])}</span>)}</div></div>)}
     <ModelCostScheduleSection modelName={name} /></div>;
 }
-export function ModelAssignments({name, groups}: {name:string; groups:string[]}) {
+function ModelAssignments({name, groups}: {name:string; groups:string[]}) {
   const t = useTranslations("portalModels"); const users = useModelPersonalUsers(name);
   return <div className="space-y-5"><p>{t("assignmentHint")}</p>
     <div><h2 className="font-semibold">{t("groups")}</h2>{groups.map(g => <Link className="mr-3 underline" key={g} href={`/admin/access-groups?group=${encodeURIComponent(g)}`}>{g}</Link>)}</div>
+    <AdminTeamList modelName={name} />
     <div><h2 className="font-semibold">{t("personalUsers")}</h2>{users.isError && <p role="alert">{users.error.message}</p>}
       {users.data?.map(u => <div key={u.user_id} className="flex gap-4 border-b py-2"><Link className="underline" href={`/admin/users/${encodeURIComponent(u.user_id)}`}>{u.user_id}</Link><span>{u.via.join(", ")}</span></div>)}</div>
   </div>;
