@@ -446,22 +446,6 @@ export interface AdminUsageDailyResponse {
   totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
 }
 
-// ─── Redis Catalog ────────────────────────────────────────────
-
-export interface RedisCatalogEntry {
-  display_name: string;
-  model: string;
-  apiBase: string;
-  apiKey: string;
-  options: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface RedisCatalogListResponse {
-  entries: RedisCatalogEntry[];
-  total: number;
-}
-
 // ─── Admin Users ──────────────────────────────────────────────
 
 export type GlobalRole = "user" | "super_user";

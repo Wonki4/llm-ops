@@ -648,7 +648,6 @@
   "modelDetail": {
     "defaultTitle": "Model Details",
     "sections": {
-      "cacheSettings": "Cache Settings (per suffix)",
       "timezonePricing": "Timezone Pricing",
       "costInfo": "LiteLLM base prices",
       "modelLimits": "Model Limits",
@@ -674,25 +673,6 @@
       "empty": "No change history."
     },
     "personalUsable": "Usable with my personal key"
-  },
-  "modelCache": {
-    "registered": "Registered",
-    "unregistered": "Not registered",
-    "add": "Add",
-    "noSuffixes": "No catalog suffixes registered. Please add one in the portal settings first.",
-    "form": {
-      "modelPlaceholder": "Actual LiteLLM model identifier",
-      "invalidJson": "options is not valid JSON."
-    },
-    "confirm": {
-      "delete": "Delete the cache entry for {suffix}?"
-    },
-    "toast": {
-      "saveSuccess": "{suffix} cache saved.",
-      "saveFailed": "Save failed",
-      "deleteSuccess": "{suffix} cache deleted.",
-      "deleteFailed": "Delete failed"
-    }
   },
   "modelCostSchedule": {
     "defaultPricing": "LiteLLM base prices",
@@ -1067,49 +1047,6 @@
     "personalAccessInvalid": "Pick at least one model or access group",
     "personalKeyBadge": "Personal"
   },
-  "catalog": {
-    "pageTitle": "Model Cache Management",
-    "pageDescription": "Manage model cache entries",
-    "registerButton": "Register",
-    "loadError": "An error occurred while loading the catalog.",
-    "catalogSelectPlaceholder": "Select catalog",
-    "searchPlaceholder": "Search name / model / API Base...",
-    "reset": "Reset",
-    "entryCount": "{filtered} / {total}",
-    "colActions": "Actions",
-    "apiKeySet": "Set",
-    "noEntries": "No catalog entries registered.",
-    "createDialogTitle": "Register Catalog",
-    "editDialogTitle": "Edit Catalog",
-    "dialogCatalogLabel": "Catalog",
-    "displayNameRequired": "Display Name is required.",
-    "invalidJsonOptions": "Options is not valid JSON.",
-    "updateSuccess": "Catalog updated.",
-    "updateFailed": "Update failed",
-    "createSuccess": "Catalog registered.",
-    "createFailed": "Registration failed",
-    "deleteSuccess": "Catalog deleted.",
-    "deleteFailed": "Delete failed",
-    "deleteDialogTitle": "Delete Catalog",
-    "deleteDialogDescription": "catalog will be deleted. Are you sure?",
-    "catalogAlreadyExists": "Catalog already exists.",
-    "catalogAddSuccess": "Catalog ''{name}'' added.",
-    "addFailed": "Add failed",
-    "catalogRemoveSuccess": "Catalog ''{name}'' removed.",
-    "catalogMinRequired": "At least one catalog is required.",
-    "catalogSettingsTitle": "Manage Catalog List",
-    "catalogSettingsDescription": "Manage Redis hash key suffixes (e.g. chat → GENERATIVE:AI:chat)",
-    "newCatalogPlaceholder": "New catalog name...",
-    "addButton": "Add",
-    "displayNamePlaceholder": "e.g. GPT-4o",
-    "modelSelectPlaceholder": "Select model...",
-    "modelDirectInput": "{model} (manual entry)",
-    "modelInputPlaceholder": "e.g. gpt-4o",
-    "apiBasePlaceholder": "e.g. https://litellm.example.com/v1",
-    "saving": "Saving...",
-    "editButton": "Update",
-    "deleting": "Deleting..."
-  },
   "settings": {
     "pageTitle": "Portal Settings",
     "pageDescription": "Manage default values applied across the entire portal",
@@ -1145,14 +1082,6 @@
     "teamUnhideSuccess": "Team removed from hidden list.",
     "removeFailed": "Remove failed",
     "noHiddenTeams": "No hidden teams.",
-    "cacheCatalogTitle": "Cache Catalog (suffix)",
-    "cacheCatalogDescription": "Manage Redis hash key suffixes for model cache storage (e.g. chat → GENERATIVE:AI:chat). Entries per suffix can be added in the cache settings section of the model detail sheet.",
-    "newSuffixPlaceholder": "New suffix... (e.g. chat, hcp, common)",
-    "suffixAlreadyExists": "Suffix already exists.",
-    "suffixAddSuccess": "Suffix ''{suffix}'' added.",
-    "suffixMinRequired": "At least one suffix is required.",
-    "suffixRemoveSuccess": "Suffix ''{suffix}'' removed.",
-    "noSuffixes": "No suffixes registered.",
     "saveSuccess": "Settings saved.",
     "saveFailed": "Save failed",
     "clusters": {
@@ -2720,7 +2649,6 @@
     "connections": "Connections",
     "catalog": "Catalog",
     "pricing": "Pricing",
-    "cache": "Cache",
     "assignments": "Assignments",
     "newDocument": "Add documentation-only model",
     "documentHint": "Create catalog documentation. Configure routing and access separately.",
@@ -2782,8 +2710,7 @@
     "field_model": "LiteLLM provider/model",
     "field_api_base": "API base (optional)",
     "field_api_version": "API version (optional)",
-    "field_api_key": "API key (only to replace)",
-    "commonCache": "Common cache settings"
+    "field_api_key": "API key (only to replace)"
   },
   "portalTeams": {
     "title": "Teams",

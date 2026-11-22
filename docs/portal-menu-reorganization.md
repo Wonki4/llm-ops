@@ -32,7 +32,7 @@ LiteLLM 권한·요금 데이터를 재사용한다.
 | | 레시피 | `/admin/recipes` | 기존 제공자 → 모델 → 레시피 유지 |
 | | 검증·벤치마크 | `/admin/benchmarks/validations`, `/admin/benchmarks` | 레시피 검증 / 측정 실행 |
 | | 인프라 | `/admin/infrastructure?tab=clusters|storages|gpu|pods` | 클러스터·ArgoCD / 스토리지 / GPU 프로필 / Pod 기본 설정 |
-| 모델 관리 | 모델 등록·카탈로그 | `/admin/models` | 대시보드 요약·등록·카탈로그·공통 캐시 설정 |
+| 모델 관리 | 모델 등록·카탈로그 | `/admin/models` | 대시보드 요약·등록·카탈로그 |
 | | 라우팅 그래프 | `/admin/serving/topology` | 기존 그래프와 클러스터 범위 재사용 |
 | | 상태·일정 | `/admin/models/history?tab=schedule|history` | 공개·종료 일정 / 상태 변경 이력 |
 | 팀·사용자 관리 | 팀 | `/admin/teams`, `/admin/teams/{id}` | 멤버 / 모델 호출 권한 / 서빙 권한 / 예산·한도 / 사용량 / 설정 |
@@ -43,7 +43,7 @@ LiteLLM 권한·요금 데이터를 재사용한다.
 | | 기본 할당 정책 | `/admin/policies?tab=teams|keys` | 신규 사용자·팀 정책 / API 키 기본값 |
 
 관리자 모델 상세의 기준 주소는 `/admin/models/detail/{호출명}`이다. `connections`, `catalog`,
-`pricing`, `cache`, `assignments` 탭으로 연결 / 카탈로그 / 요금 / 캐시 / 할당 현황을 표시한다.
+`pricing`, `assignments` 탭으로 연결 / 카탈로그 / 요금 / 할당 현황을 표시한다.
 `history` 같은 호출명은 시스템 경로와 충돌하지 않으며 `/`가 있는 호출명도 지원한다.
 기존 `/admin/models/{호출명}` 주소는 새 상세로 연결한다.
 
@@ -68,7 +68,7 @@ LiteLLM 권한·요금 데이터를 재사용한다.
   공급자 자격 증명을 포함하지 않는다. 설정 파일 연결은 읽기 전용이다. 연결 삭제는 해당 ID만 대상으로 하며
   Kubernetes 리소스나 같은 호출명의 다른 연결을 삭제하지 않는다.
 
-## 로컬 검증 (2026-11-22)
+## 최초 통합 검증 (2026-11-22, 캐시 카탈로그 삭제 전)
 
 ### 자동 검사
 
@@ -121,3 +121,17 @@ Chrome에서 HTTP 주소로 프로덕션 빌드를 확인했다.
 - 실제 공급자·조직 정책을 적용한 개인 키와 기존 팀 키 호출 및 SSO 사용자 가입·승인 흐름.
 
 로컬에서 확인한 LiteLLM 권한·연결 동작과 GPU 추론 성능·클러스터 운영 검증을 구분한다.
+
+## 후속 변경: Redis 캐시 카탈로그 제거
+
+모델 목록의 공통 캐시 설정과 모델 상세의 캐시 탭, 모델 상세 시트의 캐시 링크를 제거했다.
+`/admin/catalog`은 모델 등록·카탈로그로 이동하고 기존 `?tab=cache` 링크는 연결 탭으로 표시한다.
+캐시 카탈로그 전용 API(`/api/catalog`, 모델별 `/cache`), Redis 클라이언트·패키지 의존성,
+백엔드 `APP_REDIS_*` 설정과 관련 번역·훅도 제거했다.
+
+일반 모델 카탈로그, LiteLLM 연결·가격, 시간대 요금, 벤치마크 prefix 캐시 기능은 유지한다.
+이 변경은 기존 Redis 데이터나 DB의 과거 설정·테이블을 삭제하지 않으며 새 마이그레이션이 없다.
+
+삭제 후 검증: 모델 카탈로그·연결·시간대 요금·prefix 캐시·설정/health 테스트 59개와 메뉴 테스트
+7개, TypeScript·프로덕션 빌드 통과. 로컬 Redis 중지 상태에서 모델·연결·요금 조회가 200,
+제거한 카탈로그·모델 캐시 API는 404임을 확인했다.

@@ -46,11 +46,6 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3002"
 
-    redis_url: str = "redis://localhost:6379/0"
-    redis_password: str = ""
-    redis_cluster: bool = False
-    redis_catalog_prefix: str = "GENERATIVE:AI:"
-
     external_api_key: str = ""
 
     # ── Inference gateway Keycloak SSO ──────────────────────────

@@ -6,7 +6,7 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 
 | 구분 | 기술 |
 |------|------|
-| **Backend** | FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16, Redis |
+| **Backend** | FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16 |
 | **Frontend** | Next.js 16, React 19, TypeScript, TailwindCSS 4, shadcn/ui |
 | **인증** | Keycloak 26 (SSO/SAML), 세션 기반 인증 |
 | **프록시** | LiteLLM Proxy |
@@ -26,11 +26,6 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
               │ Portal DB │ │ LiteLLM DB│
               │ (custom_*)│ │ (LiteLLM_*)│
               └───────────┘ └───────────┘
-                    │
-              ┌─────▼─────┐
-              │   Redis   │
-              │  (캐시)   │
-              └───────────┘
 ```
 
 ### 이중 데이터베이스 구조
@@ -144,15 +139,6 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 
 #275 버전에서 업그레이드할 때는 기존 단가 워커를 먼저 중지하세요. 새 워커는 이전 적용 기록과 LiteLLM 배포의 수정 시각 및 요금이 일치하는 경우에만 이전 워커가 변경한 필드를 한 번 복원합니다. 이후에 직접 수정된 배포는 LiteLLM의 현재 단가를 유지합니다. DB를 분리한 구성에서는 이 전환에 워커의 `APP_LITELLM_DATABASE_URL`이 필요합니다. 기존 카탈로그에 저장된 기본단가는 과금이나 표시에 사용하지 않습니다.
 
-#### 모델 캐시 관리
-- Redis Hash Set 기반 모델 캐시 CRUD
-- 카탈로그 선택기 (chat, embeddings 등)
-- 검색 (Display Name / Model / API Base)
-- 항목 테이블: Display Name, Model, API Base, API Key 상태, Options (JSON)
-- 등록/수정 모달: Display Name, Model, API Base, API Key, Options (JSON)
-- 카탈로그 설정: 카탈로그 목록 관리
-- 일반/클러스터 Redis 모두 지원, 모델 카탈로그와 독립 운영
-
 #### 예산 관리
 - 통계 카드: 전체 예산 수, 미연결 예산 수 (정리 버튼)
 - 검색, 금액 필터, 미연결만 토글
@@ -226,12 +212,11 @@ litellm-ops/
 │   │   │   ├── teams.py         # 팀 관리, 멤버, 설정
 │   │   │   ├── keys.py          # API 키 CRUD
 │   │   │   ├── models_catalog.py # 모델 카탈로그, 이력
-│   │   │   ├── catalog.py       # Redis 모델 캐시
 │   │   │   ├── team_requests.py # 요청 워크플로우
 │   │   │   ├── budgets.py       # 예산 조회
 │   │   │   └── portal_settings.py # 포털 설정
 │   │   ├── auth/          # 인증/인가
-│   │   ├── clients/       # 외부 서비스 클라이언트 (LiteLLM, Redis)
+│   │   ├── clients/       # 외부 서비스 클라이언트 (LiteLLM)
 │   │   ├── db/            # DB 모델, 세션
 │   │   └── config.py      # 설정
 │   ├── migrations/        # Alembic 마이그레이션
@@ -308,14 +293,6 @@ litellm-ops/
 | POST | `/api/team-requests/{id}/approve` | 요청 승인 |
 | POST | `/api/team-requests/{id}/reject` | 요청 거절 |
 
-### 모델 캐시 (Redis)
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/catalog` | 캐시 목록 |
-| POST | `/api/catalog` | 캐시 항목 추가 |
-| PUT | `/api/catalog/entry/{name}` | 캐시 항목 수정 |
-| DELETE | `/api/catalog/entry/{name}` | 캐시 항목 삭제 |
-
 ### 설정
 | Method | Path | 설명 |
 |--------|------|------|
@@ -355,10 +332,6 @@ cd backend && alembic upgrade head
 | `KEYCLOAK_REALM` | Keycloak Realm |
 | `KEYCLOAK_CLIENT_ID` | Keycloak Client ID |
 | `KEYCLOAK_CLIENT_SECRET` | Keycloak Client Secret |
-| `APP_REDIS_URL` | Redis 연결 URL |
-| `APP_REDIS_PASSWORD` | Redis 비밀번호 |
-| `APP_REDIS_CLUSTER` | Redis 클러스터 모드 (true/false) |
-| `APP_REDIS_CATALOG_PREFIX` | Redis 카탈로그 키 prefix |
 | `SESSION_COOKIE_NAME` | 세션 쿠키 이름 |
 | `SESSION_SECRET` | 세션 암호화 키 |
 

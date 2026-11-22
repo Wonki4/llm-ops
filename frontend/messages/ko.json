@@ -648,7 +648,6 @@
   "modelDetail": {
     "defaultTitle": "모델 상세",
     "sections": {
-      "cacheSettings": "캐시 설정 (suffix별)",
       "timezonePricing": "시간대 요금",
       "costInfo": "LiteLLM 기본단가",
       "modelLimits": "모델 제한",
@@ -674,25 +673,6 @@
       "empty": "변경 이력이 없습니다."
     },
     "personalUsable": "내 개인 키로 사용 가능"
-  },
-  "modelCache": {
-    "registered": "등록됨",
-    "unregistered": "미등록",
-    "add": "추가",
-    "noSuffixes": "등록된 catalog suffix가 없습니다. 모델 등록·카탈로그의 공통 캐시 설정에서 먼저 추가하세요.",
-    "form": {
-      "modelPlaceholder": "실제 LiteLLM 모델 식별자",
-      "invalidJson": "options이 올바른 JSON 형식이 아닙니다."
-    },
-    "confirm": {
-      "delete": "{suffix} 캐시 엔트리를 삭제할까요?"
-    },
-    "toast": {
-      "saveSuccess": "{suffix} 캐시가 저장되었습니다.",
-      "saveFailed": "저장 실패",
-      "deleteSuccess": "{suffix} 캐시가 삭제되었습니다.",
-      "deleteFailed": "삭제 실패"
-    }
   },
   "modelCostSchedule": {
     "defaultPricing": "LiteLLM 기본단가",
@@ -1067,49 +1047,6 @@
     "personalAccessInvalid": "모델이나 액세스 그룹을 하나 이상 선택하세요",
     "personalKeyBadge": "개인"
   },
-  "catalog": {
-    "pageTitle": "모델 캐시 관리",
-    "pageDescription": "모델 캐시를 관리합니다",
-    "registerButton": "등록",
-    "loadError": "카탈로그를 불러오는 중 오류가 발생했습니다.",
-    "catalogSelectPlaceholder": "카탈로그 선택",
-    "searchPlaceholder": "이름 / 모델 / API Base 검색...",
-    "reset": "초기화",
-    "entryCount": "{filtered} / {total}개",
-    "colActions": "작업",
-    "apiKeySet": "설정됨",
-    "noEntries": "등록된 카탈로그가 없습니다.",
-    "createDialogTitle": "카탈로그 등록",
-    "editDialogTitle": "카탈로그 수정",
-    "dialogCatalogLabel": "카탈로그",
-    "displayNameRequired": "Display Name은 필수입니다.",
-    "invalidJsonOptions": "Options가 올바른 JSON 형식이 아닙니다.",
-    "updateSuccess": "카탈로그가 수정되었습니다.",
-    "updateFailed": "수정 실패",
-    "createSuccess": "카탈로그가 등록되었습니다.",
-    "createFailed": "등록 실패",
-    "deleteSuccess": "카탈로그가 삭제되었습니다.",
-    "deleteFailed": "삭제 실패",
-    "deleteDialogTitle": "카탈로그 삭제",
-    "deleteDialogDescription": "카탈로그를 삭제하시겠습니까?",
-    "catalogAlreadyExists": "이미 존재하는 카탈로그입니다.",
-    "catalogAddSuccess": "''{name}'' 카탈로그가 추가되었습니다.",
-    "addFailed": "추가 실패",
-    "catalogRemoveSuccess": "''{name}'' 카탈로그가 제거되었습니다.",
-    "catalogMinRequired": "최소 1개의 카탈로그가 필요합니다.",
-    "catalogSettingsTitle": "카탈로그 목록 관리",
-    "catalogSettingsDescription": "Redis hash key suffix를 관리합니다 (예: chat → GENERATIVE:AI:chat)",
-    "newCatalogPlaceholder": "새 카탈로그 이름...",
-    "addButton": "추가",
-    "displayNamePlaceholder": "예: GPT-4o",
-    "modelSelectPlaceholder": "모델 선택...",
-    "modelDirectInput": "{model} (직접 입력)",
-    "modelInputPlaceholder": "예: gpt-4o",
-    "apiBasePlaceholder": "예: https://litellm.example.com/v1",
-    "saving": "저장 중...",
-    "editButton": "수정",
-    "deleting": "삭제 중..."
-  },
   "settings": {
     "pageTitle": "포털 설정",
     "pageDescription": "전체 포털에 적용되는 기본값을 관리합니다",
@@ -1145,14 +1082,6 @@
     "teamUnhideSuccess": "팀이 숨김 목록에서 제거되었습니다.",
     "removeFailed": "제거 실패",
     "noHiddenTeams": "숨겨진 팀이 없습니다.",
-    "cacheCatalogTitle": "캐시 카탈로그 (suffix)",
-    "cacheCatalogDescription": "모델 캐시가 저장되는 Redis hash key suffix를 관리합니다 (예: chat → GENERATIVE:AI:chat). 모델 디테일 시트의 캐시 설정 섹션에서 각 suffix별로 엔트리를 추가할 수 있습니다.",
-    "newSuffixPlaceholder": "새 suffix... (예: chat, hcp, common)",
-    "suffixAlreadyExists": "이미 존재하는 suffix입니다.",
-    "suffixAddSuccess": "''{suffix}'' suffix가 추가되었습니다.",
-    "suffixMinRequired": "최소 1개의 suffix가 필요합니다.",
-    "suffixRemoveSuccess": "''{suffix}'' suffix가 제거되었습니다.",
-    "noSuffixes": "등록된 suffix가 없습니다.",
     "saveSuccess": "설정이 저장되었습니다.",
     "saveFailed": "저장 실패",
     "clusters": {
@@ -2720,7 +2649,6 @@
     "connections": "연결",
     "catalog": "카탈로그",
     "pricing": "요금",
-    "cache": "캐시",
     "assignments": "할당 현황",
     "newDocument": "문서 전용 모델 추가",
     "documentHint": "카탈로그 설명을 등록합니다. 호출 연결과 사용 권한은 별도로 설정합니다.",
@@ -2782,8 +2710,7 @@
     "field_model": "LiteLLM 제공자/모델",
     "field_api_base": "API 주소 (선택)",
     "field_api_version": "API 버전 (선택)",
-    "field_api_key": "API 키 (변경할 때만 입력)",
-    "commonCache": "공통 캐시 설정"
+    "field_api_key": "API 키 (변경할 때만 입력)"
   },
   "portalTeams": {
     "title": "팀",

@@ -18,7 +18,6 @@ from app.api import (
     auth,
     benchmarks,
     budgets,
-    catalog,
     external,
     gpu_profiles,
     k8s_clusters,
@@ -78,7 +77,6 @@ app.include_router(models_catalog.router)
 app.include_router(model_connections.router)
 app.include_router(budgets.router)
 app.include_router(portal_settings.router)
-app.include_router(catalog.router)
 app.include_router(external.router)
 app.include_router(admin_users.router)
 app.include_router(access_groups.router)

@@ -10,12 +10,11 @@ import { AdminPage } from "@/components/admin-page";
 import { PageTabs, usePageTab } from "@/components/page-tabs";
 import { ModelCatalogEditor } from "@/components/model-catalog-editor";
 import { ModelConnectionList } from "@/components/model-connection-list";
-import { ModelCacheSection } from "@/components/model-cache-section";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
 import { formatModelPrice } from "@/lib/model-pricing";
 import { accessGroupsOf } from "@/lib/access-groups";
 
-const tabs = ["connections", "catalog", "pricing", "cache", "assignments"];
+const tabs = ["connections", "catalog", "pricing", "assignments"];
 function Pricing({name}: {name:string}) {
   const t = useTranslations("portalModels");
   const query = useModelConnections(name);
@@ -49,7 +48,6 @@ function Detail() {
     {tab === "connections" && <ModelConnectionList modelName={name} />}
     {tab === "catalog" && <ModelCatalogEditor key={model.catalog?.updated_at || "new"} model={model} />}
     {tab === "pricing" && <Pricing name={name} />}
-    {tab === "cache" && <ModelCacheSection modelName={name} />}
     {tab === "assignments" && <ModelAssignments name={name} groups={accessGroupsOf(model)} />}
   </div>;
 }
