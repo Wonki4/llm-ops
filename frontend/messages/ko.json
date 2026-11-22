@@ -112,23 +112,24 @@
     "adminDashboard": "관리자 대시보드",
     "adminModels": "카탈로그 등록",
     "adminDeployments": "배포",
-    "adminRecipes": "서빙 레시피",
+    "adminRecipes": "레시피",
     "adminStorages": "스토리지",
     "adminBudgets": "예산 관리",
     "adminUsers": "사용자 관리",
     "adminAccessGroups": "모델 접근 그룹",
     "adminUsage": "사용량",
-    "adminBenchmarks": "벤치마크",
+    "adminBenchmarks": "검증·벤치마크",
     "adminLlmd": "llm-d",
     "adminSettings": "포털 설정",
     "adminSectionLabel": "관리자",
     "logout": "로그아웃",
     "servingSectionLabel": "서빙",
-    "servingHome": "서빙 홈",
+    "servingHome": "운영 현황",
     "modelsSectionLabel": "모델 관리",
     "peopleSectionLabel": "팀·사용자 관리",
     "routingGraph": "라우팅 그래프",
-    "modelLifecycle": "상태·일정"
+    "modelLifecycle": "상태·일정",
+    "infrastructure": "인프라"
   },
   "theme": {
     "light": "라이트",
@@ -2270,7 +2271,7 @@
     "registered": "LiteLLM 등록됨",
     "hidden": "숨김",
     "tabDeployments": "서빙 디플로이먼트",
-    "tabLlmd": "llm-d 스택",
+    "tabLlmd": "라우터·llm-d",
     "unlinkedTitle": "어느 서버에도 연결되지 않은 llm-d 스택 {count}개",
     "unlinkedHint": "라벨 셀렉터가 포털 배포나 스캔된 외부 서빙 중 아무것도 잡지 못합니다.",
     "unlinkedTarget": "대상: {model}",
@@ -2701,6 +2702,11 @@
     "stop_client_finished": "클라이언트 또는 관리자가 탐색을 종료했습니다."
   },
   "portalNavigation": {
-    "adminOnly": "포털 관리자만 사용할 수 있습니다."
+    "adminOnly": "포털 관리자만 사용할 수 있습니다.",
+    "infrastructure": "인프라",
+    "clusters": "클러스터·ArgoCD",
+    "storages": "스토리지",
+    "gpu": "GPU 프로필",
+    "pods": "Pod 기본 설정"
   }
 }

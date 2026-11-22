@@ -25,7 +25,7 @@ export const navigation: NavigationItem[] = [
   { key: "adminDeployments", href: "/admin/deployments", matches: ["/admin/llmd"], roles: admin, group: "serving" },
   { key: "adminRecipes", href: "/admin/recipes", roles: admin, group: "serving" },
   { key: "adminBenchmarks", href: "/admin/benchmarks", roles: admin, group: "serving" },
-  { key: "adminStorages", href: "/admin/storages", roles: admin, group: "serving" },
+  { key: "infrastructure", href: "/admin/infrastructure", matches: ["/admin/storages"], roles: admin, group: "serving" },
   { key: "adminModels", href: "/admin/models", roles: admin, group: "models" },
   { key: "routingGraph", href: "/admin/serving/topology", roles: admin, group: "models" },
   { key: "modelLifecycle", href: "/admin/models/history", roles: admin, group: "models" },

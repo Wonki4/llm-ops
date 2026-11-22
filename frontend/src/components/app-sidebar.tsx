@@ -64,7 +64,7 @@ export function AppSidebar() {
   const active = activeNavigation(pathname, visible);
   const icons = {guide: BookOpen, announcements: Megaphone, modelsCalendar: Calendar, modelsDashboard: BarChart3,
     myTeams: Users, discoverTeams: Globe, myKeys: Key, myRequests: Inbox, servingHome: Workflow,
-    adminRecipes: ScrollText, adminStorages: HardDrive, adminDeployments: Server, adminBenchmarks: FlaskConical,
+    adminRecipes: ScrollText, infrastructure: HardDrive, adminDeployments: Server, adminBenchmarks: FlaskConical,
     adminModels: Boxes, routingGraph: Network, modelLifecycle: Calendar, adminDashboard: BarChart3,
     adminRequests: ShieldCheck, adminBudgets: DollarSign, adminUsers: UserCog, adminAccessGroups: Layers,
     adminUsage: BarChart3, adminSettings: Settings};
