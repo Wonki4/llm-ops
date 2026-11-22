@@ -158,11 +158,18 @@ async def test_summary_finds_editable_deployment_for_shared_model_name(admin_cli
     assert prices[1]["cache_read_input_token_cost"] == 0
 
 
-async def test_namespaced_model_cache_link(admin_client, monkeypatch):
-    from app.api import models_catalog
-    monkeypatch.setattr(models_catalog, "_get_allowed_suffixes", AsyncMock(return_value=["default"]))
-    read = AsyncMock(return_value=None)
-    monkeypatch.setattr(models_catalog, "redis_get", read)
-    response = await admin_client.get("/api/models/org/model/cache")
-    assert response.status_code == 200
-    read.assert_awaited_once_with("default", "org/model")
+@pytest.mark.parametrize(("method", "path"), [
+    ("GET", "/api/catalog"),
+    ("POST", "/api/catalog"),
+    ("GET", "/api/catalog/catalogs"),
+    ("PUT", "/api/catalog/catalogs"),
+    ("PUT", "/api/catalog/entry/model"),
+    ("DELETE", "/api/catalog/entry/model"),
+    ("PATCH", "/api/catalog/entry/model/apikey"),
+    ("GET", "/api/models/org/model/cache"),
+    ("PUT", "/api/models/org/model/cache/chat"),
+    ("DELETE", "/api/models/org/model/cache/chat"),
+])
+async def test_removed_redis_catalog_endpoints_are_unavailable(admin_client, method, path):
+    response = await admin_client.request(method, path)
+    assert response.status_code == 404

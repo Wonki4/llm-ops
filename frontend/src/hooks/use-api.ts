@@ -27,8 +27,6 @@ import type {
   UpdateModelCatalogRequest,
   BudgetListResponse,
   BudgetDetails,
-  RedisCatalogEntry,
-  RedisCatalogListResponse,
   AdminUserListResponse,
   AdminUserDetail,
   AdminUsageResponse,
@@ -864,112 +862,6 @@ export function useUpdatePodLabels() {
   });
 }
 
-// ─── Redis Catalog ──────────────────────────────────────────────
-
-export function useCatalogList() {
-  return useQuery({
-    queryKey: ["catalog-list"],
-    queryFn: () => apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs"),
-  });
-}
-
-export function useUpdateCatalogList() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (catalogs: string[]) =>
-      apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs", {
-        method: "PUT",
-        body: JSON.stringify(catalogs),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["catalog-list"] });
-    },
-  });
-}
-
-export function useRedisCatalog(catalog: string) {
-  return useQuery({
-    queryKey: ["redis-catalog", catalog],
-    queryFn: () => apiFetch<RedisCatalogListResponse>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`),
-    enabled: !!catalog,
-  });
-}
-
-export function useCreateRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, body }: { catalog: string; body: { display_name: string; entry: Omit<RedisCatalogEntry, "display_name"> } }) =>
-      apiFetch<RedisCatalogEntry>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useUpdateRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, displayName, body }: { catalog: string; displayName: string; body: { entry?: Omit<RedisCatalogEntry, "display_name">; new_display_name?: string } }) =>
-      apiFetch<RedisCatalogEntry>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useDeleteRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, displayName }: { catalog: string; displayName: string }) =>
-      apiFetch<{ deleted: boolean }>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useSyncCatalogToRedis() {
-  return useMutation({
-    mutationFn: ({ catalog }: { catalog: string }) => {
-      const params = new URLSearchParams({ catalog });
-      return apiFetch<{ synced: number }>(`/api/catalog/sync-to-redis?${params}`, { method: "POST" });
-    },
-  });
-}
-
-// ─── Per-model Redis cache (split-pane right panel) ─────────────
-
-export interface ModelCacheEntry {
-  model: string;
-  apiBase: string;
-  apiKey: string;
-  options?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface ModelCacheResponse {
-  model_name: string;
-  suffixes: string[];
-  entries: Record<string, ModelCacheEntry | null>;
-}
-
-export function useModelCache(modelName: string | null) {
-  return useQuery({
-    queryKey: ["model-cache", modelName],
-    queryFn: () =>
-      apiFetch<ModelCacheResponse>(`/api/models/${encodeURIComponent(modelName!)}/cache`),
-    enabled: !!modelName,
-  });
-}
-
 export interface ModelSummaryBenchmark {
   tool: string;
   result: Record<string, unknown> | null;
@@ -1007,42 +899,6 @@ export function useModelSummary(modelName: string | null) {
     queryFn: () =>
       apiFetch<ModelSummary>(`/api/models/${encodeURIComponent(modelName!)}/summary`),
     enabled: !!modelName,
-  });
-}
-
-export function useSetModelCacheEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      modelName,
-      suffix,
-      entry,
-    }: {
-      modelName: string;
-      suffix: string;
-      entry: ModelCacheEntry;
-    }) =>
-      apiFetch<ModelCacheEntry>(
-        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
-        { method: "PUT", body: JSON.stringify(entry) },
-      ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
-    },
-  });
-}
-
-export function useDeleteModelCacheEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ modelName, suffix }: { modelName: string; suffix: string }) =>
-      apiFetch<{ deleted: boolean }>(
-        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
-        { method: "DELETE" },
-      ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
-    },
   });
 }
 

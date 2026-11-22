@@ -144,13 +144,6 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
         <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-5">
           {model && isSuperUser && (
             <section>
-              <h4 className="text-sm font-semibold mb-2">{t("sections.cacheSettings")}</h4>
-              <Link className="text-sm underline" href={`/admin/models/detail/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=cache`}>{t("sections.cacheSettings")} →</Link>
-            </section>
-          )}
-
-          {model && isSuperUser && (
-            <section>
               <h4 className="text-sm font-semibold mb-2">{t("sections.timezonePricing")}</h4>
               <Link className="text-sm underline" href={`/admin/models/detail/${model.model_name.split("/").map(encodeURIComponent).join("/")}?tab=pricing`}>{t("sections.timezonePricing")} →</Link>
             </section>
