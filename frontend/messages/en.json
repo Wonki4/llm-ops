@@ -2749,10 +2749,9 @@
     "usage": "Usage"
   },
   "teamVisibility": {
-    "title": "Hide team",
+    "title": "Visibility",
     "hint": "Hide teams from discovery, or also hide them from members’ team and key lists.",
-    "toggleLabel": "Hide {team}",
-    "scopeLabel": "Visibility scope for {team}",
+    "scopeLabel": "Visibility for {team}",
     "discovery": "Hide from discovery",
     "strict": "Hide from members too",
     "visible": "Visible",

@@ -2749,13 +2749,12 @@
     "usage": "사용량"
   },
   "teamVisibility": {
-    "title": "팀 숨기기",
+    "title": "표시 설정",
     "hint": "팀 탐색에서 숨기거나, 소속 멤버의 내 팀·키 목록에서도 숨길 수 있습니다.",
-    "toggleLabel": "{team} 숨기기",
-    "scopeLabel": "{team} 숨김 범위",
+    "scopeLabel": "{team} 표시 설정",
     "discovery": "팀 탐색에서만 숨김",
     "strict": "멤버에게도 숨김",
-    "visible": "표시 중",
+    "visible": "표시",
     "saved": "{team} 표시 설정을 변경했습니다.",
     "loadError": "팀 표시 설정을 불러오지 못했습니다."
   }
