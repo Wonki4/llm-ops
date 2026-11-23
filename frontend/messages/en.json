@@ -2701,7 +2701,9 @@
     "field_model": "LiteLLM provider/model",
     "field_api_base": "API base (optional)",
     "field_api_version": "API version (optional)",
-    "field_api_key": "API key (only to replace)"
+    "field_api_key": "API key (only to replace)",
+    "editApiBase": "Edit API URL",
+    "apiBaseHint": "Both http:// and https:// are supported. Include the full base path, such as /v1. Saves update this LiteLLM connection and its serving registration while keeping the connection ID and running Pods."
   },
   "portalTeams": {
     "title": "Teams",

@@ -37,8 +37,11 @@ def test_registration_projection_does_not_return_credentials():
     assert "private" not in str(projected) and "password" not in str(projected)
     assert projected["editable"]
     assert not registration_view(r, {"a": {"id": "dep"}})["editable"]
+    assert registration_view(r, {"a": {"id": "dep"}})["api_base_editable"]
+    assert not registration_view(r, {"a": {"id": "dep", "validation_state": "candidate"}})["api_base_editable"]
     r["model_info"]["db_model"] = False
     assert not registration_view(r)["editable"]
+    assert not registration_view(r)["api_base_editable"]
 
 
 def test_external_api_classification_matches_routing_graph():
