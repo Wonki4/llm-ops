@@ -6,7 +6,7 @@ import uuid
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +33,11 @@ class ConnectionFields(BaseModel):
 
 class CreateConnection(ConnectionFields):
     request_key: uuid.UUID
+
+
+class ApiBaseUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    api_base: str = Field(min_length=1, max_length=512)
 
 
 def connection_payload(body: ConnectionFields, *, create: bool) -> tuple[str | None, dict]:
@@ -182,6 +187,49 @@ async def delete_connection(
     return {"id": model_id, "deleted": True}
 
 
+@router.patch("/{model_id}/api-base")
+async def update_api_base(
+    model_id: str,
+    body: ApiBaseUpdate,
+    admin: CustomUser = Depends(require_super_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Change the live endpoint in place and retain it for future serving registration."""
+    _, params = connection_payload(ConnectionFields(api_base=body.api_base), create=False)
+    row = find_connection(await connection_rows(litellm), model_id)
+    if not row:
+        raise HTTPException(404, "Connection not found")
+    if (row.get("model_info") or {}).get("db_model") is not True:
+        raise HTTPException(409, "Configuration-managed connections are read only")
+
+    owners = []
+    for cls in (CustomModelDeployment, CustomExternalServing):
+        owner = (
+            await db.execute(select(cls).where(cls.litellm_model_id == model_id).with_for_update())
+        ).scalar_one_or_none()
+        if owner is not None:
+            if isinstance(owner, CustomModelDeployment) and owner.validation_state in ("candidate", "retired"):
+                raise HTTPException(409, "Manage this validation deployment from its recipe validation job")
+            owners.append(owner)
+
+    try:
+        await litellm.update_model_connection(model_id, params=params)
+    except Exception as exc:
+        raise HTTPException(
+            502, "LiteLLM endpoint update failed; refresh to check the current state before retrying"
+        ) from exc
+
+    for owner in owners:
+        if isinstance(owner, CustomModelDeployment):
+            owner.litellm_api_base = params["api_base"]
+            owner.updated_by = admin.user_id
+        else:
+            owner.api_base = params["api_base"]
+    await db.flush()
+    return {"id": model_id, "api_base": params["api_base"], "updated": True}
+
+
 async def managed_connections(db: AsyncSession) -> dict[str, dict]:
     owners = {}
     for cls, kind in [(CustomModelDeployment, "deployment"), (CustomExternalServing, "external")]:
@@ -192,6 +240,7 @@ async def managed_connections(db: AsyncSession) -> dict[str, dict]:
                 "id": str(row.id),
                 "cluster_id": str(row.cluster_id) if row.cluster_id else None,
                 "namespace": row.namespace,
+                "validation_state": getattr(row, "validation_state", None),
             }
     return owners
 

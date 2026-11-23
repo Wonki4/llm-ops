@@ -1,6 +1,6 @@
 import copy
 import uuid
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -99,7 +99,8 @@ async def test_config_and_owned_connections_are_not_edited(admin_client, registr
 
 @pytest.mark.parametrize(
     "method,path,payload",
-    [("get", "", None), ("post", "", body()), ("patch", "/id", {"model": "openai/new"}), ("delete", "/id", None)],
+    [("get", "", None), ("post", "", body()), ("patch", "/id", {"model": "openai/new"}), ("delete", "/id", None),
+     ("patch", "/id/api-base", {"api_base": "http://new.example/v1"})],
 )
 async def test_only_portal_admin_can_manage_connections(user_client, method, path, payload):
     response = await user_client.request(method, "/api/admin/model-connections" + path, json=payload)
@@ -135,3 +136,97 @@ def test_public_model_list_does_not_leak_cloud_credentials():
     public = _sanitize_litellm_info(row)
     assert "secret" not in str(public)
     assert public["model_info"]["supports_vision"] is True
+
+
+@pytest.fixture
+def endpoint_registry(registry, mock_db):
+    mock_db.execute.return_value = MagicMock(scalar_one_or_none=lambda: None)
+    return registry
+
+
+@pytest.mark.parametrize("owner_type", ["deployment", "external", "unmanaged"])
+async def test_endpoint_edit_keeps_id_and_persists_serving_override(
+    admin_client, endpoint_registry, mock_litellm, mock_db, owner_type,
+):
+    from app.db.models.custom_external_serving import CustomExternalServing
+    from app.db.models.custom_model_deployment import CustomModelDeployment
+    from app.services.litellm_registration import registration_preview
+
+    model_id = (await admin_client.post("/api/admin/model-connections", json=body())).json()["connection"]["id"]
+    other_id = (await admin_client.post("/api/admin/model-connections", json=body())).json()["connection"]["id"]
+    before = copy.deepcopy(endpoint_registry[other_id])
+    dep = CustomModelDeployment(
+        model_name="shared", model_path="example/model", engine="vllm", serving_mode="aggregated",
+        vllm_extra_args=[], env={}, ingress_host="old.example", litellm_model_id=model_id,
+        litellm_api_base="https://old.example/v1", status="Ready",
+    )
+    external = CustomExternalServing(litellm_model_id=model_id, api_base="https://old.example/v1")
+    owners = [dep if owner_type == "deployment" else None, external if owner_type == "external" else None]
+    mock_db.execute.side_effect = [MagicMock(scalar_one_or_none=lambda owner=owner: owner) for owner in owners]
+    mock_litellm.create_model.reset_mock()
+    url = "http://new.serving.svc:8000/v1"
+
+    response = await admin_client.patch(f"/api/admin/model-connections/{model_id}/api-base", json={"api_base": url})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"id": model_id, "api_base": url, "updated": True}
+    mock_litellm.update_model_connection.assert_awaited_once_with(model_id, params={"api_base": url})
+    mock_litellm.create_model.assert_not_awaited()
+    mock_litellm.delete_model.assert_not_awaited()
+    assert endpoint_registry[other_id] == before
+    assert dep.status == "Ready" and dep.litellm_model_id == model_id
+    if owner_type == "deployment":
+        assert dep.updated_by == "admin001"
+        assert registration_preview(dep)["api_base"] == url  # Re-registration uses the new URL.
+    elif owner_type == "external":
+        assert external.api_base == url
+
+
+async def test_endpoint_upstream_failure_preserves_saved_address(
+    admin_client, endpoint_registry, mock_litellm, mock_db,
+):
+    from app.db.models.custom_external_serving import CustomExternalServing
+    model_id = (await admin_client.post("/api/admin/model-connections", json=body())).json()["connection"]["id"]
+    reg = CustomExternalServing(litellm_model_id=model_id, api_base="https://old.example/v1")
+    mock_db.execute.side_effect = [
+        MagicMock(scalar_one_or_none=lambda: None), MagicMock(scalar_one_or_none=lambda: reg),
+    ]
+    mock_litellm.update_model_connection.side_effect = RuntimeError("private-provider-token")
+    response = await admin_client.patch(
+        f"/api/admin/model-connections/{model_id}/api-base", json={"api_base": "http://new.example/v1"},
+    )
+    assert response.status_code == 502
+    assert "private-provider-token" not in response.text
+    assert reg.api_base == "https://old.example/v1"
+
+
+@pytest.mark.parametrize("state", ["candidate", "retired"])
+async def test_validation_candidate_endpoint_cannot_be_edited(
+    admin_client, endpoint_registry, mock_litellm, mock_db, state,
+):
+    from app.db.models.custom_model_deployment import CustomModelDeployment
+    model_id = (await admin_client.post("/api/admin/model-connections", json=body())).json()["connection"]["id"]
+    dep = CustomModelDeployment(validation_state=state)
+    mock_db.execute.return_value = MagicMock(scalar_one_or_none=lambda: dep)
+    response = await admin_client.patch(
+        f"/api/admin/model-connections/{model_id}/api-base", json={"api_base": "http://new.example/v1"},
+    )
+    assert response.status_code == 409
+    mock_litellm.update_model_connection.assert_not_awaited()
+
+
+async def test_endpoint_configuration_is_read_only(
+    admin_client, endpoint_registry, mock_litellm,
+):
+    model_id = (await admin_client.post("/api/admin/model-connections", json=body())).json()["connection"]["id"]
+    endpoint_registry[model_id]["model_info"]["db_model"] = False
+    payload = {"api_base": "http://new.example/v1"}
+    assert (await admin_client.patch(f"/api/admin/model-connections/{model_id}/api-base", json=payload)).status_code == 409
+    mock_litellm.update_model_connection.assert_not_awaited()
+
+
+@pytest.mark.parametrize("url", ["", "   ", "ftp://model/v1", "http://user:password@model/v1", "https://model/v1?key=secret"])
+async def test_endpoint_rejects_invalid_urls(admin_client, endpoint_registry, mock_litellm, url):
+    response = await admin_client.patch("/api/admin/model-connections/id/api-base", json={"api_base": url})
+    assert response.status_code in (400, 422)
+    mock_litellm.update_model_connection.assert_not_awaited()

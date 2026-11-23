@@ -2701,7 +2701,9 @@
     "field_model": "LiteLLM 제공자/모델",
     "field_api_base": "API 주소 (선택)",
     "field_api_version": "API 버전 (선택)",
-    "field_api_key": "API 키 (변경할 때만 입력)"
+    "field_api_key": "API 키 (변경할 때만 입력)",
+    "editApiBase": "API 주소 수정",
+    "apiBaseHint": "http://와 https:// 주소를 모두 사용할 수 있습니다. /v1 등 필요한 경로까지 입력하세요. 저장하면 해당 LiteLLM 연결과 서빙 등록 주소에 반영됩니다. 연결 ID와 배포 중인 Pod는 유지됩니다."
   },
   "portalTeams": {
     "title": "팀",

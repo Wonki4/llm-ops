@@ -10,6 +10,7 @@ import type { ModelDeployment } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ServingApiBaseEditor } from "@/components/model-api-base-editor";
 
 /**
  * How the deployment is registered in LiteLLM: the name callers use (editable,
@@ -54,6 +55,7 @@ export function LitellmRegistrationCard({ dep }: { dep: ModelDeployment }) {
         </Button>
       </CardHeader>
       <CardContent className="space-y-3">
+        {dep.litellm_model_id && <ServingApiBaseEditor modelId={dep.litellm_model_id} modelName={dep.litellm_model_name || dep.model_name} />}
         <div className="space-y-1">
           <label htmlFor="litellm-name" className="text-xs text-muted-foreground">{t("litellmName")}</label>
           <div className="flex flex-col gap-2 sm:flex-row">

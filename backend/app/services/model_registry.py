@@ -42,6 +42,8 @@ def registration_view(row: dict, managed: dict[str, dict] | None = None) -> dict
         if _cloud_provider(params, info, _endpoint(params.get("api_base")))
         else "unknown",
         "editable": info.get("db_model") is True and not owner,
+        "api_base_editable": info.get("db_model") is True
+        and (owner or {}).get("validation_state") not in ("candidate", "retired"),
         "access_groups": info.get("access_groups") or [],
         "prices": deployment_base_prices(row),
     }
