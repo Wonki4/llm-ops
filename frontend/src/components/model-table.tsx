@@ -24,7 +24,7 @@ import type { ModelStatus, ModelWithCatalog, ModelCatalog } from "@/types";
 
 // A row pairs the model name (as the team/source lists it) with its merged
 // catalog/litellm record, which is null when the name has no deployed/catalog match.
-export type ModelTableRow = { name: string; model: ModelWithCatalog | null };
+export type ModelTableRow = { name: string; model: ModelWithCatalog | null; groups?: string[] };
 
 const STATUS_OPTIONS: { value: ModelStatus }[] = [
   { value: "testing" },
@@ -124,7 +124,7 @@ export function ModelTable({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map(({ name, model }) => (
+        {rows.map(({ name, model, groups = accessGroupsOf(model) }) => (
           <TableRow key={name}>
             <TableCell>
               <div className="flex items-center gap-1">
@@ -185,8 +185,8 @@ export function ModelTable({
               )}
             </TableCell>
             <TableCell>
-              {accessGroupsOf(model).length > 0 ? (
-                <AccessGroupBadges groups={accessGroupsOf(model)} />
+              {groups.length > 0 ? (
+                <AccessGroupBadges groups={groups} />
               ) : (
                 <span className="text-xs text-muted-foreground">-</span>
               )}

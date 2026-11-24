@@ -11,7 +11,9 @@ from sqlalchemy import select
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.teams import _get_unified_access_groups
 from app.auth.deps import get_current_user, require_super_user
+from app.auth.permissions import get_team_access
 from app.clients.litellm import BASE_PRICE_FIELDS, LiteLLMClient, deployment_base_prices, get_litellm_client
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
@@ -19,8 +21,9 @@ from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
 from app.services.model_registry import merge_models
+from app.services.personal_access import access_groups_from_model_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -91,11 +94,15 @@ def _sanitize_litellm_info(lm: dict) -> dict:
 
 @router.get("")
 async def list_models(
+    team_id: str | None = None,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """List all models (merged LiteLLM + catalog)."""
+    """List visible models and, for a team, recognise its grants even outside the catalog."""
+    if team_id is not None:
+        await get_team_access(user, team_id, litellm_db)
     # Get catalog entries from custom DB
     result = await db.execute(select(CustomModelCatalog).order_by(CustomModelCatalog.display_name))
     catalog = result.scalars().all()
@@ -104,13 +111,28 @@ async def list_models(
     # Get LiteLLM model info for runtime data
     try:
         litellm_models = await litellm.get_model_info()
-    except Exception:
+    except Exception as exc:
         logger.error("Failed to fetch LiteLLM model info", exc_info=True)
+        if team_id is not None:
+            raise HTTPException(status_code=503, detail="Team model groups are unavailable") from exc
         litellm_models = []
 
     is_admin = user.global_role == GlobalRole.SUPER_USER
 
-    return {"models": merge_models(litellm_models, catalog_map, admin=is_admin, sanitize=_sanitize_litellm_info)}
+    response = {"models": merge_models(litellm_models, catalog_map, admin=is_admin, sanitize=_sanitize_litellm_info)}
+    if team_id is not None:
+        direct = await litellm_db.scalar(
+            sa_text('SELECT models FROM "LiteLLM_TeamTable" WHERE team_id = :id'), {"id": team_id}
+        )
+        grants = set(direct or [])
+        inherited = await _get_unified_access_groups(litellm_db, [team_id])
+        for group in inherited.get(team_id, []):
+            grants.update(group["models"])
+        # Only name groups this team references. Their non-public member models stay out of the response.
+        groups = access_groups_from_model_info(litellm_models)
+        model_names = {row.get("model_name") for row in litellm_models}
+        response["referenced_access_groups"] = sorted(grants.intersection(groups).difference(model_names))
+    return response
 
 
 @router.get("/catalog")
