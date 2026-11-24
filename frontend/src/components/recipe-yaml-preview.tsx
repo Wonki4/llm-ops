@@ -12,6 +12,7 @@ import { Label } from "@/components/ui/label";
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { RecipeKvCapacity } from "@/components/recipe-kv-capacity";
 import { ManifestYamlView } from "@/components/manifest-yaml-view";
 import { cn } from "@/lib/utils";
 import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
@@ -40,9 +41,11 @@ export function RecipeYamlPanel({
   const [target, setTarget] = useState<Target>({ clusterId: "", namespace: "", modelName: "" });
   const defaultNs = useDefaultNamespace(clusterId);
 
+  const [scenario, setScenario] = useState({ context_tokens: 32768, requests: 1, shared_prefix_tokens: 0 });
   const body: ServingRecipePreviewBody | null = recipe
     ? {
         ...recipe,
+        capacity_scenario: scenario,
         cluster_id: target.clusterId || null,
         namespace: target.namespace.trim() || null,
         model_name: target.modelName.trim() || null,
@@ -95,7 +98,7 @@ export function RecipeYamlPanel({
             onChange={(e) => setModelName(e.target.value)} onKeyDown={onEnter}
           />
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={() => apply()} disabled={!recipe || preview.isFetching} title={t("previewRender")}>
+        <Button type="button" size="sm" variant="outline" onClick={() => { apply(); if (target.clusterId === clusterId && target.namespace === namespace && target.modelName === modelName) void preview.refetch(); }} disabled={!recipe || preview.isFetching} title={t("previewRender")}>
           {preview.isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
           <span className="sm:sr-only xl:not-sr-only">{t("previewRender")}</span>
         </Button>
@@ -117,6 +120,7 @@ export function RecipeYamlPanel({
         <div className="h-64 animate-pulse rounded-md bg-muted" />
       ) : (
         <>
+          <div className="max-h-72 overflow-y-auto"><RecipeKvCapacity data={preview.isPlaceholderData ? undefined : preview.data?.kv_capacity} scenario={scenario} onChange={setScenario} /></div>
           {(preview.data?.warnings ?? []).length > 0 && (
             <ul className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs" data-testid="recipe-yaml-preview-warnings">
               {preview.data!.warnings.map((w) => <li key={w}>{warningText(w)}</li>)}

@@ -1193,7 +1193,24 @@ export type ServingRecipeInput = Omit<
 export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_id?: string | null };
 
 // POST /api/admin/serving-recipes/preview: an unsaved recipe rendered for a deploy target.
+export type CapacityScenario = { context_tokens: number; requests: number; shared_prefix_tokens: number };
+export type RecipeCapacity = {
+  rule_version: string;
+  pools: Array<{
+    role: string; gpu_type: string | null; fingerprint: string; image: string; engine_version?: string;
+    pending?: boolean; missing?: string[]; assumptions?: string[];
+    capacity_tokens: number | null; complete_requests: number | null;
+    capacity_range?: number[]; complete_requests_range?: number[]; required_bytes_per_gpu?: number;
+    required_bytes_per_replica?: number; shared_required_bytes_per_gpu?: number;
+    budget_source?: "explicit" | "startup" | "profile_upper_bound" | "unknown";
+    budget_bytes_per_gpu?: number[]; revision?: string; metadata_digest?: string;
+    tp?: number; pp?: number; dcp?: number; kv_dtype?: string; block_tokens?: number;
+    max_model_len?: number | null; max_num_seqs?: number | null;
+    components?: Array<{ pipeline_rank: number; kind: string; layers: number; bytes_per_gpu: number; unit: "token" | "request" }>;
+  }>;
+};
 export type ServingRecipePreviewBody = ServingRecipeInput & {
+  capacity_scenario?: CapacityScenario;
   cluster_id: string | null;
   /** null = the cluster's default namespace. */
   namespace: string | null;
@@ -1207,6 +1224,7 @@ export interface ManifestPreview {
 }
 
 export interface ServingRecipePreview {
+  kv_capacity?: RecipeCapacity;
   router_images?: { epp: string; envoy: string };
   manifests: ManifestPreview[];
   warnings: string[];

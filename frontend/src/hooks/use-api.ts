@@ -1844,6 +1844,7 @@ export function usePreviewServingRecipe(body: ServingRecipePreviewBody | null) {
         body: JSON.stringify(body),
       }),
     enabled: body !== null,
+    refetchInterval: q => q.state.data?.kv_capacity?.pools.some(p => p.pending) ? 4000 : false,
     retry: false,
     placeholderData: keepPreviousData, // live preview: keep the last YAML while the next one renders
   });

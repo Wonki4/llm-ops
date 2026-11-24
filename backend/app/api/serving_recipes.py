@@ -22,9 +22,11 @@ from app.services.clusters import default_namespace, validate_namespace
 from app.services.common_labels import load_deployment_copy
 from app.services.gpu_profile_store import UnknownGpuTypeError, resolve_gpu_type
 from app.services.gpu_profiles import apply_profile, validate_profile_name
+from app.services.kv_capacity import Scenario
 from app.services.manifest_diff import PlainDumper
 from app.services.model_deployment_manifests import build_all
 from app.services.pd_serving import ServingMode, check_kv_events, is_pd, validate_pd_config, validate_runtime
+from app.services.recipe_capacity import deployment_estimate
 from app.services.serving_engines import ServingEngine, validate_engine_args, validate_port_flag
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
@@ -134,10 +136,23 @@ class CreateRecipeBody(RecipeBody):
     source_deployment_id: str | None = None
 
 
+class CapacityScenario(BaseModel):
+    context_tokens: int = Field(32768, ge=1, le=100_000_000)
+    requests: int = Field(1, ge=1, le=1_000_000)
+    shared_prefix_tokens: int = Field(0, ge=0)
+
+    @model_validator(mode="after")
+    def check_prefix(self):
+        if self.shared_prefix_tokens > self.context_tokens:
+            raise ValueError("shared prefix exceeds request length")
+        return self
+
+
 class PreviewRecipeBody(RecipeBody):
     """An unsaved recipe plus the deploy target the preview renders it for."""
 
     name: str = ""
+    capacity_scenario: CapacityScenario | None = None
     cluster_id: str | None = None  # None = portal default cluster
     namespace: str | None = None  # None/blank = the cluster's default namespace
     model_name: str | None = None  # None = the recipe name
@@ -260,7 +275,7 @@ async def preview_recipe(
         gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
     except UnknownGpuTypeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    fields = body.model_dump(exclude={"name", "description", "hf_repo_id", "cluster_id", "namespace", "model_name", "storages"})
+    fields = body.model_dump(exclude={"name", "description", "hf_repo_id", "cluster_id", "namespace", "model_name", "storages", "capacity_scenario"})
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=(body.model_name or body.name or "preview").strip(),
@@ -327,7 +342,13 @@ async def preview_recipe(
             "name": pd_router.stack_name(dep),
             "yaml": f"# chart: {repo}/{chart} {version}\n{values}",
         })
-    return {"manifests": out, "warnings": warnings, **({"router_images": router_images} if router_images else {})}
+    capacity = {}
+    if request := body.capacity_scenario:
+        capacity["kv_capacity"] = await deployment_estimate(
+            db, dep, manifests=manifests, base_profile=gpu_profile, start_metadata=True,
+            scenario=Scenario(request.context_tokens, request.requests, request.shared_prefix_tokens),
+        )
+    return {"manifests": out, "warnings": warnings, **capacity, **({"router_images": router_images} if router_images else {})}
 
 
 class RouterDefaultsBody(BaseModel):
