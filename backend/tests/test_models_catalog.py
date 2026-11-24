@@ -28,6 +28,62 @@ async def test_list_models_merges_catalog_and_litellm(user_client: AsyncClient, 
 
 
 @pytest.mark.asyncio
+async def test_team_catalog_recognises_referenced_groups_without_publishing_hidden_models(
+    user_client, mock_litellm, mock_db
+):
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    litellm_db = AsyncMock()
+    app.dependency_overrides[get_litellm_db] = lambda: litellm_db
+    membership = MagicMock()
+    membership.mappings.return_value.first.return_value = {"members": ["user001"], "admins": []}
+    inherited = MagicMock()
+    inherited.mappings.return_value = [{
+        "team_id": "A", "access_group_id": "id", "access_group_name": "Team group", "access_model_names": ["nested"],
+    }]
+    litellm_db.execute.side_effect = [membership, inherited]
+    litellm_db.scalar.return_value = ["assigned", "collision", "direct"]
+    catalog = MagicMock()
+    catalog.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = catalog
+    mock_litellm.get_model_info.return_value = [
+        {"model_name": "private", "model_info": {"access_groups": ["assigned", "unrelated", "nested", "collision"]}},
+        {"model_name": "collision"},
+    ]
+
+    result = await user_client.get("/api/models?team_id=A")
+    assert result.status_code == 200
+    assert result.json() == {"models": [], "referenced_access_groups": ["assigned", "nested"]}
+
+
+@pytest.mark.asyncio
+async def test_team_catalog_requires_membership_before_reading_models(user_client, mock_litellm):
+    from app.db.session import get_litellm_db
+    from app.main import app
+
+    litellm_db = AsyncMock()
+    app.dependency_overrides[get_litellm_db] = lambda: litellm_db
+    empty = MagicMock()
+    empty.mappings.return_value.first.return_value = None
+    empty.first.return_value = None
+    litellm_db.execute.return_value = empty
+    result = await user_client.get("/api/models?team_id=other")
+    assert result.status_code == 403
+    mock_litellm.get_model_info.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_team_catalog_does_not_report_empty_grants_when_litellm_is_unavailable(admin_client, mock_db, mock_litellm):
+    catalog = MagicMock()
+    catalog.scalars.return_value.all.return_value = []
+    mock_db.execute.return_value = catalog
+    mock_litellm.get_model_info.side_effect = RuntimeError("offline")
+    assert (await admin_client.get("/api/models?team_id=A")).status_code == 503
+    assert (await admin_client.get("/api/models")).json() == {"models": []}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("body", [
     {"default_input_cost_per_token": 0},
     {"follow_litellm_pricing": True},

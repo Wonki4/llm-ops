@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useModels, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
+import { useTeamDetail, useTeamMembers, useTeamUsage, useDeleteKey, useRevealKey, useTeamModelCatalog, useChangeMemberRole, useChangeMemberBudget, useSetMemberExpiry, useRemoveTeamMember, useCreateBudgetRequest, useUpdateTeamSettings, useUpdateMemberKeyLimits, usePortalSettings, useCreateBudgetBoost, useCancelBudgetBoost } from "@/hooks/use-api";
 import { toast } from "sonner";
 import { copyText } from "@/lib/clipboard";
 import { InputTokens } from "@/components/input-tokens";
@@ -14,7 +14,8 @@ import { presetRange, type UsagePreset } from "@/lib/usage";
 import { ModelDetailSheet } from "@/components/model-detail-sheet";
 import { ModelIcon } from "@/components/model-icon";
 import { ModelTable, type ModelTableRow } from "@/components/model-table";
-import { buildAccessGroupIndex, expandTeamModels, hasAllTeamModels, type AccessGroupIndex } from "@/lib/access-groups";
+import { AccessGroupBadges } from "@/components/access-group-badges";
+import { buildAccessGroupIndex, hasAllTeamModels, teamModelScope } from "@/lib/access-groups";
 import { TeamBoostHistory } from "@/components/team-boost-history";
 import { TeamServingInventory } from "@/components/team-serving";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -63,7 +64,7 @@ import {
   Check,
   X,
 } from "lucide-react";
-import type { ApiKey, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
+import type { ApiKey, Team, TeamMember, ModelWithCatalog, ModelStatus } from "@/types";
 import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const BUDGET_PRESETS = ["7", "30", "90", "365", "permanent"] as const;
@@ -313,32 +314,22 @@ function OverviewTab({
   isAdmin,
   myKeys,
   myMembership,
-  modelsByName,
-  accessGroupIndex,
+  modelRows,
+  modelsMessage,
+  assignedGroups,
   budgetRequestMaxAmount,
   budgetRequestAllowedDays,
   onMoveToKeys,
   onMoveToModels,
   onSelectModel,
 }: {
-  team: {
-    team_id: string;
-    team_alias: string;
-    spend: number;
-    max_budget: number | null;
-    budget_duration: string | null;
-    budget_reset_at: string | null;
-    models: string[];
-    members: string[];
-    admins: string[];
-    member_count?: number;
-    admin_count?: number;
-  };
+  team: Team;
   isAdmin: boolean;
   myKeys: ApiKey[];
   myMembership: { spend: number; max_budget: number | null; budget_duration: string | null; budget_reset_at: string | null; tpm_limit: number | null; rpm_limit: number | null };
-  modelsByName: Map<string, ModelWithCatalog>;
-  accessGroupIndex: AccessGroupIndex;
+  modelRows: ModelTableRow[];
+  modelsMessage: string | null;
+  assignedGroups: string[];
   budgetRequestMaxAmount: number | null;
   budgetRequestAllowedDays: string[] | null;
   onMoveToKeys: () => void;
@@ -362,10 +353,7 @@ function OverviewTab({
   const myPct = budgetPercent(mySpend, myMaxBudget);
   const topKeys = [...myKeys].sort((a, b) => b.spend - a.spend).slice(0, 3);
   const hasAllProxyModels = hasAllTeamModels(team);
-  const catalogTeamModels = expandTeamModels(team, accessGroupIndex, modelsByName)
-    .map(({ name, model }) => ({ modelName: name, model }))
-    .filter(({ model }) => model?.catalog);
-  const scopedModels = catalogTeamModels.slice(0, 5);
+  const scopedModels = modelRows.slice(0, 5);
   const memberOnly = team.members.filter((member) => !team.admins.includes(member));
   const remainingAdmins = totalAdmins - team.admins.length;
   const remainingMembers = (totalMembers - totalAdmins) - memberOnly.length;
@@ -421,7 +409,7 @@ function OverviewTab({
             <Boxes className="size-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{hasAllProxyModels ? t("allModels") : t("modelCount", { count: catalogTeamModels.length })}</div>
+            <div className="text-2xl font-bold">{hasAllProxyModels ? t("allModels") : modelsMessage ? "—" : t("modelCount", { count: modelRows.length })}</div>
             <p className="text-xs text-muted-foreground">{t("availableModels")}</p>
           </CardContent>
         </Card>
@@ -557,12 +545,18 @@ function OverviewTab({
               </Button>
             </CardHeader>
             <CardContent className="space-y-2">
+              {assignedGroups.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pb-1">
+                  <span className="text-xs text-muted-foreground">{t("assignedAccessGroups")}</span>
+                  <AccessGroupBadges groups={assignedGroups} />
+                </div>
+              )}
               {scopedModels.length === 0 ? (
                 <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                  {t("noModelsAssigned")}
+                  {modelsMessage ?? t(assignedGroups.length || hasAllProxyModels ? "noModelsToDisplay" : "noModelsAssigned")}
                 </div>
               ) : (
-                scopedModels.map(({ modelName, model }) => (
+                scopedModels.map(({ name: modelName, model, groups }) => (
                   <div key={modelName} className="flex items-start justify-between gap-3 rounded-lg border p-3">
                     <div className="flex min-w-0 items-start gap-2">
                       <ModelIcon
@@ -587,6 +581,7 @@ function OverviewTab({
                           <Globe className="size-3.5" />
                           {model?.litellm_info?.model_info?.litellm_provider || "-"}
                         </div>
+                        <AccessGroupBadges groups={groups ?? []} />
                       </div>
                     </div>
                     {model?.catalog ? <StatusBadge status={model.catalog.status} /> : null}
@@ -1817,14 +1812,18 @@ export default function TeamDetailPage({
   const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
   const [detailModel, setDetailModel] = useState<ModelWithCatalog | null>(null);
   const { data, isLoading, isError, error, refetch } = useTeamDetail(teamId);
-  const { data: allModels } = useModels();
+  const catalog = useTeamModelCatalog(teamId);
+  const allModels = catalog.data?.models;
   const deleteKeyMutation = useDeleteKey();
   const revealKeyMutation = useRevealKey();
   const modelsByName = useMemo(
     () => new Map(allModels?.map((m) => [m.model_name, m]) ?? []),
     [allModels],
   );
-  const accessGroupIndex = useMemo(() => buildAccessGroupIndex(allModels), [allModels]);
+  const accessGroupIndex = useMemo(
+    () => buildAccessGroupIndex(allModels, catalog.data?.referenced_access_groups),
+    [allModels, catalog.data?.referenced_access_groups],
+  );
 
   const handleDeleteKey = (keyHash: string) => {
     setDeletingKeyId(keyHash);
@@ -1872,14 +1871,9 @@ export default function TeamDetailPage({
   const { team, my_keys, is_admin, my_membership } = data;
   const allowedTabs = ["overview", "keys", "models", "deployments", "usage", ...(is_admin ? ["members", "settings"] : [])];
   const activeTab = allowedTabs.includes(requestedTab) ? requestedTab : "overview";
-  // Rows for the team's models tab, matching the model dashboard table.
-  // all-proxy / no explicit models = access to every model (LiteLLM default).
-  const teamHasAllModels = hasAllTeamModels(team);
-  const teamModelRows: ModelTableRow[] = teamHasAllModels
-    ? (allModels ?? [])
-        .filter((m) => m.catalog && m.catalog.visible !== false)
-        .map((m) => ({ name: m.model_name, model: m }))
-    : expandTeamModels(team, accessGroupIndex, modelsByName);
+  const { rows, assignedGroups } = teamModelScope(team, accessGroupIndex, modelsByName);
+  const teamModelRows = catalog.data ? rows : [];
+  const modelsMessage = catalog.data ? null : catalog.isError ? t("modelsLoadError") : tc("loading");
 
   return (
     <div className="space-y-6">
@@ -1926,8 +1920,9 @@ export default function TeamDetailPage({
             isAdmin={is_admin}
             myKeys={my_keys}
             myMembership={my_membership}
-            modelsByName={modelsByName}
-            accessGroupIndex={accessGroupIndex}
+            modelRows={teamModelRows}
+            modelsMessage={modelsMessage}
+            assignedGroups={assignedGroups}
             budgetRequestMaxAmount={data.budget_request_max_amount}
             budgetRequestAllowedDays={data.budget_request_allowed_days}
             onMoveToKeys={() => setActiveTab("keys")}
@@ -2050,7 +2045,7 @@ export default function TeamDetailPage({
           {teamModelRows.length === 0 ? (
             <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-8">
               <Boxes className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{t("noModelsAssigned")}</p>
+              <p className="text-sm text-muted-foreground">{modelsMessage ?? t(assignedGroups.length || hasAllTeamModels(team) ? "noModelsToDisplay" : "noModelsAssigned")}</p>
             </div>
           ) : (
             <div className="rounded-lg border">

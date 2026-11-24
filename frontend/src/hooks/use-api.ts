@@ -553,6 +553,15 @@ export function useModels() {
   });
 }
 
+export function useTeamModelCatalog(teamId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.models, "team", teamId],
+    queryFn: () => apiFetch<{ models: ModelWithCatalog[]; referenced_access_groups: string[] }>(
+      `/api/models?team_id=${encodeURIComponent(teamId)}`,
+    ),
+  });
+}
+
 export function useModelCatalog() {
   return useQuery({
     queryKey: queryKeys.modelCatalog,
