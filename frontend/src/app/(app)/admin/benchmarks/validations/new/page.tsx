@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { ArrowUp, ArrowDown, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useServingRecipes, useK8sClusterSettings, useBenchmarkPresets, useDefaultNamespace, useGpuProfiles } from "@/hooks/use-api";
+import { useServingRecipes, useK8sClusterSettings, useBenchmarkPresets, useDefaultNamespace, useGpuProfiles, useBenchmarkPresetSettings } from "@/hooks/use-api";
 import { useCreateValidation, useValidationPreview } from "@/hooks/use-recipe-validations";
 import { scopeFromParams, PORTAL_CLUSTER, type ServingScope } from "@/lib/serving-scope";
 import { VALIDATIONS, type ValidationConditions, type ValidationCreate } from "@/lib/recipe-validation";
@@ -14,7 +14,9 @@ import { DeployRecipeBrowser } from "@/components/deploy-recipe-browser";
 import { DeploymentScopeFields } from "@/components/deployment-scope-fields";
 import { useClusterName } from "@/components/serving-scope-filter";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
-import { DEFAULT_PERF_PARAMS, DEFAULT_ACCURACY_PARAMS, PerfWorkloadFields, AccuracyParamsFields } from "@/components/benchmark-workload-fields";
+import { DEFAULT_PERF_PARAMS, PerfWorkloadFields, AdvancedWorkloadFields } from "@/components/benchmark-workload-fields";
+import { applyPreset, workloadParams, requestCount } from "@/lib/benchmark-workload";
+import type { BenchmarkPresetSettings } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -22,12 +24,13 @@ import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export default function NewValidationPage() { return <Suspense><Load /></Suspense>; }
 function Load() {
-  const settings = useK8sClusterSettings(), params = useSearchParams();
+  const settings = useK8sClusterSettings(), params = useSearchParams(), presetSettings = useBenchmarkPresetSettings();
   if (settings.error) return <p role="alert">{settings.error.message}</p>;
-  if (!settings.data) return <Loader2 className="animate-spin" />;
-  return <Form initialScope={scopeFromParams(params, settings.data)} initialIds={(params.get("recipes") ?? "").split(",").filter(Boolean)} />;
+  if (presetSettings.error) return <p role="alert">{presetSettings.error.message}</p>;
+  if (!settings.data || !presetSettings.data) return <Loader2 className="animate-spin" />;
+  return <Form presetSettings={presetSettings.data} initialScope={scopeFromParams(params, settings.data)} initialIds={(params.get("recipes") ?? "").split(",").filter(Boolean)} />;
 }
-function Form({ initialScope, initialIds }: { initialScope: ServingScope; initialIds: string[] }) {
+function Form({ initialScope, initialIds, presetSettings }: { initialScope: ServingScope; initialIds: string[]; presetSettings: BenchmarkPresetSettings }) {
   const t = useTranslations("recipeValidation"), router = useRouter(), clusterName = useClusterName();
   const recipes = useServingRecipes(), presets = useBenchmarkPresets();
   const [automatic, setAutomatic] = useState(initialIds.length === 0);
@@ -38,10 +41,8 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
   const defaultNs = useDefaultNamespace(cluster), gpu = useGpuProfiles(cluster || null);
   const [gpuType, setGpuType] = useState(""), [gpuLimit, setGpuLimit] = useState(8), [name, setName] = useState(""), [alias, setAlias] = useState("");
   const [host, setHost] = useState(""), [airgap, setAirgap] = useState(false), [storageBlocked, setStorageBlocked] = useState(false);
-  const [perf, setPerf] = useState({ ...DEFAULT_PERF_PARAMS, max_concurrency: "32" });
-  const [repeats, setRepeats] = useState(3), [cache, setCache] = useState(false), [prefix, setPrefix] = useState(768);
-  const [accuracy, setAccuracy] = useState(false), [acc, setAcc] = useState(DEFAULT_ACCURACY_PARAMS), [accuracyImage, setAccuracyImage] = useState("");
-  const [gates, setGates] = useState([{ task: "mmlu", metric: "acc,none", minimum: 0.5 }]);
+  const [perf, setPerf] = useState(() => applyPreset(DEFAULT_PERF_PARAMS, presetSettings.presets[presetSettings.default_preset]));
+  const [repeats, setRepeats] = useState(3);
   const [metric, setMetric] = useState("output_throughput"), [ttft, setTtft] = useState(""), [throughput, setThroughput] = useState("");
   const [limits, setLimits] = useState({ assets: 3600, scheduling: 1800, startup: 7200, measurement: 3600, total: 86400 });
   const [requestKey] = useState(createRequestKey);
@@ -49,15 +50,12 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
   const selected = ids.map(id => recipes.data?.find(r => r.id === id)).filter(r => r !== undefined);
   const storageIds = automatic ? [] : [...new Set(selected.flatMap(recipeStorageIds))];
   const conditions: ValidationConditions = {
+    version: 2,
     search: automatic ? { ...searchLimits, target_model: targetModel.trim(), alternative_models: alternatives.split(",").map(x => x.trim()).filter(Boolean) } : null,
     ingress_host: host, ingress_class: "nginx", gpu_type: gpuType || null, gpu_limit: gpuLimit, time_limits: limits,
-    performance: { random_input_len: perf.random_input_len, random_output_len: perf.random_output_len, num_prompts: perf.num_prompts,
-      max_concurrency: Number(perf.max_concurrency) || 32, seed: perf.seed, ignore_eos: perf.ignore_eos,
-      ...(perf.request_rate !== "" ? { request_rate: Number(perf.request_rate) } : {}) },
-    repeats, prefix_len: cache ? prefix : null, tokenizer: perf.tokenizer || null, airgap,
-    accuracy: accuracy ? { tasks: acc.tasks, batch_size: acc.batch_size, num_concurrent: acc.num_concurrent, apply_chat_template: acc.apply_chat_template,
-      ...(acc.limit ? { limit: Number(acc.limit) } : {}), ...(acc.num_fewshot ? { num_fewshot: Number(acc.num_fewshot) } : {}), ...(acc.gen_kwargs ? { gen_kwargs: acc.gen_kwargs } : {}) } : null,
-    accuracy_image: accuracyImage || null, quality_gates: accuracy ? gates : [],
+    performance: workloadParams(perf) as ValidationConditions["performance"],
+    repeats, prefix_len: null, tokenizer: perf.tokenizer || null, airgap,
+    accuracy: null, accuracy_image: null, quality_gates: [],
     max_ttft_p99_ms: ttft ? Number(ttft) : null, min_output_throughput: throughput ? Number(throughput) : null, selection_metric: metric,
   };
   const body: ValidationCreate = { request_key: requestKey, name, model_name: alias, cluster_id: cluster || null,
@@ -104,17 +102,10 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
       <Card><CardHeader><CardTitle>{t("workload")}</CardTitle></CardHeader><CardContent className="space-y-4">
         <PerfWorkloadFields presets={presets.data} perf={perf} onChange={p => setPerf({ ...p, max_concurrency: String(p.max_concurrency) })} />
         <Field label={t("repeats")}><Input type="number" min={1} max={10} value={repeats} onChange={e => setRepeats(Number(e.target.value))} required /></Field>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={cache} onChange={e => setCache(e.target.checked)} />{t("cache")}</label>
-        {cache && <Field label={t("prefix")}><Input type="number" min={1} max={perf.random_input_len - 1} value={prefix} onChange={e => setPrefix(Number(e.target.value))} /></Field>}
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={accuracy} onChange={e => setAccuracy(e.target.checked)} />{t("accuracy")}</label>
-        {accuracy && <div className="space-y-4 rounded-md border p-4"><AccuracyParamsFields params={acc} onChange={setAcc} />
-          <Field label={t("accuracyImage")}><Input value={accuracyImage} onChange={e => setAccuracyImage(e.target.value)} placeholder="registry/portal-accuracy@sha256:…" /></Field>
-          {gates.map((gate, i) => <div key={i} className="grid gap-2 sm:grid-cols-3"><Field label={t("qualityTask")}><Input value={gate.task} onChange={e => setGates(gates.map((g, j) => i === j ? { ...g, task: e.target.value } : g))} required /></Field><Field label={t("qualityMetric")}><Input value={gate.metric} onChange={e => setGates(gates.map((g, j) => i === j ? { ...g, metric: e.target.value } : g))} required /></Field><Field label={t("qualityFloor")}><Input type="number" min={0} step="any" value={gate.minimum} onChange={e => setGates(gates.map((g, j) => i === j ? { ...g, minimum: Number(e.target.value) } : g))} required /></Field></div>)}
-          <Button variant="outline" type="button" onClick={() => setGates([...gates, { task: "", metric: "acc,none", minimum: .5 }])}>{t("addGate")}</Button>
-        </div>}
+        <details><summary className="cursor-pointer text-sm">{t("assetsAndConfig")}</summary><div className="mt-4"><AdvancedWorkloadFields perf={perf} onChange={setPerf} /></div></details>
       </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("requirements")}</CardTitle></CardHeader><CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-3"><Field label={t("selectionMetric")}><FormSelect aria-label={t("selectionMetric")} className="w-full" value={metric} onValueChange={selectedValue => setMetric(selectedValue)}>{["output_throughput", "p99_ttft_ms", "request_throughput", "throughput_per_gpu"].map(m => <FormSelectItem key={m} value={m}>{t(`metric_${m}`)}</FormSelectItem>)}</FormSelect></Field><Field label={t("ttftCeiling")}><Input type="number" min={0.01} value={ttft} onChange={e => setTtft(e.target.value)} /></Field><Field label={t("throughputFloor")}><Input type="number" min={0.01} value={throughput} onChange={e => setThroughput(e.target.value)} /></Field></div>
+        <div className="grid gap-4 sm:grid-cols-3"><Field label={t("selectionMetric")}><FormSelect aria-label={t("selectionMetric")} className="w-full" value={metric} onValueChange={selectedValue => setMetric(selectedValue)}>{["output_throughput", "throughput_per_gpu"].map(m => <FormSelectItem key={m} value={m}>{t(`metric_${m}`)}</FormSelectItem>)}</FormSelect></Field><Field label={t("ttftCeiling")}><Input type="number" min={0.01} value={ttft} onChange={e => setTtft(e.target.value)} /></Field><Field label={t("throughputFloor")}><Input type="number" min={0.01} value={throughput} onChange={e => setThroughput(e.target.value)} /></Field></div>
         <p className="text-xs text-muted-foreground">{t("alternativeHint")}</p>
         <div className="grid gap-4 sm:grid-cols-3">{(Object.keys(limits) as (keyof typeof limits)[]).map(k => <Field key={k} label={t(`limit_${k}`)}><Input type="number" min={60} value={limits[k]} onChange={e => setLimits({ ...limits, [k]: Number(e.target.value) })} required /></Field>)}</div>
         <div className="grid gap-4 sm:grid-cols-2"><Field label={t("jobName")}><Input value={name} onChange={e => setName(e.target.value)} required maxLength={256} /></Field><Field label={t("alias")}><Input value={alias} onChange={e => setAlias(e.target.value)} required maxLength={256} /></Field><Field label={t("ingress")}><Input value={host} onChange={e => setHost(e.target.value)} required placeholder="model.internal.example.com" /></Field></div>
@@ -123,8 +114,7 @@ function Form({ initialScope, initialIds }: { initialScope: ServingScope; initia
     </>}
     {step === 2 && preview.data && <Card><CardHeader><CardTitle>{t("confirm")}</CardTitle></CardHeader><CardContent className="space-y-4">
       <dl className="grid gap-4 sm:grid-cols-2"><div><dt className="text-muted-foreground">{t("job")}</dt><dd>{name} / {alias}</dd></div><div><dt className="text-muted-foreground">{t("target")}</dt><dd>{clusterName(cluster || null)} / {preview.data.namespace}</dd></div><div><dt className="text-muted-foreground">{t("maxGpu")}</dt><dd>{preview.data.max_gpu_usage} GPU</dd></div><div><dt className="text-muted-foreground">{t("selectionMetric")}</dt><dd>{t(`metric_${metric}`)} · {repeats} {t("repetitions")}</dd></div></dl>
-      <p className="text-sm">{t("requestSummary", { perAttempt: perf.num_prompts * (repeats + (cache ? 2 : 0)), total: perf.num_prompts * (repeats + (cache ? 2 : 0)) * (automatic ? searchLimits.max_candidates : selected.length) * 2 })}</p>
-      {accuracy && <p className="text-xs text-muted-foreground">{t("accuracyRequestHint")}</p>}
+      <p className="text-sm">{t("requestSummary", { perAttempt: requestCount(perf) * repeats, total: requestCount(perf) * repeats * (automatic ? searchLimits.max_candidates : selected.length) * 2 })}</p>
       {automatic && <p className="rounded-md border p-3 text-sm">{targetModel} · {t("searchConfirm", { count: searchLimits.max_candidates, seconds: searchLimits.max_search_seconds })}</p>}
       <ol className="list-inside list-decimal space-y-2">{preview.data.candidates.map((c, i) => <li key={i}>{c.recipe.name} · {c.recipe.hf_repo_id || c.recipe.model_path} · {c.gpu_count} GPU</li>)}</ol>
       <p className="rounded-md bg-muted p-3 text-sm">{t("confirmHint")}</p>

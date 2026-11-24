@@ -707,6 +707,15 @@ export interface BenchmarkListResponse {
   runs: BenchmarkRun[];
 }
 
+export interface BenchmarkModelGroup {
+  model_name: string;
+  run_count: number;
+  succeeded_count: number;
+  failed_count: number;
+  active_count: number;
+  latest_created_at: string;
+}
+
 export interface CreateBenchmarkRequest {
   model_name?: string;
   cluster_id?: string;
@@ -728,7 +737,13 @@ export interface CreateBenchmarkRequest {
   note?: string;
 }
 
+export interface BenchmarkPresetSettings { presets: Record<string, LoadPreset>; default_preset: string; }
+
 export interface LoadPreset {
+  name?: string;
+  workload_type?: "synthetic" | "agentic_replay";
+  num_sessions?: number;
+  cache_ratio?: number;
   random_input_len: number;
   random_output_len: number;
   num_prompts: number;

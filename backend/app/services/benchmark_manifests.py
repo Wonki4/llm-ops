@@ -40,7 +40,8 @@ def _runner_env(run, base, model, tokenizer, api_key, credentials, key_env="OPEN
     params = run.params or {}
     workload = params if params.get("experiment") == "prefix_cache" else performance_workload(params)
     values = {"BENCH_URL": base, "BENCH_MODEL": model, "BENCH_TOKENIZER": tokenizer or model,
-              "BENCH_WORKLOAD": json.dumps(workload), "BENCH_RUN_ID": str(run.id)}
+              "BENCH_WORKLOAD": json.dumps(workload), "BENCH_RUN_ID": str(run.id),
+              "BENCH_ISOLATED": "0", "BENCH_TOKEN_INPUT": "0"}
     return [{"name": k, "value": v} for k, v in values.items()] + [credentials.runner_env(key_env, api_key)]
 
 
@@ -130,6 +131,11 @@ def build_self_serving_bench_job(
 
     base_url = f"http://localhost:{port}"
     runner_env = _runner_env(run, base_url, served_model, tokenizer, api_key, credentials, "BENCH_RUNNER_API_KEY")
+    for entry in runner_env:
+        if entry["name"] == "BENCH_ISOLATED":
+            entry["value"] = "1"
+        if entry["name"] == "BENCH_TOKEN_INPUT":
+            entry["value"] = "1" if any("vllm" in arg for arg in serve_argv[:4]) and not (run.params or {}).get("tokenizer") else "0"
     # Keep server credentials independent of the caller's runner key.
     reserved = {item["name"] for item in runner_env}
     server_env = credentials.protect_env([e for e in src_c.get("env", []) if e["name"] not in reserved])

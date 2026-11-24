@@ -29,6 +29,8 @@ async def test_create_persists_label_and_note(client_for_user, super_user, mock_
 
 @pytest.mark.asyncio
 async def test_list_presets(client_for_user, super_user, mock_db):
+    mock_db.execute.return_value = MagicMock()
+    mock_db.execute.return_value.scalar_one_or_none.return_value = None
     async with client_for_user(super_user) as client:
         resp = await client.get("/api/benchmarks/presets")
     assert resp.status_code == 200, resp.text

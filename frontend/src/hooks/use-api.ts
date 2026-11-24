@@ -37,8 +37,8 @@ import type {
   UpdateAnnouncementRequest,
   BenchmarkRun,
   BenchmarkListResponse,
+  BenchmarkModelGroup,
   CreateBenchmarkRequest,
-  LoadPreset,
   ModelDeployment,
   ModelDeploymentEvent,
   ManifestPreview,
@@ -1454,20 +1454,34 @@ export function useBenchmarks(filters: {
   tool?: string;
   status?: string;
   limit?: number;
-}) {
+  offset?: number;
+}, enabled = true) {
   const params = new URLSearchParams();
   if (filters.model_name) params.set("model_name", filters.model_name);
   if (filters.tool) params.set("tool", filters.tool);
   if (filters.experiment) params.set("experiment", filters.experiment);
   if (filters.status) params.set("status_filter", filters.status);
   if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
   const qs = params.toString() ? `?${params.toString()}` : "";
 
   return useQuery({
     queryKey: ["benchmarks", filters],
+    enabled,
     queryFn: () =>
       apiFetch<BenchmarkListResponse>(`/api/benchmarks${qs}`).then((r) => r.runs),
     // Refresh while jobs are still pending/running.
+    refetchInterval: 5000,
+  });
+}
+
+export function useBenchmarkModelGroups(filters: { experiment?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters.experiment) params.set("experiment", filters.experiment);
+  if (filters.status) params.set("status_filter", filters.status);
+  return useQuery({
+    queryKey: ["benchmarks", "model-groups", filters],
+    queryFn: () => apiFetch<{ models: BenchmarkModelGroup[] }>(`/api/benchmarks/model-groups?${params}`).then(r => r.models),
     refetchInterval: 5000,
   });
 }
@@ -1538,12 +1552,22 @@ export function useCreateBenchmark() {
   });
 }
 
+const presetQuery = {
+  queryKey: ["benchmark-presets"],
+  queryFn: () => apiFetch<import("@/types").BenchmarkPresetSettings>("/api/benchmarks/presets"),
+  staleTime: Infinity,
+};
 export function useBenchmarkPresets() {
-  return useQuery({
-    queryKey: ["benchmark-presets"],
-    queryFn: () =>
-      apiFetch<{ presets: Record<string, LoadPreset> }>("/api/benchmarks/presets").then((r) => r.presets),
-    staleTime: Infinity,
+  return useQuery({ ...presetQuery, select: r => r.presets });
+}
+export function useBenchmarkPresetSettings() {
+  return useQuery(presetQuery);
+}
+export function useSaveBenchmarkPresets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: import("@/types").BenchmarkPresetSettings) => apiFetch<import("@/types").BenchmarkPresetSettings>("/api/benchmarks/presets", { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: data => qc.setQueryData(presetQuery.queryKey, data),
   });
 }
 
@@ -1619,30 +1643,6 @@ export function useDeleteK8sCluster() {
     mutationFn: (id: string) =>
       apiFetch<{ ok: boolean }>(`/api/admin/k8s-clusters/${id}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["k8s-clusters"] }),
-  });
-}
-
-// ─── Benchmark manifest preview ────────────────────────────────────
-
-export interface BenchmarkPreviewManifest {
-  kind: string;
-  name: string;
-  yaml: string;
-}
-
-export interface BenchmarkPreviewResponse {
-  manifests: BenchmarkPreviewManifest[];
-  note: string | null;
-}
-
-/** Render the exact K8s manifests a benchmark run would apply (no writes). */
-export function useBenchmarkPreview() {
-  return useMutation({
-    mutationFn: (body: CreateBenchmarkRequest) =>
-      apiFetch<BenchmarkPreviewResponse>("/api/benchmarks/preview", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
   });
 }
 

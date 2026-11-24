@@ -214,7 +214,7 @@ async def snapshot(db, recipe_id, conditions, cluster_id, namespace, user, *, re
 
 def check_comparability(snapshots, conditions):
     weights = {s["recipe"].get("hf_repo_id") or s["recipe"]["model_path"] for s in snapshots}
-    if len(weights) > 1 and not conditions.quality_gates:
+    if conditions.version == 1 and len(weights) > 1 and not conditions.quality_gates:
         raise HTTPException(400, "Alternative weights require predefined absolute quality floors")
     if conditions.selection_metric in ("output_throughput", "throughput_per_gpu"):
         if conditions.selection_metric == "output_throughput" and len({s["gpu_count"] for s in snapshots}) > 1:

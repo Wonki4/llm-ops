@@ -8,9 +8,9 @@ import logging
 import uuid
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.deps import require_super_user
@@ -23,6 +23,7 @@ from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import aggregated_router, pd_serving
 from app.services.benchmark_credentials import BenchmarkCredentials, public_snapshot
+from app.services.benchmark_endpoint import endpoint_models, endpoint_url
 from app.services.benchmark_manifests import (
     build_job_manifest,
     build_self_serving_bench_job,
@@ -30,8 +31,8 @@ from app.services.benchmark_manifests import (
     job_name_for,
     nfs_fields_incomplete,
 )
-from app.services.benchmark_workload import validate_run_options
-from app.services.benchmark_presets import LOAD_PRESETS
+from app.services.benchmark_workload import validate_run_options, performance_workload
+from app.services.benchmark_presets import PresetSettings, load_presets, save_presets
 from app.services.benchmark_serving import (
     _clone_target_port,
     build_ephemeral_deployment,
@@ -83,9 +84,26 @@ router = APIRouter(prefix="/api/benchmarks", tags=["benchmarks"])
 
 
 @router.get("/presets")
-async def list_presets(user: CustomUser = Depends(require_super_user)) -> dict:
-    """The fixed load presets — the benchmark measurement methodology."""
-    return {"presets": LOAD_PRESETS}
+async def list_presets(user: CustomUser = Depends(require_super_user), db: AsyncSession = Depends(get_db)) -> dict:
+    return await load_presets(db)
+
+
+@router.put("/presets")
+async def update_presets(body: PresetSettings, user: CustomUser = Depends(require_super_user), db: AsyncSession = Depends(get_db)) -> dict:
+    return await save_presets(db, body, user.user_id)
+
+
+class EndpointModelsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_url: str
+    api_key: SecretStr | None = None
+
+
+@router.post("/endpoint-models")
+async def discover_endpoint_models(
+    body: EndpointModelsRequest, user: CustomUser = Depends(require_super_user),
+) -> dict:
+    return await endpoint_models(body.base_url, body.api_key.get_secret_value().strip() if body.api_key else "")
 
 
 ALLOWED_TOOLS = {"vllm_serving", "sglang_serving", "lm_eval"}
@@ -356,29 +374,71 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
     }
 
 
+def _benchmark_filters(model_name=None, tool=None, status_filter=None, experiment=None):
+    filters = []
+    if model_name:
+        filters.append(CustomBenchmarkRun.model_name == model_name)
+    if tool:
+        filters.append(CustomBenchmarkRun.tool == tool)
+    experiment_key = CustomBenchmarkRun.params["experiment"].astext
+    if experiment == "prefix_cache":
+        filters.append(experiment_key == "prefix_cache")
+    elif experiment in ("performance", "accuracy"):
+        filters.extend([CustomBenchmarkRun.kind == experiment, experiment_key.is_distinct_from("prefix_cache")])
+    if status_filter:
+        filters.append(CustomBenchmarkRun.status == status_filter)
+    return filters
+
+
+@router.get("/model-groups")
+async def benchmark_model_groups(
+    experiment: str | None = None,
+    status_filter: str | None = None,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    # Aggregate all matching history, not a truncated page of recent runs. Only
+    # names/counts are loaded until a model is selected; results and credentials
+    # are never part of this navigation response.
+    run = CustomBenchmarkRun
+    latest = func.max(run.created_at)
+    query = (
+        select(
+            run.model_name,
+            func.count().label("run_count"),
+            func.count().filter(run.status == "succeeded").label("succeeded_count"),
+            func.count().filter(run.status == "failed").label("failed_count"),
+            func.count().filter(run.status.in_(["provisioning", "pending", "running"])).label("active_count"),
+            latest.label("latest_created_at"),
+        )
+        .where(*_benchmark_filters(experiment=experiment, status_filter=status_filter))
+        .group_by(run.model_name)
+        .order_by(latest.desc(), run.model_name)
+    )
+    result = await db.execute(query)
+    return {"models": [
+        {**row, "latest_created_at": row["latest_created_at"].isoformat()}
+        for row in result.mappings().all()
+    ]}
+
+
 @router.get("")
 async def list_benchmarks(
     model_name: str | None = None,
     tool: str | None = None,
     status_filter: str | None = None,
     experiment: str | None = None,
-    limit: int = 100,
+    limit: int = Query(100, ge=1),
+    offset: int = Query(0, ge=0),
     user: CustomUser = Depends(require_super_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    query = select(CustomBenchmarkRun)
-    if model_name:
-        query = query.where(CustomBenchmarkRun.model_name == model_name)
-    if tool:
-        query = query.where(CustomBenchmarkRun.tool == tool)
-    experiment_key = CustomBenchmarkRun.params["experiment"].astext
-    if experiment == "prefix_cache":
-        query = query.where(experiment_key == "prefix_cache")
-    elif experiment in ("performance", "accuracy"):
-        query = query.where(CustomBenchmarkRun.kind == experiment, experiment_key.is_distinct_from("prefix_cache"))
-    if status_filter:
-        query = query.where(CustomBenchmarkRun.status == status_filter)
-    query = query.order_by(CustomBenchmarkRun.created_at.desc()).limit(min(limit, 500))
+    query = (
+        select(CustomBenchmarkRun)
+        .where(*_benchmark_filters(model_name, tool, status_filter, experiment))
+        .order_by(CustomBenchmarkRun.created_at.desc(), CustomBenchmarkRun.id.desc())
+        .offset(offset).limit(min(limit, 500))
+    )
     result = await db.execute(query)
     return {"runs": [_serialize(r) for r in result.scalars().all()]}
 
@@ -409,7 +469,15 @@ async def create_benchmark(
     if body.tool not in ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
     try:
+        if body.tool == "lm_eval":
+            raise ValueError("New accuracy evaluations are no longer supported")
         validate_run_options(TOOL_TO_KIND[body.tool], body.params)
+        if body.params.get("experiment") != "prefix_cache":
+            options = performance_workload(body.params)
+            if options["workload_version"] == 2:
+                if body.base_url:
+                    options["input_length_mode"] = "tokenizer" if body.params.get("tokenizer") else "text_estimate"
+                body.params = {**body.params, **options}
     except ValueError as exc:
         raise HTTPException(400, f"Invalid portal runner options: {exc}") from exc
     cache_template = await _cache_template(body, db)
@@ -441,9 +509,7 @@ async def create_benchmark(
             )
         if not body.model_name:
             raise HTTPException(status_code=400, detail="model_name is required for an endpoint URL benchmark")
-        base_url = body.base_url.strip()
-        if not base_url.startswith(("http://", "https://")):
-            raise HTTPException(status_code=400, detail="base_url must be an http:// or https:// URL")
+        base_url = endpoint_url(body.base_url)
         run = CustomBenchmarkRun(
             id=uuid.uuid4(),
             model_name=body.model_name,
@@ -809,7 +875,15 @@ async def preview_benchmark(
     if body.tool not in ALLOWED_TOOLS:
         raise HTTPException(status_code=400, detail=f"Unknown tool '{body.tool}'")
     try:
+        if body.tool == "lm_eval":
+            raise ValueError("New accuracy evaluations are no longer supported")
         validate_run_options(TOOL_TO_KIND[body.tool], body.params)
+        if body.params.get("experiment") != "prefix_cache":
+            options = performance_workload(body.params)
+            if options["workload_version"] == 2:
+                if body.base_url:
+                    options["input_length_mode"] = "tokenizer" if body.params.get("tokenizer") else "text_estimate"
+                body.params = {**body.params, **options}
     except ValueError as exc:
         raise HTTPException(400, f"Invalid portal runner options: {exc}") from exc
     cache_template = await _cache_template(body, db)
@@ -830,11 +904,9 @@ async def preview_benchmark(
     run.k8s_job_name = job_name_for(run.id)
     manifests: list[dict] = []
     if body.base_url:
-        base_url = body.base_url.strip()
+        base_url = endpoint_url(body.base_url)
         if kind != "performance":
             return {"manifests": [], "note": "base_url_performance_only"}
-        if not base_url.startswith(("http://", "https://")):
-            return {"manifests": [], "note": "invalid_base_url"}
         if not body.model_name:
             return {"manifests": [], "note": "target_required"}
         run.model_name = body.model_name
