@@ -149,6 +149,9 @@ def mock_litellm() -> MagicMock:
 @pytest.fixture
 def mock_db() -> AsyncMock:
     session = AsyncMock()
+    # AsyncSession.scalars returns a synchronous ScalarResult.
+    session.scalars.return_value = MagicMock()
+    session.scalars.return_value.all.return_value = []
     session.add = MagicMock()
     session.flush = AsyncMock()
     session.delete = AsyncMock()
