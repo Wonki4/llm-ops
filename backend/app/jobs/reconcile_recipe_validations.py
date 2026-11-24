@@ -231,7 +231,9 @@ async def tick(db, job, *, current=None):
         assets = await runtime.preflight(db, job, candidate, active, dep)
         if assets is None:
             return
-        if active.purpose == "final" and (not previous or assets != previous.state.get("assets")):
+        if active.purpose == "final" and (
+            not previous or not runtime.restored_assets_match(assets, previous.state.get("assets"))
+        ):
             fail(active, "asset_changed", "The restored candidate's assets differ from the measured snapshot", current)
             return
         reference = next((a.state["assets"] for a in attempts if a.id != active.id and a.state.get("assets")), None)

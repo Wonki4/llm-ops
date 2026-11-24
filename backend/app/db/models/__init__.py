@@ -1,3 +1,4 @@
+from app.db.models.custom_kv_observation import CustomKVObservation  # noqa: F401
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_gpu_profile import CustomGpuProfile  # noqa: F401

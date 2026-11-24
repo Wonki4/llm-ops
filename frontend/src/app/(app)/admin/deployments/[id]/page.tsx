@@ -1,5 +1,6 @@
 "use client";
 
+import { KVObservations } from "@/components/kv-observations";
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ServingRoleView, TeamDeploymentDetail } from "@/components/team-serving";
@@ -264,6 +265,7 @@ function AdminDeploymentDetail() {
         </CardContent>
       </Card>
 
+      <KVObservations rows={dep.kv_observations} />
       {/* Prefill / decode pools + the router they register through */}
       {dep.serving_mode === "pd" && (
         <Card data-testid="pd-section">

@@ -1,4 +1,5 @@
 "use client";
+import { KVObservations } from "@/components/kv-observations";
 import { Fragment, use, useState } from "react";
 import Link from "next/link";
 import { useTranslations, useNow } from "next-intl";
@@ -89,6 +90,7 @@ export default function ValidationDetail({ params }: { params: Promise<{ id: str
         {!c.attempts.length && <p className="text-muted-foreground">{t("noAttempts")}</p>}
         {c.attempts.map(a => <section key={a.id} className="space-y-3 rounded-lg border bg-background p-4">
           <div className="flex flex-wrap items-center gap-3"><h3 className="font-semibold">{t("attempt", { number: a.number })} · {t(a.purpose === "final" ? "finalCheck" : "comparison")}</h3><Badge variant="outline">{displayStatus(a.status)}</Badge>{a.deployment_id && <Link className="text-sm underline" href={`/admin/deployments/${a.deployment_id}`}>{t("deployment")}</Link>}<button className="text-sm underline" onClick={() => setDiagnostic({ candidate: c, attempt: a })}>{t("diagnostics")}</button></div>
+          <KVObservations rows={a.kv_observations} />
           {a.error_message && <p className="text-sm text-destructive">{a.error_message}</p>}
           {a.state.assessment && <div className="text-sm"><p>{t(a.state.assessment.passed ? "passed" : "rejected")} · TTFT P99 {format(a.state.assessment.metrics.p99_ttft_ms, " ms")} · {format(a.state.assessment.metrics.output_throughput, " tok/s")}</p>{a.state.assessment.quality.map(q => <p key={`${q.task}:${q.metric}`}>{q.task} / {q.metric}: {q.value ?? "—"} ≥ {q.minimum} · {t(q.passed ? "passed" : "rejected")}</p>)}</div>}
           <div className="divide-y">{a.benchmarks.map(run => <details key={run.id} className="py-2"><summary className="cursor-pointer text-sm">{run.label} · {run.status} · <ResultSummary run={run} /></summary><div className="space-y-3 py-3"><Link className="text-sm underline" href={`/admin/benchmarks/${run.id}`}>{t("measurement")}</Link>{run.params.experiment === "prefix_cache" ? <CacheResults run={run} /> : run.kind === "performance" ? <PerformanceResults run={run} /> : <pre className="max-h-64 overflow-auto text-xs">{JSON.stringify(run.result, null, 2)}</pre>}</div></details>)}</div>

@@ -1,4 +1,4 @@
-import type { BenchmarkRun, ServingRecipeInput } from "@/types";
+import type { KVObservation, BenchmarkRun, ServingRecipeInput } from "@/types";
 
 export const VALIDATIONS = "/admin/benchmarks/validations";
 export const VALIDATION_API = "/api/admin/recipe-validations";
@@ -12,6 +12,7 @@ export interface ValidationSnapshot {
   checks: { kind: string; status: string; message: string }[];
 }
 export interface ValidationAttempt {
+  kv_observations?: KVObservation[];
   id: string; number: number; purpose: string; status: string; stage_started_at: string;
   started_at: string; finished_at: string | null; deployment_id: string | null;
   diagnostics: Record<string, unknown> | null;

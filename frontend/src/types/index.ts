@@ -751,7 +751,23 @@ export interface LoadPreset {
 }
 
 /** Portal-managed serving deployment. */
+export interface KVObservation {
+  role: "aggregated" | "prefill" | "decode"; pod_name: string; pod_uid: string; restart: number; active: boolean;
+  engine: string; image: string; image_id: string | null; revision: string | null; gpu_type: string | null;
+  capacity_tokens: number | null; budget_bytes: number | null; budget_bytes_max?: number;
+  capacity_tokens_source?: "startup_log" | "engine_metrics";
+  estimate?: {
+    capacity_tokens?: number | null; capacity_range?: [number, number]; rule_version?: string | null;
+    budget_source?: string; kv_dtype?: string; tp?: number; pp?: number; dcp?: number;
+    same_revision?: boolean; components?: { kind: string; layers: number }[];
+  };
+  delta_tokens: number | null; delta_percent: number | null; utilization: number | null;
+  prefix_hit_rate: number | null; prefix_rate_scope: "since_startup" | "engine_window" | null;
+  observed_at: string | null; last_seen: string;
+}
+
 export interface ModelDeployment {
+  kv_observations?: KVObservation[];
   validation_id?: string | null;
   validation_state?: string | null;
   id: string;

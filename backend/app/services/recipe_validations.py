@@ -319,6 +319,16 @@ async def detail(db, job):
             )
         ).all()
     )
+    from app.db.models.custom_kv_observation import CustomKVObservation
+    from app.services.kv_observations import summary
+
+    observations = {}
+    if attempts:
+        rows = await db.scalars(select(CustomKVObservation).where(
+            CustomKVObservation.attempt_id.in_([a.id for a in attempts])
+        ).order_by(CustomKVObservation.active.desc(), CustomKVObservation.last_seen.desc()))
+        for observation in rows.all():
+            observations.setdefault(observation.attempt_id, []).append(summary(observation))
     result = serialize_job(job)
     from app.services.validation_search import progress
 
@@ -361,6 +371,7 @@ async def detail(db, job):
                             "state",
                         )
                     },
+                    "kv_observations": a.state.get("kv_observations") or observations.get(a.id, []),
                     "benchmarks": [_serialize(r) for r in runs if r.validation_attempt_id == a.id],
                 }
                 for a in attempts

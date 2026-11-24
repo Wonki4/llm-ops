@@ -106,6 +106,7 @@ async def db():
         "custom_recipe_validation",
         "custom_validation_candidate",
         "custom_validation_attempt",
+        "custom_kv_observation",
         "custom_model_deployment",
         "custom_benchmark_run",
         "custom_serving_recipe",
