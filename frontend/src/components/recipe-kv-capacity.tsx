@@ -37,7 +37,7 @@ export function RecipeKvCapacity({ data, scenario, onChange }: {
           <dt>{t("engine")}</dt><dd className="break-all">{pool.image} {pool.engine_version && `(${pool.engine_version})`} · {pool.gpu_type || "—"}</dd>
           <dt>{t("rules")}</dt><dd>{data.rule_version} · {pool.revision || pool.metadata_digest?.slice(0, 12) || "—"}</dd>
           {pool.tp != null && <><dt>TP / PP / DCP</dt><dd>{pool.tp} / {pool.pp} / {pool.dcp}</dd>
-            <dt>KV / block</dt><dd>{pool.kv_dtype} / {pool.block_tokens}</dd>
+            <dt>KV / block</dt><dd>{pool.kv_dtype} / {pool.block_tokens ?? "auto"}</dd>
             <dt>max-model-len / max-num-seqs</dt><dd>{pool.max_model_len ?? "auto"} / {pool.max_num_seqs ?? "auto"}</dd></>}
           {pool.required_bytes_per_gpu != null && <><dt>{t("required")}</dt><dd>{gib(pool.required_bytes_per_gpu)}</dd></>}
           {pool.required_bytes_per_replica != null && <><dt>{t("total")}</dt><dd>{gib(pool.required_bytes_per_replica)}</dd></>}

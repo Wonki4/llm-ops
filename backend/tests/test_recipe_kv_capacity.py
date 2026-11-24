@@ -181,3 +181,16 @@ async def test_rendered_pool_overrides_use_separate_model_and_flags():
     pre, dec = out["pools"]
     assert (pre["role"], pre["capacity_tokens"], pre["model_path"]) == ("prefill", 32768, "/models/prefill")
     assert dec["capacity_tokens"] == 8 * 32768 and dec["fingerprint"] != pre["fingerprint"]
+
+
+def test_partial_layout_still_reports_configured_gpu_budget_and_parallelism():
+    result = estimate({"error": "unavailable PVC"}, "vllm", ["-tp", "8", "--kv-cache-memory-bytes=2G"])
+    assert result["capacity_tokens"] is None and result["tp"] == 8
+    assert result["budget_bytes_per_gpu"] == [2 * GIB, 2 * GIB]
+    assert result["missing"] == ["unavailable PVC"]
+
+
+@pytest.mark.parametrize(("heads", "expected"), [(64, 8 * 262144), (8, 262144), (1, 32768)])
+def test_attention_head_sharing(heads, expected):
+    out = estimate({"config": {**QWEN, "num_key_value_heads": heads}}, "vllm", ["--block-size=16"])
+    assert out["attention_bytes_per_token_per_gpu"] == expected

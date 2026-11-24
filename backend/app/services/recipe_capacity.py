@@ -41,7 +41,8 @@ async def deployment_estimate(db, dep, *, manifests=None, scenario=Scenario(), s
         pools.append(info)
         meta = await metadata_for(db, dep, pod, container, model or "", flags.get("revision"), start=start_metadata)
         if not meta.get("config"):
-            info.update(pending=bool(meta.get("pending")), missing=[meta.get("error") or "reading config.json"])
+            info.update(estimate(meta, container["name"], container["args"], scenario=scenario))
+            info["pending"] = bool(meta.get("pending"))
             continue
         profile = base_profile if base_profile and base_profile.name == gpu_type else None
         if profile is None and gpu_type:

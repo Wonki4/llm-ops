@@ -117,6 +117,22 @@ def _estimate(out, metadata, engine, argv, vram, observed, scenario, env):
     dcp = positive(flags.get("decode-context-parallel-size", 1), "DCP")
     if tp % dcp:
         raise UnknownLayoutError("DCP must divide TP")
+    # Explicit launch evidence remains useful when the selected storage is offline
+    # or a new architecture has no layout rule yet.
+    out.update(
+        tp=tp,
+        pp=pp,
+        dcp=dcp,
+        kv_dtype=flags.get("kv-cache-dtype", "auto"),
+        context_tokens=scenario.context,
+        requests=scenario.requests,
+    )
+    if engine == "vllm" and "kv-cache-memory-bytes" in flags:
+        size = memory_size(flags["kv-cache-memory-bytes"])
+        out.update(budget_source="explicit", budget_bytes_per_gpu=[size, size])
+    if not metadata.get("config"):
+        out["missing"].append(metadata.get("error") or "reading config.json")
+        return
     config = metadata["config"]
     cfg = text_config(config)
     kinds, layouts, missing, kv = components(config, flags, engine, tp, notes)
