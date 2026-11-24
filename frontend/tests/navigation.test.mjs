@@ -19,7 +19,8 @@ test("team management and serving scopes do not grant portal administration", ()
 test("nested and sibling routes select exactly their owning menu", () => {
   const items = visibleNavigation("super_user", false);
   for (const [path, key] of [["/teams/discover", "discoverTeams"], ["/keys/new", "myKeys"],
-    ["/admin/serving/topology", "routingGraph"], ["/admin/models/history", "modelLifecycle"],
+    ["/admin/serving/topology", "routingGraph"], ["/models/calendar", "modelsCalendar"],
+    ["/admin/models/detail/org/model", "adminModels"],
     ["/admin/llmd/123", "adminDeployments"], ["/admin/benchmarks/validations/123", "adminBenchmarks"]]) {
     assert.equal(activeNavigation(path, items), key, path);
   }
@@ -29,7 +30,7 @@ test("nested and sibling routes select exactly their owning menu", () => {
 test("administration exposes the final three groups without duplicate settings", () => {
   const items=visibleNavigation("super_user",false);
   assert.deepEqual(items.filter(i=>i.group==="serving").map(i=>i.key),["servingHome","adminDeployments","adminRecipes","adminBenchmarks","infrastructure"]);
-  assert.deepEqual(items.filter(i=>i.group==="models").map(i=>i.key),["adminModels","routingGraph","modelLifecycle"]);
+  assert.deepEqual(items.filter(i=>i.group==="models").map(i=>i.key),["adminModels","routingGraph"]);
   assert.deepEqual(items.filter(i=>i.group==="people").map(i=>i.key),["adminTeams","adminUsers","adminAccessGroups","adminRequests","adminFinance","adminPolicies"]);
 });
 const legacySource=await readFile(new URL("../src/lib/legacy-navigation.ts",import.meta.url),"utf8");

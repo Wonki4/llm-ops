@@ -1,11 +1,11 @@
 "use client";
 
 import { formatModelPrice } from "@/lib/model-pricing";
-import { Loader2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { useMe, useModelStatusHistory } from "@/hooks/use-api";
+import { useMe } from "@/hooks/use-api";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
+import { ModelStatusHistorySection } from "@/components/model-status-history-section";
 import { ModelIcon } from "@/components/model-icon";
 import Link from "next/link";
 import {
@@ -48,15 +48,6 @@ const STATUS_STYLES: Record<ModelStatus, string> = {
     "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
 };
 
-function formatDate(dateStr: string | null | undefined, localeTag: string): string {
-  if (!dateStr) return "-";
-  return parseServerDate(dateStr).toLocaleDateString(localeTag, {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-}
-
 function formatDateTime(dateStr: string | null | undefined, localeTag: string): string {
   if (!dateStr) return "-";
   return parseServerDate(dateStr).toLocaleString(localeTag, {
@@ -84,10 +75,6 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
   const catalog = model?.catalog ?? null;
   const litellmInfo = model?.litellm_info ?? null;
   const provider = litellmInfo?.model_info?.litellm_provider ?? "-";
-
-  const { data: statusHistory, isLoading: statusHistoryLoading } = useModelStatusHistory(
-    catalog?.id,
-  );
 
   const formatTokens = (n: number): string => n.toLocaleString();
   const limitRows: { label: string; value: string }[] = [];
@@ -269,44 +256,7 @@ export function ModelDetailSheet({ model, open, onOpenChange }: ModelDetailSheet
               </section>
 
               <Separator />
-              <section>
-                <h4 className="text-sm font-semibold mb-2">{t("sections.statusHistory")}</h4>
-                <Card>
-                  <CardContent className="pt-4">
-                    {statusHistoryLoading ? (
-                      <div className="flex items-center justify-center py-3">
-                        <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : statusHistory && statusHistory.length > 0 ? (
-                      <div className="space-y-2">
-                        {statusHistory.slice(0, 5).map((entry) => (
-                          <div key={entry.id} className="rounded-md border px-2.5 py-2 text-xs space-y-1">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground">{formatDateTime(entry.changed_at, localeTag)}</span>
-                              <span className="font-mono text-muted-foreground">{entry.changed_by}</span>
-                            </div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              {entry.previous_status ? (
-                                <>
-                                  <Badge className={STATUS_STYLES[entry.previous_status]}>
-                                    {tms(entry.previous_status)}
-                                  </Badge>
-                                  <span className="text-muted-foreground">→</span>
-                                </>
-                              ) : (
-                                <span className="text-muted-foreground">{t("history.created")} →</span>
-                              )}
-                              <Badge className={STATUS_STYLES[entry.new_status]}>{tms(entry.new_status)}</Badge>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-sm text-muted-foreground">{t("history.empty")}</div>
-                    )}
-                  </CardContent>
-                </Card>
-              </section>
+              <ModelStatusHistorySection catalogId={catalog.id} />
             </>
           )}
         </div>

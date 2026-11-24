@@ -128,7 +128,6 @@
     "modelsSectionLabel": "모델 관리",
     "peopleSectionLabel": "팀·사용자 관리",
     "routingGraph": "라우팅 그래프",
-    "modelLifecycle": "상태·일정",
     "infrastructure": "인프라",
     "adminTeams": "팀",
     "adminFinance": "예산·사용량",
@@ -589,62 +588,6 @@
       "daysAgo": "{count}일 전"
     }
   },
-  "adminModelsHistory": {
-    "title": "모델 캘린더",
-    "description": "모델의 상태 전환 예정일을 확인합니다",
-    "today": "오늘",
-    "allStatuses": "전체 상태",
-    "yearMonth": "{year}년 {month}",
-    "moreEvents": "+{count}개",
-    "months": {
-      "jan": "1월",
-      "feb": "2월",
-      "mar": "3월",
-      "apr": "4월",
-      "may": "5월",
-      "jun": "6월",
-      "jul": "7월",
-      "aug": "8월",
-      "sep": "9월",
-      "oct": "10월",
-      "nov": "11월",
-      "dec": "12월"
-    },
-    "dow": {
-      "sun": "일",
-      "mon": "월",
-      "tue": "화",
-      "wed": "수",
-      "thu": "목",
-      "fri": "금",
-      "sat": "토"
-    },
-    "stats": {
-      "upcoming": "예정된 전환",
-      "upcomingValue": "{count}건",
-      "thisMonth": "이번 달",
-      "thisMonthValue": "{count}건",
-      "retiring": "폐기 예정",
-      "retiringValue": "{count}건"
-    },
-    "upcomingTransitions": {
-      "title": "다가오는 상태 전환",
-      "description": "예정된 모델 상태 변경 (최대 20건)",
-      "empty": "예정된 상태 전환이 없습니다"
-    },
-    "table": {
-      "transitionDate": "전환일",
-      "model": "모델",
-      "currentStatus": "현재 상태",
-      "targetStatus": "전환 상태",
-      "dday": "D-Day"
-    },
-    "dday": {
-      "today": "오늘",
-      "past": "{days}일 전",
-      "future": "D-{days}"
-    }
-  },
   "modelDetail": {
     "defaultTitle": "모델 상세",
     "sections": {
@@ -669,6 +612,10 @@
       "updatedAt": "수정일"
     },
     "history": {
+      "unregistered": "카탈로그에 등록하면 상태 변경 이력이 여기에 표시됩니다.",
+      "expand": "전체 이력 보기 ({count}건)",
+      "collapse": "최근 5건만 보기",
+      "loadError": "변경 이력을 불러오지 못했습니다.",
       "created": "생성",
       "empty": "변경 이력이 없습니다."
     },
@@ -2679,8 +2626,6 @@
     "icon": "로고 URL",
     "visible": "카탈로그에 표시",
     "schedule": "공개·종료 일정",
-    "history": "상태 변경 이력",
-    "lifecycle": "상태·일정",
     "removeCatalog": "카탈로그 삭제",
     "removeCatalogConfirm": "카탈로그 설명을 삭제할까요? LiteLLM 연결은 유지됩니다.",
     "connectionId": "연결 ID",
@@ -2700,10 +2645,6 @@
     "assignmentHint": "카탈로그 공개와 모델 호출 권한은 별개입니다.",
     "groups": "모델 접근 그룹",
     "personalUsers": "개인 키 사용자",
-    "previous": "이전",
-    "next": "다음",
-    "actor": "변경자",
-    "time": "변경 시각",
     "newConnection": "외부 연결 추가",
     "editConnection": "연결 수정",
     "deleteConnection": "연결 삭제",

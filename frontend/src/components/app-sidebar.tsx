@@ -65,7 +65,7 @@ export function AppSidebar() {
   const icons = {guide: BookOpen, announcements: Megaphone, modelsCalendar: Calendar, modelsDashboard: BarChart3,
     myTeams: Users, discoverTeams: Globe, myKeys: Key, myRequests: Inbox, servingHome: Workflow,
     adminRecipes: ScrollText, infrastructure: HardDrive, adminDeployments: Server, adminBenchmarks: FlaskConical,
-    adminModels: Boxes, routingGraph: Network, modelLifecycle: Calendar, adminDashboard: BarChart3,
+    adminModels: Boxes, routingGraph: Network, adminDashboard: BarChart3,
     adminTeams: Users, adminRequests: ShieldCheck, adminBudgets: DollarSign, adminUsers: UserCog, adminAccessGroups: Layers,
     adminFinance: DollarSign, adminPolicies: Settings};
   function toggle(group: NavigationGroup, open: boolean) {

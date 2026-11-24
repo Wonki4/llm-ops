@@ -128,7 +128,6 @@
     "modelsSectionLabel": "Model management",
     "peopleSectionLabel": "Teams & users",
     "routingGraph": "Routing graph",
-    "modelLifecycle": "Lifecycle & schedule",
     "infrastructure": "Infrastructure",
     "adminTeams": "Teams",
     "adminFinance": "Budgets and usage",
@@ -589,62 +588,6 @@
       "daysAgo": "{count} days ago"
     }
   },
-  "adminModelsHistory": {
-    "title": "Model Calendar",
-    "description": "View scheduled model status transition dates",
-    "today": "Today",
-    "allStatuses": "All Statuses",
-    "yearMonth": "{year} {month}",
-    "moreEvents": "+{count} more",
-    "months": {
-      "jan": "Jan",
-      "feb": "Feb",
-      "mar": "Mar",
-      "apr": "Apr",
-      "may": "May",
-      "jun": "Jun",
-      "jul": "Jul",
-      "aug": "Aug",
-      "sep": "Sep",
-      "oct": "Oct",
-      "nov": "Nov",
-      "dec": "Dec"
-    },
-    "dow": {
-      "sun": "Sun",
-      "mon": "Mon",
-      "tue": "Tue",
-      "wed": "Wed",
-      "thu": "Thu",
-      "fri": "Fri",
-      "sat": "Sat"
-    },
-    "stats": {
-      "upcoming": "Upcoming Transitions",
-      "upcomingValue": "{count}",
-      "thisMonth": "This Month",
-      "thisMonthValue": "{count}",
-      "retiring": "Retiring",
-      "retiringValue": "{count}"
-    },
-    "upcomingTransitions": {
-      "title": "Upcoming Status Transitions",
-      "description": "Scheduled model status changes (up to 20)",
-      "empty": "No upcoming status transitions"
-    },
-    "table": {
-      "transitionDate": "Date",
-      "model": "Model",
-      "currentStatus": "Current Status",
-      "targetStatus": "Target Status",
-      "dday": "D-Day"
-    },
-    "dday": {
-      "today": "Today",
-      "past": "{days} days ago",
-      "future": "D-{days}"
-    }
-  },
   "modelDetail": {
     "defaultTitle": "Model Details",
     "sections": {
@@ -669,6 +612,10 @@
       "updatedAt": "Updated At"
     },
     "history": {
+      "unregistered": "Status history will appear here when the model is registered in the catalog.",
+      "expand": "Show all {count} changes",
+      "collapse": "Show latest 5",
+      "loadError": "Could not load status history.",
       "created": "Created",
       "empty": "No change history."
     },
@@ -2679,8 +2626,6 @@
     "icon": "Logo URL",
     "visible": "Show in catalog",
     "schedule": "Release & retirement schedule",
-    "history": "Status change history",
-    "lifecycle": "Lifecycle & schedule",
     "removeCatalog": "Delete catalog entry",
     "removeCatalogConfirm": "Delete catalog documentation? LiteLLM connections will be retained.",
     "connectionId": "Connection ID",
@@ -2700,10 +2645,6 @@
     "assignmentHint": "Catalog visibility and model access are independent.",
     "groups": "Model access groups",
     "personalUsers": "Personal-key users",
-    "previous": "Previous",
-    "next": "Next",
-    "actor": "Changed by",
-    "time": "Changed at",
     "newConnection": "Add external connection",
     "editConnection": "Edit connection",
     "deleteConnection": "Delete connection",
