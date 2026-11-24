@@ -1,4 +1,4 @@
-import type { BenchmarkRun, ServiceObjectives, ServingRecipeInput } from "@/types";
+import type { BenchmarkRun, ServingRecipeInput } from "@/types";
 
 export const VALIDATIONS = "/admin/benchmarks/validations";
 export const VALIDATION_API = "/api/admin/recipe-validations";
@@ -35,7 +35,7 @@ export interface ValidationConditions {
   ingress_host: string; ingress_class: string; gpu_limit: number; gpu_type: string | null;
   time_limits: { assets: number; scheduling: number; startup: number; measurement: number; total: number };
   capacity_search?: { max_rate: number; refinements?: number; max_lag_ms?: number } | null;
-  performance: { slo?: ServiceObjectives; workload_version?: number; workload_type?: string; cache_ratio?: number; num_sessions?: number; scenario?: Record<string, unknown>; random_input_len: number; random_output_len: number; num_prompts: number; max_concurrency: number; seed: number; ignore_eos: boolean; request_rate?: number };
+  performance: { slo?: import("@/types").ServiceObjectives; workload_version?: number; workload_type?: string; cache_ratio?: number; num_sessions?: number; scenario?: Record<string, unknown>; random_input_len: number; random_output_len: number; num_prompts: number; max_concurrency: number; seed: number; ignore_eos: boolean; request_rate?: number };
   repeats: number; prefix_len: number | null; accuracy: Record<string, unknown> | null; accuracy_image: string | null;
   quality_gates: { task: string; metric: string; minimum: number }[];
   max_ttft_p99_ms: number | null; min_output_throughput: number | null;
