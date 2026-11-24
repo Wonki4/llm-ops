@@ -1,3 +1,4 @@
+import hashlib
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -126,6 +127,7 @@ def test_local_metadata_only_reads_json(tmp_path):
     )
     (tmp_path / "model.py").write_text('raise ValueError("must never import")')
     out = inspect(str(tmp_path), None)
+    assert out["config_digest"] == hashlib.sha256((tmp_path / "config.json").read_bytes()).hexdigest()
     assert out["weight_bytes"] == 1234 and out["config"]["num_hidden_layers"] == 64 and out["digest"]
 
 

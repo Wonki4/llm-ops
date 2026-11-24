@@ -35,17 +35,20 @@ def structural(raw):
     return cfg
 
 
-def read_json(path):
+def read_json(path, digests=None):
     if not path.is_file():
         return None
     with path.open("rb") as handle:
         data = handle.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError("metadata file exceeds 16 MiB")
+    if digests is not None and path.name == "config.json":
+        digests["config"] = hashlib.sha256(data).hexdigest()
     return json.loads(data)
 
 
 def inspect(model, revision):
+    digests = {}
     root = Path(model)
     local = root.is_dir()
     if root.is_absolute() and not local:
@@ -62,7 +65,7 @@ def inspect(model, revision):
         def get(name):
             nonlocal revision
             if local:
-                return read_json(root / name)
+                return read_json(root / name, digests)
             path = try_to_load_from_cache(model, name, revision=revision)
             if not isinstance(path, str):
                 if offline:
@@ -74,7 +77,7 @@ def inspect(model, revision):
             path = Path(path)
             if path.parent.parent.name == "snapshots":
                 revision = path.parent.name
-            return read_json(path)
+            return read_json(path, digests)
 
         raw = get(FILES[0])
         if not isinstance(raw, dict):
@@ -109,6 +112,7 @@ def inspect(model, revision):
             "config": cfg,
             "revision": revision,
             "digest": digest,
+            "config_digest": digests.get("config"),
             "weight_bytes": weights,
             "weight_format": (quant or {}).get("quant_method"),
             "source": "mount" if local else "hub",

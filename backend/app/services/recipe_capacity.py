@@ -73,6 +73,7 @@ async def deployment_estimate(db, dep, *, manifests=None, scenario=Scenario(), s
             engine_version=meta.get("engine_versions", {}).get(container["name"]),
             revision=meta.get("revision"),
             metadata_digest=meta.get("digest"),
+            config_digest=meta.get("config_digest"),
             metadata_source=meta.get("source"),
             weight_bytes=meta.get("weight_bytes"),
             weight_format=meta.get("weight_format"),
