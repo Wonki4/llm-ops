@@ -238,7 +238,7 @@ async def tick(db, job, *, current=None):
         if reference:
             measured_model = assets.get("1", assets.get("0", {})).get("weights_sha256")
             reference_model = reference.get("1", reference.get("0", {})).get("weights_sha256")
-            if measured_model != reference_model and not job.conditions.get("quality_gates"):
+            if job.conditions.get("version", 1) == 1 and measured_model != reference_model and not job.conditions.get("quality_gates"):
                 fail(
                     active,
                     "quality_floor_required",

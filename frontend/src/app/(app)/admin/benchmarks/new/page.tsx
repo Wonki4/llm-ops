@@ -1,863 +1,110 @@
 "use client";
-
-import { Suspense, useEffect, useMemo, useState, useRef } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, Play } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
-
-import {
-  useCreateBenchmark,
-  useModels,
-  useModelDeployments,
-  useGpuProfiles,
-  useK8sClusters,
-  useBenchmarkPreview,
-  useBenchmark,
-  useBenchmarkPresets,
-  useExternalServings,
-} from "@/hooks/use-api";
-import type { ExternalServing } from "@/hooks/use-api";
-import { CacheForm } from "@/components/benchmark-cache-form";
-import { experimentOf } from "@/components/benchmark-cache";
-import type { BenchmarkRun, BenchmarkTool, CreateBenchmarkRequest } from "@/types";
+import { useCreateBenchmark, useK8sClusters, useBenchmark, useBenchmarkPresetSettings } from "@/hooks/use-api";
+import type { BenchmarkRun, BenchmarkPresetSettings, CreateBenchmarkRequest } from "@/types";
+import { apiFetch } from "@/lib/api";
+import { DEFAULT_PERF_PARAMS, applyPreset, restoreWorkload, endpointWorkloadParams, requestCount, matchedPresetKey } from "@/lib/benchmark-workload";
+import { PerfWorkloadFields, RequestRateField } from "@/components/benchmark-workload-fields";
+import { BenchmarkPresetManager } from "@/components/benchmark-preset-manager";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { JsonEditor } from "@/components/json-editor";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
-import { PerfWorkloadFields, AccuracyParamsFields, DEFAULT_PERF_PARAMS, DEFAULT_ACCURACY_PARAMS, matchedPresetKey, type PerfParams } from "@/components/benchmark-workload-fields";
-import { FormSelect, FormSelectItem, FormSelectGroup } from "@/components/ui/form-select";
-
-const TOOL_TO_KIND: Record<BenchmarkTool, "performance" | "accuracy"> = {
-  vllm_serving: "performance",
-  sglang_serving: "performance",
-  lm_eval: "accuracy",
-};
-
-// Encodes a discovered external serving into a single dropdown option value.
-function externalKey(s: ExternalServing): string {
-  return `ext::${s.cluster_id ?? ""}::${s.namespace}::${s.deployment_name}`;
+export default function NewBenchmarkPage() { return <Suspense><Load /></Suspense>; }
+function Load() {
+  const params = useSearchParams(), source = useBenchmark(params.get("from") ?? ""), presets = useBenchmarkPresetSettings();
+  const t = useTranslations("benchmarkSimple");
+  if (presets.error || (params.has("from") && source.error)) return <p role="alert">{presets.error?.message ?? source.error?.message}</p>;
+  if (!presets.data || (params.has("from") && source.isPending)) return <Loader2 className="animate-spin" />;
+  if (source.data?.kind === "accuracy") return <p>{t("accuracyHistory")} <Link className="underline" href={`/admin/benchmarks/${source.data.id}`}>{t("back")}</Link></p>;
+  return <RunForm key={source.data?.id ?? "new"} presets={presets.data} source={source.data} initialCluster={params.get("cluster") ?? ""} initialNamespace={params.get("ns") ?? ""} />;
 }
+function RunForm({ presets, source, initialCluster, initialNamespace }: { presets: BenchmarkPresetSettings; source?: BenchmarkRun; initialCluster: string; initialNamespace: string }) {
+  const t = useTranslations("benchmarkForm"), s = useTranslations("benchmarkSimple"), router = useRouter();
+  const clusters = useK8sClusters(), create = useCreateBenchmark();
+  const oldEndpoint = source?.serving_snapshot as { source?: string; base_url?: string } | undefined;
+  const [cluster, setCluster] = useState(source?.cluster_id ?? initialCluster), [namespace, setNamespace] = useState(source?.k8s_namespace ?? initialNamespace);
+  const [perf, setPerf] = useState(() => source ? restoreWorkload(source.params) : applyPreset(DEFAULT_PERF_PARAMS, presets.presets[presets.default_preset]));
+  const [model, setModel] = useState(source?.model_name ?? ""), [url, setUrl] = useState(oldEndpoint?.base_url ?? ""), [apiKey, setApiKey] = useState("");
+  const [models, setModels] = useState<string[]>([]), [manualModel, setManualModel] = useState(!!source);
+  const [discovering, setDiscovering] = useState(false), [discoveryError, setDiscoveryError] = useState("");
+  const [label, setLabel] = useState(source?.label ?? ""), [note, setNote] = useState(source?.note ?? "");
+  const matching = matchedPresetKey(presets.presets, perf);
+  const busy = discovering || create.isPending;
+  const validUrl = /^https?:\/\/\S+$/i.test(url.trim());
 
-// The active tab IS the start mode — no inference from which fields are set.
-type BenchMode = "clone" | "direct" | "model" | "endpoint";
-
-export default function NewBenchmarkPage() {
-  return <Suspense fallback={<Loader2 className="animate-spin"/>}><ExperimentPage /></Suspense>;
-}
-
-type Experiment = "prefix_cache" | "performance" | "accuracy";
-
-function ExperimentPage() {
-  const id = useSearchParams().get("from") ?? "";
-  const source = useBenchmark(id);
-  const f = useTranslations("benchmarkForm");
-  const t = useTranslations("benchExperiment");
-  const [choice, setChoice] = useState<Experiment | null>(null);
-  if (id && source.isPending) return <Loader2 className="animate-spin"/>;
-  if (id && !source.data) return <p>{t("missingRun")} <Link href="/admin/benchmarks">{f("backToList")}</Link></p>;
-  const experiment = choice ?? (source.data ? experimentOf(source.data) : "prefix_cache");
-  const original = source.data && experimentOf(source.data) === experiment ? source.data : undefined;
+  function resetDiscovery() { setModels([]); setModel(""); setDiscoveryError(""); setManualModel(false); }
+  function requestBody(selectedModel = model): CreateBenchmarkRequest {
+    return {
+      tool: "vllm_serving", base_url: url.trim(), model_name: selectedModel.trim(),
+      params: { ...endpointWorkloadParams(perf), ...(matching ? { preset: matching, preset_name: presets.presets[matching].name ?? matching } : {}) },
+      cluster_id: cluster || undefined, namespace: namespace.trim() || undefined,
+      api_key: apiKey.trim() || undefined,
+      label: label.trim() || undefined, note: note.trim() || undefined,
+    };
+  }
+  async function discover(): Promise<string | null> {
+    setDiscovering(true); setDiscoveryError("");
+    try {
+      const result = await apiFetch<{ models: string[] }>("/api/benchmarks/endpoint-models", {
+        method: "POST", body: JSON.stringify({ base_url: url.trim(), api_key: apiKey.trim() || undefined }),
+      });
+      setModels(result.models); setManualModel(false);
+      const selected = result.models.length === 1 ? result.models[0] : "";
+      setModel(selected);
+      return selected || null;
+    } catch (e) {
+      setDiscoveryError((e as Error).message); setManualModel(true);
+      return null;
+    } finally { setDiscovering(false); }
+  }
+  const clusterName = clusters.data?.find(c => c.id === cluster)?.name ?? clusters.data?.find(c => !cluster && c.is_default)?.name ?? t("clusterDefault");
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy || !validUrl) return;
+    const selected = model.trim() || await discover();
+    if (!selected) return;
+    try { const run = await create.mutateAsync(requestBody(selected)); router.push(`/admin/benchmarks/${run.id}`); }
+    catch (e) { toast.error(e instanceof Error ? e.message : String(e)); }
+  }
   return <div className="mx-auto max-w-4xl space-y-5">
-    <Link href="/admin/benchmarks" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-      <ArrowLeft className="size-4"/>{f("backToList")}
-    </Link>
-    <h1 className="text-2xl font-bold">{f("pageTitle")}</h1>
-    <div role="group" aria-label={t("experiment")} className="flex flex-wrap gap-1 rounded-lg border bg-muted/40 p-1">
-      {(["prefix_cache", "performance", "accuracy"] as const).map(key =>
-        <button key={key} type="button" aria-pressed={experiment === key} onClick={() => setChoice(key)}
-          className="flex-1 rounded-md px-4 py-2 text-sm aria-pressed:bg-background aria-pressed:font-semibold aria-pressed:shadow-sm">{t(key)}</button>)}
-    </div>
-    {experiment === "prefix_cache" ? <CacheForm key={original?.id ?? "cache"} source={original}/> :
-      <SingleRunForm key={experiment + (original?.id ?? "")} experiment={experiment} source={original}/>}
+    <Link href="/admin/benchmarks" className="inline-flex items-center gap-1 text-sm text-muted-foreground"><ArrowLeft className="size-4" />{t("backToList")}</Link>
+    <div className="flex items-center justify-between gap-4"><h1 className="text-2xl font-bold">{t("pageTitle")}</h1><BenchmarkPresetManager /></div>
+    <form className="space-y-4" onSubmit={submit}>
+      <Card><CardHeader><CardTitle className="text-base">1. {t("target")}</CardTitle></CardHeader><CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">{s("endpointHint")}</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="API Base URL" id="benchmark-url"><Input id="benchmark-url" required type="url" disabled={busy} placeholder="http://model.serving:8000/v1" value={url} onChange={e => { setUrl(e.target.value); resetDiscovery(); }} /></Field>
+          <Field label={t("apiKeyLabel")} id="benchmark-key"><Input id="benchmark-key" type="password" autoComplete="off" disabled={busy} placeholder={s("apiKeyOptional")} value={apiKey} onChange={e => { setApiKey(e.target.value); resetDiscovery(); }} /></Field>
+        </div>
+        {source && !oldEndpoint?.base_url && <p className="text-sm text-muted-foreground">{s("rerunUrlRequired")}</p>}
+        <div className="flex flex-wrap items-center gap-3">
+          <Button type="button" size="sm" variant="outline" disabled={busy || !validUrl} onClick={() => void discover()}>{discovering && <Loader2 className="size-4 animate-spin" />}{s("discoverModels")}</Button>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy} checked={manualModel} onChange={e => { setManualModel(e.target.checked); setModel(models.length === 1 && !e.target.checked ? models[0] : ""); }} />{s("manualModel")}</label>
+          {!manualModel && models.length === 1 && <span className="break-all text-sm">{s("detectedModel", { model })}</span>}
+        </div>
+        {discoveryError && <p role="alert" className="text-sm text-destructive">{discoveryError}</p>}
+        {manualModel ? <Field label={t("endpointModelLabel")} id="benchmark-model"><Input id="benchmark-model" disabled={busy} value={model} onChange={e => setModel(e.target.value)} placeholder={s("manualModelHint")} /></Field> : models.length > 1 && <Field label={s("chooseModel")} id="benchmark-model"><FormSelect id="benchmark-model" className="w-full" disabled={busy} placeholder={s("chooseModel")} value={model} onValueChange={setModel}>{models.map(m => <FormSelectItem key={m} value={m}>{m}</FormSelectItem>)}</FormSelect></Field>}
+      </CardContent></Card>
+      <Card><CardHeader><CardTitle className="text-base">2. {s("workload")}</CardTitle></CardHeader><CardContent className="space-y-3"><PerfWorkloadFields presets={presets.presets} perf={perf} onChange={setPerf} estimatedInput />{perf.workload_type === "synthetic" && <p className="text-xs text-muted-foreground">{s("estimatedInputHint")}</p>}{source && <p className="text-xs text-muted-foreground">{s("rerunDefaults")}</p>}</CardContent></Card>
+      <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm">{t("advanced")}</summary><div className="mt-4 space-y-4">
+        <RequestRateField perf={perf} onChange={setPerf} disabled={busy} />
+        <div className="space-y-3 border-t pt-4">
+          <p className="text-xs text-muted-foreground">{s("runnerPlacement")}</p>
+          <div className="grid gap-4 sm:grid-cols-2"><Field label={t("clusterLabel")}><FormSelect aria-label={t("clusterLabel")} className="w-full" disabled={busy} placeholder={t("clusterDefault")} value={cluster} onValueChange={v => { setCluster(v); setNamespace(""); }}><FormSelectItem value="">{t("clusterDefault")}</FormSelectItem>{clusters.data?.map(c => <FormSelectItem value={c.id} key={c.id}>{c.name}</FormSelectItem>)}</FormSelect></Field><Field label={t("namespaceLabel")} id="benchmark-namespace"><Input id="benchmark-namespace" disabled={busy} placeholder="default" value={namespace} onChange={e => setNamespace(e.target.value)} /></Field></div>
+        </div>
+      </div></details>
+      <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm">{s("runNotes")}</summary><div className="mt-4 grid gap-4 sm:grid-cols-2"><Field label={s("runName")} id="benchmark-label"><Input id="benchmark-label" disabled={busy} maxLength={256} value={label} onChange={e => setLabel(e.target.value)} /></Field><Field label={t("noteLabel")} id="benchmark-note"><Input id="benchmark-note" disabled={busy} value={note} onChange={e => setNote(e.target.value)} /></Field></div></details>
+      <Card><CardContent className="flex flex-wrap items-center justify-between gap-4 pt-6"><div><p className="font-medium">{s("runSummary", { count: requestCount(perf) })}</p><p className="mt-1 text-sm text-muted-foreground">{clusterName} / {namespace || "default"} · {s("noCloneGpu")}</p><p className="text-xs text-muted-foreground">{s("warmupExcluded")}</p></div><Button type="submit" disabled={busy || !validUrl || ((manualModel || models.length > 1) && !model.trim())}>{busy ? <Loader2 className="animate-spin" /> : <Play className="size-4" />}{t("submit")}</Button></CardContent></Card>
+      {create.error && <p role="alert" className="text-sm text-destructive">{create.error.message}</p>}
+    </form>
   </div>;
 }
-
-function SingleRunForm({experiment, source}: {experiment: "performance" | "accuracy"; source?: BenchmarkRun}) {
-  const t = useTranslations("benchmarkForm");
-  const tc = useTranslations("common");
-  const router = useRouter();
-  const { data: models, isLoading: modelsLoading } = useModels();
-  const { data: deployments } = useModelDeployments();
-  const { data: clusters } = useK8sClusters();
-  const { data: external } = useExternalServings();
-  const { data: presets } = useBenchmarkPresets();
-  const servings = external?.servings ?? [];
-  const createMutation = useCreateBenchmark();
-  const previewMutation = useBenchmarkPreview();
-
-  const [deploymentId, setDeploymentId] = useState("");
-  const [externalTarget, setExternalTarget] = useState<ExternalServing | null>(null);
-  const [clusterId, setClusterId] = useState("");
-  const [mode, setMode] = useState<BenchMode>("clone");
-  const [servingOverridesText, setServingOverridesText] = useState("");
-  const { data: gpuProfiles } = useGpuProfiles(clusterId || null);
-  // GPU type picker writes gpu_type into the overrides JSON (and reads it back).
-  const overridesGpuType = (() => {
-    try { const v = JSON.parse(servingOverridesText || "{}"); return typeof v.gpu_type === "string" ? v.gpu_type : ""; } catch { return ""; }
-  })();
-  const setOverridesGpuType = (name: string) => {
-    let obj: Record<string, unknown> = {};
-    try { obj = servingOverridesText.trim() ? JSON.parse(servingOverridesText) : {}; } catch { obj = {}; }
-    if (name) obj.gpu_type = name; else delete obj.gpu_type;
-    setServingOverridesText(Object.keys(obj).length ? JSON.stringify(obj, null, 2) : "");
-  };
-  const [modelName, setModelName] = useState("");
-  const tool: BenchmarkTool = experiment === "accuracy" ? "lm_eval" : source?.tool ?? "vllm_serving";
-  const [perf, setPerf] = useState<PerfParams>(DEFAULT_PERF_PARAMS);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [endpointModel, setEndpointModel] = useState("");
-  const [accParams, setAccParams] = useState(DEFAULT_ACCURACY_PARAMS);
-  // Preserve additional settings when rerunning a historical workload.
-  const [extraParamsText, setExtraParamsText] = useState("");
-  const [namespace, setNamespace] = useState("");
-  const [image, setImage] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [label, setLabel] = useState("");
-  const [note, setNote] = useState("");
-  const [showYaml, setShowYaml] = useState(false);
-  const kind = TOOL_TO_KIND[tool];
-
-  // Prefill the form from a previously-run benchmark. The API key is a secret
-  // and is intentionally NOT restored — re-enter it if the target needs one.
-  const restored = useRef(false);
-  useEffect(() => {
-    const run = source;
-    if (!run || restored.current || (run.params.external_source && !external)) return;
-    restored.current = true;
-    setExternalTarget(null);
-    if (run.deployment_id) {
-      setDeploymentId(run.deployment_id);
-      setModelName("");
-      setMode(run.ephemeral ? "clone" : "direct");
-    } else if (run.params.external_source) {
-      const ext = run.params.external_source as { cluster_id: string | null; namespace: string; deployment_name: string };
-      const match = external?.servings.find(s => s.cluster_id === ext.cluster_id && s.namespace === ext.namespace && s.deployment_name === ext.deployment_name);
-      setMode("clone");
-      setExternalTarget(match ?? null);
-    } else {
-      setDeploymentId("");
-      const snap = run.serving_snapshot as { source?: string; base_url?: string } | null;
-      if (snap?.source === "endpoint" && snap.base_url) {
-        setBaseUrl(snap.base_url);
-        setEndpointModel(run.model_name);
-        setModelName("");
-        setMode("endpoint");
-      } else {
-        setModelName(run.model_name);
-        setMode("model");
-      }
-    }
-    setClusterId(run.cluster_id ?? "");
-    setNamespace(run.k8s_namespace ?? "");
-    setImage(run.kind === "accuracy" && run.bench_image === "llmops-benchmark:latest" ? "" : run.bench_image ?? "");
-    setLabel(run.label ?? "");
-    setNote(run.note ?? "");
-    setServingOverridesText("");
-
-    const params = run.params ?? {};
-    const num = (v: unknown, d: number) => (typeof v === "number" ? v : d);
-    const str = (v: unknown) => (v === undefined || v === null ? "" : String(v));
-    if (TOOL_TO_KIND[run.tool] === "performance") {
-      setPerf({
-        random_input_len: num(params.random_input_len, DEFAULT_PERF_PARAMS.random_input_len),
-        random_output_len: num(params.random_output_len, DEFAULT_PERF_PARAMS.random_output_len),
-        num_prompts: num(params.num_prompts, DEFAULT_PERF_PARAMS.num_prompts),
-        max_concurrency: str(params.max_concurrency),
-        request_rate: str(params.request_rate),
-        seed: num(params.seed, DEFAULT_PERF_PARAMS.seed),
-        ignore_eos: params.ignore_eos === true,
-        tokenizer: str(params.tokenizer),
-      });
-      const known = new Set([...Object.keys(DEFAULT_PERF_PARAMS), "preset", "external_source"]);
-      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
-      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
-    } else {
-      const known = new Set([
-        "tasks", "batch_size", "num_concurrent", "num_fewshot", "limit",
-        "apply_chat_template", "gen_kwargs",
-      ]);
-      setAccParams({
-        tasks: Array.isArray(params.tasks)
-          ? (params.tasks as string[]).join(", ")
-          : str(params.tasks) || DEFAULT_ACCURACY_PARAMS.tasks,
-        num_fewshot: str(params.num_fewshot),
-        limit: str(params.limit),
-        batch_size: num(params.batch_size, DEFAULT_ACCURACY_PARAMS.batch_size),
-        num_concurrent: num(params.num_concurrent, DEFAULT_ACCURACY_PARAMS.num_concurrent),
-        apply_chat_template: params.apply_chat_template === true,
-        gen_kwargs: str(params.gen_kwargs),
-      });
-      const extras = Object.fromEntries(Object.entries(params).filter(([k]) => !known.has(k)));
-      setExtraParamsText(Object.keys(extras).length ? JSON.stringify(extras, null, 2) : "");
-    }
-  }, [source, external]);
-
-  // Deduplicated model_name list for the dropdown.
-  const modelOptions = useMemo(() => {
-    if (!models) return [] as string[];
-    return Array.from(new Set(models.map((m) => m.model_name))).sort();
-  }, [models]);
-
-  const allDeployments = deployments ?? [];
-  const selectedDeployment = allDeployments.find((d) => d.id === deploymentId) ?? null;
-  const readyDeployments = allDeployments.filter((d) => d.ready_replicas > 0);
-
-  // The external target only participates while the clone tab is active;
-  // leftover selections on inactive tabs never leak into cluster/namespace
-  // autofill or the outgoing body.
-  const activeExternal = mode === "clone" ? externalTarget : null;
-
-  // deploymentId is shared between the clone and direct tabs (same target,
-  // different mode); the direct tab simply won't resolve a not-Ready id.
-  const directDeploymentId = readyDeployments.some((d) => d.id === deploymentId)
-    ? deploymentId
-    : "";
-
-  const handleCloneTargetChange = (value: string) => {
-    if (value.startsWith("ext::")) {
-      const serving = servings.find((s) => externalKey(s) === value) ?? null;
-      setExternalTarget(serving);
-      setDeploymentId("");
-    } else {
-      setExternalTarget(null);
-      setDeploymentId(value);
-    }
-  };
-
-  // external_target is performance-only; drop it if the user switches to an
-  // accuracy tool while one is selected.
-  useEffect(() => {
-    if (kind === "accuracy" && externalTarget) {
-      setExternalTarget(null);
-    }
-  }, [kind, externalTarget]);
-
-  const buildNamedParams = (): Record<string, unknown> => {
-    if (kind === "performance") {
-      const params: Record<string, unknown> = {
-        random_input_len: perf.random_input_len,
-        random_output_len: perf.random_output_len,
-        num_prompts: perf.num_prompts,
-        seed: perf.seed,
-      };
-      if (`${perf.max_concurrency}`.trim() !== "") {
-        params.max_concurrency = Number(perf.max_concurrency);
-      }
-      if (`${perf.request_rate}`.trim() !== "") {
-        params.request_rate = Number(perf.request_rate);
-      }
-      if (perf.ignore_eos) {
-        params.ignore_eos = true;
-      }
-      if (perf.tokenizer.trim() !== "") {
-        params.tokenizer = perf.tokenizer.trim();
-      }
-      // Tag the run with the preset only when the values still match one, so a
-      // historical run's `preset:` label never lies about edited numbers.
-      const matched = matchedPresetKey(presets, perf);
-      if (matched) params.preset = matched;
-      return params;
-    }
-    const tasks = accParams.tasks
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const params: Record<string, unknown> = {
-      tasks,
-      batch_size: accParams.batch_size,
-      num_concurrent: accParams.num_concurrent,
-    };
-    if (accParams.num_fewshot !== "") {
-      params.num_fewshot = Number(accParams.num_fewshot);
-    }
-    if (accParams.limit !== "") {
-      params.limit = Number(accParams.limit);
-    }
-    if (accParams.apply_chat_template) {
-      params.apply_chat_template = true;
-    }
-    if (accParams.gen_kwargs.trim() !== "") {
-      params.gen_kwargs = accParams.gen_kwargs.trim();
-    }
-    return params;
-  };
-
-  const parseExtras = ():
-    | { ok: true; value: Record<string, unknown> }
-    | { ok: false; error: string } => {
-    const text = extraParamsText.trim();
-    if (!text) return { ok: true, value: {} };
-    try {
-      const parsed = JSON.parse(text);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return { ok: false, error: t("errorExtrasNotObject") };
-      }
-      return { ok: true, value: parsed as Record<string, unknown> };
-    } catch (e) {
-      return {
-        ok: false,
-        error: t("errorExtrasJsonInvalid", {
-          message: e instanceof Error ? e.message : String(e),
-        }),
-      };
-    }
-  };
-
-  // Shared by the deployment-clone and external-clone branches below.
-  const parseServingOverrides = ():
-    | { ok: true; value: Record<string, unknown> | undefined }
-    | { ok: false; error: string } => {
-    const text = servingOverridesText.trim();
-    if (!text) return { ok: true, value: undefined };
-    try {
-      const parsed = JSON.parse(text);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return { ok: false, error: t("errorExtrasNotObject") };
-      }
-      return { ok: true, value: parsed as Record<string, unknown> };
-    } catch (e) {
-      return {
-        ok: false,
-        error: t("errorExtrasJsonInvalid", {
-          message: e instanceof Error ? e.message : String(e),
-        }),
-      };
-    }
-  };
-
-  // Best-effort body for the live YAML preview (never throws on bad JSON).
-  // Built from the ACTIVE tab's fields only — leftovers on other tabs are ignored.
-  const previewBody = useMemo((): CreateBenchmarkRequest | null => {
-    const hasTarget =
-      mode === "clone"
-        ? !!(deploymentId || externalTarget)
-        : mode === "direct"
-          ? !!directDeploymentId
-          : mode === "model"
-            ? !!modelName.trim()
-            : mode === "endpoint"
-              ? !!(baseUrl.trim() && endpointModel.trim() && kind === "performance")
-              : false;
-    if (!hasTarget) return null;
-    // The JSON-override card only applies to the accuracy path now — the
-    // performance path's params come solely from the editable workload fields.
-    const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
-    const body: CreateBenchmarkRequest = {
-      tool,
-      params: {
-        ...buildNamedParams(),
-        ...(extras.ok ? extras.value : {}),
-      },
-    };
-    if (mode === "clone" && externalTarget) {
-      // Perf-only clone of a discovered serving; the backend derives
-      // placement (cluster/namespace) from external_target itself.
-      body.external_target = {
-        cluster_id: externalTarget.cluster_id,
-        namespace: externalTarget.namespace,
-        deployment_name: externalTarget.deployment_name,
-      };
-      const overrides = parseServingOverrides();
-      if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
-    } else if (mode === "clone") {
-      body.deployment_id = deploymentId;
-      body.ephemeral = true;
-      const overrides = parseServingOverrides();
-      if (overrides.ok && overrides.value) body.serving_overrides = overrides.value;
-    } else if (mode === "direct") {
-      body.deployment_id = directDeploymentId;
-    } else if (mode === "endpoint") {
-      body.base_url = baseUrl.trim();
-      body.model_name = endpointModel.trim();
-    } else {
-      body.model_name = modelName.trim();
-    }
-    if (!(mode === "clone" && externalTarget)) {
-      if (clusterId) body.cluster_id = clusterId;
-      if (namespace.trim()) body.namespace = namespace.trim();
-    }
-    if (image.trim()) body.image = image.trim();
-    if (apiKey.trim()) body.api_key = apiKey.trim();
-    return body;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    mode, deploymentId, directDeploymentId, externalTarget, modelName, baseUrl, endpointModel,
-    tool, perf, presets, accParams, extraParamsText, servingOverridesText,
-    clusterId, namespace, image, apiKey,
-  ]);
-
-  const previewKey = previewBody ? JSON.stringify(previewBody) : "";
-  const runPreview = previewMutation.mutate;
-  useEffect(() => {
-    if (!showYaml || !previewKey) return;
-    const id = setTimeout(() => runPreview(JSON.parse(previewKey)), 400);
-    return () => clearTimeout(id);
-  }, [showYaml, previewKey, runPreview]);
-
-  const previewManifests = previewMutation.data?.manifests ?? [];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (mode === "clone" && !deploymentId && !externalTarget) {
-      toast.error(t("errorTargetRequired"));
-      return;
-    }
-    if (mode === "direct" && !directDeploymentId) {
-      toast.error(t("errorTargetRequired"));
-      return;
-    }
-    if (mode === "model" && !modelName.trim()) {
-      toast.error(t("errorModelRequired"));
-      return;
-    }
-    if (mode === "endpoint") {
-      if (!baseUrl.trim() || !endpointModel.trim()) {
-        toast.error(t("errorBaseUrlRequired"));
-        return;
-      }
-      if (kind === "accuracy") {
-        toast.error(t("endpointPerfOnly"));
-        return;
-      }
-    }
-    if (kind === "accuracy") {
-      const tasks = accParams.tasks
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (tasks.length === 0) {
-        toast.error(t("errorTasksRequired"));
-        return;
-      }
-    }
-    // The JSON-override card only applies to the accuracy path now — the
-    // performance path's params come solely from the editable workload fields.
-    const extras = kind === "accuracy" ? parseExtras() : { ok: true as const, value: {} };
-    if (!extras.ok) {
-      toast.error(extras.error);
-      return;
-    }
-
-    const body: CreateBenchmarkRequest = {
-      tool,
-      // Extras override named so users can correct any field via JSON.
-      params: {
-        ...buildNamedParams(),
-        ...extras.value,
-      },
-      label: label.trim() || undefined,
-      note: note.trim() || undefined,
-    };
-    if (mode === "clone" && externalTarget) {
-      body.external_target = {
-        cluster_id: externalTarget.cluster_id,
-        namespace: externalTarget.namespace,
-        deployment_name: externalTarget.deployment_name,
-      };
-      const overrides = parseServingOverrides();
-      if (!overrides.ok) {
-        toast.error(overrides.error);
-        return;
-      }
-      if (overrides.value) body.serving_overrides = overrides.value;
-    } else if (mode === "clone") {
-      body.deployment_id = deploymentId;
-      body.ephemeral = true;
-      const overrides = parseServingOverrides();
-      if (!overrides.ok) {
-        toast.error(overrides.error);
-        return;
-      }
-      if (overrides.value) body.serving_overrides = overrides.value;
-    } else if (mode === "direct") {
-      body.deployment_id = directDeploymentId;
-    } else if (mode === "endpoint") {
-      body.base_url = baseUrl.trim();
-      body.model_name = endpointModel.trim();
-    } else {
-      body.model_name = modelName.trim();
-    }
-    // The backend derives placement from external_target itself; keep the
-    // outgoing body honest and skip these for external runs.
-    if (!(mode === "clone" && externalTarget)) {
-      if (clusterId) body.cluster_id = clusterId;
-      if (namespace.trim()) body.namespace = namespace.trim();
-    }
-    if (image.trim()) body.image = image.trim();
-    if (apiKey.trim()) body.api_key = apiKey.trim();
-
-    createMutation.mutate(body, {
-      onSuccess: (run) => {
-        toast.success(t("submitSuccess"));
-        router.push(`/admin/benchmarks/${run.id}`);
-      },
-      onError: (e) =>
-        toast.error(e instanceof Error ? e.message : t("submitFail")),
-    });
-  };
-
-  return (
-    <div className="space-y-4">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("target")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="cluster">{t("clusterLabel")}</Label>
-              <FormSelect placeholder={t("clusterDefault")}
-                id="cluster"
-                className="w-full"
-                value={activeExternal ? activeExternal.cluster_id ?? "" : clusterId}
-                onValueChange={(selectedValue) => setClusterId(selectedValue)}
-                disabled={!!activeExternal}
-              >
-                <FormSelectItem value="">{t("clusterDefault")}</FormSelectItem>
-                {(clusters ?? []).map((c) => (
-                  <FormSelectItem key={c.id} value={c.id}>
-                    {c.name}
-                    {c.is_default ? " ★" : ""}
-                    {c.api_server ? ` — ${c.api_server}` : ""}
-                  </FormSelectItem>
-                ))}
-                {activeExternal &&
-                  activeExternal.cluster_id &&
-                  !(clusters ?? []).some((c) => c.id === activeExternal.cluster_id) && (
-                    <FormSelectItem value={activeExternal.cluster_id}>{activeExternal.cluster_name}</FormSelectItem>
-                  )}
-              </FormSelect>
-              <p className="text-xs text-muted-foreground">{t("clusterHint")}</p>
-            </div>
-
-            <Tabs value={mode} onValueChange={(v) => setMode(v as BenchMode)}>
-              <TabsList className="w-full">
-                <TabsTrigger value="clone">{t("tabClone")}</TabsTrigger>
-                <TabsTrigger value="direct">{t("tabDirect")}</TabsTrigger>
-                {kind === "performance" && <TabsTrigger value="endpoint">{t("tabEndpoint")}</TabsTrigger>}
-                <TabsTrigger value="model">{t("tabModel")}</TabsTrigger>
-
-              </TabsList>
-
-              <TabsContent value="clone" className="space-y-4 pt-2">
-                <p className="text-xs text-muted-foreground">{t("tabCloneHint")}</p>
-                <div className="space-y-1.5">
-                  <Label htmlFor="clone_target">{t("deploymentLabel")}</Label>
-                  <FormSelect placeholder={t("deploymentNone")}
-                    id="clone_target"
-                    className="w-full"
-                    value={externalTarget ? externalKey(externalTarget) : deploymentId}
-                    onValueChange={(selectedValue) => handleCloneTargetChange(selectedValue)}
-                  >
-                    <FormSelectItem value="">{t("deploymentNone")}</FormSelectItem>
-                    <FormSelectGroup label={t("targetGroupPortal")}>
-                      {allDeployments.map((d) => {
-                        const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
-                        return (
-                          <FormSelectItem key={d.id} value={d.id} disabled={d.serving_mode === "pd"}>
-                            {d.model_name} — {d.gpu_count}×{gpu}
-                            {d.serving_mode === "pd" ? " · P/D" : ""}
-                            {d.memory_limit ? ` · ${d.memory_limit}` : ""}
-                            {d.ready_replicas > 0 ? "" : ` · ${t("statusNotReady")}`}
-                          </FormSelectItem>
-                        );
-                      })}
-                    </FormSelectGroup>
-                    {kind !== "accuracy" && servings.length > 0 && (
-                      <FormSelectGroup label={t("targetGroupExternal")}>
-                        {servings.map((s) => (
-                          <FormSelectItem key={externalKey(s)} value={externalKey(s)}>
-                            {s.deployment_name} ({s.engine} · {s.namespace})
-                          </FormSelectItem>
-                        ))}
-                      </FormSelectGroup>
-                    )}
-                  </FormSelect>
-                  <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
-                  {allDeployments.some((d) => d.serving_mode === "pd") && (
-                    <p className="text-xs text-muted-foreground">{t("pdTargetNote")}</p>
-                  )}
-                  {!externalTarget && selectedDeployment && (
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {selectedDeployment.model_path}
-                    </p>
-                  )}
-                  {externalTarget && (
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {externalTarget.model_path ?? externalTarget.deployment_name}
-                    </p>
-                  )}
-                </div>
-                <details><summary className="cursor-pointer text-sm">{t("servingOverridesLabel")}</summary>
-                <div className="space-y-1.5">
-                  <Label htmlFor="bench_gpu_type">{t("gpuTypeLabel")}</Label>
-                  <FormSelect placeholder={t("gpuTypeNone")}
-                    id="bench_gpu_type"
-                    className="w-full"
-                    value={overridesGpuType}
-                    onValueChange={(selectedValue) => setOverridesGpuType(selectedValue)}
-                  >
-                    <FormSelectItem value="">{t("gpuTypeNone")}</FormSelectItem>
-                    {(gpuProfiles?.profiles ?? []).filter((p) => p.enabled).map((p) => (
-                      <FormSelectItem key={p.id} value={p.name}>{p.name}{p.vram_gb ? ` · ${p.vram_gb} GB` : ""}</FormSelectItem>
-                    ))}
-                  </FormSelect>
-                  <p className="text-xs text-muted-foreground">{t("gpuTypeHint")}</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="serving_overrides">{t("servingOverridesLabel")}</Label>
-                  <JsonEditor
-                    id="serving_overrides"
-                    value={servingOverridesText}
-                    onChange={setServingOverridesText}
-                    placeholder='{"gpu_count": 2, "gpu_type": "a100-80g"}'
-                    minHeight="min-h-20"
-                  />
-                  <p className="text-xs text-muted-foreground">{t("servingOverridesHint")}</p>
-                </div>
-                </details>
-              </TabsContent>
-
-              <TabsContent value="direct" className="space-y-4 pt-2">
-                <p className="text-xs text-muted-foreground">{t("tabDirectHint")}</p>
-                <div className="space-y-1.5">
-                  <Label htmlFor="direct_target">{t("deploymentLabel")}</Label>
-                  <FormSelect placeholder={t("deploymentNone")}
-                    id="direct_target"
-                    className="w-full"
-                    value={directDeploymentId}
-                    onValueChange={(selectedValue) => {
-                      setExternalTarget(null);
-                      setDeploymentId(selectedValue);
-                    }}
-                  >
-                    <FormSelectItem value="">{t("deploymentNone")}</FormSelectItem>
-                    {readyDeployments.map((d) => {
-                      const gpu = d.node_selector?.["gpu-type"] ?? d.gpu_resource_key;
-                      return (
-                        <FormSelectItem key={d.id} value={d.id}>
-                          {d.model_name} — {d.gpu_count}×{gpu}
-                          {d.serving_mode === "pd" ? " · P/D → router" : ""}
-                          {d.memory_limit ? ` · ${d.memory_limit}` : ""}
-                        </FormSelectItem>
-                      );
-                    })}
-                  </FormSelect>
-                  <p className="text-xs text-muted-foreground">{t("deploymentHint")}</p>
-                  {directDeploymentId && selectedDeployment && (
-                    <p className="font-mono text-xs text-muted-foreground">
-                      {selectedDeployment.model_path}
-                    </p>
-                  )}
-                </div>
-              </TabsContent>
-
-              <TabsContent value="endpoint" className="space-y-4 pt-2">
-                <p className="text-xs text-muted-foreground">{t("tabEndpointHint")}</p>
-                {kind === "accuracy" ? (
-                  <p className="text-sm text-muted-foreground">{t("endpointPerfOnly")}</p>
-                ) : (
-                  <>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="base_url">{t("baseUrlLabel")}</Label>
-                      <Input
-                        id="base_url"
-                        value={baseUrl}
-                        onChange={(e) => setBaseUrl(e.target.value)}
-                        placeholder={t("baseUrlPlaceholder")}
-                        className="font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground">{t("baseUrlHint")}</p>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="endpoint_model">{t("endpointModelLabel")}</Label>
-                      <Input
-                        id="endpoint_model"
-                        value={endpointModel}
-                        onChange={(e) => setEndpointModel(e.target.value)}
-                        placeholder="meta-llama/Llama-3.1-8B-Instruct"
-                        className="font-mono"
-                      />
-                      <p className="text-xs text-muted-foreground">{t("endpointModelHint")}</p>
-                    </div>
-                  </>
-                )}
-              </TabsContent>
-
-              <TabsContent value="model" className="space-y-4 pt-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="model_name">{t("modelLabel")}</Label>
-                  <FormSelect placeholder={t("modelPlaceholder")}
-                    id="model_name"
-                    className="w-full"
-                    value={modelName}
-                    onValueChange={(selectedValue) => setModelName(selectedValue)}
-                    disabled={modelsLoading}
-                  >
-                    <FormSelectItem value="">{t("modelPlaceholder")}</FormSelectItem>
-                    {modelOptions.map((m) => (
-                      <FormSelectItem key={m} value={m}>
-                        {m}
-                      </FormSelectItem>
-                    ))}
-                  </FormSelect>
-                  <p className="text-xs text-muted-foreground">{t("modelHint")}</p>
-                </div>
-              </TabsContent>
-
-            </Tabs>
-
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{t("params")}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {kind === "performance" ? (
-              <PerfWorkloadFields
-                presets={presets}
-                perf={perf}
-                onChange={setPerf}
-              />
-            ) : (
-              <AccuracyParamsFields
-                params={accParams}
-                onChange={setAccParams}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <details className="rounded-lg border p-4" open={extraParamsText ? true : undefined}>
-          <summary className="cursor-pointer text-sm">{t("extraParams")}</summary>
-            <div className="mt-3 space-y-2">
-              <Label htmlFor="extra_params">{t("extraParamsLabel")}</Label>
-              <JsonEditor
-                id="extra_params"
-                value={extraParamsText}
-                onChange={setExtraParamsText}
-                placeholder={kind === "performance" ? '{"goodput":"ttft:200 tpot:50"}' : '{"tokenizer":"org/model"}'}
-              />
-              <p className="text-xs text-muted-foreground">{t(kind === "performance" ? "perfExtras" : "accuracyExtras")}</p>
-            </div>
-        </details>
-
-        <details className="rounded-lg border p-4"><summary className="cursor-pointer text-sm">{t("advanced")}</summary>
-          <div className="mt-3 space-y-3">
-            <div className="space-y-1.5">
-              <Label>{t("toolLabel")}</Label>
-              <p className="text-sm">{t(kind === "accuracy" ? "accuracyRunner" : "performanceRunner")}</p>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="run_label">{t("labelLabel")}</Label>
-              <Input
-                id="run_label"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={t("labelPlaceholder")}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="run_note">{t("noteLabel")}</Label>
-              <textarea
-                id="run_note"
-                rows={2}
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={t("notePlaceholder")}
-                className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-              />
-            </div>
-
-
-            <div className="space-y-1.5">
-              <Label htmlFor="namespace">{t("namespaceLabel")}</Label>
-              <Input
-                id="namespace"
-                placeholder="default"
-                value={activeExternal ? activeExternal.namespace : namespace}
-                onChange={(e) => setNamespace(e.target.value)}
-                disabled={!!activeExternal}
-              />
-              <p className="text-xs text-muted-foreground">{t("namespaceHint")}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="image">{t("imageLabel")}</Label>
-              <Input
-                id="image"
-                placeholder="llmops-benchmark:portal-v1"
-                value={image}
-                onChange={(e) => setImage(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">{t("imageHint")}</p>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="api_key">{t("apiKeyLabel")}</Label>
-              <Input
-                id="api_key"
-                type="password"
-                autoComplete="off"
-                placeholder={t("apiKeyPlaceholder")}
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">{t("apiKeyHint")}</p>
-            </div>
-          </div>
-        </details>
-        <div className="flex items-center justify-end gap-3">
-          <Link href="/admin/benchmarks">
-            <Button type="button" variant="outline">
-              {tc("cancel")}
-            </Button>
-          </Link>
-          <Button
-            type="submit"
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? (
-              <Loader2 className="size-4 mr-1 animate-spin" />
-            ) : (
-              <Play className="size-4 mr-1" />
-            )}
-            {t("submit")}
-          </Button>
-        </div>
-      </form>
-
-      <details className="rounded-lg border p-4" onToggle={e => setShowYaml(e.currentTarget.open)}>
-        <summary className="cursor-pointer text-sm">{t("previewTitle")}</summary>
-        <div className="mt-3 space-y-3">
-          {previewMutation.isPending && <Loader2 className="size-4 animate-spin"/>}
-            {previewManifests.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-6 text-center">
-                {t("previewEmpty")}
-              </p>
-            ) : (
-              previewManifests.map((m, i) => (
-                <div key={i} className="rounded-md border overflow-hidden">
-                  <div className="flex items-center gap-2 border-b bg-muted/40 px-3 py-1.5">
-                    <span className="text-xs font-semibold">{m.kind}</span>
-                    <span className="text-xs font-mono text-muted-foreground truncate">
-                      {m.name}
-                    </span>
-                  </div>
-                  <pre className="max-h-[28rem] overflow-auto bg-muted/20 p-3 text-xs leading-relaxed">
-                    <code className="font-mono">{m.yaml}</code>
-                  </pre>
-                </div>
-              ))
-            )}
-        </div>
-      </details>
-    </div>
-  );
-}
+function Field({ label, id, children }: { label: string; id?: string; children: React.ReactNode }) { return <div className="space-y-1.5"><Label htmlFor={id}>{label}</Label>{children}</div>; }

@@ -51,6 +51,7 @@ class RecipeSearch(StrictModel):
 
 
 class ValidationConditions(StrictModel):
+    version: Literal[1, 2] = 1
     ingress_host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9.-]+$")
     ingress_class: str = "nginx"
     gpu_type: str | None = None
@@ -72,12 +73,25 @@ class ValidationConditions(StrictModel):
     airgap: bool = False
     search: RecipeSearch | None = None
 
+    @model_validator(mode="before")
+    @classmethod
+    def new_workload(cls, value):
+        if isinstance(value, dict) and value.get("version") == 2:
+            value = {**value, "performance": {"workload_version": 2, "cache_ratio": 90, **value.get("performance", {})}}
+            if value.get("accuracy") or value.get("quality_gates") or value.get("prefix_len"):
+                raise ValueError("New validations use a single performance workload without accuracy evaluation")
+            if value.get("selection_metric", "output_throughput") not in ("output_throughput", "throughput_per_gpu"):
+                raise ValueError("Select output throughput or throughput per GPU")
+            if value["performance"]["workload_version"] != 2:
+                raise ValueError("New validations require workload version 2")
+        return value
+
     @model_validator(mode="after")
     def consistent(self):
         if self.search:
             if self.search.max_search_seconds >= self.time_limits.total:
                 raise ValueError("Search time must leave time for final restoration and validation")
-            if self.search.alternative_models and not self.quality_gates:
+            if self.version == 1 and self.search.alternative_models and not self.quality_gates:
                 raise ValueError("Alternative models require predefined quality floors")
         if self.prefix_len is not None and self.prefix_len >= self.performance.random_input_len:
             raise ValueError("Shared prefix must be shorter than the total input")
@@ -109,6 +123,10 @@ class CandidateInput(StrictModel):
         return self
 
 
+class CurrentValidationConditions(ValidationConditions):
+    version: Literal[2] = 2
+
+
 class ValidationCreate(StrictModel):
     request_key: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=256)
@@ -116,7 +134,18 @@ class ValidationCreate(StrictModel):
     cluster_id: str | None = None
     namespace: str | None = None
     candidates: list[CandidateInput] = Field(default_factory=list, max_length=100)
-    conditions: ValidationConditions
+    conditions: CurrentValidationConditions
+
+    @field_validator("conditions", mode="before")
+    @classmethod
+    def current_protocol(cls, value):
+        if isinstance(value, dict):
+            if value.get("version", 2) != 2:
+                raise ValueError("New validations require version 2; existing jobs retain their saved conditions")
+            return {**value, "version": 2}
+        if value.version != 2:
+            raise ValueError("New validations require version 2")
+        return value
 
     @model_validator(mode="after")
     def candidate_count(self):
@@ -241,8 +270,17 @@ def assess(runs, conditions: dict, gpu_count: int) -> dict:
             errors.append(f"Missing metric: {key}")
     for run in perf:
         m = (run.result or {}).get("metrics", {})
-        if m.get("completed") != protocol.performance.num_prompts or m.get("failed", 0) != 0:
+        if (
+            m.get("completed") != protocol.performance.request_count
+            or m.get("failed", 0) != 0
+            or m.get("skipped", 0) != 0
+        ):
             errors.append(f"Measurement {run.id}: incomplete requests")
+        if (
+            protocol.performance.workload_type == "agentic_replay"
+            and m.get("completed_sessions") != protocol.performance.num_sessions
+        ):
+            errors.append(f"Measurement {run.id}: incomplete conversations")
     if metrics.get("output_throughput") is not None:
         metrics["throughput_per_gpu"] = metrics["output_throughput"] / max(gpu_count, 1)
     if protocol.max_ttft_p99_ms and metrics.get("p99_ttft_ms", math.inf) > protocol.max_ttft_p99_ms:

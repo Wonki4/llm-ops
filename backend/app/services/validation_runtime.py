@@ -490,6 +490,13 @@ async def benchmark(db, job, attempt, dep, run):
         inherited = [env_item(k, v) for k, v in (pool.env or {}).items() if k not in reserved]
         container.setdefault("env", []).extend(credentials.protect_env(inherited))
         container["env"].append({"name": "BENCH_VALIDATION_WARMUP", "value": "1"})
+        if not routed and not pd_serving.is_pd(dep) and dep.replicas == 1 and dep.engine == "vllm":
+            container["env"] = [e for e in container["env"] if e["name"] not in {"BENCH_ISOLATED", "BENCH_TOKEN_INPUT"}]
+            container["env"] += [{"name": "BENCH_ISOLATED", "value": "1"}]
+            # A shared tokenizer for alternate weights must remain authoritative.
+            if not job.conditions.get("tokenizer"):
+                container["env"] += [{"name": "BENCH_TOKEN_INPUT", "value": "1"}]
+
         asset = attempt.state.get("assets", {}).get("1" if pd_serving.is_pd(dep) else "0", {})
         if run.kind == "accuracy":
             container["env"] += [

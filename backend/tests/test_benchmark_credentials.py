@@ -9,7 +9,6 @@ from kubernetes_asyncio.client.exceptions import ApiException
 from app.clients.k8s import K8sClient
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
-from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.jobs.reconcile_benchmarks import _drive_provisioning
 from app.services.benchmark_credentials import BenchmarkCredentials, public_snapshot
 from app.services.benchmark_serving import external_runner_key
@@ -69,47 +68,14 @@ async def test_litellm_admin_key_only_in_owned_secret(client_for_user, super_use
     assert "master-canary" not in json.dumps(manifest)
 
 
-async def test_accuracy_clone_keeps_separate_keys_through_worker_restart(client_for_user, super_user, mock_db):
-    dep = CustomModelDeployment(
-        id=uuid4(),
-        model_name="model",
-        namespace="default",
-        engine="vllm",
-        model_path="/models/m",
-        image="image",
-        gpu_count=0,
-        replicas=1,
-        vllm_extra_args=["--served-model-name", "alias", "--api-key", "server-canary"],
-        env={"CUSTOM": "env-canary"},
-    )
-    mock_db.execute.return_value = MagicMock()
-    mock_db.execute.return_value.scalar_one_or_none.return_value = dep
-    k8s = SimpleNamespace(
-        create_benchmark_serving=AsyncMock(),
-        create_job=AsyncMock(),
-        read_deployment_status=AsyncMock(return_value={"ready": 1}),
-    )
-    body = {"tool": "lm_eval", "ephemeral": True, "deployment_id": str(dep.id), "api_key": "runner-canary"}
-    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=k8s)):
-        async with client_for_user(super_user) as client:
-            preview = await client.post("/api/benchmarks/preview", json=body)
-            resp = await client.post("/api/benchmarks", json=body)
-    for response in (preview, resp):
-        assert response.is_success, response.text
-        assert "canary" not in response.text
-    namespace, deployment, service, secret = k8s.create_benchmark_serving.await_args.args
-    assert namespace == "default" and "canary" not in json.dumps([deployment, service])
-    assert set(secret["stringData"].values()) == {"server-canary", "runner-canary", "env-canary"}
-    run = mock_db.add.call_args.args[0]
-    assert run.status == "provisioning" and "canary" not in json.dumps(run.serving_snapshot)
-    assert "runner_secret" not in resp.text
-    assert await _drive_provisioning(k8s, run) == 1 and run.status == "pending"
-    job = k8s.create_job.await_args.args[1]
-    env = {e["name"]: e for e in job["spec"]["template"]["spec"]["containers"][0]["env"]}
-    ref = env["BENCH_API_KEY"]["valueFrom"]["secretKeyRef"]
-    assert ref["name"] == secret["metadata"]["name"] and secret["stringData"][ref["key"]] == "runner-canary"
-    assert env["BENCH_MODEL"]["value"] == "alias" and "canary" not in json.dumps(job)
-    assert k8s.create_job.await_args.kwargs["secret"] is None
+async def test_new_accuracy_is_rejected_without_leaking_credentials(client_for_user, super_user, mock_db):
+    body = {"tool": "lm_eval", "ephemeral": True, "deployment_id": str(uuid4()), "api_key": "runner-canary"}
+    async with client_for_user(super_user) as client:
+        for path in ("/api/benchmarks/preview", "/api/benchmarks"):
+            response = await client.post(path, json=body)
+            assert response.status_code == 400
+            assert "accuracy" in response.text and "canary" not in response.text
+    mock_db.add.assert_not_called()
 
 
 async def test_worker_removes_legacy_encrypted_key_after_handoff():
