@@ -25,6 +25,7 @@ from app.api import (
     llmd,
     me,
     model_connections,
+    model_demand,
     model_deployments,
     models_catalog,
     portal_settings,
@@ -75,6 +76,7 @@ app.include_router(keys.router)
 app.include_router(team_requests.router)
 app.include_router(models_catalog.router)
 app.include_router(model_connections.router)
+app.include_router(model_demand.router)
 app.include_router(budgets.router)
 app.include_router(portal_settings.router)
 app.include_router(external.router)

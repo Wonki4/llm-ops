@@ -49,12 +49,14 @@ export function ModelLimitEditor({
   initialRpm,
   onChange,
   models = [],
+  fixedModel,
 }: {
   initialTpm: Record<string, number> | null | undefined;
   initialRpm: Record<string, number> | null | undefined;
   onChange: (tpm: Record<string, number>, rpm: Record<string, number>) => void;
   /** Selectable models (value = model_name, label = display_name). */
   models?: ModelOption[];
+  fixedModel?: string;
 }) {
   const t = useTranslations("modelLimits");
   const [rows, setRows] = useState<Row[]>(() => buildRows(initialTpm, initialRpm));
@@ -109,7 +111,7 @@ export function ModelLimitEditor({
         );
         return (
           <div key={i} className="grid grid-cols-[1fr_88px_88px_32px] items-center gap-2">
-            <Select value={r.model} onValueChange={(v) => setRow(i, { model: v })}>
+            <Select value={r.model} disabled={!!fixedModel} onValueChange={(v) => setRow(i, { model: v })}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder={t("model")}>
                   {r.model ? labelOf(r.model) : undefined}
@@ -141,7 +143,7 @@ export function ModelLimitEditor({
               placeholder="∞"
               onChange={(e) => setRow(i, { rpm: e.target.value })}
             />
-            <Button
+            {!fixedModel && <Button
               type="button"
               variant="ghost"
               size="icon"
@@ -149,14 +151,14 @@ export function ModelLimitEditor({
               onClick={() => removeRow(i)}
             >
               <X className="size-3.5" />
-            </Button>
+            </Button>}
           </div>
         );
       })}
-      <Button type="button" variant="outline" size="sm" onClick={addRow}>
+      {!fixedModel && <Button type="button" variant="outline" size="sm" onClick={addRow}>
         <Plus className="mr-1 size-3.5" /> {t("addModel")}
-      </Button>
-      <p className="text-xs text-muted-foreground">{t("editorHint")}</p>
+      </Button>}
+      {!fixedModel && <p className="text-xs text-muted-foreground">{t("editorHint")}</p>}
     </div>
   );
 }

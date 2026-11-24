@@ -44,7 +44,13 @@ async def get_settings(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """Get portal settings. All authenticated users can read."""
-    result = await db.execute(text("SELECT key, value FROM custom_portal_settings"))
+    visible_keys = [
+        "default_tpm_limit", "default_rpm_limit", "default_team_id", "hidden_teams",
+        "hidden_teams_strict", PERSONAL_KEYS_BETA_KEY,
+    ]
+    result = await db.execute(
+        text("SELECT key, value FROM custom_portal_settings WHERE key = ANY(:keys)"), {"keys": visible_keys}
+    )
     settings = {r["key"]: r["value"] for r in result.mappings()}
     return {
         "default_tpm_limit": int(settings.get("default_tpm_limit", "100000")),
