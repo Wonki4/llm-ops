@@ -65,6 +65,9 @@ def measurement_plan(conditions):
         )
         for i in range(conditions["repeats"])
     ]
+    if conditions.get("capacity_search"):
+        options = {**conditions["capacity_search"], "repeats": conditions["repeats"]}
+        plan = [("capacity-search", "performance", {**plan[0][2], "capacity_search": options})]
     if conditions.get("prefix_len"):
         plan.append(
             (

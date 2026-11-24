@@ -2,6 +2,7 @@
 
 import { useTranslations } from "next-intl";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BenchmarkServiceRates } from "@/components/benchmark-service-rates";
 import type { BenchmarkRun } from "@/types";
 
 export function experimentOf(run: BenchmarkRun) {
@@ -38,9 +39,9 @@ export function ResultSummary({ run }: { run: BenchmarkRun }) {
 }
 
 export function PerformanceResults({ run }: { run: BenchmarkRun }) {
-  const t = useTranslations("benchExperiment"), s = useTranslations("benchmarkSimple");
+  const t = useTranslations("benchExperiment"), s = useTranslations("benchmarkSimple"), capacity = useTranslations("capacityBenchmark");
   const metrics = run.result?.metrics as Record<string, number> | undefined;
-  if (!metrics) return null;
+  if (!metrics) return <BenchmarkServiceRates run={run} />;
   const agentic = run.params.workload_type === "agentic_replay";
   const cache = (run.result?.metrics as { cache?: { hit_rate?: number | null; hits?: number; queries?: number } })?.cache;
   const fmt = (v: unknown, unit = "") => typeof v === "number" ? v.toLocaleString(undefined, { maximumFractionDigits: 1 }) + unit : t("unavailable");
@@ -54,12 +55,12 @@ export function PerformanceResults({ run }: { run: BenchmarkRun }) {
   ];
   const turns = (run.result?.turns ?? []) as Record<string, number>[];
   const sessions = (run.result?.sessions ?? []) as { session: number; completed: boolean; duration_ms: number }[];
-  return <Card><CardHeader><CardTitle>{t("result")}</CardTitle><p className="text-sm text-muted-foreground">{run.ephemeral ? t("isolated") : s("mode_direct")}{agentic ? ` · ${s("agentic_replay")}` : ""}</p></CardHeader>
+  return <><BenchmarkServiceRates run={run} /><Card><CardHeader><CardTitle>{t("result")}</CardTitle><p className="text-sm text-muted-foreground">{run.ephemeral ? t("isolated") : capacity((run.result?.capacity_search as {scope?: string} | undefined)?.scope === "deployment" ? "deployment" : "endpoint")}{agentic ? ` · ${s("agentic_replay")}` : ""}</p></CardHeader>
     <CardContent className="space-y-4"><dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">{rows.map(([label, value]) => <div key={label}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="mt-1 font-semibold tabular-nums">{value}</dd></div>)}</dl>
       {!!metrics.failed && <p className="text-sm text-destructive">{s("failedCalls", { failed: metrics.failed, skipped: metrics.skipped ?? 0 })}</p>}
       {(run.result?.input as { token_input?: boolean } | undefined)?.token_input === false && <p className="text-xs text-muted-foreground">{s((run.result?.input as { length_mode?: string })?.length_mode === "text_estimate" ? "estimatedInputHint" : "actualTokensHint")}</p>}
       {!!turns.length && <details><summary className="cursor-pointer text-sm">{s("turnDetails")}</summary><div className="mt-3 overflow-x-auto"><table className="w-full text-sm tabular-nums"><thead><tr className="border-b">{[s("turn"), s("inputTokens"), t("ttftTail"), t("throughput"), t("completed"), s("failedSkipped")].map(x => <th className="p-2 text-left" key={x}>{x}</th>)}</tr></thead><tbody>{turns.map(turn => <tr key={turn.turn} className="border-b"><td className="p-2">{turn.turn}</td><td>{turn.completed ? fmt(turn.total_input_tokens / turn.completed) : "—"}</td><td>{fmt(turn.p99_ttft_ms, " ms")}</td><td>{fmt(turn.output_throughput, " tok/s")}</td><td>{turn.completed} / {turn.requested}</td><td>{turn.failed} / {turn.skipped}</td></tr>)}</tbody></table></div><p className="my-3 text-xs text-muted-foreground">{s("turnRateHint")}</p><div className="max-h-64 overflow-y-auto text-sm">{sessions.map(session => <p key={session.session}>{s("sessionTime", { session: session.session })}: {fmt(session.duration_ms, " ms")} · {session.completed ? s("complete") : s("incomplete")}</p>)}</div></details>}
-    </CardContent></Card>;
+    </CardContent></Card></>;
 }
 
 export function CacheResults({ run }: { run: BenchmarkRun }) {

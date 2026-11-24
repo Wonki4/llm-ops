@@ -14,7 +14,7 @@ import { DeployRecipeBrowser } from "@/components/deploy-recipe-browser";
 import { DeploymentScopeFields } from "@/components/deployment-scope-fields";
 import { useClusterName } from "@/components/serving-scope-filter";
 import { StorageResolutionPreview, recipeStorageIds } from "@/components/storage-resolution-preview";
-import { DEFAULT_PERF_PARAMS, PerfWorkloadFields, AdvancedWorkloadFields } from "@/components/benchmark-workload-fields";
+import { DEFAULT_PERF_PARAMS, PerfWorkloadFields, AdvancedWorkloadFields, ObjectiveFields } from "@/components/benchmark-workload-fields";
 import { applyPreset, workloadParams, requestCount } from "@/lib/benchmark-workload";
 import type { BenchmarkPresetSettings } from "@/types";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,8 @@ function Form({ initialScope, initialIds, presetSettings }: { initialScope: Serv
   const [gpuType, setGpuType] = useState(""), [gpuLimit, setGpuLimit] = useState(8), [name, setName] = useState(""), [alias, setAlias] = useState("");
   const [host, setHost] = useState(""), [airgap, setAirgap] = useState(false), [storageBlocked, setStorageBlocked] = useState(false);
   const [perf, setPerf] = useState(() => applyPreset(DEFAULT_PERF_PARAMS, presetSettings.presets[presetSettings.default_preset]));
+  const capacity = useTranslations("capacityBenchmark");
+  const [maxRate, setMaxRate] = useState(128);
   const [repeats, setRepeats] = useState(3);
   const [metric, setMetric] = useState("output_throughput"), [ttft, setTtft] = useState(""), [throughput, setThroughput] = useState("");
   const [limits, setLimits] = useState({ assets: 3600, scheduling: 1800, startup: 7200, measurement: 3600, total: 86400 });
@@ -54,6 +56,7 @@ function Form({ initialScope, initialIds, presetSettings }: { initialScope: Serv
     search: automatic ? { ...searchLimits, target_model: targetModel.trim(), alternative_models: alternatives.split(",").map(x => x.trim()).filter(Boolean) } : null,
     ingress_host: host, ingress_class: "nginx", gpu_type: gpuType || null, gpu_limit: gpuLimit, time_limits: limits,
     performance: workloadParams(perf) as ValidationConditions["performance"],
+    capacity_search: { max_rate: maxRate },
     repeats, prefix_len: null, tokenizer: perf.tokenizer || null, airgap,
     accuracy: null, accuracy_image: null, quality_gates: [],
     max_ttft_p99_ms: ttft ? Number(ttft) : null, min_output_throughput: throughput ? Number(throughput) : null, selection_metric: metric,
@@ -100,8 +103,10 @@ function Form({ initialScope, initialIds, presetSettings }: { initialScope: Serv
         <p className="text-xs text-muted-foreground">{t("assetsHint")}</p>
       </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("workload")}</CardTitle></CardHeader><CardContent className="space-y-4">
-        <PerfWorkloadFields presets={presets.data} perf={perf} onChange={p => setPerf({ ...p, max_concurrency: String(p.max_concurrency) })} />
-        <Field label={t("repeats")}><Input type="number" min={1} max={10} value={repeats} onChange={e => setRepeats(Number(e.target.value))} required /></Field>
+        <PerfWorkloadFields minArrivals={2} presets={presets.data} perf={perf} onChange={p => setPerf({ ...p, max_concurrency: String(p.max_concurrency) })} />
+        <ObjectiveFields value={perf.slo} onChange={slo => setPerf({ ...perf, slo })} />
+        <Field label={capacity(perf.workload_type === "agentic_replay" ? "sessionCeiling" : "rateCeiling")}><Input type="number" min={Number(perf.request_rate || 1)} max={10000} step="any" value={maxRate} onChange={e => setMaxRate(Number(e.target.value))} required /></Field>
+        <Field label={capacity("confirmations")}><Input type="number" min={1} max={10} value={repeats} onChange={e => setRepeats(Number(e.target.value))} required /></Field>
         <details><summary className="cursor-pointer text-sm">{t("assetsAndConfig")}</summary><div className="mt-4"><AdvancedWorkloadFields perf={perf} onChange={setPerf} /></div></details>
       </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("requirements")}</CardTitle></CardHeader><CardContent className="space-y-4">
@@ -114,7 +119,7 @@ function Form({ initialScope, initialIds, presetSettings }: { initialScope: Serv
     </>}
     {step === 2 && preview.data && <Card><CardHeader><CardTitle>{t("confirm")}</CardTitle></CardHeader><CardContent className="space-y-4">
       <dl className="grid gap-4 sm:grid-cols-2"><div><dt className="text-muted-foreground">{t("job")}</dt><dd>{name} / {alias}</dd></div><div><dt className="text-muted-foreground">{t("target")}</dt><dd>{clusterName(cluster || null)} / {preview.data.namespace}</dd></div><div><dt className="text-muted-foreground">{t("maxGpu")}</dt><dd>{preview.data.max_gpu_usage} GPU</dd></div><div><dt className="text-muted-foreground">{t("selectionMetric")}</dt><dd>{t(`metric_${metric}`)} · {repeats} {t("repetitions")}</dd></div></dl>
-      <p className="text-sm">{t("requestSummary", { perAttempt: requestCount(perf) * repeats, total: requestCount(perf) * repeats * (automatic ? searchLimits.max_candidates : selected.length) * 2 })}</p>
+      <p className="text-sm">{capacity("searchSummary", { count: requestCount(perf), repeats, rate: maxRate })}</p>
       {automatic && <p className="rounded-md border p-3 text-sm">{targetModel} · {t("searchConfirm", { count: searchLimits.max_candidates, seconds: searchLimits.max_search_seconds })}</p>}
       <ol className="list-inside list-decimal space-y-2">{preview.data.candidates.map((c, i) => <li key={i}>{c.recipe.name} · {c.recipe.hf_repo_id || c.recipe.model_path} · {c.gpu_count} GPU</li>)}</ol>
       <p className="rounded-md bg-muted p-3 text-sm">{t("confirmHint")}</p>

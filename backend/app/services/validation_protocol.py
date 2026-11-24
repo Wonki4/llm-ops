@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.services.benchmark_workload import AccuracyWorkload, PerformanceWorkload
+from app.services.benchmark_workload import AccuracyWorkload, PerformanceWorkload, default_objectives
 from app.services.clusters import validate_namespace
 
 
@@ -50,6 +50,12 @@ class RecipeSearch(StrictModel):
         return value.strip()
 
 
+class CapacitySearch(StrictModel):
+    max_rate: float = Field(128, gt=0, le=10000)
+    refinements: int = Field(3, ge=0, le=8)
+    max_lag_ms: float = Field(100, gt=0)
+
+
 class ValidationConditions(StrictModel):
     version: Literal[1, 2] = 1
     ingress_host: str = Field(min_length=1, max_length=253, pattern=r"^[a-zA-Z0-9.-]+$")
@@ -58,6 +64,7 @@ class ValidationConditions(StrictModel):
     gpu_limit: int = Field(8, ge=1, le=1024)
     time_limits: TimeLimits = Field(default_factory=TimeLimits)
     performance: PerformanceWorkload = Field(default_factory=PerformanceWorkload)
+    capacity_search: CapacitySearch | None = None
     repeats: int = Field(3, ge=1, le=10)
     prefix_len: int | None = Field(None, gt=0)
     accuracy: AccuracyWorkload | None = None
@@ -88,6 +95,18 @@ class ValidationConditions(StrictModel):
 
     @model_validator(mode="after")
     def consistent(self):
+        if self.capacity_search is not None:
+            if self.version != 2 or not self.performance.slo:
+                raise ValueError("Capacity search requires workload v2 with latency objectives")
+            count = (
+                self.performance.num_sessions
+                if self.performance.workload_type == "agentic_replay"
+                else self.performance.num_prompts
+            )
+            if count < 2:
+                raise ValueError("Capacity search requires at least two arrivals per point")
+            if (self.performance.request_rate or 1) > self.capacity_search.max_rate:
+                raise ValueError("The initial arrival rate exceeds the search limit")
         if self.search:
             if self.search.max_search_seconds >= self.time_limits.total:
                 raise ValueError("Search time must leave time for final restoration and validation")
@@ -142,6 +161,12 @@ class ValidationCreate(StrictModel):
         if isinstance(value, dict):
             if value.get("version", 2) != 2:
                 raise ValueError("New validations require version 2; existing jobs retain their saved conditions")
+            if "capacity_search" not in value:
+                value = {
+                    **value,
+                    "capacity_search": {},
+                    "performance": {"slo": default_objectives().model_dump(), **(value.get("performance") or {})},
+                }
             return {**value, "version": 2}
         if value.version != 2:
             raise ValueError("New validations require version 2")
@@ -256,8 +281,9 @@ def assess(runs, conditions: dict, gpu_count: int) -> dict:
     protocol = ValidationConditions.model_validate(conditions)
     perf = [r for r in runs if r.kind == "performance" and (r.params or {}).get("experiment") != "prefix_cache"]
     errors = []
-    if len(perf) != protocol.repeats:
-        errors.append(f"Expected {protocol.repeats} performance measurements; got {len(perf)}")
+    expected_runs = 1 if protocol.capacity_search else protocol.repeats
+    if len(perf) != expected_runs:
+        errors.append(f"Expected {expected_runs} performance measurements; got {len(perf)}")
     for run in runs:
         if run.status != "succeeded" or not run.result or run.result.get("error"):
             errors.append(f"Measurement {run.id}: {run.status} or incomplete result")
@@ -270,6 +296,32 @@ def assess(runs, conditions: dict, gpu_count: int) -> dict:
             errors.append(f"Missing metric: {key}")
     for run in perf:
         m = (run.result or {}).get("metrics", {})
+        if protocol.capacity_search:
+            search = (run.result or {}).get("capacity_search") or {}
+            best = search.get("best") or {}
+            rates = best.get("slo_rates") or {}
+            expected = protocol.repeats * protocol.performance.request_count
+            if (
+                not search.get("confirmed")
+                or best.get("repetitions") != protocol.repeats
+                or not number(best.get("target_rate"))
+                or best["target_rate"] <= 0
+                or m.get("requested") != expected
+                or not all(number(rates.get(key)) and rates[key] >= 0 for key in ("rpm", "input_tpm", "output_tpm"))
+                or not number(m.get("slo_completed"))
+                or m["slo_completed"] * 100 < expected * protocol.performance.slo.min_slo_percent
+                or not number(m.get("completed"))
+                or not 0 <= m["slo_completed"] <= m["completed"] <= expected
+                or (expected - m["completed"]) * 100 > expected * protocol.performance.slo.max_error_percent
+            ):
+                errors.append(
+                    f"Measurement {run.id}: no confirmed operating point ({search.get('stop_reason', 'missing')})"
+                )
+            else:
+                metrics.update({f"slo_{k}": v for k, v in rates.items()})
+                metrics["target_arrivals_per_sec"] = best["target_rate"]
+                metrics["error_percent"] = 100 * (expected - m["completed"]) / expected
+            continue
         if (
             m.get("completed") != protocol.performance.request_count
             or m.get("failed", 0) != 0

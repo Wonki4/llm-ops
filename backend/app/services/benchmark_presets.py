@@ -9,6 +9,8 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 
+from app.services.benchmark_workload import ServiceObjectives, default_objectives
+
 LOAD_PRESETS: dict[str, dict] = {
     # short interactive chat
     "chat": {
@@ -77,6 +79,7 @@ class LoadPreset(BaseModel):
     num_prompts: int = Field(gt=0)
     max_concurrency: int = Field(gt=0)
     cache_ratio: float = Field(ge=0, le=100)
+    slo: ServiceObjectives = Field(default_factory=default_objectives)
 
     @model_validator(mode="after")
     def clean_name(self):

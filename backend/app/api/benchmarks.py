@@ -345,6 +345,26 @@ def _build_bench_job(
     )
 
 
+def result_with_rates(result):
+    """Reconstruct only rates for which old runs retained numerator and wall time."""
+    if not result or not isinstance(result.get("metrics"), dict):
+        return result
+    from math import isfinite
+
+    metrics = result["metrics"]
+    if "all_rates" in metrics:
+        return result
+    duration = metrics.get("duration")
+    if not isinstance(duration, (float, int)) or not isfinite(duration) or duration <= 0:
+        return result
+    rates = {}
+    for key, source in (("rpm", "completed"), ("input_tpm", "total_input_tokens"), ("output_tpm", "total_output_tokens")):
+        value = metrics.get(source)
+        if isinstance(value, (float, int)) and isfinite(value) and value >= 0:
+            rates[key] = value * 60 / duration
+    return {**result, "metrics": {**metrics, "all_rates": rates}}
+
+
 def _serialize(r: CustomBenchmarkRun) -> dict:
     return {
         "id": str(r.id),
@@ -365,7 +385,7 @@ def _serialize(r: CustomBenchmarkRun) -> dict:
         "status": r.status,
         "k8s_job_name": r.k8s_job_name,
         "k8s_namespace": r.k8s_namespace,
-        "result": r.result,
+        "result": result_with_rates(r.result),
         "error_message": r.error_message,
         "created_by": r.created_by,
         "created_at": r.created_at.isoformat() if r.created_at else None,
@@ -471,6 +491,8 @@ async def create_benchmark(
     try:
         if body.tool == "lm_eval":
             raise ValueError("New accuracy evaluations are no longer supported")
+        if "capacity_search" in body.params or "_capacity_identity" in body.params:
+            raise ValueError("Start a capacity search through an isolated recipe validation")
         validate_run_options(TOOL_TO_KIND[body.tool], body.params)
         if body.params.get("experiment") != "prefix_cache":
             options = performance_workload(body.params)
@@ -877,6 +899,8 @@ async def preview_benchmark(
     try:
         if body.tool == "lm_eval":
             raise ValueError("New accuracy evaluations are no longer supported")
+        if "capacity_search" in body.params or "_capacity_identity" in body.params:
+            raise ValueError("Start a capacity search through an isolated recipe validation")
         validate_run_options(TOOL_TO_KIND[body.tool], body.params)
         if body.params.get("experiment") != "prefix_cache":
             options = performance_workload(body.params)

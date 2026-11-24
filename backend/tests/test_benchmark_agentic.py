@@ -256,6 +256,28 @@ async def test_full_runner_against_streaming_engine_and_cache_counters(monkeypat
         assert "configured_tokens" not in result["input"]
         assert result["metrics"]["total_input_tokens"] == sum(len(json.dumps(p["messages"])) for p in calls[2:])
         assert result["metrics"]["cache"]["hit_rate"] is None
+        # Run the validation-only search against this HTTP endpoint. Count only
+        # measured calls at the confirmed point, excluding all probes and warmups.
+        import time
+        calls.clear()
+        search_load = workload(cache_ratio=90)
+        search_load.update(num_prompts=4, request_rate=10, slo={"e2el_ms": 3000, "min_slo_percent": 99, "max_error_percent": 0})
+        monkeypatch.setenv("BENCH_TOKEN_INPUT", "1")
+        monkeypatch.setenv("BENCH_ISOLATED", "1")
+        monkeypatch.setenv("BENCH_VALIDATION_WARMUP", "1")
+        monkeypatch.setenv("BENCH_CAPACITY_SEARCH", json.dumps({"max_rate": 10, "refinements": 1, "max_lag_ms": 100, "repeats": 3}))
+        monkeypatch.setenv("BENCH_CAPACITY_SCOPE", "deployment")
+        monkeypatch.setenv("BENCH_CAPACITY_DEADLINE", str(time.time() + 30))
+        monkeypatch.setenv("BENCH_WORKLOAD", json.dumps(search_load))
+        await runner.main()
+        result = json.loads(capsys.readouterr().out.split("<<<RESULT>>>")[-1])
+        search = result["capacity_search"]
+        assert search["confirmed"] and search["best"]["repetitions"] == 3
+        assert search["best"]["slo_rates"] == search["best"]["all_rates"]
+        assert result["metrics"]["requested"] == result["metrics"]["slo_completed"] == 12
+        assert result["metrics"]["slo_input_tokens"] == 1200 and result["metrics"]["slo_output_tokens"] == 12
+        assert result["metrics"]["cache"]["queries"] == 1200 and len(calls) == 24
+        assert result["metrics"]["cache"]["hit_rate"] == 0.9
     finally:
         await server.cleanup()
 
