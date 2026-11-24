@@ -371,6 +371,14 @@ class ArrivalSchedule:
         self.starts.append(now)
         self.delay_ms.append(max(0, now - due) * 1000 if self.rate else 0)
 
+    async def duration(self):
+        if self.fixed:
+            # The first offer is due immediately. Include the last offer's
+            # entire interval even if its response finishes early; otherwise
+            # short runs report up to twice the load actually sustained.
+            await asyncio.sleep(max(0, self.due - time.perf_counter()))
+        return time.perf_counter() - self.start
+
     def metrics(self):
         n = len(self.starts)
         elapsed = self.starts[-1] - self.starts[0] if n > 1 else 0
@@ -447,7 +455,7 @@ async def run_synthetic(session, base, model, workload, result):
                 errors.append(str(exc) or type(exc).__name__)
 
     await asyncio.gather(*(worker() for _ in range(min(workload["max_concurrency"], len(inputs)))))
-    duration = time.perf_counter() - schedule.start
+    duration = await schedule.duration()
     cache = counter_delta(before, await isolated_counters(session, base))
     result["metrics"] = {
         **summarize(samples, duration, workload.get("goodput"), workload.get("slo")),
@@ -520,7 +528,7 @@ async def run_agentic(session, base, model, workload, result):
             )
 
     await asyncio.gather(*(worker() for _ in range(min(workload["max_concurrency"], workload["num_sessions"]))))
-    duration = time.perf_counter() - schedule.start
+    duration = await schedule.duration()
     result["metrics"] = {
         **summarize(samples, duration, workload.get("goodput"), workload.get("slo")),
         **schedule.metrics(),

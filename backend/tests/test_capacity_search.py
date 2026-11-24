@@ -161,3 +161,35 @@ def test_deployment_measurement_identity_tracks_effective_topology_but_survives_
         setattr(dep, field, new_value)
         assert deployment_identity(dep) != baseline
         setattr(dep, field, previous)
+
+
+async def test_short_measurements_cover_the_full_offer_window():
+    # Two immediate completions at t=0 and t=0.05 should measure 20/s, not 40/s.
+    schedule = runner.ArrivalSchedule({"seed": 0, "request_rate": 20, "_search": True})
+    await schedule.admit()
+    await schedule.admit()
+    duration = await schedule.duration()
+    assert duration >= 2 / 20
+    assert runner.rates(2, 4, 2, duration)["rpm"] <= 1200
+
+
+async def test_agentic_window_uses_session_arrivals_and_counts_successful_turns(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from app.services.benchmark_workload import PerformanceWorkload
+
+    workload = PerformanceWorkload(
+        workload_version=2, workload_type="agentic_replay", num_sessions=2, max_concurrency=2, request_rate=20
+    ).model_dump()
+    workload.update(_search=True, slo=SLO)
+    monkeypatch.setattr(runner, "stream", AsyncMock(return_value=sample()))
+    monkeypatch.setattr(runner, "isolated_counters", AsyncMock(return_value=None))
+    result = {}
+    await runner.run_agentic(None, "http://fixture", "fixture", workload, result)
+    metrics = result["metrics"]
+    turns = len(workload["scenario"]["turns"])
+    assert metrics["requested_sessions"] == metrics["completed_sessions"] == 2
+    assert metrics["completed"] == metrics["slo_completed"] == 2 * turns
+    assert metrics["duration"] >= 2 / 20  # two session offers, not six turn offers
+    assert metrics["slo_rates"]["rpm"] == pytest.approx(2 * turns * 60 / metrics["duration"])
+    assert metrics["slo_rates"]["rpm"] <= 20 * 60 * turns
