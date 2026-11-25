@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.model_deployments import _apply_pool_profiles, pvc_warnings
 from app.auth.deps import require_super_user
 from app.config import settings
+from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.db.models.custom_serving_recipe import CustomServingRecipe
 from app.db.models.custom_user import CustomUser
@@ -27,6 +28,7 @@ from app.services.manifest_diff import PlainDumper
 from app.services.model_deployment_manifests import build_all
 from app.services.pd_serving import ServingMode, check_kv_events, is_pd, validate_pd_config, validate_runtime
 from app.services.recipe_capacity import deployment_estimate
+from app.services.recipe_throughput_history import matching_recipe_benchmark
 from app.services.serving_engines import ServingEngine, validate_engine_args, validate_port_flag
 from app.services.serving_probes import validate_probes
 from app.services.storage_fields import recipe_warnings, reject_legacy_pvc
@@ -147,20 +149,44 @@ class CapacityScenario(BaseModel):
             raise ValueError("shared prefix exceeds request length")
         return self
 
+    def scenario(self) -> Scenario:
+        return Scenario(self.context_tokens, self.requests, self.shared_prefix_tokens)
 
-class PreviewRecipeBody(RecipeBody):
-    """An unsaved recipe plus the deploy target the preview renders it for."""
 
-    name: str = ""
-    capacity_scenario: CapacityScenario | None = None
-    cluster_id: str | None = None  # None = portal default cluster
+class RecipeTarget(BaseModel):
+    cluster_id: uuid.UUID | None = None  # None = portal default cluster
     namespace: str | None = None  # None/blank = the cluster's default namespace
-    model_name: str | None = None  # None = the recipe name
+
+    @field_validator("cluster_id", mode="before")
+    @classmethod
+    def _default_cluster(cls, value):
+        return None if value in ("", "default") else value
 
     @field_validator("namespace")
     @classmethod
     def _check_namespace(cls, v: str | None) -> str | None:
         return validate_namespace(v)
+
+
+class PreviewRecipeBody(RecipeBody, RecipeTarget):
+    """An unsaved recipe plus the deploy target the preview renders it for."""
+
+    name: str = ""
+    capacity_scenario: CapacityScenario | None = None
+    model_name: str | None = None  # None = the recipe name
+
+
+class SavedRecipeCapacityBody(RecipeTarget):
+    model_config = {"extra": "forbid"}
+    capacity_scenario: CapacityScenario = Field(default_factory=CapacityScenario)
+
+
+class SavedRecipeThroughputBody(RecipeTarget):
+    model_config = {"extra": "forbid"}
+    input_tokens: int = Field(100_000, ge=1, le=10_000_000, strict=True)
+    output_tokens: int = Field(1_000, ge=1, le=1_000_000, strict=True)
+    concurrency: int = Field(8, ge=1, le=1_000_000, strict=True)
+    shared_prefix_percent: int = Field(90, ge=0, le=100, strict=True)
 
 
 PREVIEW_INGRESS_HOST = "<ingress-host>"
@@ -257,25 +283,21 @@ async def create_recipe(
     return {**_serialize(recipe), "linked_deployment": linked, "warnings": warnings}
 
 
-@router.post("/preview")
-async def preview_recipe(
-    body: PreviewRecipeBody,
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Render the K8s manifests a deploy of this (unsaved) recipe would apply.
-
-    Runs the deploy path — storage resolution, GPU profiles, ``build_all`` — on
-    a transient row that is never added to the session. Unbound storages render
-    as placeholder claims and come back as ``storage_unresolved:<name>``
-    warnings. Routed recipes also include their rendered Helm values.
-    """
-    cluster_uuid = uuid.UUID(body.cluster_id) if body.cluster_id else None
+async def _render_recipe_target(db: AsyncSession, body: PreviewRecipeBody):
+    """Resolve the deployment that both manifest preview and KV sizing use."""
+    cluster_uuid = body.cluster_id
+    if cluster_uuid is not None and await db.get(CustomK8sCluster, cluster_uuid) is None:
+        raise HTTPException(404, "Cluster not found")
     try:
         gpu_profile, gpu_label_key = await resolve_gpu_type(db, cluster_uuid, body.gpu_type)
     except UnknownGpuTypeError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    fields = body.model_dump(exclude={"name", "description", "hf_repo_id", "cluster_id", "namespace", "model_name", "storages", "capacity_scenario"})
+    fields = body.model_dump(
+        exclude={
+            "name", "description", "hf_repo_id", "cluster_id", "namespace", "model_name",
+            "storages", "capacity_scenario",
+        }
+    )
     dep = CustomModelDeployment(
         id=uuid.uuid4(),
         model_name=(body.model_name or body.name or "preview").strip(),
@@ -305,6 +327,17 @@ async def preview_recipe(
         manifests = build_all(dep, sidecar_image=settings.llmd_sidecar_image)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    return dep, gpu_profile, manifests, unresolved
+
+
+@router.post("/preview")
+async def preview_recipe(
+    body: PreviewRecipeBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Render the K8s manifests a deploy of this (unsaved) recipe would apply."""
+    dep, gpu_profile, manifests, unresolved = await _render_recipe_target(db, body)
     if aggregated_router.enabled(dep):
         try:
             stack = aggregated_router.stack_for(dep)
@@ -346,9 +379,75 @@ async def preview_recipe(
     if request := body.capacity_scenario:
         capacity["kv_capacity"] = await deployment_estimate(
             db, dep, manifests=manifests, base_profile=gpu_profile, start_metadata=True,
-            scenario=Scenario(request.context_tokens, request.requests, request.shared_prefix_tokens),
+            scenario=request.scenario(),
         )
-    return {"manifests": out, "warnings": warnings, **capacity, **({"router_images": router_images} if router_images else {})}
+    if router_images:
+        capacity["router_images"] = router_images
+    return {"manifests": out, "warnings": warnings, **capacity}
+
+
+async def _saved_recipe_target(db, recipe_id, body: RecipeTarget):
+    recipe = await _by_id(db, str(recipe_id))
+    if not recipe:
+        raise HTTPException(404, "Recipe not found")
+    target = PreviewRecipeBody(**_serialize(recipe), cluster_id=body.cluster_id, namespace=body.namespace)
+    return await _render_recipe_target(db, target)
+
+
+@router.post("/{recipe_id}/kv-capacity")
+async def saved_recipe_capacity(
+    recipe_id: uuid.UUID,
+    body: SavedRecipeCapacityBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Size the persisted recipe on a target; clients supply no engine or model overrides."""
+    dep, profile, manifests, unresolved = await _saved_recipe_target(db, recipe_id, body)
+    result = await deployment_estimate(
+        db, dep, manifests=manifests, base_profile=profile, start_metadata=True,
+        scenario=body.capacity_scenario.scenario(), saved_recipe_id=recipe_id,
+    )
+    return {
+        **result,
+        "recipe_id": str(recipe_id),
+        "cluster_id": str(dep.cluster_id) if dep.cluster_id else None,
+        "namespace": dep.namespace,
+        "warnings": [f"storage_unresolved:{name}" for name in dict.fromkeys(unresolved)],
+    }
+
+
+@router.post("/{recipe_id}/throughput")
+async def saved_recipe_throughput(
+    recipe_id: uuid.UUID,
+    body: SavedRecipeThroughputBody,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Estimate a workload on the saved recipe without starting inference or a benchmark."""
+    dep, profile, manifests, _ = await _saved_recipe_target(db, recipe_id, body)
+    workload = body.model_dump(exclude={"cluster_id", "namespace"})
+    kv_scenario = Scenario(body.input_tokens + body.output_tokens, body.concurrency,
+                           body.input_tokens * body.shared_prefix_percent // 100)
+    sized = await deployment_estimate(
+        db, dep, manifests=manifests, scenario=kv_scenario, throughput_scenario=workload,
+        start_metadata=True, base_profile=profile, saved_recipe_id=recipe_id,
+    )
+    forecast = sized["throughput"]
+    if forecast["status"] != "infeasible":
+        historical = await matching_recipe_benchmark(db, recipe_id, dep, sized["pools"], workload, manifests,
+                                                     forecast=forecast)
+        if historical:
+            forecast = historical
+    return {
+        **forecast, "scenario": workload, "recipe_id": str(recipe_id),
+        "cluster_id": str(dep.cluster_id) if dep.cluster_id else None, "namespace": dep.namespace,
+        "pending": forecast["status"] == "unavailable" and forecast["reason"] in {"model_unknown", "draft_unknown"}
+        and any(p.get("pending") for p in sized["pools"]),
+        "pools": [{k: p.get(k) for k in ("role", "gpu_type", "gpu_count", "replicas", "model_path", "engine",
+                                           "max_model_len", "gpu_vram_gb", "weight_bytes", "metadata_issue",
+                                           "draft_method", "draft_tokens", "tp", "pp", "dcp")}
+                  for p in sized["pools"]],
+    }
 
 
 class RouterDefaultsBody(BaseModel):

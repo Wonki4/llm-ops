@@ -63,6 +63,10 @@ import type {
   RecipeDiff,
   RecipeDraftResponse,
   ServingRecipe,
+  CapacityScenario,
+  SavedRecipeCapacity,
+  SavedRecipeThroughput,
+  ThroughputScenario,
   ServingRecipeCreateBody,
   ServingRecipeInput,
   ServingRecipePreview,
@@ -1819,6 +1823,43 @@ export function useServingRecipes() {
   });
 }
 
+export function useServingRecipe(id: string) {
+  return useQuery({
+    queryKey: ["serving-recipe", id],
+    queryFn: () => apiFetch<ServingRecipe>(`/api/admin/serving-recipes/${id}`),
+  });
+}
+
+export function useSavedRecipeCapacity(recipe: ServingRecipe, body: {
+  cluster_id: string | null; namespace: string | null; capacity_scenario: CapacityScenario;
+}, enabled: boolean) {
+  return useQuery({
+    queryKey: ["saved-recipe-capacity", recipe.id, recipe.updated_at, body],
+    queryFn: () => apiFetch<SavedRecipeCapacity>(`/api/admin/serving-recipes/${recipe.id}/kv-capacity`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+    enabled,
+    retry: false,
+    refetchInterval: query => query.state.data?.pools.some(pool => pool.pending) ? 4000 : false,
+  });
+}
+
+export function useSavedRecipeThroughput(recipe: ServingRecipe, clusterId: string | null, namespace: string | null,
+  scenario: ThroughputScenario | null) {
+  return useQuery({
+    queryKey: ["saved-recipe-throughput", recipe.id, recipe.updated_at, clusterId, namespace, scenario],
+    queryFn: ({ signal }) => apiFetch<SavedRecipeThroughput>(`/api/admin/serving-recipes/${recipe.id}/throughput`, {
+      method: "POST",
+      body: JSON.stringify({ cluster_id: clusterId, namespace, ...scenario }),
+      signal,
+    }),
+    enabled: scenario !== null,
+    retry: false,
+    refetchInterval: query => query.state.data?.pending ? 4000 : false,
+  });
+}
+
 export function useCreateServingRecipe() {
   const qc = useQueryClient();
   return useMutation({
@@ -1827,7 +1868,8 @@ export function useCreateServingRecipe() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => {
+    onSuccess: saved => {
+      qc.setQueryData(["serving-recipe", saved.id], saved);
       qc.invalidateQueries({ queryKey: ["serving-recipes"] });
       qc.invalidateQueries({ queryKey: ["model-deployments"] });
     },
@@ -1880,7 +1922,12 @@ export function useUpdateServingRecipe() {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+    onSuccess: saved => {
+      qc.setQueryData(["serving-recipe", saved.id], saved);
+      qc.invalidateQueries({ queryKey: ["saved-recipe-capacity", saved.id] });
+      qc.invalidateQueries({ queryKey: ["saved-recipe-throughput", saved.id] });
+      qc.invalidateQueries({ queryKey: ["serving-recipes"] });
+    },
   });
 }
 

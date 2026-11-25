@@ -5,6 +5,19 @@ from collections import Counter
 from dataclasses import dataclass
 from math import ceil
 
+# These vLLM decoders partition Q heads across TP ranks and replicate KV heads when needed.
+# The GLM/Qwen vision towers contribute resident weights, but no decoder token cache.
+_VL_AND_GLM_GQA = {
+    "glm4",
+    "glm4_moe",
+    "glm4v_text",
+    "glm4v_moe_text",
+    "qwen2_5_vl",
+    "qwen2_5_vl_text",
+    "qwen3_vl_text",
+    "qwen3_vl_moe_text",
+}
+
 
 class UnknownLayoutError(ValueError):
     """The available evidence cannot identify this engine layout."""
@@ -44,6 +57,7 @@ class Component:
     width: int  # Per token for attention, per request for recurrent state
     window: int = 0
     state: bool = False
+    payload_floor: bool = False
 
 
 def text_config(config):
@@ -119,16 +133,93 @@ def layer_kinds(cfg, kimi):
         "granite",
         "gemma",
     }
-    if cfg.get("model_type") not in dense_families:
+    model_type = cfg.get("model_type")
+    if model_type not in dense_families and model_type not in _VL_AND_GLM_GQA:
         raise UnknownLayoutError("unrecognized cache layout: " + str(cfg.get("model_type")))
+    if model_type in ("qwen2_5_vl", "qwen2_5_vl_text"):
+        # The config can specify a window even when the decoder has disabled SWA.
+        if not cfg.get("use_sliding_window") or not cfg.get("sliding_window"):
+            return ["full_attention"] * n
+        first_window_layer = cfg.get("max_window_layers", 80)
+        return ["sliding_attention" if i >= first_window_layer else "full_attention" for i in range(n)]
     if cfg.get("sliding_window") and cfg.get("use_sliding_window", True):
         sliding = cfg.get("max_window_layers", n)
         return ["sliding_attention" if i < sliding else "full_attention" for i in range(n)]
     return ["full_attention"] * n
 
 
-def components(config, flags, engine, tp, architecture_notes):
+def sparse_index_layers(cfg, n):
+    """Match vLLM compute_skip_topk_layers before partitioning the backbone into PP ranks."""
+    types = cfg.get("indexer_types")
+    if types is not None:
+        if not isinstance(types, list) or len(types) != n or any(t not in ("full", "shared") for t in types):
+            raise UnknownLayoutError("sparse MLA indexer_types")
+        return [t == "full" for t in types]
+    pattern = cfg.get("index_topk_pattern")
+    if pattern is not None:
+        if not isinstance(pattern, str) or set(pattern) - {"F", "S"} or len(pattern) > n:
+            raise UnknownLayoutError("sparse MLA index_topk_pattern")
+        return [i >= len(pattern) or pattern[i] == "F" for i in range(n)]
+    # A legacy projected config did not retain index reuse settings. Charge only
+    # the latents in that case so it can still give a ceiling on token capacity.
+    if "index_topk_freq" not in cfg:
+        return [False] * n
+    freq = positive(cfg["index_topk_freq"], "index_topk_freq")
+    offset = cfg.get("index_skip_topk_offset", 2)
+    if type(offset) is not int or offset < 0:
+        raise UnknownLayoutError("sparse MLA index_skip_topk_offset")
+    return [max(i - offset + 1, 0) % freq == 0 for i in range(n)]
+
+
+def sparse_mla_layout(cfg, flags, notes):
+    """vLLM DeepSeek-V3.2 / GLM-MoE-DSA rows, replicated across TP ranks."""
+    n = positive(cfg.get("num_hidden_layers"), "num_hidden_layers")
+    if n > 4096 or (cfg.get("kv_lora_rank"), cfg.get("qk_rope_head_dim"), cfg.get("index_head_dim")) != (512, 64, 128):
+        raise UnknownLayoutError("sparse MLA latent/index dimensions")
+    if cfg.get("sliding_window") or cfg.get("layer_types") or cfg.get("linear_attn_config"):
+        raise UnknownLayoutError("mixed sparse MLA layer layout")
+    opts = json.loads(flags.get("attention-config", "{}"))
+    index = flags.get("attention-config.indexer-kv-dtype", opts.get("indexer_kv_dtype", "auto"))
+    key_width = {"auto": 132, "fp8": 132, "mxfp4": 68}.get(index)
+    if key_width is None:
+        raise UnknownLayoutError(f"sparse MLA index dtype: {index}")
+    kv = flags.get("kv-cache-dtype", "auto")
+    backend = flags.get("attention-backend") or opts.get("backend")
+    if kv in ("fp8_ds_mla", "nvfp4_ds_mla"):
+        latent = 656 if kv == "fp8_ds_mla" else 352
+    elif kv in ("fp8", "fp8_e4m3", "fp8_e5m2"):
+        # FlashMLA converts FP8 to a 656-byte row. Other backends may use plain FP8.
+        latent = 656 if backend == "FLASHMLA_SPARSE" else 576
+    elif kv == "auto":
+        # The GPU backend and checkpoint can select the packed format at startup.
+        # Use the smallest supported physical row, not the weight dtype.
+        latent = 352
+        notes.append("Sparse MLA auto format unresolved: using the 352-byte packed latent row as a lower bound.")
+    elif kv == "bfloat16" and cfg["model_type"] == "deepseek_v32" and backend in (None, "FLASHINFER_MLA_SPARSE_SM120"):
+        # vLLM normalizes explicit BF16 to auto on V3.2; the SM120 backend uses a packed row.
+        latent = 656
+    else:
+        latent = 576 * dtype_bytes(kv)
+    has_index = sparse_index_layers(cfg, n)
+    if not any(has_index):
+        notes.append("Index rows are excluded from the floor because their placement was not established.")
+    kinds = ["indexed_mla" if full else "shared_index_mla" for full in has_index]
+    row = Component("MLA " + kv, latent, payload_floor=True)
+    layouts = {
+        "indexed_mla": [row, Component("index " + resolve_dtype(index, "fp8"), key_width)],
+        "shared_index_mla": [row],
+    }
+    return kinds, layouts, [], kv
+
+
+def components(config, flags, engine, tp, architecture_notes, *, gpu_type=None):
     cfg = text_config(config)
+    if engine == "vllm" and cfg.get("model_type") == "glm5_next_text":
+        from app.services.kv_glm_flash import glm_flash_layout
+
+        return glm_flash_layout(cfg, flags, tp, gpu_type, architecture_notes)
+    if engine == "vllm" and cfg.get("model_type") in ("deepseek_v32", "glm_moe_dsa") and cfg.get("index_topk"):
+        return sparse_mla_layout(cfg, flags, architecture_notes)
     kimi = config.get("model_type") == "kimi_k31" or (cfg.get("model_type") == "kimi_linear" and cfg.get("dsa_config"))
     dtype = resolve_dtype(flags.get("dtype"), cfg.get("torch_dtype") or cfg.get("dtype"))
     if dtype == "float32" and flags.get("dtype", "auto") == "auto":
@@ -179,6 +270,8 @@ def components(config, flags, engine, tp, architecture_notes):
                     result = [Component("MLA", width, window)]
                 else:
                     heads = positive(cfg.get("num_attention_heads"), "num_attention_heads")
+                    if engine == "vllm" and cfg.get("model_type") in _VL_AND_GLM_GQA:
+                        shard(heads, tp)
                     kv_heads = positive(cfg.get("num_key_value_heads", heads), "num_key_value_heads")
                     local_heads = shard(kv_heads, tp) if kv_heads >= tp else 1
                     if kv_heads < tp:

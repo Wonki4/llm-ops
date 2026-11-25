@@ -7,34 +7,91 @@ import re
 import time
 import uuid
 from collections import OrderedDict
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 from kubernetes_asyncio.client.exceptions import ApiException
 
 from app.services.benchmark_credentials import BenchmarkCredentials
 from app.services.clusters import k8s_for_cluster
+from app.services.kv_capacity import final_flags
+from app.services.kv_metadata_reader import HUB_ENV
 
 _CACHE = OrderedDict()
-_HUB_ENV = {
-    "HF_ENDPOINT",
-    "HF_HOME",
-    "HF_HUB_CACHE",
-    "HUGGINGFACE_HUB_CACHE",
-    "HF_HUB_OFFLINE",
-    "TRANSFORMERS_OFFLINE",
-    "HF_TOKEN",
-    "HUGGING_FACE_HUB_TOKEN",
-    "REQUESTS_CA_BUNDLE",
-    "SSL_CERT_FILE",
-}
+
+
+@lru_cache(maxsize=1)
+def _reference_models():
+    path = Path(__file__).with_name("data") / "kv_reference_models.json"
+    return json.loads(path.read_text())
+
+
+def uses_public_hub(pod, container):
+    if container.get("envFrom") or any(e.get("name") in HUB_ENV for e in container.get("env", [])):
+        return False
+    mounted = {mount["name"] for mount in container.get("volumeMounts", [])}
+    return not any(
+        v["name"] in mounted and ("persistentVolumeClaim" in v or "nfs" in v or "hostPath" in v)
+        for v in pod.get("volumes", [])
+    )
+
+
+def pinned_reference(pod, container, model, revision):
+    """Use bundled public checkpoint metadata only when it identifies these exact weights."""
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+", model or "") or not re.fullmatch(
+        r"[0-9a-f]{40}", revision or ""
+    ) or not uses_public_hub(pod, container):
+        return None
+    record = _reference_models().get(model, {}).get(revision)
+    if record:
+        return {**record, "source": "pinned_reference", "revision": revision}
+    return None
+
+
+def _resolved_weight_components(pod, container, model, data):
+    # The metadata job resolves a floating public revision to the commit actually read.
+    # Reuse only its verified tensor sizes; keep the engine version and live config.
+    if data.get("source") == "hub" and data.get("config_digest") and "weight_components" not in data:
+        ref = pinned_reference(pod, container, model, data.get("revision"))
+        if (ref and ref.get("weight_components") and data["config_digest"] == ref.get("config_digest")
+                and data.get("weight_bytes") == ref.get("weight_bytes")):
+            return {**data, "weight_components": ref["weight_components"]}
+    return data
+
+
+def _hub_env(engine):
+    # Kubernetes envFrom merges in list order and explicit env wins. Import
+    # only Hub keys; forwarding every entry would also inject engine credentials.
+    env = [e for e in engine.get("env", []) if e["name"] in HUB_ENV]
+    explicit = {e["name"] for e in env}
+    sources = engine.get("envFrom", [])
+    for index, source in enumerate(sources):
+        prefix = source.get("prefix", "")
+        ref = source.get("secretRef") or source.get("configMapRef")
+        if not isinstance(ref, dict) or not ref.get("name"):
+            raise ValueError("invalid metadata environment")
+        kind = "secretKeyRef" if "secretRef" in source else "configMapKeyRef"
+        for key in sorted(HUB_ENV - explicit):
+            name = key.removeprefix(prefix)
+            if not key.startswith(prefix) or not name:
+                continue
+            env.append({"name": f"KV_HUB_{index}_{key}", "valueFrom": {kind: {
+                "name": ref["name"], "key": name, "optional": True,
+            }}})
+    return env
 
 
 def metadata_job(dep, pod, engine, model, revision):
     volumes = []
     mounts = []
+    file_env = {e["value"] for e in engine.get("env", []) if e.get("name") in {
+        "HF_TOKEN_PATH", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE",
+    } and e.get("value", "").startswith("/")}
     for mount in engine.get("volumeMounts", []):
         volume = next((v for v in pod.get("volumes", []) if v["name"] == mount["name"]), {})
-        if not any(key in volume for key in ("persistentVolumeClaim", "nfs")):
+        file_mount = any(PurePosixPath(file).is_relative_to(mount["mountPath"]) for file in file_env)
+        if not (any(key in volume for key in ("persistentVolumeClaim", "nfs"))
+                or file_mount and any(key in volume for key in ("configMap", "secret"))):
             continue
         if "<unbound:" in str(volume):
             raise ValueError("unresolved storage binding")
@@ -42,7 +99,9 @@ def metadata_job(dep, pod, engine, model, revision):
         mounts.append({**mount, "readOnly": True})
     if model.startswith("/") and not any(PurePosixPath(model).is_relative_to(m["mountPath"]) for m in mounts):
         raise ValueError("model path needs a resolved storage mount")
-    env = [e for e in engine.get("env", []) if e["name"] in _HUB_ENV]
+    env = _hub_env(engine)
+    flags = final_flags(engine.get("args") or [])
+    fmt = flags.get("config-format", "auto") if model == flags.get("model", model) else "auto"
     placement = {k: pod[k] for k in ("nodeSelector", "affinity", "tolerations", "imagePullSecrets") if k in pod}
     source = Path(__file__).with_name("kv_metadata_reader.py").read_text()
     identity = [
@@ -50,6 +109,7 @@ def metadata_job(dep, pod, engine, model, revision):
         revision,
         str(dep.cluster_id),
         dep.namespace,
+        fmt,
         mounts,
         volumes,
         engine["image"],
@@ -63,6 +123,7 @@ def metadata_job(dep, pod, engine, model, revision):
     env = [
         *env,
         {"name": "KV_MODEL", "value": model},
+        {"name": "KV_CONFIG_FORMAT", "value": fmt},
         {"name": "KV_REVISION", "value": revision or ""},
         {"name": "HF_HUB_DISABLE_TELEMETRY", "value": "1"},
     ]
@@ -95,7 +156,9 @@ def metadata_job(dep, pod, engine, model, revision):
         "spec": {
             "backoffLimit": 0,
             "activeDeadlineSeconds": 180,
-            "ttlSecondsAfterFinished": ttl,
+            # Retry anonymous denial after credentials change at the same Secret name.
+            # Successful immutable reads remain cached in the portal for a day.
+            "ttlSecondsAfterFinished": min(ttl, 120),
             "template": {"metadata": {"labels": labels}, "spec": pod_spec},
         },
     }
@@ -104,6 +167,9 @@ def metadata_job(dep, pod, engine, model, revision):
 
 async def metadata_for(db, dep, pod, container, model, revision, *, start):
     try:
+        reference = pinned_reference(pod, container, model, revision)
+        if reference:
+            return reference
         name, manifest, credentials, ttl = metadata_job(dep, pod, container, model, revision)
         now = time.monotonic()
         cached = _CACHE.get(name)
@@ -139,13 +205,16 @@ async def metadata_for(db, dep, pod, container, model, revision, *, start):
                 data = json.loads(line.removeprefix("KV_METADATA="))
                 if not isinstance(data, dict) or not (data.get("config") or data.get("error")):
                     break
-                _CACHE[name] = (now + ttl, data)
+                data = _resolved_weight_components(pod, container, model, data)
+                _CACHE[name] = (now + (min(ttl, 120) if data.get("error") else ttl), data)
                 if len(_CACHE) > 256:
                     _CACHE.popitem(last=False)
                 return data
         return {"error": "metadata job returned no readable config"}
     except ValueError as exc:
-        return {"error": str(exc)[:140] if type(exc) is ValueError else "invalid model metadata"}
+        if str(exc) in {"unresolved storage binding", "model path needs a resolved storage mount"}:
+            return {"error": "mount_unavailable", "metadata_issue": "mount_unavailable"}
+        return {"error": "invalid model metadata", "metadata_issue": "metadata_job_unavailable"}
     except Exception as exc:
         # Capacity is optional. Keep unrelated YAML previews and serving reconciliation available.
         return {"error": "metadata unavailable (" + type(exc).__name__ + ")"}

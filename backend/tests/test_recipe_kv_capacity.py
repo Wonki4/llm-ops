@@ -1,5 +1,6 @@
 import hashlib
 import json
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -99,6 +100,61 @@ def test_missing_metadata_actual_zero_and_estimated_range():
     assert unknown["capacity_tokens"] is None and unknown["missing"]
 
 
+@pytest.mark.parametrize(("weights", "vram_gb"), [(32 * GIB, None), (None, 80), (None, None)])
+def test_request_memory_is_available_before_device_kv_budget(weights, vram_gb):
+    out = estimate({"config": QWEN, "weight_bytes": weights}, "vllm", [], vram_gb=vram_gb)
+    assert out["required_bytes_per_gpu"] == 8 * GIB
+    assert out["budget_source"] == "unknown" and out["budget_bytes_per_gpu"] is None
+    assert out["capacity_tokens"] is None and out["complete_requests"] is None
+    assert "capacity_range" not in out
+
+
+@pytest.mark.parametrize("args", [["--kv-cache-memory-bytes=16G"], ["--num-gpu-blocks-override=4096"]])
+def test_configured_kv_larger_than_one_device_preserves_requirement_and_refuses_capacity(args):
+    out = estimate({"config": QWEN}, "vllm", args, vram_gb=12)
+    assert out["budget_source"] == "explicit" and out["budget_bytes_per_gpu"] == [16 * GIB, 16 * GIB]
+    assert out["budget_exceeds_vram"] and "12 GB" in out["missing"][-1]
+    assert out["required_bytes_per_gpu"] == 8 * GIB
+    assert out["capacity_tokens"] is None and out["complete_requests"] is None and "capacity_range" not in out
+    assert estimate({"config": QWEN}, "vllm", args, vram_gb=24)["capacity_tokens"] == 65536
+
+
+def test_configured_budget_checks_device_before_metadata_and_distinguishes_zero_budget():
+    out = estimate({}, "vllm", ["--kv-cache-memory-bytes=16G"], vram_gb=16)
+    assert out["budget_exceeds_vram"] and out["capacity_tokens"] is None
+    out = estimate({"config": QWEN}, "vllm", ["--kv-cache-memory-bytes=0"])
+    assert out["budget_source"] == "unknown" and out["capacity_tokens"] is None
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["--cpu-offload-gb=8"], ["--offload-group-size=4"], ["--quantization=bitsandbytes"], ["--load-format=gguf"]],
+)
+def test_weight_residency_changes_require_explicit_or_observed_budget(args):
+    meta = {"config": QWEN, "weight_bytes": 60 * GIB}
+    out = estimate(meta, "vllm", args, vram_gb=80)
+    assert out["required_bytes_per_gpu"] == 8 * GIB
+    assert out["budget_source"] == "unknown" and "capacity_range" not in out
+    assert estimate(meta, "vllm", args, observed_budget=8 * GIB)["capacity_tokens"] == 32768
+    explicit = estimate(meta, "vllm", [*args, "--kv-cache-memory-bytes=4G"], vram_gb=80, observed_budget=8 * GIB)
+    assert explicit["budget_source"] == "explicit" and explicit["capacity_tokens"] == 16384
+
+
+def test_unchanged_weight_loading_permits_only_weight_adjusted_profile_ceiling():
+    flags = ["--cpu-offload-gb=0", "--load-format=safetensors", "--dtype=bf16", "--gpu-memory-utilization=0.9"]
+    meta = {"config": QWEN, "weight_bytes": 60 * GIB}
+    out = estimate(meta, "vllm", flags, vram_gb=80)
+    assert out["budget_bytes_per_gpu"] == [0, 72_000_000_000 - 60 * GIB]
+    assert out["budget_source"] == "profile_upper_bound" and out["capacity_tokens"] is None
+
+    # The same serialized file size is no longer a bound on resident weights after narrowing.
+    meta["config"] = {**QWEN, "torch_dtype": "float32"}
+    for cast_flags in (flags, []):
+        out = estimate(meta, "vllm", cast_flags, vram_gb=80)
+        assert out["required_bytes_per_gpu"] == 8 * GIB
+        assert out["budget_source"] == "unknown" and "capacity_range" not in out
+
+
 def test_hybrid_sliding_and_recurrent_bytes_are_separate():
     cfg = {
         **QWEN,
@@ -181,6 +237,34 @@ async def test_rendered_pool_overrides_use_separate_model_and_flags():
     pre, dec = out["pools"]
     assert (pre["role"], pre["capacity_tokens"], pre["model_path"]) == ("prefill", 32768, "/models/prefill")
     assert dec["capacity_tokens"] == 8 * 32768 and dec["fingerprint"] != pre["fingerprint"]
+
+
+@pytest.mark.parametrize(
+    ("engine", "flag", "budget_source", "capacity"),
+    [
+        ("vllm", "--kv-cache-memory-bytes=0", "startup", 32768),
+        ("vllm", "--kv-cache-memory-bytes=0.0G", "startup", 32768),
+        ("vllm", "--kv-cache-memory-bytes=1G", "explicit", 4096),
+        ("vllm", "--kv-cache-memory-bytes=bogus", None, None),
+        ("sglang", "--kv-cache-memory-bytes=1G", "startup", 32768),
+    ],
+)
+async def test_rendered_pool_uses_matching_startup_only_for_profiled_memory(engine, flag, budget_source, capacity):
+    container = {"name": engine, "image": "engine", "args": ["--model", "Qwen/Qwen3-32B", flag]}
+    manifest = {
+        "kind": "Deployment",
+        "spec": {"template": {"metadata": {"labels": {}}, "spec": {"containers": [container]}}},
+    }
+    dep = SimpleNamespace(cluster_id="cluster", namespace="ns", pd_config={}, gpu_type="a100")
+    matched = AsyncMock(return_value=8 * GIB)
+    with (
+        patch("app.services.recipe_capacity.metadata_for", AsyncMock(return_value={"config": QWEN})),
+        patch.dict(sys.modules, {"app.services.kv_observations": SimpleNamespace(matching_budget=matched)}),
+    ):
+        result = await deployment_estimate(None, dep, manifests=[manifest], base_profile=SimpleNamespace(name="a100"))
+    pool = result["pools"][0]
+    assert pool.get("budget_source") == budget_source and pool["capacity_tokens"] == capacity
+    assert matched.await_count == int(budget_source == "startup")
 
 
 def test_partial_layout_still_reports_configured_gpu_budget_and_parallelism():
