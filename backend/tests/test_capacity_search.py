@@ -150,8 +150,15 @@ def test_deployment_measurement_identity_tracks_effective_topology_but_survives_
     dep.litellm_model_id = "new-id"
     assert deployment_identity(dep) == baseline and "sensitive" not in baseline
     for field, new_value in (
+        ("id", "another-candidate-deployment"),
         ("env", {"TOKEN": "another"}),
         ("node_selector", {"gpu": "h100"}),
+        ("image", "engine@sha256:" + "a" * 64),
+        ("model_path", "provider/other-weights"),
+        ("gpu_type", "H100"),
+        ("gpu_count", 4),
+        ("runtime", "different-runtime"),
+        ("router_stack_id", "other-router"),
         ("replicas", 1),
         ("pd_config", {}),
         ("cluster_id", "other"),

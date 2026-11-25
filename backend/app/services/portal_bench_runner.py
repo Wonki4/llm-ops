@@ -34,12 +34,20 @@ async def counters(session, url="/metrics"):
         async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as response:
             response.raise_for_status()
             families = text_string_to_metric_families(await response.text())
-            values = {"hits": {}, "queries": {}}
+            series = {
+                "vllm:prefix_cache_hits": "hits",
+                "vllm:prefix_cache_queries": "queries",
+                "process_start_time_seconds": "process_start",
+            }
+            for phase in ("prefill_time_seconds", "decode_time_seconds", "prefill_kv_computed_tokens"):
+                for statistic in ("sum", "count"):
+                    series[f"vllm:request_{phase}_{statistic}"] = f"{phase}_{statistic}"
+            values = {key: {} for key in series.values()}
             for family in families:
                 for sample in family.samples:
-                    for key in values:
-                        if sample.name.removesuffix("_total") == f"vllm:prefix_cache_{key}":
-                            values[key][tuple(sorted(sample.labels.items()))] = sample.value
+                    key = series.get(sample.name.removesuffix("_total"))
+                    if key:
+                        values[key][tuple(sorted(sample.labels.items()))] = sample.value
             return values
     except (aiohttp.ClientError, ValueError, TimeoutError, ImportError):
         return None
@@ -60,6 +68,41 @@ def counter_delta(before, after):
     hits, queries = deltas["hits"], deltas["queries"]
     rate = hits / queries if queries and hits <= queries else None
     return {**deltas, "hit_rate": rate}
+
+
+def engine_phase_observation(before, after, completed):
+    """Per-request engine means between the two isolated measurement scrapes."""
+    if not completed or not before or not after or before.get("process_start") != after.get("process_start"):
+        return None
+
+    def measured_mean(histogram):
+        count_key, sum_key = f"{histogram}_count", f"{histogram}_sum"
+        labels = before.get(count_key, {}).keys()
+        if not labels or any(
+            snap.get(key, {}).keys() != labels for snap in (before, after) for key in (count_key, sum_key)
+        ):
+            return None
+        total_count, total_value = 0, 0.0
+        for label in labels:
+            count = after[count_key][label] - before[count_key][label]
+            value = after[sum_key][label] - before[sum_key][label]
+            if not math.isfinite(count) or count < 0 or not math.isfinite(value) or value < 0 or (not count and value):
+                return None
+            total_count += count
+            total_value += value
+        return total_value / completed if total_count == completed else None
+
+    prefill = measured_mean("prefill_time_seconds")
+    decode = measured_mean("decode_time_seconds")
+    if prefill is None or decode is None:
+        return None
+    return {
+        "source": "vllm_request_histograms",
+        "completed": completed,
+        "prefill_seconds": prefill,
+        "decode_seconds": decode,
+        "computed_input_tokens": measured_mean("prefill_kv_computed_tokens"),
+    }
 
 
 @dataclass
@@ -456,7 +499,8 @@ async def run_synthetic(session, base, model, workload, result):
 
     await asyncio.gather(*(worker() for _ in range(min(workload["max_concurrency"], len(inputs)))))
     duration = await schedule.duration()
-    cache = counter_delta(before, await isolated_counters(session, base))
+    after = await isolated_counters(session, base)
+    cache = counter_delta(before, after)
     result["metrics"] = {
         **summarize(samples, duration, workload.get("goodput"), workload.get("slo")),
         **schedule.metrics(),
@@ -465,6 +509,8 @@ async def run_synthetic(session, base, model, workload, result):
         "failed": len(errors),
         "cache": cache,
     }
+    if not errors and (observation := engine_phase_observation(before, after, len(samples))):
+        result["metrics"]["phase_observation"] = observation
     unit = "words" if workload.get("input_length_mode") == "text_estimate" and not token_input else "tokens"
     result["input"] = {
         f"configured_{unit}": workload["random_input_len"],
@@ -618,6 +664,17 @@ def confirmed_metrics(rounds):
             "queries": queries,
             "hit_rate": hits / queries if 0 <= hits <= queries and queries else None,
         }
+    observations = [r.get("phase_observation") or {} for r in rounds]
+    if all(o.get("completed") == r["completed"] and o.get("source") == "vllm_request_histograms"
+           for o, r in zip(observations, rounds, strict=True)):
+        requests = metrics["completed"]
+        combined = {"source": "vllm_request_histograms", "completed": requests}
+        for key in ("prefill_seconds", "decode_seconds", "computed_input_tokens"):
+            combined[key] = (
+                sum(o[key] * o["completed"] for o in observations) / requests
+                if requests and all(o.get(key) is not None for o in observations) else None
+            )
+        metrics["phase_observation"] = combined
     return metrics
 
 
@@ -669,6 +726,7 @@ async def search_rates(workload, options, result, measure_point, deadline, scope
                     "completed_sessions",
                     "timeouts",
                     "cache",
+                    "phase_observation",
                 )
                 if k in m
             },

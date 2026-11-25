@@ -178,7 +178,15 @@ async def test_full_runner_against_streaming_engine_and_cache_counters(monkeypat
         return web.json_response({"tokens": list(range(1000))})
 
     async def metrics(request):
-        return web.Response(text="\n".join(f"vllm:prefix_cache_{key}_total {value}" for key, value in totals.items()))
+        lines = [f"vllm:prefix_cache_{key}_total {value}" for key, value in totals.items()]
+        for phase, value in (
+            ("prefill_time_seconds", len(calls) * 0.125),
+            ("decode_time_seconds", 0),
+            ("prefill_kv_computed_tokens", totals["queries"] - totals["hits"]),
+        ):
+            key = f"vllm:request_{phase}"
+            lines += [f"# TYPE {key} histogram", f"{key}_sum {value}", f"{key}_count {len(calls)}"]
+        return web.Response(text="\n".join(lines))
 
     async def completion(request):
         assert request.headers["Authorization"] == "Bearer local-runner-test-key"
@@ -278,6 +286,18 @@ async def test_full_runner_against_streaming_engine_and_cache_counters(monkeypat
         assert result["metrics"]["slo_input_tokens"] == 1200 and result["metrics"]["slo_output_tokens"] == 12
         assert result["metrics"]["cache"]["queries"] == 1200 and len(calls) == 24
         assert result["metrics"]["cache"]["hit_rate"] == 0.9
+        # Every confirmation retains its own sample for recipe comparison.
+        rounds = [p for p in search["probes"] if p["step"] == "confirmation"]
+        assert len(rounds) == 3
+        expected = {
+            "source": "vllm_request_histograms",
+            "completed": 4,
+            "prefill_seconds": 0.125,
+            "decode_seconds": 0,
+            "computed_input_tokens": 10,
+        }
+        assert all(p["phase_observation"] == expected for p in rounds)
+        assert result["metrics"]["phase_observation"] == {**expected, "completed": 12}
     finally:
         await server.cleanup()
 
