@@ -5,6 +5,27 @@ from urllib.parse import urlsplit, urlunsplit
 from app.clients.litellm import deployment_base_prices
 from app.services.serving_topology import _cloud_provider, _endpoint
 
+_PUBLIC_PARAMS = {"model", "custom_llm_provider", "rpm", "tpm", "timeout", "max_retries", "stream_timeout", "weight"}
+_PUBLIC_INFO = {
+    "id", "db_model", "litellm_provider", "mode", "base_model", "max_tokens", "max_input_tokens",
+    "max_output_tokens", "input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost",
+    "cache_creation_input_token_cost", "access_groups", "off_peak_pricing",
+}
+
+
+def public_model_info(row: dict) -> dict:
+    """Return the catalog's public fields with effective deployment-specific prices."""
+    params, info = row.get("litellm_params") or {}, row.get("model_info") or {}
+    return {
+        "model_name": row.get("model_name", ""),
+        "litellm_params": {k: v for k, v in params.items() if k in _PUBLIC_PARAMS},
+        "model_info": {
+            **{k: v for k, v in info.items()
+               if k in _PUBLIC_INFO or (k.startswith("supports_") and isinstance(v, bool))},
+            **deployment_base_prices(row),
+        },
+    }
+
 
 def safe_api_base(value: str | None) -> str | None:
     if not value:

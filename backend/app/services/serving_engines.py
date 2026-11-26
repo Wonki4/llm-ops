@@ -250,8 +250,17 @@ def access_log_filter_args(engine: str, runtime: dict | None, flags: list[str]) 
 def engine_flags(dep) -> list[str]:
     """Structured args first, then the free-text extra args (so a power user can
     still override a structured value by repeating the flag)."""
-    flags = render_engine_args(getattr(dep, "engine_args", None)) + list(dep.vllm_extra_args or [])
-    return flags + access_log_filter_args(engine_of(dep), getattr(dep, "runtime", None), flags)
+    engine = engine_of(dep)
+    args = getattr(dep, "engine_args", None) or {}
+    extra = list(dep.vllm_extra_args or [])
+    if engine == "sglang":
+        # Apply the default at launch so saved recipes and API clients inherit it.
+        # A bare switch in extra args explicitly enables metrics, even with a structured opt-out.
+        enabled = "--enable-metrics" in extra or args.get("enable-metrics", True)
+        args = {**args, "enable-metrics": enabled}
+        extra = [arg for arg in extra if arg != "--enable-metrics"]
+    flags = render_engine_args(args) + extra
+    return flags + access_log_filter_args(engine, getattr(dep, "runtime", None), flags)
 
 
 def serving_port(dep) -> int:

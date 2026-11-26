@@ -1,7 +1,6 @@
 """Shared test fixtures for backend API tests."""
 
 import uuid
-from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -49,6 +48,7 @@ def super_user() -> CustomUser:
 @pytest.fixture
 def mock_litellm() -> MagicMock:
     client = MagicMock(spec=LiteLLMClient)
+    client.inventory_namespace = uuid.uuid4().hex
     # Default returns for common methods
     client.get_user_info = AsyncMock(
         return_value={

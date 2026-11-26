@@ -9,7 +9,7 @@ import { ArrowLeft, Loader2, RefreshCw, ScrollText, Trash2, Server, AlertTriangl
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
 import { useLocaleTag, parseServerDate } from "@/lib/locale";
-import { accessLogFilterArgs, engineArgsToFlags } from "@/lib/serving-engines";
+import { accessLogFilterArgs, configuredEngineFlags } from "@/lib/serving-engines";
 import { type PdRole, PD_ROLES, PD_VLLM_PORT, effectiveRole, roleLaunchArgs } from "@/lib/pd-serving";
 
 import {
@@ -410,7 +410,7 @@ function AdminDeploymentDetail() {
           )}
           {(() => {
             if (dep.serving_mode === "pd") return null;
-            const configured = [...engineArgsToFlags(dep.engine_args), ...(dep.vllm_extra_args ?? [])];
+            const configured = configuredEngineFlags(dep.engine, dep.engine_args, dep.vllm_extra_args);
             const flags = [...configured, ...accessLogFilterArgs(dep.engine, dep.runtime, configured)];
             return flags.length > 0 ? (
               <div className="mt-4 space-y-1">

@@ -1,5 +1,7 @@
 """Typed HTTP client wrapper for LiteLLM proxy management API."""
 
+import hashlib
+import json
 import time
 import uuid
 from typing import Any
@@ -9,7 +11,6 @@ import httpx
 
 from app.config import settings
 from app.services.personal_access import NO_DEFAULT_MODELS
-
 
 BASE_PRICE_FIELDS = ("input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost")
 
@@ -34,7 +35,15 @@ class LiteLLMClient:
         }
 
     def _client(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(base_url=self._base_url, headers=self._headers, timeout=30.0, verify=settings.ssl_verify)
+        return httpx.AsyncClient(
+            base_url=self._base_url, headers=self._headers, timeout=30.0, verify=settings.ssl_verify,
+        )
+
+    @property
+    def inventory_namespace(self) -> str:
+        """Isolate model registrations returned by different proxies and credentials."""
+        connection = json.dumps([self._base_url, self._headers, settings.ssl_verify], sort_keys=True)
+        return hashlib.sha256(connection.encode()).hexdigest()
 
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         async with self._client() as client:
@@ -55,7 +64,9 @@ class LiteLLMClient:
         }
         try:
             async with self._client() as client:
-                response = await client.post("/v1/chat/completions", json=payload, headers={"Cache-Control": "no-cache"})
+                response = await client.post(
+                    "/v1/chat/completions", json=payload, headers={"Cache-Control": "no-cache"},
+                )
                 response.raise_for_status()
                 data = response.json()
         except httpx.HTTPStatusError as exc:

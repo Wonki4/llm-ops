@@ -14,6 +14,7 @@ import { ModelPersonalUsersCard } from "@/components/model-personal-users-card";
 import { Badge } from "@/components/ui/badge";
 import { buildAccessGroupIndex } from "@/lib/access-groups";
 import { expandPersonalScope, grantState } from "@/lib/personal-access";
+import { ModelLiveLatency } from "@/components/model-live-latency";
 import { ModelIcon } from "@/components/model-icon";
 import { ModalityValue } from "@/components/model-modality";
 import { ModelStatusBadge } from "@/components/model-status-badge";
@@ -217,6 +218,7 @@ function InfoDetailTab({ litellm }: { litellm: Record<string, unknown> | null })
 }
 
 function ModelDetailPage() {
+  const t = useTranslations("modelDetail.latency");
   const [tab,setTab]=usePageTab(["info","pricing","performance","accuracy"],"info");
   const params = useParams();
   const raw = params.modelName;
@@ -256,7 +258,7 @@ function ModelDetailPage() {
   const maxOut = num(get(info, "max_output_tokens"));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
+    <div className="mx-auto min-w-0 max-w-5xl space-y-6 lg:p-6">
       <div className="space-y-2">
         <Button asChild variant="ghost" size="sm" className="-ml-2 h-7 text-muted-foreground">
           <Link href="/models/dashboard">← 모델 대시보드</Link>
@@ -296,15 +298,17 @@ function ModelDetailPage() {
       <AdminPersonalUsers modelName={summary.model_name} />
 
       <Tabs value={tab} onValueChange={setTab} className="w-full">
-        <TabsList variant="line" className="w-full justify-start gap-6 rounded-none border-b">
+        <TabsList variant="line" className="w-full justify-start gap-3 overflow-x-auto rounded-none border-b sm:gap-6">
           <TabsTrigger value="info" className="flex-none px-1">모델 정보</TabsTrigger>
           <TabsTrigger value="pricing" className="flex-none px-1">가격 상세</TabsTrigger>
           <TabsTrigger value="performance" className="flex-none px-1">성능 상세</TabsTrigger>
           <TabsTrigger value="accuracy" className="flex-none px-1">정확도</TabsTrigger>
         </TabsList>
-        <TabsContent value="performance" className="mt-4">
+        <TabsContent value="performance" className="mt-4 space-y-4">
+          {tab === "performance" && <ModelLiveLatency key={summary.model_name} modelName={summary.model_name} />}
           <Card>
-            <CardContent className="pt-6">
+            <CardContent className="space-y-4">
+              <h3 className="text-base font-semibold">{t("benchmark")}</h3>
               <PerfDetailTab perf={summary.performance} />
             </CardContent>
           </Card>
@@ -346,12 +350,13 @@ function AdminPersonalUsers({ modelName }: { modelName: string }) {
 function PersonalUsableChip({ modelName }: { modelName: string }) {
   const t = useTranslations("modelDetail");
   const { data: me } = useMe();
-  const { data: models } = useModels();
   const state = grantState(me?.models);
-  const index = buildAccessGroupIndex(models);
-  const byName = new Map((models ?? []).map((m) => [m.model_name, m]));
-  const usable =
-    state === "all" || (state === "custom" && expandPersonalScope(me?.models, index, byName, models).some((g) => g.name === modelName));
+  const direct = state === "all" || (state === "custom" && me?.models?.includes(modelName));
+  const needsGroups = state === "custom" && !direct;
+  const { data: models } = useModels(needsGroups);
+  const usable = direct || (needsGroups && models && expandPersonalScope(
+    me?.models, buildAccessGroupIndex(models), new Map(models.map((m) => [m.model_name, m])), models,
+  ).some((g) => g.name === modelName));
   if (!usable) return null;
   return (
     <div>

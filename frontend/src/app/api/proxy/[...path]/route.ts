@@ -43,6 +43,8 @@ async function proxyRequest(
     const responseHeaders = new Headers();
     const contentType = response.headers.get("Content-Type");
     if (contentType) responseHeaders.set("Content-Type", contentType);
+    const cacheControl = response.headers.get("cache-control");
+    if (cacheControl) responseHeaders.set("Cache-Control", cacheControl);
 
     // Forward set-cookie headers (getSetCookie may not work in all Node.js builds)
     const rawSetCookie = response.headers.get("set-cookie");

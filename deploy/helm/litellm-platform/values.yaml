@@ -36,6 +36,11 @@ backend:
   env:
     APP_DATABASE_URL: ""
     APP_LITELLM_DATABASE_URL: ""
+    # Mounted kubeconfig (portal cluster). Registered clusters use their settings in the portal.
+    APP_PROMETHEUS_URL: ""
+    APP_PROMETHEUS_SHARED: "false"
+    APP_PROMETHEUS_CLUSTER_LABEL: ""
+    APP_PROMETHEUS_CLUSTER_VALUE: ""
     APP_SCHEDULE_TIMEZONE: "Asia/Seoul"
     APP_LITELLM_BASE_URL: ""
     APP_BENCHMARK_ACCURACY_IMAGE: "llmops-benchmark:portal-v1"
@@ -65,6 +70,8 @@ backend:
     APP_FRONTEND_URL: ""
     APP_CORS_ORIGINS: '["http://localhost:3002"]'
     APP_SLACK_WEBHOOK_URL: ""
+  # Optional Kubernetes SecretKeySelector for the portal cluster query token.
+  prometheusBearerTokenSecretKeyRef: {}
   resources:
     requests:
       cpu: 100m
