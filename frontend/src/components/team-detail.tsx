@@ -1,5 +1,7 @@
 "use client";
 
+import { ModelDemandPanel } from "@/components/model-demand";
+
 import { Fragment, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -2064,7 +2066,8 @@ export default function TeamDetailPage({
           </TabsContent>
         )}
 
-        <TabsContent value="usage" className="mt-6">
+        <TabsContent value="usage" className="mt-6 space-y-4">
+          <ModelDemandPanel scope="team" subject={teamId} canSubmit={is_admin} />
           <UsageTab teamId={teamId} />
         </TabsContent>
 

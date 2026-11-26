@@ -1,5 +1,7 @@
 "use client";
 
+import { ModelDemandPanel } from "@/components/model-demand";
+
 import { Suspense, use, useMemo, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -271,6 +273,8 @@ function AdminUserDetailPage({
           )}
         </div>
       </div>
+
+      <ModelDemandPanel scope="user" subject={user.litellm_user_id ?? userId} admin keys={keys}/>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <Card>

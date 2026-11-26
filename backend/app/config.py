@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     litellm_database_url: str = ""
 
     litellm_base_url: str = "http://localhost:4000"
+    # Set from the same environment as LiteLLM general_settings when it is file-based.
+    litellm_token_rate_limit_type: Literal["input", "output", "total"] | None = None
     litellm_admin_api_key: str = "sk-1234"
 
     keycloak_base_url: str = "http://localhost:8082"

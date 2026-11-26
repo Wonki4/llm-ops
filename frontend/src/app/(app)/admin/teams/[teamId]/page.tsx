@@ -1,4 +1,6 @@
 "use client";
+
+import { ModelDemandPanel } from "@/components/model-demand";
 import { Suspense } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
@@ -18,6 +20,7 @@ function Detail(){
     <PageTabs label={t("title")} active={tab} tabs={tabs.map(id=>{const q=new URLSearchParams(params.toString());q.set("tab",id);return {id,label:t(id),href:`?${q}`};})} />
     {tab==="members" && <MembersTab teamId={teamId} />}{tab==="models" && <TeamModelAccess teamId={teamId} />}{tab==="serving" && <TeamServingPermissions teamId={teamId} name={team.team_alias} />}{tab==="usage" && <UsageTab teamId={teamId} />}
     {tab==="budget" && <p>{t("teamBudget")}: ${team.spend.toFixed(2)} / {team.max_budget==null?t("unlimited"):`$${team.max_budget}`}</p>}
+    {tab==="budget" && <ModelDemandPanel scope="team" subject={teamId} admin />}
     {(tab==="settings"||tab==="budget") && <TeamSettingsTab key={`${teamId}-${tab}`} section={tab==="budget"?"budget":"general"} teamId={teamId} description={team.description??null} defaultMemberBudget={data.default_member_budget??null} defaultMemberTpm={data.default_member_tpm_limit??null} defaultMemberRpm={data.default_member_rpm_limit??null} membershipDuration={data.membership_duration??null} defaultTpmLimit={data.default_tpm_limit??null} defaultRpmLimit={data.default_rpm_limit??null} budgetRequestMaxAmount={data.budget_request_max_amount} budgetRequestAllowedDays={data.budget_request_allowed_days} />}
   </div>;
 }
