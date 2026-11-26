@@ -1,0 +1,93 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { toast } from "sonner";
+import { useAdminTeams } from "@/hooks/use-admin-teams";
+import { useHiddenTeams, useUpdateTeamVisibility, type TeamVisibility } from "@/hooks/use-api";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+export function AdminTeamList({ modelName, accessGroup, manageVisibility = false }: {
+  modelName?: string;
+  accessGroup?: string;
+  manageVisibility?: boolean;
+}) {
+  const t = useTranslations("portalTeams");
+  const tv = useTranslations("teamVisibility");
+  const params = useSearchParams();
+  const router = useRouter();
+  const prefix = modelName || accessGroup ? "teams_" : "";
+  const q = params.get(prefix + "q") || "";
+  const page = Math.max(1, Number(params.get(prefix + "page")) || 1);
+  const query = useAdminTeams({ q, page, model_name: modelName, access_group: accessGroup });
+  const visibility = useHiddenTeams(manageVisibility);
+  const updateVisibility = useUpdateTeamVisibility();
+
+  function change(key: string, value: string) {
+    const next = new URLSearchParams(params.toString());
+    next.set(prefix + key, value);
+    if (key === "q") next.delete(prefix + "page");
+    router.replace(`?${next}`, { scroll: false });
+  }
+  function setVisibility(teamId: string, label: string, mode: TeamVisibility) {
+    updateVisibility.mutate({ teamId, mode }, {
+      onSuccess: () => toast.success(tv("saved", { team: label })),
+      onError: (error) => {
+        toast.error(error.message);
+        void visibility.refetch();
+      },
+    });
+  }
+
+  return <div className="space-y-4">
+    <div className="flex gap-3">
+      <Input className="max-w-sm" aria-label={t("search")} placeholder={t("search")} value={q} onChange={e => change("q", e.target.value)} />
+      {(modelName || accessGroup) && <Button variant="outline" asChild><Link href="/admin/teams">{t("assignTeam")}</Link></Button>}
+    </div>
+    {manageVisibility && <p className="text-sm text-muted-foreground">{tv("hint")}</p>}
+    {query.isError && <p role="alert">{query.error.message}</p>}
+    {manageVisibility && visibility.isError && <p role="alert">{tv("loadError")}: {visibility.error.message}</p>}
+    <div className="overflow-x-auto"><table className="w-full text-sm">
+      <thead><tr className="border-b text-left">
+        {["team", "members", "directAccess", "effective"].map(k => <th className="py-3 pr-4 whitespace-nowrap" key={k}>{t(k)}</th>)}
+        {manageVisibility && <th className="py-3 whitespace-nowrap">{tv("title")}</th>}
+      </tr></thead>
+      <tbody>{query.data?.teams.map(team => {
+        const label = team.team_alias || team.team_id;
+        const strict = !!visibility.data?.hidden_teams_strict.includes(team.team_id);
+        const hidden = strict || !!visibility.data?.hidden_teams.includes(team.team_id);
+        const disabled = !visibility.data || visibility.isError || updateVisibility.isPending;
+        return <tr key={team.team_id} className="border-b">
+          <td className="py-3 pr-4"><Link className="font-medium underline" href={`/admin/teams/${encodeURIComponent(team.team_id)}${modelName || accessGroup ? "?tab=models" : ""}`}>{label}</Link><p className="text-xs text-muted-foreground">{team.team_id}</p></td>
+          <td className="pr-4">{team.member_count}</td>
+          <td className="pr-4">{t(team.access.mode)}</td>
+          <td className="pr-4">{modelName ? team.access.effective_models.find(m => m.model_name === modelName)?.via.map(v => ["all", "direct"].includes(v) ? t(v) : v).join(", ") : t("modelCount", { count: team.access.effective_models.length })}</td>
+          {manageVisibility && <td className="py-3">
+            {visibility.data ? <Select
+              value={strict ? "strict" : hidden ? "discovery" : "visible"} disabled={disabled}
+              onValueChange={value => setVisibility(team.team_id, label, value as TeamVisibility)}>
+              <SelectTrigger size="sm" className="w-48 text-xs" aria-label={tv("scopeLabel", { team: label })}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="visible">{tv("visible")}</SelectItem>
+                <SelectItem value="discovery">{tv("discovery")}</SelectItem>
+                <SelectItem value="strict">{tv("strict")}</SelectItem>
+              </SelectContent>
+            </Select> : <span aria-busy="true">…</span>}
+          </td>}
+        </tr>;
+      })}</tbody>
+    </table></div>
+    {query.isPending && <p aria-busy="true">…</p>}
+    {query.data && !query.data.teams.length && <p>{t("empty")}</p>}
+    <div className="flex items-center gap-3">
+      <Button variant="outline" disabled={page <= 1} onClick={() => change("page", String(page - 1))}>{t("previous")}</Button>
+      <span>{page} / {Math.max(1, Math.ceil((query.data?.total || 0) / (query.data?.page_size || 25)))}</span>
+      <Button variant="outline" disabled={!query.data || page * query.data.page_size >= query.data.total} onClick={() => change("page", String(page + 1))}>{t("next")}</Button>
+    </div>
+  </div>;
+}

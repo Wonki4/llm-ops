@@ -7,6 +7,8 @@ import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from app.services.benchmark_manifests import job_name_for
 
 
@@ -97,3 +99,23 @@ async def test_endpoint_url_rejects_non_http_url(client_for_user, super_user, mo
             resp = await client.post("/api/benchmarks", json=body)
     assert resp.status_code == 400
     fake_k8s.create_job.assert_not_awaited()
+
+
+@pytest.mark.parametrize("tokenizer", [None, "/models/local-tokenizer"])
+async def test_url_workload_is_frozen_and_matches_preview(admin_client, mock_db, tokenizer):
+    k8s = MagicMock(create_job=AsyncMock())
+    params = {"workload_version": 2, "cache_ratio": 90}
+    if tokenizer:
+        params["tokenizer"] = tokenizer
+    body = _endpoint_body(model_name="not-a-huggingface-repo", params=params, api_key="private-endpoint-key")
+    with patch("app.api.benchmarks.k8s_for_cluster", AsyncMock(return_value=k8s)):
+        preview = await admin_client.post("/api/benchmarks/preview", json=body)
+        response = await admin_client.post("/api/benchmarks", json=body)
+    assert response.status_code == 201 and preview.status_code == 200
+    expected_mode = "tokenizer" if tokenizer else "text_estimate"
+    assert response.json()["params"]["input_length_mode"] == expected_mode
+    manifest = k8s.create_job.call_args.args[1]
+    env = {e["name"]: e for e in manifest["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert json.loads(env["BENCH_WORKLOAD"]["value"])["input_length_mode"] == expected_mode
+    assert expected_mode in preview.text
+    assert "private-endpoint-key" not in response.text + preview.text + json.dumps(manifest)

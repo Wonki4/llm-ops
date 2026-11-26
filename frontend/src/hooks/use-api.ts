@@ -1,6 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { appendLatencySample, latencyKey, retiredLatencySamples, type LatencyMetric, type LatencySample, type LatencyTarget } from "@/lib/model-latency";
 import type { PdRole } from "@/lib/pd-serving";
 import { scopeQuery, type ScopedItem, type ServingScope } from "@/lib/serving-scope";
 import { apiFetch } from "@/lib/api";
@@ -27,8 +28,6 @@ import type {
   UpdateModelCatalogRequest,
   BudgetListResponse,
   BudgetDetails,
-  RedisCatalogEntry,
-  RedisCatalogListResponse,
   AdminUserListResponse,
   AdminUserDetail,
   AdminUsageResponse,
@@ -39,8 +38,8 @@ import type {
   UpdateAnnouncementRequest,
   BenchmarkRun,
   BenchmarkListResponse,
+  BenchmarkModelGroup,
   CreateBenchmarkRequest,
-  LoadPreset,
   ModelDeployment,
   ModelDeploymentEvent,
   ManifestPreview,
@@ -65,6 +64,10 @@ import type {
   RecipeDiff,
   RecipeDraftResponse,
   ServingRecipe,
+  CapacityScenario,
+  SavedRecipeCapacity,
+  SavedRecipeThroughput,
+  ThroughputScenario,
   ServingRecipeCreateBody,
   ServingRecipeInput,
   ServingRecipePreview,
@@ -547,11 +550,21 @@ export function useRequesterHistory(requestId: string | null) {
 
 // ─── Models ──────────────────────────────────────────────────
 
-export function useModels() {
+export function useModels(enabled = true) {
   return useQuery({
     queryKey: queryKeys.models,
+    enabled,
     queryFn: () =>
       apiFetch<{ models: ModelWithCatalog[] }>("/api/models").then((r) => r.models),
+  });
+}
+
+export function useTeamModelCatalog(teamId: string) {
+  return useQuery({
+    queryKey: [...queryKeys.models, "team", teamId],
+    queryFn: () => apiFetch<{ models: ModelWithCatalog[]; referenced_access_groups: string[] }>(
+      `/api/models?team_id=${encodeURIComponent(teamId)}`,
+    ),
   });
 }
 
@@ -813,26 +826,32 @@ export interface HiddenTeamsSettings {
   hidden_teams_strict: string[];
 }
 
-export function useHiddenTeams() {
+export function useHiddenTeams(enabled = true) {
   return useQuery({
     queryKey: ["hidden-teams"],
     queryFn: () => apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams"),
+    enabled,
   });
 }
 
-export function useUpdateHiddenTeams() {
+export type TeamVisibility = "visible" | "discovery" | "strict";
+
+export function useUpdateTeamVisibility() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: HiddenTeamsSettings) =>
-      apiFetch<HiddenTeamsSettings>("/api/settings/hidden-teams", {
-        method: "PUT",
-        body: JSON.stringify(body),
+    mutationFn: ({ teamId, mode }: { teamId: string; mode: TeamVisibility }) =>
+      apiFetch<HiddenTeamsSettings>(`/api/settings/hidden-teams/${encodeURIComponent(teamId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ mode }),
       }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["hidden-teams"] });
-      qc.invalidateQueries({ queryKey: ["portal-settings"] });
-      qc.invalidateQueries({ queryKey: queryKeys.myTeams });
-      qc.invalidateQueries({ queryKey: queryKeys.discoverTeams });
+    onSuccess: async (data) => {
+      qc.setQueryData(["hidden-teams"], data);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["hidden-teams"] }),
+        qc.invalidateQueries({ queryKey: ["portal-settings"] }),
+        qc.invalidateQueries({ queryKey: ["teams"] }),
+        qc.invalidateQueries({ queryKey: ["keys"] }),
+      ]);
     },
   });
 }
@@ -861,112 +880,6 @@ export function useUpdatePodLabels() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pod-labels"] });
     },
-  });
-}
-
-// ─── Redis Catalog ──────────────────────────────────────────────
-
-export function useCatalogList() {
-  return useQuery({
-    queryKey: ["catalog-list"],
-    queryFn: () => apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs"),
-  });
-}
-
-export function useUpdateCatalogList() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (catalogs: string[]) =>
-      apiFetch<{ catalogs: string[] }>("/api/catalog/catalogs", {
-        method: "PUT",
-        body: JSON.stringify(catalogs),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["catalog-list"] });
-    },
-  });
-}
-
-export function useRedisCatalog(catalog: string) {
-  return useQuery({
-    queryKey: ["redis-catalog", catalog],
-    queryFn: () => apiFetch<RedisCatalogListResponse>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`),
-    enabled: !!catalog,
-  });
-}
-
-export function useCreateRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, body }: { catalog: string; body: { display_name: string; entry: Omit<RedisCatalogEntry, "display_name"> } }) =>
-      apiFetch<RedisCatalogEntry>(`/api/catalog?catalog=${encodeURIComponent(catalog)}`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useUpdateRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, displayName, body }: { catalog: string; displayName: string; body: { entry?: Omit<RedisCatalogEntry, "display_name">; new_display_name?: string } }) =>
-      apiFetch<RedisCatalogEntry>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useDeleteRedisCatalogEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ catalog, displayName }: { catalog: string; displayName: string }) =>
-      apiFetch<{ deleted: boolean }>(`/api/catalog/entry/${encodeURIComponent(displayName)}?catalog=${encodeURIComponent(catalog)}`, {
-        method: "DELETE",
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["redis-catalog"] });
-    },
-  });
-}
-
-export function useSyncCatalogToRedis() {
-  return useMutation({
-    mutationFn: ({ catalog }: { catalog: string }) => {
-      const params = new URLSearchParams({ catalog });
-      return apiFetch<{ synced: number }>(`/api/catalog/sync-to-redis?${params}`, { method: "POST" });
-    },
-  });
-}
-
-// ─── Per-model Redis cache (split-pane right panel) ─────────────
-
-export interface ModelCacheEntry {
-  model: string;
-  apiBase: string;
-  apiKey: string;
-  options?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface ModelCacheResponse {
-  model_name: string;
-  suffixes: string[];
-  entries: Record<string, ModelCacheEntry | null>;
-}
-
-export function useModelCache(modelName: string | null) {
-  return useQuery({
-    queryKey: ["model-cache", modelName],
-    queryFn: () =>
-      apiFetch<ModelCacheResponse>(`/api/models/${encodeURIComponent(modelName!)}/cache`),
-    enabled: !!modelName,
   });
 }
 
@@ -1010,39 +923,91 @@ export function useModelSummary(modelName: string | null) {
   });
 }
 
-export function useSetModelCacheEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      modelName,
-      suffix,
-      entry,
-    }: {
-      modelName: string;
-      suffix: string;
-      entry: ModelCacheEntry;
-    }) =>
-      apiFetch<ModelCacheEntry>(
-        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
-        { method: "PUT", body: JSON.stringify(entry) },
-      ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
-    },
+export interface LiveLatencyMetric {
+  status: string;
+  p50_ms: number | null;
+  lower_bound_ms?: number;
+}
+
+export interface LiveLatencyRow extends LatencyTarget {
+  status: string;
+  last_scraped_at: string | null;
+  metrics: Record<LatencyMetric, LiveLatencyMetric>;
+  recent?: LatencySample[];
+  historyOnly?: boolean;
+}
+
+interface ModelLiveLatencyResult {
+  rows: LiveLatencyRow[];
+  unmapped_count: number;
+  evaluated_at: string;
+  window_seconds: number;
+  refresh_seconds: number;
+}
+
+export interface LatencyHistoryRow extends LatencyTarget {
+  scope_source?: "deployment_owner" | "deployment_target" | "observed_pods" | "current_pods" | "unavailable";
+  history: Array<Omit<LatencySample, "at"> & { at: string }>;
+  unavailable_metrics?: LatencyMetric[];
+}
+
+interface ModelLatencyHistoryResult {
+  rows: LatencyHistoryRow[];
+  end_at: string;
+  history_seconds: number;
+  step_seconds: number;
+}
+
+export function useModelLatencyHistory(modelName: string) {
+  return useQuery({
+    queryKey: ["model-live-latency-history", modelName],
+    queryFn: ({ signal }) => apiFetch<ModelLatencyHistoryResult>(
+      `/api/models/${encodeURIComponent(modelName)}/live-latency/history`, { signal, cache: "no-store" },
+    ),
+    // Backfill on entry or after returning to an idle tab. Live polls extend the graph.
+    staleTime: 60_000,
+    retry: 1,
   });
 }
 
-export function useDeleteModelCacheEntry() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ modelName, suffix }: { modelName: string; suffix: string }) =>
-      apiFetch<{ deleted: boolean }>(
-        `/api/models/${encodeURIComponent(modelName)}/cache/${encodeURIComponent(suffix)}`,
-        { method: "DELETE" },
-      ),
-    onSuccess: (_data, vars) => {
-      qc.invalidateQueries({ queryKey: ["model-cache", vars.modelName] });
+export function useModelLiveLatency(modelName: string) {
+  const client = useQueryClient();
+  const queryKey = ["model-live-latency", modelName];
+  return useQuery({
+    queryKey,
+    queryFn: async ({ signal }) => {
+      const latest = await apiFetch<ModelLiveLatencyResult>(
+        `/api/models/${encodeURIComponent(modelName)}/live-latency`,
+        { signal, cache: "no-store" },
+      );
+      const previous = client.getQueryData<ModelLiveLatencyResult>(queryKey);
+      const oldRows = new Map(previous?.rows.map((row) => [latencyKey(row), row]));
+      const evaluated = Date.parse(latest.evaluated_at);
+      const at = Number.isFinite(evaluated) ? evaluated : Date.now();
+      for (const row of latest.rows) {
+        const key = latencyKey(row);
+        const old = oldRows.get(key);
+        oldRows.delete(key);
+        if (row.status === "error" && !row.last_scraped_at) row.last_scraped_at = old?.last_scraped_at ?? null;
+        const value = (name: LatencyMetric) => row.metrics[name].status === "ok" ? row.metrics[name].p50_ms : null;
+        const bounds = Object.fromEntries(Object.entries(row.metrics)
+          .filter(([, item]) => item.status === "above_range" && item.lower_bound_ms != null)
+          .map(([metric, item]) => [metric, item.lower_bound_ms]));
+        row.recent = appendLatencySample(old?.recent ?? [], {
+          at,
+          ttft: value("ttft"), e2e: value("e2e"), itl: value("itl"), lower_bounds_ms: bounds,
+        }, latest.refresh_seconds * 1000);
+      }
+      for (const old of oldRows.values()) {
+        const recent = retiredLatencySamples(old.recent ?? [], at);
+        if (recent.length) latest.rows.push({ ...old, historyOnly: true, last_scraped_at: null, recent });
+      }
+      return latest;
     },
+    staleTime: 0,
+    refetchInterval: (query) => (query.state.data?.refresh_seconds ?? 15) * 1000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 }
 
@@ -1592,20 +1557,34 @@ export function useBenchmarks(filters: {
   tool?: string;
   status?: string;
   limit?: number;
-}) {
+  offset?: number;
+}, enabled = true) {
   const params = new URLSearchParams();
   if (filters.model_name) params.set("model_name", filters.model_name);
   if (filters.tool) params.set("tool", filters.tool);
   if (filters.experiment) params.set("experiment", filters.experiment);
   if (filters.status) params.set("status_filter", filters.status);
   if (filters.limit) params.set("limit", String(filters.limit));
+  if (filters.offset) params.set("offset", String(filters.offset));
   const qs = params.toString() ? `?${params.toString()}` : "";
 
   return useQuery({
     queryKey: ["benchmarks", filters],
+    enabled,
     queryFn: () =>
       apiFetch<BenchmarkListResponse>(`/api/benchmarks${qs}`).then((r) => r.runs),
     // Refresh while jobs are still pending/running.
+    refetchInterval: 5000,
+  });
+}
+
+export function useBenchmarkModelGroups(filters: { experiment?: string; status?: string }) {
+  const params = new URLSearchParams();
+  if (filters.experiment) params.set("experiment", filters.experiment);
+  if (filters.status) params.set("status_filter", filters.status);
+  return useQuery({
+    queryKey: ["benchmarks", "model-groups", filters],
+    queryFn: () => apiFetch<{ models: BenchmarkModelGroup[] }>(`/api/benchmarks/model-groups?${params}`).then(r => r.models),
     refetchInterval: 5000,
   });
 }
@@ -1676,18 +1655,36 @@ export function useCreateBenchmark() {
   });
 }
 
+const presetQuery = {
+  queryKey: ["benchmark-presets"],
+  queryFn: () => apiFetch<import("@/types").BenchmarkPresetSettings>("/api/benchmarks/presets"),
+  staleTime: Infinity,
+};
 export function useBenchmarkPresets() {
-  return useQuery({
-    queryKey: ["benchmark-presets"],
-    queryFn: () =>
-      apiFetch<{ presets: Record<string, LoadPreset> }>("/api/benchmarks/presets").then((r) => r.presets),
-    staleTime: Infinity,
+  return useQuery({ ...presetQuery, select: r => r.presets });
+}
+export function useBenchmarkPresetSettings() {
+  return useQuery(presetQuery);
+}
+export function useSaveBenchmarkPresets() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: import("@/types").BenchmarkPresetSettings) => apiFetch<import("@/types").BenchmarkPresetSettings>("/api/benchmarks/presets", { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: data => qc.setQueryData(presetQuery.queryKey, data),
   });
 }
 
 // ─── K8s Clusters (admin) ──────────────────────────────────────────
 
-export interface CreateK8sClusterBody {
+export interface PrometheusSettingsBody {
+  prometheus_url?: string | null;
+  prometheus_shared?: boolean;
+  prometheus_cluster_label?: string | null;
+  prometheus_cluster_value?: string | null;
+  prometheus_bearer_token?: string | null;
+}
+
+export interface CreateK8sClusterBody extends PrometheusSettingsBody {
   name: string;
   context: string;
   namespace?: string;
@@ -1730,6 +1727,7 @@ export function useDefaultNamespace(clusterId: string): string {
 export function useCreateK8sCluster() {
   const qc = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: (body: CreateK8sClusterBody) =>
       apiFetch<K8sClusterSummary>("/api/admin/k8s-clusters", {
         method: "POST",
@@ -1742,6 +1740,7 @@ export function useCreateK8sCluster() {
 export function useUpdateK8sCluster() {
   const qc = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: ({ id, body }: { id: string; body: UpdateK8sClusterBody }) =>
       apiFetch<K8sClusterSummary>(`/api/admin/k8s-clusters/${id}`, {
         method: "PUT",
@@ -1760,30 +1759,6 @@ export function useDeleteK8sCluster() {
   });
 }
 
-// ─── Benchmark manifest preview ────────────────────────────────────
-
-export interface BenchmarkPreviewManifest {
-  kind: string;
-  name: string;
-  yaml: string;
-}
-
-export interface BenchmarkPreviewResponse {
-  manifests: BenchmarkPreviewManifest[];
-  note: string | null;
-}
-
-/** Render the exact K8s manifests a benchmark run would apply (no writes). */
-export function useBenchmarkPreview() {
-  return useMutation({
-    mutationFn: (body: CreateBenchmarkRequest) =>
-      apiFetch<BenchmarkPreviewResponse>("/api/benchmarks/preview", {
-        method: "POST",
-        body: JSON.stringify(body),
-      }),
-  });
-}
-
 /** Test an unsaved kubeconfig+context (before the cluster is created). */
 export function useTestK8sCluster() {
   return useMutation({
@@ -1792,6 +1767,17 @@ export function useTestK8sCluster() {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  });
+}
+
+export function useTestClusterPrometheus() {
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (body: PrometheusSettingsBody & { cluster_id?: string }) =>
+      apiFetch<{ ok: boolean; message: string; series_found: boolean | null }>(
+        "/api/admin/k8s-clusters/prometheus/test",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
   });
 }
 
@@ -1948,6 +1934,43 @@ export function useServingRecipes() {
   });
 }
 
+export function useServingRecipe(id: string) {
+  return useQuery({
+    queryKey: ["serving-recipe", id],
+    queryFn: () => apiFetch<ServingRecipe>(`/api/admin/serving-recipes/${id}`),
+  });
+}
+
+export function useSavedRecipeCapacity(recipe: ServingRecipe, body: {
+  cluster_id: string | null; namespace: string | null; capacity_scenario: CapacityScenario;
+}, enabled: boolean) {
+  return useQuery({
+    queryKey: ["saved-recipe-capacity", recipe.id, recipe.updated_at, body],
+    queryFn: () => apiFetch<SavedRecipeCapacity>(`/api/admin/serving-recipes/${recipe.id}/kv-capacity`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+    enabled,
+    retry: false,
+    refetchInterval: query => query.state.data?.pools.some(pool => pool.pending) ? 4000 : false,
+  });
+}
+
+export function useSavedRecipeThroughput(recipe: ServingRecipe, clusterId: string | null, namespace: string | null,
+  scenario: ThroughputScenario | null) {
+  return useQuery({
+    queryKey: ["saved-recipe-throughput", recipe.id, recipe.updated_at, clusterId, namespace, scenario],
+    queryFn: ({ signal }) => apiFetch<SavedRecipeThroughput>(`/api/admin/serving-recipes/${recipe.id}/throughput`, {
+      method: "POST",
+      body: JSON.stringify({ cluster_id: clusterId, namespace, ...scenario }),
+      signal,
+    }),
+    enabled: scenario !== null,
+    retry: false,
+    refetchInterval: query => query.state.data?.pending ? 4000 : false,
+  });
+}
+
 export function useCreateServingRecipe() {
   const qc = useQueryClient();
   return useMutation({
@@ -1956,7 +1979,8 @@ export function useCreateServingRecipe() {
         method: "POST",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => {
+    onSuccess: saved => {
+      qc.setQueryData(["serving-recipe", saved.id], saved);
       qc.invalidateQueries({ queryKey: ["serving-recipes"] });
       qc.invalidateQueries({ queryKey: ["model-deployments"] });
     },
@@ -1973,6 +1997,7 @@ export function usePreviewServingRecipe(body: ServingRecipePreviewBody | null) {
         body: JSON.stringify(body),
       }),
     enabled: body !== null,
+    refetchInterval: q => q.state.data?.kv_capacity?.pools.some(p => p.pending) ? 4000 : false,
     retry: false,
     placeholderData: keepPreviousData, // live preview: keep the last YAML while the next one renders
   });
@@ -2008,7 +2033,12 @@ export function useUpdateServingRecipe() {
         method: "PUT",
         body: JSON.stringify(body),
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["serving-recipes"] }),
+    onSuccess: saved => {
+      qc.setQueryData(["serving-recipe", saved.id], saved);
+      qc.invalidateQueries({ queryKey: ["saved-recipe-capacity", saved.id] });
+      qc.invalidateQueries({ queryKey: ["saved-recipe-throughput", saved.id] });
+      qc.invalidateQueries({ queryKey: ["serving-recipes"] });
+    },
   });
 }
 

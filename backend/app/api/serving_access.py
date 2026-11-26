@@ -27,6 +27,7 @@ from app.db.models.custom_serving_grant import CustomServingGrantEvent as Event
 from app.db.models.custom_serving_recipe import CustomServingRecipe as Recipe
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db, get_litellm_db
+from app.services.kv_observations import deployment_observations
 from app.services.clusters import NamespaceScope, validate_namespace
 from app.services.pd_serving import pd_status_summary
 from app.services.serving_access import deployment_scope_filter, require_scope, serving_scopes, team_grants_query
@@ -243,7 +244,8 @@ async def team_deployment(deployment_id: uuid.UUID, scopes: list[dict] = Depends
                                      DeploymentEvent.from_status, DeploymentEvent.to_status)
                               .where(DeploymentEvent.deployment_id == deployment_id)
                               .order_by(DeploymentEvent.created_at.desc(), DeploymentEvent.id.desc()).limit(30))
-    return {**deployment_summary(row), "events": [dict(event) for event in events.mappings()]}
+    return {**deployment_summary(row), "events": [dict(event) for event in events.mappings()],
+            "kv_observations": await deployment_observations(db, deployment_id)}
 
 
 async def operator_scopes(scopes: list[dict] = Depends(serving_scopes)) -> list[dict]:

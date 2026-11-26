@@ -150,6 +150,7 @@ export interface LiteLLMModelInfo {
 }
 
 export interface ModelWithCatalog {
+  registrations?: LiteLLMModelInfo[];
   model_name: string;
   litellm_info: LiteLLMModelInfo | null;
   catalog: ModelCatalog | null;
@@ -445,22 +446,6 @@ export interface AdminUsageDailyResponse {
   totals: UsageTokenBreakdown & { total_tokens: number; api_requests: number; spend: number };
 }
 
-// ─── Redis Catalog ────────────────────────────────────────────
-
-export interface RedisCatalogEntry {
-  display_name: string;
-  model: string;
-  apiBase: string;
-  apiKey: string;
-  options: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-export interface RedisCatalogListResponse {
-  entries: RedisCatalogEntry[];
-  total: number;
-}
-
 // ─── Admin Users ──────────────────────────────────────────────
 
 export type GlobalRole = "user" | "super_user";
@@ -722,6 +707,15 @@ export interface BenchmarkListResponse {
   runs: BenchmarkRun[];
 }
 
+export interface BenchmarkModelGroup {
+  model_name: string;
+  run_count: number;
+  succeeded_count: number;
+  failed_count: number;
+  active_count: number;
+  latest_created_at: string;
+}
+
 export interface CreateBenchmarkRequest {
   model_name?: string;
   cluster_id?: string;
@@ -743,7 +737,22 @@ export interface CreateBenchmarkRequest {
   note?: string;
 }
 
+export interface BenchmarkPresetSettings { presets: Record<string, LoadPreset>; default_preset: string; }
+
+export interface ServiceObjectives {
+  ttft_ms: number | null;
+  tpot_ms: number | null;
+  e2el_ms: number | null;
+  max_error_percent: number;
+  min_slo_percent: number;
+}
+
 export interface LoadPreset {
+  slo?: ServiceObjectives;
+  name?: string;
+  workload_type?: "synthetic" | "agentic_replay";
+  num_sessions?: number;
+  cache_ratio?: number;
   random_input_len: number;
   random_output_len: number;
   num_prompts: number;
@@ -751,7 +760,23 @@ export interface LoadPreset {
 }
 
 /** Portal-managed serving deployment. */
+export interface KVObservation {
+  role: "aggregated" | "prefill" | "decode"; pod_name: string; pod_uid: string; restart: number; active: boolean;
+  engine: string; image: string; image_id: string | null; revision: string | null; gpu_type: string | null;
+  capacity_tokens: number | null; budget_bytes: number | null; budget_bytes_max?: number;
+  capacity_tokens_source?: "startup_log" | "engine_metrics";
+  estimate?: {
+    capacity_tokens?: number | null; capacity_range?: [number, number]; rule_version?: string | null;
+    budget_source?: string; kv_dtype?: string; tp?: number; pp?: number; dcp?: number;
+    same_revision?: boolean; components?: { kind: string; layers: number }[];
+  };
+  delta_tokens: number | null; delta_percent: number | null; utilization: number | null;
+  prefix_hit_rate: number | null; prefix_rate_scope: "since_startup" | "engine_window" | null;
+  observed_at: string | null; last_seen: string;
+}
+
 export interface ModelDeployment {
+  kv_observations?: KVObservation[];
   validation_id?: string | null;
   validation_state?: string | null;
   id: string;
@@ -884,6 +909,11 @@ export interface K8sClusterSummary {
   bench_mount_path: string | null;
   /** Node label key marking GPU kinds on this cluster (default gpu-type). */
   gpu_label_key: string;
+  prometheus_url: string | null;
+  prometheus_shared: boolean;
+  prometheus_cluster_label: string | null;
+  prometheus_cluster_value: string | null;
+  prometheus_has_token: boolean;
   has_kubeconfig: boolean;
   created_by: string | null;
   created_at: string | null;
@@ -1193,7 +1223,141 @@ export type ServingRecipeInput = Omit<
 export type ServingRecipeCreateBody = ServingRecipeInput & { source_deployment_id?: string | null };
 
 // POST /api/admin/serving-recipes/preview: an unsaved recipe rendered for a deploy target.
+export type CapacityScenario = { context_tokens: number; requests: number; shared_prefix_tokens: number };
+export interface RecipeDSparkEstimate {
+  draft_model: string;
+  revision: string | null;
+  assumed_revision: boolean;
+  draft_tokens: number;
+  scenario_requests: number;
+  max_num_seqs: number | null;
+  active_requests: number;
+  candidate_tokens: number;
+  lookahead_tokens_per_request: number;
+  lookahead_tokens: number;
+  draft_weight_bytes_per_gpu: number | null;
+  draft_kv_bytes_per_gpu: number;
+  verification_workspace_bytes_per_gpu?: number;
+  context_limited_capacity_tokens?: number;
+  draft_cache_dtype: string;
+  draft_tp: number;
+  draft_dcp: number;
+  draft_window_tokens: number;
+}
+export type RecipeCapacity = {
+  rule_version: string;
+  pools: Array<{
+    role: string; gpu_type: string | null; gpu_count?: number; gpu_profile_resolved?: boolean; gpu_vram_gb?: number | null;
+    fingerprint: string; image: string; engine_version?: string;
+    pending?: boolean; missing?: string[]; assumptions?: string[];
+    capacity_tokens: number | null; complete_requests: number | null;
+    capacity_range?: number[]; complete_requests_range?: number[]; required_bytes_per_gpu?: number;
+    required_bytes_per_replica?: number; shared_required_bytes_per_gpu?: number;
+    budget_source?: "explicit" | "startup" | "profile_upper_bound" | "unknown";
+    budget_exceeds_vram?: boolean; payload_lower_bound?: boolean;
+    weights_exceed_vram?: boolean;
+    weight_fit_unverified?: boolean;
+    device_only_weight_bound?: boolean;
+    resident_weight_floor_bytes_per_gpu?: number;
+    weight_offload?: { requested_bytes_per_gpu: number; min_bytes_per_gpu?: number | null; max_bytes_per_gpu?: number | null };
+    host_kv_offload?: {
+      source: string; configured_bytes: number | null;
+      scope: "all_workers" | "per_worker" | "external" | "unknown";
+      device_pool_ratio?: number;
+    };
+    speculation?: RecipeDSparkEstimate;
+    integrated_speculation?: {
+      method: string; draft_tokens: number; active_requests: number; candidate_tokens: number; max_num_seqs?: number | null;
+    };
+    weight_residency?: {
+      checkpoint_bytes: number; resident_weight_bytes: number;
+      excluded_bytes: Partial<Record<"draft" | "vision" | "audio" | "engram_embeddings" | "routed_experts", number>>;
+    };
+    budget_bytes_per_gpu?: number[]; revision?: string; metadata_digest?: string; metadata_source?: string;
+    observed?: {
+      capacity_tokens: number | null; budget_bytes_per_gpu: number | null;
+      deployment_id: string; observed_at: string | null; pod_name?: string | null;
+    } | null;
+    tp?: number; pp?: number; dcp?: number; kv_dtype?: string; block_tokens?: number;
+    max_model_len?: number | null; max_num_seqs?: number | null;
+    components?: Array<{ pipeline_rank: number; kind: string; layers: number; bytes_per_gpu: number; unit: "token" | "request" }>;
+  }>;
+};
+export type SavedRecipeCapacity = RecipeCapacity & {
+  recipe_id: string; cluster_id: string | null; namespace: string; warnings: string[];
+};
+export interface ThroughputScenario {
+  input_tokens: number;
+  output_tokens: number;
+  concurrency: number;
+  shared_prefix_percent: number;
+}
+export interface CacheThroughputEstimate {
+  rpm: [number, number];
+  input_tpm: [number, number];
+  output_tpm: [number, number];
+  reused_input_tokens: number;
+  effective_concurrency: number;
+  phase_seconds?: { prefill: [number, number]; decode: [number, number] };
+}
+type RangePair = [number, number];
+export interface RecipeCalibration {
+  repetitions: number;
+  forecast_rpm: RangePair | null;
+  forecast_version?: string | null;
+  measured_rpm: RangePair;
+  target_requests_per_second?: number;
+  search_stop_reason?: string | null;
+  observed_request_seconds?: Record<"prefill" | "decode", RangePair> | null;
+  cache_scenario: "cold" | "warm" | null;
+  slo_rates: {rpm: RangePair; input_tpm: RangePair; output_tpm: RangePair} | null;
+  phases: Record<"prefill" | "decode", {
+    predicted_seconds: RangePair; measured_seconds: RangePair; deviation_percent: number | null;
+  }> | null;
+  phase_reason: string | null;
+}
+export interface SavedRecipeThroughput {
+  version?: string;
+  recipe_id: string;
+  cluster_id: string | null;
+  namespace: string;
+  scenario: ThroughputScenario;
+  status: "estimated" | "unavailable" | "infeasible";
+  reason: string | null;
+  draft_method?: string;
+  draft_missing?: string;
+  shorter_workload?: {scenario: ThroughputScenario; status: SavedRecipeThroughput["status"]; reason: string | null};
+  calibration?: RecipeCalibration;
+  pending: boolean;
+  rpm: [number, number] | null;
+  input_tpm: [number, number] | null;
+  output_tpm: [number, number] | null;
+  cache_scenarios?: { cold: CacheThroughputEstimate; warm?: CacheThroughputEstimate };
+  assumptions: string[];
+  sources: Array<{ label: string; url: string }>;
+  effective_concurrency?: [number, number] | null;
+  efficiency?: { compute: [number, number]; memory: [number, number] };
+  method?: string;
+  benchmark_id?: string;
+  scope?: string;
+  pools: Array<{
+    role: string;
+    gpu_type: string | null;
+    gpu_count: number | null;
+    replicas: number;
+    max_model_len?: number | null;
+    gpu_vram_gb?: number | null;
+    weight_bytes?: number | null;
+    metadata_issue?: {code: string; source?: string; format?: string} | null;
+    draft_method?: string | null;
+    draft_tokens?: number | null;
+    tp?: number | null; pp?: number | null; dcp?: number | null;
+    model_path: string;
+    engine: string;
+  }>;
+}
 export type ServingRecipePreviewBody = ServingRecipeInput & {
+  capacity_scenario?: CapacityScenario;
   cluster_id: string | null;
   /** null = the cluster's default namespace. */
   namespace: string | null;
@@ -1207,6 +1371,7 @@ export interface ManifestPreview {
 }
 
 export interface ServingRecipePreview {
+  kv_capacity?: RecipeCapacity;
   router_images?: { epp: string; envoy: string };
   manifests: ManifestPreview[];
   warnings: string[];

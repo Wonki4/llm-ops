@@ -5,6 +5,11 @@ export type MetricSpec = { key: string; path: (string | number)[]; direction: Di
 // Metrics shared by legacy results and the portal runner (throughput in req|tok/s,
 // latencies in ms). Flat schema — one path segment each.
 export const PERF_METRICS: MetricSpec[] = [
+  ...(["all_rates", "slo_rates"] as const).flatMap(group =>
+    (["rpm", "input_tpm", "output_tpm"] as const).map(metric => ({
+      key: group + "." + metric, path: [group, metric], direction: "higher" as const,
+    }))
+  ),
   { key: "request_throughput", path: ["request_throughput"], direction: "higher" },
   { key: "output_throughput", path: ["output_throughput"], direction: "higher" },
   { key: "total_token_throughput", path: ["total_token_throughput"], direction: "higher" },

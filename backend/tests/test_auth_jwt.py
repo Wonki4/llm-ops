@@ -1,7 +1,37 @@
+import asyncio
+from unittest.mock import AsyncMock, Mock
+
+import httpx
 import pytest
 from jose import JWTError
 
 from app.auth import jwt as jwt_module
+
+
+async def test_cold_worker_shares_public_keys_and_verifies_each_token(monkeypatch):
+    arrived, release = asyncio.Event(), asyncio.Event()
+
+    async def respond(request):
+        arrived.set()
+        await release.wait()
+        return httpx.Response(200, json={"keys": []})
+
+    upstream = AsyncMock(side_effect=respond)
+    client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+    monkeypatch.setattr(jwt_module.httpx, "AsyncClient", lambda **_: client)
+    monkeypatch.setattr(jwt_module, "_jwks_cache", None)
+    monkeypatch.setattr(jwt_module, "_jwks_refresh", None)
+    decode = Mock(side_effect=lambda token, *_args, **_kw: {"sub": token})
+    monkeypatch.setattr(jwt_module.jwt, "decode", decode)
+    reads = [asyncio.create_task(jwt_module.verify_token(str(i))) for i in range(20)]
+    await asyncio.wait_for(arrived.wait(), 2)
+    reads[0].cancel()
+    release.set()
+    results = await asyncio.gather(*reads, return_exceptions=True)
+    assert isinstance(results[0], asyncio.CancelledError)
+    assert [result.sub for result in results[1:]] == [str(i) for i in range(1, 20)]
+    upstream.assert_awaited_once()
+    assert decode.call_count == 19
 
 
 @pytest.mark.asyncio

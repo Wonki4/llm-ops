@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Cpu, Loader2, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { linesToTolerations, tolerationsToLines } from "@/lib/placement";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type FormState = {
   name: string; label_key: string; label_value: string; gpu_resource_key: string;
@@ -56,7 +58,14 @@ function toBody(f: FormState): GpuProfileInput {
 export function GpuProfilesCard() {
   const t = useTranslations("gpuProfiles");
   const { data: clusters } = useK8sClusters();
-  const [clusterId, setClusterId] = useState<string | null>(null);
+  const params = useSearchParams();
+  const router = useRouter();
+  const selected = params.get("cluster") ?? clusters?.find(c => c.is_default)?.id ?? "default";
+  const clusterId = selected === "default" || selected === "" ? null : selected;
+  function setClusterId(id: string | null) {
+    const query = new URLSearchParams(params.toString()); query.set("cluster", id || "default");
+    router.push(`?${query}`, {scroll: false});
+  }
   const { data, isLoading } = useGpuProfiles(clusterId);
   const [scanOn, setScanOn] = useState(false);
   const nodes = useGpuNodes(clusterId, scanOn);
@@ -117,15 +126,15 @@ export function GpuProfilesCard() {
             <CardDescription>{t("description")}</CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <select
+            <FormSelect placeholder={t("portalDefaultCluster")}
               aria-label={t("clusterSelect")}
-              className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+              size="sm"
               value={clusterId ?? ""}
-              onChange={(e) => { setClusterId(e.target.value || null); setScanOn(false); }}
+              onValueChange={(selectedValue) => { setClusterId(selectedValue || null); setScanOn(false); }}
             >
-              <option value="">{t("portalDefaultCluster")}</option>
-              {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              <FormSelectItem value="">{t("portalDefaultCluster")}</FormSelectItem>
+              {(clusters ?? []).map((c) => <FormSelectItem key={c.id} value={c.id}>{c.name}</FormSelectItem>)}
+            </FormSelect>
             <Button size="sm" onClick={() => openCreate()}><Plus className="size-3.5" />{t("addButton")}</Button>
           </div>
         </div>

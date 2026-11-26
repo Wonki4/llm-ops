@@ -1,5 +1,6 @@
 "use client";
 
+import { KVObservations } from "@/components/kv-observations";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { apiFetch } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { OperatorDeployButton, OperatorDeploymentActions } from "@/components/team-deployment-actions";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export function ServingRoleView({ children, member }: { children: ReactNode; member: ReactNode }) {
   const me = useMe();
@@ -30,12 +32,12 @@ export function TeamScopeView({ children }: { children: (scope: TeamScope) => Re
   if (!scope) return <p>{t("noScopes")}</p>;
   return <div className="space-y-4">
     <label className="flex flex-wrap items-center gap-3 text-sm">{t("scope")}
-      <select className="rounded-md border bg-background p-2" value={scopeKey(scope)} onChange={e => {
-        const selected = scopes.data.find(s => scopeKey(s) === e.target.value);
+      <FormSelect value={scopeKey(scope)} onValueChange={selectedValue => {
+        const selected = scopes.data.find(s => scopeKey(s) === selectedValue);
         if (selected) setChoice(teamServingScope(selected));
       }}>
-        {scopes.data.map(s => <option key={scopeKey(s)} value={scopeKey(s)}>{s.cluster_name ?? t("portal")} / {s.namespace}</option>)}
-      </select>
+        {scopes.data.map(s => <FormSelectItem key={scopeKey(s)} value={scopeKey(s)}>{s.cluster_name ?? t("portal")} / {s.namespace}</FormSelectItem>)}
+      </FormSelect>
       <Badge variant="secondary">{t(scope.role)}</Badge>
     </label>
     {children(scope)}
@@ -49,6 +51,7 @@ interface Deployment {
 }
 
 interface DeploymentDetail extends Deployment {
+  kv_observations?: import("@/types").KVObservation[];
   cluster_id: string | null;
   image: string;
   gpu_type: string | null;
@@ -155,6 +158,7 @@ export function TeamDeploymentDetail({ id }: { id: string }) {
         <div key={k} className="contents"><dt className="text-muted-foreground">{t(k)}</dt><dd className="break-all">{v}</dd></div>)}
       <dt className="text-muted-foreground">Ingress</dt><dd className="break-all">{d.ingress_host}</dd>
     </dl>
+    <KVObservations rows={d.kv_observations} />
     {scope.role === "operator" && <OperatorDeploymentActions key={d.id} deployment={d} scope={scope} />}
     {!!d.events.length && <section className="max-w-2xl space-y-2"><h2 className="font-semibold">{t("events")}</h2>
       <ul className="divide-y">{d.events.map((e, i) => <li key={i} className="flex flex-wrap gap-x-3 py-2 text-sm">

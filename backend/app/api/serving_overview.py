@@ -28,16 +28,12 @@ from app.services.llmd_manifests import llmd_service_name
 from app.services.pd_serving import pd_status_summary
 from app.services.serving_engines import engine_of
 from app.services.serving_topology import (
-    NamespaceSnapshots,
     TopologyGraph,
     add_service,
     build_topology,
-    read_routes,
-    read_workloads,
+    route_snapshots,
+    workload_snapshots,
 )
-
-route_snapshots = NamespaceSnapshots(read_routes)
-workload_snapshots = NamespaceSnapshots(read_workloads)
 
 router = APIRouter(prefix="/api/admin/serving", tags=["serving-overview"])
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useDebounced } from "@/hooks/use-debounced";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, FileCode2, Loader2, ScrollText } from "lucide-react";
@@ -22,6 +23,7 @@ import { FormCard, FormSection } from "@/components/form-section";
 import { RecipeRepositoryIcon } from "@/components/recipe-repository-icon";
 import { splitEngineArgs } from "@/lib/recipe-drafts";
 import { DEFAULT_PD_FRAMEWORK, defaultPdExtras, defaultSidecar, retargetPdExtras, PD_FRAMEWORKS, PD_ROLES, POOL_KEYS, effectiveRole, poolOf, type PdRole } from "@/lib/pd-serving";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 export const RECIPES_HREF = "/admin/recipes";
 
@@ -76,11 +78,13 @@ function withPdDefaults(pool: PdRoleOverride, role: PdRole, pd: PdConfig): PdRol
 }
 
 /** Page chrome shared by the create and edit routes. */
-export function RecipePageHeader({ title, description }: { title: string; description?: string }) {
+export function RecipePageHeader({ title, description, backHref = RECIPES_HREF }: {
+  title: string; description?: string; backHref?: string;
+}) {
   const t = useTranslations("servingRecipes");
   return (
     <div>
-      <Link href={RECIPES_HREF} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+      <Link href={backHref} className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
         <ArrowLeft className="size-3.5" />{t("backToList")}
       </Link>
       <h1 className="text-2xl font-bold mt-2 flex items-center gap-2"><ScrollText className="size-5" />{title}</h1>
@@ -110,7 +114,7 @@ export function ServingRecipeForm({
   cancelHref?: string;
   draftPending?: boolean;
   recipe?: ServingRecipe;
-  initial?: ServingRecipeInput;
+  initial?: Partial<ServingRecipeInput>;
   initialRepo?: string | null;
   sourceDeploymentId?: string | null;
   /** Rendered above the form: import notice, parser warnings. */
@@ -241,7 +245,13 @@ export function ServingRecipeForm({
       onSuccess: (saved: ServingRecipe) => {
         toast.success(recipe ? t("saveSuccess") : t("createSuccess"));
         for (const code of saved.warnings ?? []) toast.warning(ts(`warn_${code}`));
-        router.push(saved.hf_repo_id ? `${RECIPES_HREF}?repo=${encodeURIComponent(saved.hf_repo_id)}` : RECIPES_HREF + "?repo=");
+        const target = new URLSearchParams();
+        const current = new URLSearchParams(window.location.search);
+        for (const key of ["cluster", "ns"]) {
+          const value = current.get(key);
+          if (value) target.set(key, value);
+        }
+        router.push(`${RECIPES_HREF}/${encodeURIComponent(saved.id)}${target.size ? `?${target}` : ""}`);
       },
       onError: (err: unknown) => toast.error(err instanceof Error ? err.message : t("saveError")),
     };
@@ -303,14 +313,14 @@ export function ServingRecipeForm({
       </Field>
       {isPd && (
         <Field id="recipe-pd-framework" label={t("pdFramework")} hint={t("pdFrameworkHint")}>
-          <select
+          <FormSelect
             id="recipe-pd-framework"
-            className="h-9 w-48 rounded-md border border-input bg-transparent px-3 text-sm"
+            className="w-48"
             value={pd.framework ?? DEFAULT_PD_FRAMEWORK}
-            onChange={(e) => setPd({ framework: e.target.value as PdFramework })}
+            onValueChange={(selectedValue) => setPd({ framework: selectedValue as PdFramework })}
           >
-            {PD_FRAMEWORKS.map((f) => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
+            {PD_FRAMEWORKS.map((f) => <FormSelectItem key={f.value} value={f.value}>{f.label}</FormSelectItem>)}
+          </FormSelect>
         </Field>
       )}
       <Field id="recipe-name" label={t("recipeName")} hint={t("recipeNameHint")} required>
@@ -504,14 +514,4 @@ function recipeRequestBody(form: ServingRecipeInput, kvExtraText: string): Reque
       pd_config: { ...pd, prefill: withStorages(prefill), decode: withStorages(decode), kv_transfer_extra: kvExtra ?? {}, sidecar_image: pd.sidecar_image?.trim() || null },
     },
   };
-}
-
-/** `value`, updated only after it has stopped changing for `ms` (pass a memoized value). */
-function useDebounced<T>(value: T, ms: number): T {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return settled;
 }

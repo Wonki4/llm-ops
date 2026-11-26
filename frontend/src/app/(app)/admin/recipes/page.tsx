@@ -52,7 +52,6 @@ function RecipeLibrary() {
       </div>
       <Button asChild><Link href="/admin/recipes/new"><Plus />{t("newRecipe")}</Link></Button>
     </header>
-
     {validationIds.size > 0 && <div className="flex items-center justify-between rounded-md border bg-muted/20 p-3"><span className="text-sm">{tv("selectedCount", { count: validationIds.size })}</span><Button asChild><Link href={`/admin/benchmarks/validations/new?recipes=${[...validationIds].join(",")}`}>{tv("validateSelected")}</Link></Button></div>}
     {query.isPending ? <div className="h-32 animate-pulse rounded-lg bg-muted" />
       : query.isError ? <p role="alert" className="text-destructive">{query.error.message}</p>
@@ -92,8 +91,9 @@ function RecipeLibrary() {
               <TableCell className="max-w-52 truncate font-mono text-xs" title={r.image}>{r.image}</TableCell>
               <TableCell>{r.gpu_count} × {r.gpu_resource_key}</TableCell>
               <TableCell className="text-right whitespace-nowrap space-x-2">
+                <Button asChild size="xs" variant="outline"><Link href={`/admin/recipes/${r.id}`}>{t("openKv")}</Link></Button>
                 <Button size="xs" onClick={() => setDeployTarget(r)}>{t("deploy")}</Button>
-                <Button asChild size="xs" variant="outline"><Link href={`/admin/recipes/${r.id}`}>{t("edit")}</Link></Button>
+                <Button asChild size="xs" variant="outline"><Link href={`/admin/recipes/${r.id}?tab=edit`}>{t("edit")}</Link></Button>
                 <Button size="xs" variant="destructive" onClick={() => remove(r)}>{t("delete")}</Button>
               </TableCell>
             </TableRow>)}</TableBody>

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ENGINE_ARG_FIELDS, argLabelKey, type EngineArgField } from "@/lib/serving-engines";
 import { cn } from "@/lib/utils";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 /** The label column of a form row: fixed width beside the control, stacked above it on phones. */
 export const ROW_GRID = "grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[8.5rem_minmax(0,1fr)] sm:items-start";
@@ -56,20 +57,21 @@ export function Area({
 
 export type EngineArgValue = string | number | boolean | undefined;
 
-/** Merge one structured engine arg into `values` (empty/false/undefined removes it). */
+/** Merge one structured engine arg, retaining an explicit false for flags that default on. */
 export function withEngineArg(values: EngineArgs | null | undefined, key: string, value: EngineArgValue): EngineArgs | null {
   const next: EngineArgs = { ...(values ?? {}) };
-  if (value === undefined || value === "" || value === false) delete next[key];
+  if (value === undefined || value === "") delete next[key];
   else next[key] = value;
   return Object.keys(next).length ? next : null;
 }
 
 /** The engine's structured flags as typed inputs + checkboxes. */
 export function EngineArgsFields({
-  engine, values, onChange, idPrefix = "recipe-arg",
+  engine, values, extraArgs, onChange, idPrefix = "recipe-arg",
 }: {
   engine: ServingEngine;
   values: EngineArgs | null;
+  extraArgs?: string[] | null;
   onChange: (key: string, value: EngineArgValue) => void;
   idPrefix?: string;
 }) {
@@ -108,14 +110,14 @@ export function EngineArgsFields({
         );
       case "select":
         return (
-          <select
+          <FormSelect
             id={id}
             value={String(get(f.key) ?? "")}
-            onChange={(e) => onChange(f.key, e.target.value)}
-            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            onValueChange={(selectedValue) => onChange(f.key, selectedValue)}
+            className="w-full"
           >
-            {f.options.map((o) => <option key={o} value={o}>{o === "" ? "—" : o}</option>)}
-          </select>
+            {f.options.map((o) => <FormSelectItem key={o} value={o}>{o === "" ? "—" : o}</FormSelectItem>)}
+          </FormSelect>
         );
       default:
         return null;
@@ -139,13 +141,19 @@ export function EngineArgsFields({
         <div className={ROW_GRID}>
           <div className={ROW_LABEL}>{t("engineFlags")}</div>
           <div className="flex flex-wrap gap-x-5 gap-y-1.5 sm:pt-1.5">
-            {bools.map((f) => (
-              <label key={f.key} className="flex items-center gap-1.5 text-xs" title={`--${f.key}`}>
-                <input type="checkbox" checked={get(f.key) === true} onChange={(e) => onChange(f.key, e.target.checked)} />
-                {t(argLabelKey(f.key))}
-                <span className="font-mono text-[10px] text-muted-foreground">--{f.key}</span>
-              </label>
-            ))}
+            {bools.map((f) => {
+              const flag = `--${f.key}`;
+              const manual = f.defaultOn && extraArgs?.includes(flag);
+              return (
+                <label key={f.key} className="flex items-center gap-1.5 text-xs" title={manual ? t("setInExtraArgs") : flag}>
+                  <input type="checkbox" disabled={manual} checked={manual || (get(f.key) ?? f.defaultOn) === true}
+                    onChange={(e) => onChange(f.key, e.target.checked ? true : (f.defaultOn ? false : undefined))} />
+                  {t(argLabelKey(f.key))}
+                  <span className="font-mono text-[10px] text-muted-foreground">{flag}</span>
+                  {manual && <span className="text-muted-foreground">({t("setInExtraArgs")})</span>}
+                </label>
+              );
+            })}
           </div>
         </div>
       )}

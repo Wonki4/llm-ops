@@ -11,19 +11,21 @@ from fastapi.responses import JSONResponse
 
 from app.api import (
     access_groups,
+    admin_teams,
     admin_usage,
     admin_users,
     announcements,
     auth,
     benchmarks,
     budgets,
-    catalog,
     external,
     gpu_profiles,
     k8s_clusters,
     keys,
     llmd,
     me,
+    model_connections,
+    model_demand,
     model_deployments,
     models_catalog,
     portal_settings,
@@ -68,13 +70,15 @@ app.add_middleware(
 # Register routers
 app.include_router(auth.router)
 app.include_router(me.router)
+app.include_router(admin_teams.router)
 app.include_router(teams.router)
 app.include_router(keys.router)
 app.include_router(team_requests.router)
 app.include_router(models_catalog.router)
+app.include_router(model_connections.router)
+app.include_router(model_demand.router)
 app.include_router(budgets.router)
 app.include_router(portal_settings.router)
-app.include_router(catalog.router)
 app.include_router(external.router)
 app.include_router(admin_users.router)
 app.include_router(access_groups.router)

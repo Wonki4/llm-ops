@@ -4,8 +4,9 @@ export const NO_DEFAULT_MODELS = "no-default-models";
 export const ALL_PROXY_MODELS = "all-proxy-models";
 
 /** LiteLLM also grants unrestricted access to legacy teams with a literal empty list. */
-export function hasAllTeamModels(team: Pick<Team, "models">): boolean {
-  return team.models.length === 0 || team.models.includes(ALL_PROXY_MODELS);
+export function hasAllTeamModels(team: Pick<Team, "models" | "unified_access_groups">): boolean {
+  return team.models.length === 0 || team.models.includes(ALL_PROXY_MODELS)
+    || !!team.unified_access_groups?.some((group) => group.models.includes(ALL_PROXY_MODELS));
 }
 
 /** The model and access-group names, excluding LiteLLM's scope markers. */
@@ -26,8 +27,8 @@ export function accessGroupsOf(model: ModelWithCatalog | null | undefined): stri
 /** group name → models in that group (sorted by model name). */
 export type AccessGroupIndex = Map<string, ModelWithCatalog[]>;
 
-export function buildAccessGroupIndex(models: ModelWithCatalog[] | undefined): AccessGroupIndex {
-  const index: AccessGroupIndex = new Map();
+export function buildAccessGroupIndex(models: ModelWithCatalog[] | undefined, referencedGroups: string[] = []): AccessGroupIndex {
+  const index: AccessGroupIndex = new Map(referencedGroups.map((name) => [name, []]));
   for (const m of models ?? []) {
     for (const g of accessGroupsOf(m)) {
       const list = index.get(g) ?? [];
@@ -70,25 +71,45 @@ export function expandModelGrants(
   return out;
 }
 
-/**
- * A team's models: its own `models` (expanded as above), then the models of
- * its unified access groups (`access_group_ids`), which LiteLLM falls back to
- * when the team's own list denies a model. A unified group may name model
- * access groups too; those expand as well. "All models" is left to the caller.
- */
+/** Resolve the team grants once for both the overview and the full model list. */
+export function teamModelScope(
+  team: Pick<Team, "models" | "unified_access_groups">,
+  index: AccessGroupIndex,
+  modelsByName: Map<string, ModelWithCatalog>,
+) {
+  const assignedGroups = new Set(grantEntries(team.models).filter((name) => index.has(name) && !modelsByName.has(name)));
+  const unrestricted = hasAllTeamModels(team);
+  const initial: ExpandedGrant[] = unrestricted
+    ? Array.from(modelsByName.values())
+        .filter((model) => model.catalog && model.catalog.visible !== false)
+        .map((model) => ({ name: model.model_name, model, viaGroup: null }))
+    : expandModelGrants(team.models, index, modelsByName);
+  const rows = new Map(initial.map((row) => [row.name, { ...row, groups: new Set(accessGroupsOf(row.model)) }]));
+
+  for (const group of team.unified_access_groups ?? []) {
+    assignedGroups.add(group.access_group_name);
+    const members = group.models.includes(ALL_PROXY_MODELS) ? initial : expandModelGrants(group.models, index, modelsByName);
+    for (const member of members) {
+      let row = rows.get(member.name);
+      if (!row) {
+        if (unrestricted) continue;
+        row = { ...member, viaGroup: member.viaGroup ?? group.access_group_name, groups: new Set(accessGroupsOf(member.model)) };
+        rows.set(member.name, row);
+      }
+      row.groups.add(group.access_group_name);
+    }
+  }
+
+  return {
+    assignedGroups: Array.from(assignedGroups),
+    rows: Array.from(rows.values(), ({ groups, ...row }) => ({ ...row, groups: Array.from(groups) })),
+  };
+}
+
 export function expandTeamModels(
   team: Pick<Team, "models" | "unified_access_groups">,
   index: AccessGroupIndex,
   modelsByName: Map<string, ModelWithCatalog>,
 ): ExpandedGrant[] {
-  const out = expandModelGrants(team.models, index, modelsByName);
-  const seen = new Set(out.map((g) => g.name));
-  for (const group of team.unified_access_groups ?? []) {
-    for (const g of expandModelGrants(group.models, index, modelsByName)) {
-      if (seen.has(g.name)) continue;
-      seen.add(g.name);
-      out.push({ ...g, viaGroup: g.viaGroup ?? group.access_group_name });
-    }
-  }
-  return out;
+  return teamModelScope(team, index, modelsByName).rows;
 }

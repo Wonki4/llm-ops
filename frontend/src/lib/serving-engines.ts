@@ -37,7 +37,7 @@ export function accessLogFilterArgs(engine: ServingEngine, runtime: RuntimeOptio
 /** Structured flags a new recipe starts with (also re-applied when switching engine). */
 export const DEFAULT_ENGINE_ARGS: Record<ServingEngine, EngineArgs | null> = {
   vllm: { "gpu-memory-utilization": 0.9, "enable-auto-tool-choice": true, "enable-prefix-caching": true },
-  sglang: null,
+  sglang: { "enable-metrics": true },
 };
 
 /**
@@ -69,7 +69,7 @@ export type EngineArgField =
   | { key: string; type: "int"; min?: number; placeholder?: string }
   | { key: string; type: "float"; step: number; min?: number; max?: number; placeholder?: string }
   | { key: string; type: "text"; placeholder?: string }
-  | { key: string; type: "bool" }
+  | { key: string; type: "bool"; defaultOn?: boolean }
   | { key: string; type: "select"; options: string[] }; // "" option = unset
 
 export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
@@ -96,6 +96,7 @@ export const ENGINE_ARG_FIELDS: Record<ServingEngine, EngineArgField[]> = {
     { key: "max-running-requests", type: "int", min: 1, placeholder: "256" },
     { key: "chunked-prefill-size", type: "int", min: 1, placeholder: "8192" },
     { key: "served-model-name", type: "text", placeholder: "my-model" },
+    { key: "enable-metrics", type: "bool", defaultOn: true },
     { key: "disable-radix-cache", type: "bool" },
     { key: "trust-remote-code", type: "bool" },
     { key: "enable-torch-compile", type: "bool" },
@@ -117,4 +118,16 @@ export function engineArgsToFlags(args: EngineArgs | null | undefined): string[]
     else out.push(`--${key}`, String(value));
   }
   return out;
+}
+
+/** Launch flags used when a recipe is applied, including defaults for older SGLang recipes. */
+export function configuredEngineFlags(
+  engine: ServingEngine, args: EngineArgs | null | undefined, extraArgs: string[] | null | undefined,
+): string[] {
+  const extra = extraArgs ?? [];
+  if (engine !== "sglang") return [...engineArgsToFlags(args), ...extra];
+  const metricsFlag = "--enable-metrics";
+  const structured = { "enable-metrics": true, ...args };
+  if (extra.includes(metricsFlag)) structured["enable-metrics"] = true;
+  return [...engineArgsToFlags(structured), ...extra.filter((flag) => flag !== metricsFlag)];
 }

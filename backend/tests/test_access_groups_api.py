@@ -36,6 +36,8 @@ class FakeLiteLLMDB:
 
     async def execute(self, stmt, params=None):
         sql, p = str(stmt), params or {}
+        if "LiteLLM_TeamTable" in sql:
+            return _rows([])
         if "unnest(models)" in sql:
             counts: dict[str, int] = {}
             for models in self.users.values():

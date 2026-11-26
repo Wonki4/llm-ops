@@ -10,6 +10,7 @@ import { useExternalRecipeDraft, useModelDeployment } from "@/hooks/use-api";
 import type { RecipeDraftWarning, ServingRecipeInput } from "@/types";
 import { RecipePageHeader, ServingRecipeForm } from "@/components/serving-recipe-form";
 import { normalizeDraft, recipeFromDeployment } from "@/lib/recipe-drafts";
+import { DEFAULT_EXTRA_ARGS } from "@/lib/serving-engines";
 
 export default function NewRecipePage() {
   // useSearchParams needs a Suspense boundary for static prerendering.
@@ -35,10 +36,16 @@ function NewRecipeRoute() {
       />
     );
   }
+  const repo = sp.get("repo");
+  const revision = sp.get("revision") ?? "";
+  // Existing bookmarks for model candidates still open an editable manual recipe.
+  const pinned = from === "candidate" && repo && /^[a-z0-9_][a-z0-9._-]*\/[a-z0-9_][a-z0-9._-]*$/i.test(repo) && /^[a-f0-9]{40}$/.test(revision);
   return (
     <div className="space-y-6 max-w-4xl xl:max-w-none">
       <RecipePageHeader title={t("createTitle")} description={t("createDescription")} />
-      <ServingRecipeForm initialRepo={sp.get("repo")} />
+      <ServingRecipeForm initialRepo={repo} initial={pinned ? {
+        model_path: repo, vllm_extra_args: [...DEFAULT_EXTRA_ARGS.vllm, `--revision=${revision}`],
+      } : undefined} />
     </div>
   );
 }

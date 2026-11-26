@@ -13,6 +13,7 @@ import { Area, EngineArgsFields, Field, ROW_GRID, withEngineArg } from "@/compon
 import { CollapsibleSection, FormSection } from "@/components/form-section";
 import { linesToList, linesToMap, linesToTolerations, listToLines, mapToLines, tolerationsToLines } from "@/lib/placement";
 import { accessLogExcludePaths } from "@/lib/serving-engines";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type OptionalText =
   | "cpu_request" | "cpu_limit" | "memory_request" | "memory_limit";
@@ -129,20 +130,20 @@ export function PoolConfigCards({
               onChange={(e) => onChange({ gpu_count: e.target.value === "" ? 0 : Number(e.target.value) })}
             />
             <span className={inline}>×</span>
-            <select
+            <FormSelect placeholder={t("gpuTypeNone")}
               id={id("gpu-type")}
               aria-label={t("gpuType")}
-              className="h-9 min-w-0 flex-1 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+              className="flex-1 font-mono"
               value={value.gpu_type ?? ""}
-              onChange={(e) => onChange({ gpu_type: e.target.value || null })}
+              onValueChange={(selectedValue) => onChange({ gpu_type: selectedValue || null })}
             >
-              <option value="">{t("gpuTypeNone")}</option>
-              {gpuTypes.map((g) => <option key={g.name} value={g.name}>{g.name}</option>)}
+              <FormSelectItem value="">{t("gpuTypeNone")}</FormSelectItem>
+              {gpuTypes.map((g) => <FormSelectItem key={g.name} value={g.name}>{g.name}</FormSelectItem>)}
               {/* A saved value no cluster defines any more stays selectable instead of silently clearing. */}
               {value.gpu_type && !gpuTypes.some((g) => g.name === value.gpu_type) && (
-                <option value={value.gpu_type}>{t("gpuTypeUnregistered", { name: value.gpu_type })}</option>
+                <FormSelectItem value={value.gpu_type}>{t("gpuTypeUnregistered", { name: value.gpu_type })}</FormSelectItem>
               )}
-            </select>
+            </FormSelect>
           </div>
         </Field>
         <Field id={id("cpu-req")} label={t("resCpu")}>
@@ -187,7 +188,7 @@ export function PoolConfigCards({
 
       <FormSection title={t("sectionEngineArgs")} hint={t("engineArgsHint")}>
         <EngineArgsFields
-          engine={engine} values={value.engine_args} idPrefix={id("arg")}
+          engine={engine} values={value.engine_args} extraArgs={value.vllm_extra_args} idPrefix={id("arg")}
           onChange={(key, v) => onChange({ engine_args: withEngineArg(value.engine_args, key, v) })}
         />
         <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : t("extraArgsPortHint")}>
@@ -323,15 +324,15 @@ export function PoolConfigCards({
           />
         </Field>
         <Field id={id("rollout")} label={t("runtimeRollout")} hint={t("runtimeRolloutHint")}>
-          <select
+          <FormSelect
             id={id("rollout")}
-            className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            className="w-full"
             value={runtime.rollout ?? ROLLOUT_DEFAULTS.rollout}
-            onChange={(e) => setRuntime({ rollout: e.target.value === "replace" ? "replace" : null })}
+            onValueChange={(selectedValue) => setRuntime({ rollout: selectedValue === "replace" ? "replace" : null })}
           >
-            <option value="surge">{t("runtimeRolloutSurge")}</option>
-            <option value="replace">{t("runtimeRolloutReplace")}</option>
-          </select>
+            <FormSelectItem value="surge">{t("runtimeRolloutSurge")}</FormSelectItem>
+            <FormSelectItem value="replace">{t("runtimeRolloutReplace")}</FormSelectItem>
+          </FormSelect>
         </Field>
         <Field id={id("termination-grace")} label={t("runtimeTerminationGrace")} hint={t("runtimeGracefulHint")}>
           <div className="grid grid-cols-2 gap-3">

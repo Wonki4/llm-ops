@@ -65,6 +65,9 @@ def measurement_plan(conditions):
         )
         for i in range(conditions["repeats"])
     ]
+    if conditions.get("capacity_search"):
+        options = {**conditions["capacity_search"], "repeats": conditions["repeats"]}
+        plan = [("capacity-search", "performance", {**plan[0][2], "capacity_search": options})]
     if conditions.get("prefix_len"):
         plan.append(
             (
@@ -231,14 +234,16 @@ async def tick(db, job, *, current=None):
         assets = await runtime.preflight(db, job, candidate, active, dep)
         if assets is None:
             return
-        if active.purpose == "final" and (not previous or assets != previous.state.get("assets")):
+        if active.purpose == "final" and (
+            not previous or not runtime.restored_assets_match(assets, previous.state.get("assets"))
+        ):
             fail(active, "asset_changed", "The restored candidate's assets differ from the measured snapshot", current)
             return
         reference = next((a.state["assets"] for a in attempts if a.id != active.id and a.state.get("assets")), None)
         if reference:
             measured_model = assets.get("1", assets.get("0", {})).get("weights_sha256")
             reference_model = reference.get("1", reference.get("0", {})).get("weights_sha256")
-            if measured_model != reference_model and not job.conditions.get("quality_gates"):
+            if job.conditions.get("version", 1) == 1 and measured_model != reference_model and not job.conditions.get("quality_gates"):
                 fail(
                     active,
                     "quality_floor_required",

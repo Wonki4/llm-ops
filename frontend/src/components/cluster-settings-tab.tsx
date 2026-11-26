@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { ClusterPrometheusFields } from "@/components/cluster-prometheus-fields";
+import { changedPrometheusSettings, prometheusForm } from "@/lib/cluster-prometheus";
 import { Loader2, Plus, Pencil, Trash2, Server, CheckCircle2, XCircle, Plug } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -34,6 +36,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 type FormState = {
   name: string;
@@ -82,11 +85,13 @@ export function ClusterSettingsTab() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<K8sClusterSummary | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY);
+  const [prometheus, setPrometheus] = useState(() => prometheusForm());
   const [testResult, setTestResult] = useState<ClusterTestResult | null>(null);
   const [readingOidcCa, setReadingOidcCa] = useState(false);
 
   const openCreate = () => {
     setEditing(null);
+    setPrometheus(prometheusForm());
     setForm(EMPTY);
     setTestResult(null);
     setDialogOpen(true);
@@ -94,6 +99,7 @@ export function ClusterSettingsTab() {
 
   const openEdit = (c: K8sClusterSummary) => {
     setEditing(c);
+    setPrometheus(prometheusForm(c));
     setForm({
       name: c.name,
       context: c.context,
@@ -141,6 +147,7 @@ export function ClusterSettingsTab() {
       return;
     }
 
+    const prometheusChanges = changedPrometheusSettings(prometheus, editing);
     if (editing) {
       const body: Record<string, unknown> = {
         name: form.name,
@@ -154,6 +161,7 @@ export function ClusterSettingsTab() {
         bench_storage_id: benchStorage,
         bench_mount_path: benchMount,
         gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
+        ...prometheusChanges,
       };
       if (form.kubeconfig.trim()) body.kubeconfig = form.kubeconfig;
       if (form.oidc_ca_pem) body.oidc_ca_pem = form.oidc_ca_pem;
@@ -182,6 +190,7 @@ export function ClusterSettingsTab() {
         bench_storage_id: benchStorage || null,
         bench_mount_path: benchMount || null,
         gpu_label_key: form.gpu_label_key.trim() || "gpu-type",
+        ...prometheusChanges,
       };
       createMut.mutate(body, {
         onSuccess: () => {
@@ -359,21 +368,21 @@ export function ClusterSettingsTab() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="cluster-argocd-host">{t("argocdHostLabel")}</Label>
-                <select
+                <FormSelect placeholder={t("argocdHostSelf")}
                   id="cluster-argocd-host"
-                  className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                  className="w-full"
                   value={form.argocd_host_cluster_id}
-                  onChange={(e) => setForm({ ...form, argocd_host_cluster_id: e.target.value })}
+                  onValueChange={(selectedValue) => setForm({ ...form, argocd_host_cluster_id: selectedValue })}
                 >
-                  <option value="">{t("argocdHostSelf")}</option>
+                  <FormSelectItem value="">{t("argocdHostSelf")}</FormSelectItem>
                   {(clusters ?? [])
                     .filter((k) => k.id !== editing?.id)
                     .map((k) => (
-                      <option key={k.id} value={k.id}>
+                      <FormSelectItem key={k.id} value={k.id}>
                         {k.name}
-                      </option>
+                      </FormSelectItem>
                     ))}
-                </select>
+                </FormSelect>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="cluster-argocd-dest">{t("argocdDestLabel")}</Label>
@@ -434,15 +443,15 @@ export function ClusterSettingsTab() {
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="cluster-bench-storage">{t("benchStorageLabel")}</Label>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <select
+                <FormSelect placeholder={t("benchStorageNone")}
                   id="cluster-bench-storage"
-                  className="h-9 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+                  className="font-mono"
                   value={form.bench_storage_id}
-                  onChange={(e) => setForm({ ...form, bench_storage_id: e.target.value })}
+                  onValueChange={(selectedValue) => setForm({ ...form, bench_storage_id: selectedValue })}
                 >
-                  <option value="">{t("benchStorageNone")}</option>
-                  {(storages ?? []).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                  <FormSelectItem value="">{t("benchStorageNone")}</FormSelectItem>
+                  {(storages ?? []).map((s) => <FormSelectItem key={s.id} value={s.id}>{s.name}</FormSelectItem>)}
+                </FormSelect>
                 <Input
                   id="cluster-bench-mount"
                   className="font-mono"
@@ -464,6 +473,7 @@ export function ClusterSettingsTab() {
               />
               <p className="text-xs text-muted-foreground">{t("gpuLabelKeyHint")}</p>
             </div>
+            <ClusterPrometheusFields form={prometheus} cluster={editing} onChange={setPrometheus} />
             <label className="flex items-center gap-2 text-sm cursor-pointer">
               <input
                 type="checkbox"

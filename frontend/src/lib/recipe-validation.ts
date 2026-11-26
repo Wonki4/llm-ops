@@ -1,4 +1,4 @@
-import type { BenchmarkRun, ServingRecipeInput } from "@/types";
+import type { KVObservation, BenchmarkRun, ServingRecipeInput } from "@/types";
 
 export const VALIDATIONS = "/admin/benchmarks/validations";
 export const VALIDATION_API = "/api/admin/recipe-validations";
@@ -12,6 +12,7 @@ export interface ValidationSnapshot {
   checks: { kind: string; status: string; message: string }[];
 }
 export interface ValidationAttempt {
+  kv_observations?: KVObservation[];
   id: string; number: number; purpose: string; status: string; stage_started_at: string;
   started_at: string; finished_at: string | null; deployment_id: string | null;
   diagnostics: Record<string, unknown> | null;
@@ -30,10 +31,12 @@ export interface RecipeSearch {
   patience: number; min_improvement_percent: number; min_context_length: number;
 }
 export interface ValidationConditions {
+  version?: number;
   search?: RecipeSearch | null;
   ingress_host: string; ingress_class: string; gpu_limit: number; gpu_type: string | null;
   time_limits: { assets: number; scheduling: number; startup: number; measurement: number; total: number };
-  performance: { random_input_len: number; random_output_len: number; num_prompts: number; max_concurrency: number; seed: number; ignore_eos: boolean; request_rate?: number };
+  capacity_search?: { max_rate: number; refinements?: number; max_lag_ms?: number } | null;
+  performance: { slo?: import("@/types").ServiceObjectives; workload_version?: number; workload_type?: string; cache_ratio?: number; num_sessions?: number; scenario?: Record<string, unknown>; random_input_len: number; random_output_len: number; num_prompts: number; max_concurrency: number; seed: number; ignore_eos: boolean; request_rate?: number };
   repeats: number; prefix_len: number | null; accuracy: Record<string, unknown> | null; accuracy_image: string | null;
   quality_gates: { task: string; metric: string; minimum: number }[];
   max_ttft_p99_ms: number | null; min_output_throughput: number | null;

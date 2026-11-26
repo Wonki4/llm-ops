@@ -115,7 +115,7 @@ def test_sglang_container_sets_command_and_model_path():
     assert c["command"] == ["python3", "-m", "sglang.launch_server"]
     assert c["args"] == [
         "--model-path", "/models/m", "--host", "0.0.0.0", "--port", "8000",
-        "--tp-size", "2", "--log-level", "info", *SGLANG_LOG_FILTER,
+        "--enable-metrics", "--tp-size", "2", "--log-level", "info", *SGLANG_LOG_FILTER,
     ]
     assert c["readinessProbe"]["httpGet"] == {"path": "/health", "port": 8000}
 
@@ -138,8 +138,20 @@ def test_serve_argv_vllm_matches_legacy():
 def test_serve_argv_sglang():
     assert serve_argv(_dep(engine="sglang", engine_args={"tp-size": 2}), 8000) == [
         "python3", "-m", "sglang.launch_server", "--model-path", "/models/m",
-        "--host", "0.0.0.0", "--port", "8000", "--tp-size", "2", *SGLANG_LOG_FILTER,
+        "--host", "0.0.0.0", "--port", "8000", "--enable-metrics", "--tp-size", "2", *SGLANG_LOG_FILTER,
     ]
+
+
+@pytest.mark.parametrize(("structured", "extra", "expected"), [
+    (None, [], 1),
+    ({"enable-metrics": False}, [], 0),
+    ({"enable-metrics": True}, ["--enable-metrics"], 1),
+    ({"enable-metrics": False}, ["--enable-metrics", "--enable-metrics"], 1),
+])
+def test_sglang_metrics_default_and_overrides(structured, extra, expected):
+    dep = _dep(engine="sglang", engine_args=structured, vllm_extra_args=extra)
+    assert container_launch(dep)[1].count("--enable-metrics") == expected
+    assert serve_argv(dep).count("--enable-metrics") == expected
 
 
 @pytest.mark.parametrize("engine", ["vllm", "sglang"])
@@ -210,7 +222,9 @@ def test_port_from_engine_args_and_sglang_keeps_host():
     dep = _dep(engine="sglang", engine_args={"port": 30000})
     assert serving_port(dep) == 30000
     _, args = container_launch(dep)
-    assert args == ["--model-path", "/models/m", "--host", "0.0.0.0", "--port", "30000", *SGLANG_LOG_FILTER]
+    assert args == [
+        "--model-path", "/models/m", "--host", "0.0.0.0", "--port", "30000", "--enable-metrics", *SGLANG_LOG_FILTER,
+    ]
 
 
 def test_default_port_without_flag():

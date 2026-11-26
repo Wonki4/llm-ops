@@ -59,6 +59,7 @@ export default function CompareBenchmarksPage() {
 function CompareInner() {
   const t = useTranslations("benchmarkCompare");
   const ts = useTranslations("benchmarkStatus");
+  const rates = useTranslations("capacityBenchmark");
   const localeTag = useLocaleTag();
   const sp = useSearchParams();
   const idsParam = sp.get("ids") ?? "";
@@ -346,7 +347,7 @@ function CompareInner() {
                   });
                   const { bestIdx, worstIdx } = pickBestWorst(values, direction);
                   return (
-                    <Row key={key} label={<span className="font-mono text-xs">{key}</span>}>
+                    <Row key={key} label={<span className="text-xs">{path.length === 2 ? rates(String(path[0])) + " · " + rates(String(path[1])) : key}</span>}>
                       {values.map((v, i) => (
                         <Cell key={ordered[i].id}>
                           <span

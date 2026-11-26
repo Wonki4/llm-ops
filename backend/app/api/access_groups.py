@@ -307,6 +307,11 @@ async def delete_access_group(
         raise HTTPException(
             status_code=409, detail="config.yaml models carry this group; remove it from config.yaml first"
         )
+    assigned_teams = await _fetch(
+        litellm_db, 'SELECT team_id FROM "LiteLLM_TeamTable" WHERE :group = ANY(models)', {"group": group}
+    )
+    if assigned_teams:
+        raise HTTPException(409, "Remove this group's team assignments before deleting it")
     try:
         await litellm.delete_access_group(group)
     except httpx.HTTPStatusError as e:

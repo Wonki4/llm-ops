@@ -2,6 +2,7 @@
 
 import { Fragment, Suspense, useState } from "react";
 import Link from "next/link";
+import { ServingApiBaseEditor } from "@/components/model-api-base-editor";
 import { AlertTriangle, CheckCircle2, ChevronRight, Loader2, ScrollText, Server } from "lucide-react";
 import { useTranslations } from "next-intl";
 
@@ -308,7 +309,7 @@ function DeploymentsList() {
                                 {Object.keys(s.labels).length > 0 && (
                                   <p>labels: {Object.entries(s.labels).map(([k, v]) => `${k}=${v}`).join(", ")}</p>
                                 )}
-                                {s.registration && <p>api_base: {s.registration.api_base}</p>}
+                                {s.registration && <ServingApiBaseEditor modelId={s.registration.litellm_model_id} modelName={s.registration.model_name} />}
                                 <p className="pt-1 font-sans">
                                   <Link href={externalRecipeHref(s)} className="inline-flex items-center gap-1 text-primary hover:underline">
                                     <ScrollText className="size-3.5" />{t("saveAsRecipeExternal")}

@@ -84,12 +84,15 @@ def inspect_assets(config):
         if path.is_file() and path.suffix in (".json", ".model", ".tiktoken", ".py", ".jinja", ".txt")
     }
     fingerprint = hashlib.sha256()
+    config_digest = hashlib.sha256()
     total = 0
     for path in sorted(files):
         fingerprint.update(str(path.relative_to(root)).encode())
         with path.open("rb") as stream:
             while chunk := stream.read(4 * 1024 * 1024):
                 fingerprint.update(chunk)
+                if path == root / "config.json":
+                    config_digest.update(chunk)
                 total += len(chunk)
     server_reference = config.get("server_tokenizer") or model
     if config.get("server_tokenizer"):
@@ -125,6 +128,7 @@ def inspect_assets(config):
 
     return {
         "weights_sha256": fingerprint.hexdigest(),
+        "config_digest": config_digest.hexdigest(),
         "tokenizer_sha256": tokenizer_digest(tokenizer),
         "server_tokenizer_sha256": tokenizer_digest(server_tokenizer),
         "bytes": total,

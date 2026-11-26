@@ -34,6 +34,17 @@ spec:
               value: {{ default (printf "postgresql+asyncpg://%s:%s@%s:%s/%s" (include "litellm-platform.databaseUser" .) (include "litellm-platform.databasePassword" .) (include "litellm-platform.databaseHost" .) (include "litellm-platform.databasePort" .) (include "litellm-platform.databaseName" .)) (index .Values.backend.env "APP_DATABASE_URL") | quote }}
             - name: APP_LITELLM_DATABASE_URL
               value: {{ index .Values.backend.env "APP_LITELLM_DATABASE_URL" | quote }}
+            {{- range $key := list "APP_PROMETHEUS_URL" "APP_PROMETHEUS_SHARED" "APP_PROMETHEUS_CLUSTER_LABEL" "APP_PROMETHEUS_CLUSTER_VALUE" }}
+            {{- with index $.Values.backend.env $key }}
+            - name: {{ $key }}
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.backend.prometheusBearerTokenSecretKeyRef }}
+            - name: APP_PROMETHEUS_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef: {{- toYaml . | nindent 18 }}
+            {{- end }}
             - name: APP_SCHEDULE_TIMEZONE
               value: {{ index .Values.backend.env "APP_SCHEDULE_TIMEZONE" | quote }}
             - name: APP_BENCHMARK_ACCURACY_IMAGE

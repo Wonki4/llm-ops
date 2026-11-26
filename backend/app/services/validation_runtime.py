@@ -49,12 +49,26 @@ def scrub(value, snapshot):
                 collect(item)
 
     collect(snapshot)
-    text = json.dumps(value, ensure_ascii=False, default=str)
-    for secret in sorted(secrets, key=len, reverse=True):
-        if secret:
-            text = text.replace(json.dumps(secret, ensure_ascii=False)[1:-1], "***")
-    text = re.sub(r"(?i)(bearer\s+)[a-z0-9._~+/=-]+", r"\1***", text)
-    return json.loads(text)
+    ordered = sorted(filter(None, secrets), key=len, reverse=True)
+
+    def redact_text(text, *, key=False):
+        for secret in ordered:
+            # Preserve field names like p90_ttft_ms when an env switch is "0".
+            if key and len(secret) < 8 and text != secret:
+                continue
+            text = text.replace(secret, "***")
+        return re.sub(r"(?i)(bearer\s+)[a-z0-9._~+/=-]+", r"\1***", text)
+
+    def redact(item):
+        if isinstance(item, dict):
+            return {redact_text(str(key), key=True): redact(child) for key, child in item.items()}
+        if isinstance(item, (tuple, list)):
+            return [redact(child) for child in item]
+        if item is None or isinstance(item, (bool, float, int)):
+            return item
+        return redact_text(str(item))
+
+    return redact(value)
 
 
 async def prepare(db, job, candidate, attempt):
@@ -341,6 +355,18 @@ async def preflight(db, job, candidate, attempt, dep):
     return results
 
 
+def restored_assets_match(current, previous):
+    if not previous:
+        return False
+    # Older asset records already covered config.json in weights_sha256. Ignore only
+    # the newly added per-file digest when restoring one of those records.
+    normalized = {
+        key: {k: v for k, v in asset.items() if k != "config_digest" or k in previous.get(key, {})}
+        for key, asset in current.items()
+    }
+    return normalized == previous
+
+
 def apply_pins(dep, assets):
     def pin(pool, asset):
         pool["image"] = asset["image"]
@@ -418,6 +444,10 @@ async def prepare_benchmark(db, job, candidate, attempt, dep, key, params, kind=
         return run
     from app.api.benchmarks import _serving_snapshot
 
+    if params.get("capacity_search"):
+        from app.services.capacity_identity import deployment_identity
+
+        params = {**params, "_capacity_identity": deployment_identity(dep)}
     run = CustomBenchmarkRun(
         id=run_id,
         validation_id=job.id,
@@ -500,10 +530,40 @@ async def benchmark(db, job, attempt, dep, run):
         # credentials into history/YAML; use the runner Job's owned Secret.
         from app.services.pd_serving import env_item
 
-        reserved = {e["name"] for e in container.get("env", [])}
+        reserved = {e["name"] for e in container.get("env", [])} | {
+            "BENCH_CAPACITY_SEARCH",
+            "BENCH_CAPACITY_DEADLINE",
+            "BENCH_CAPACITY_SCOPE",
+            "BENCH_VALIDATION_WARMUP",
+        }
         inherited = [env_item(k, v) for k, v in (pool.env or {}).items() if k not in reserved]
         container.setdefault("env", []).extend(credentials.protect_env(inherited))
         container["env"].append({"name": "BENCH_VALIDATION_WARMUP", "value": "1"})
+        if options := run.params.get("capacity_search"):
+            # The attempt controls the target and all GPU resources. Router-backed
+            # measurements describe the complete endpoint; never assign them to a pool.
+            def deadline(start, seconds):
+                return (start if start.tzinfo else start.replace(tzinfo=UTC)).timestamp() + seconds
+
+            limits = job.conditions["time_limits"]
+            deadlines = [
+                deadline(attempt.stage_started_at, limits["measurement"]),
+                deadline(job.started_at, limits["total"]),
+            ]
+            if job.conditions.get("search") and attempt.purpose == "compare":
+                deadlines.append(deadline(job.started_at, job.conditions["search"]["max_search_seconds"]))
+            container["env"] += [
+                {"name": "BENCH_CAPACITY_SEARCH", "value": json.dumps(options)},
+                {"name": "BENCH_CAPACITY_DEADLINE", "value": str(min(deadlines) - 10)},
+                {"name": "BENCH_CAPACITY_SCOPE", "value": "endpoint" if routed else "deployment"},
+            ]
+        if not routed and not pd_serving.is_pd(dep) and dep.replicas == 1 and dep.engine == "vllm":
+            container["env"] = [e for e in container["env"] if e["name"] not in {"BENCH_ISOLATED", "BENCH_TOKEN_INPUT"}]
+            container["env"] += [{"name": "BENCH_ISOLATED", "value": "1"}]
+            # A shared tokenizer for alternate weights must remain authoritative.
+            if not job.conditions.get("tokenizer"):
+                container["env"] += [{"name": "BENCH_TOKEN_INPUT", "value": "1"}]
+
         asset = attempt.state.get("assets", {}).get("1" if pd_serving.is_pd(dep) else "0", {})
         if run.kind == "accuracy":
             container["env"] += [
@@ -576,9 +636,14 @@ async def benchmark(db, job, attempt, dep, run):
 async def cleanup(db, job, attempt, dep):
     """Return only after all owned Pods are gone, including terminating GPU Pods."""
     from app.clients.litellm import LiteLLMClient
+    from app.db.models.custom_recipe_validation import CustomValidationCandidate
 
     if not dep and not attempt.state.get("registration_started"):
         return True
+    if dep and "kv_observations" not in attempt.state:
+        from app.jobs.observe_kv_capacity import retain_attempt
+
+        await retain_attempt(attempt, dep)
     k8s = await k8s_for_cluster(db, job.cluster_id)
     if attempt.state.get("registration_started"):
         model_id = str(stable_id(attempt, "litellm"))
@@ -599,6 +664,22 @@ async def cleanup(db, job, attempt, dep):
         await db.scalars(select(CustomBenchmarkRun).where(CustomBenchmarkRun.validation_attempt_id == attempt.id))
     ).all()
     for run in runs:
+        if (run.params or {}).get("capacity_search") and run.status in ("pending", "running"):
+            # A parent deadline can win the race against the next poll. Preserve
+            # the last complete probe before deleting the runner Pod.
+            from app.jobs.reconcile_benchmarks import _parse_result
+
+            try:
+                checkpoint = _parse_result(await k8s.read_job_pod_logs(job.namespace, run.k8s_job_name, tail_lines=4))
+            except ApiException:
+                checkpoint = None
+            checkpoint = checkpoint or run.result or {}
+            if progress := checkpoint.get("capacity_search"):
+                if progress.get("stop_reason") == "searching":
+                    reason = "cancelled" if attempt.error_code == "cancelled" else "time_budget"
+                    checkpoint = {**checkpoint, "capacity_search": {**progress, "stop_reason": reason}}
+                candidate = await db.get(CustomValidationCandidate, attempt.candidate_id)
+                run.result = scrub(checkpoint, unpack(candidate))
         await k8s.delete_job(job.namespace, run.k8s_job_name)
         if run.status in ("pending", "running"):
             run.status = "cancelled"
@@ -692,6 +773,9 @@ async def publish(db, job, attempt, dep):
     if not smoke.get("ok"):
         raise ValueError(smoke.get("reason", "Published deployment smoke test failed"))
     await _ensure_catalog(db, job.model_name, job.created_by)
+    from app.jobs.observe_kv_capacity import retain_attempt
+
+    await retain_attempt(attempt, dep)
     dep.litellm_model_id, dep.validation_state = model_id, "published"
     if dep.router_stack_id:
         stack.validation_private = False
