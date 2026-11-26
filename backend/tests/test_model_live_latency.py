@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -152,7 +153,7 @@ async def test_unregistered_and_cloud_only_models_skip_topology_reads(mock_db, m
 async def test_catalog_visibility_gates_live_queries_for_regular_user(
     user_client, mock_db, monkeypatch, visible, history
 ):
-    mock_db.scalar.return_value = visible
+    mock_db.scalar.return_value = "revision" if visible else None
     service = AsyncMock(return_value={"rows": []})
     monkeypatch.setattr(models_catalog, "model_live_latency", service)
     path = "/api/models/org%2Fmodel/live-latency"
@@ -160,7 +161,7 @@ async def test_catalog_visibility_gates_live_queries_for_regular_user(
     if visible:
         assert response.status_code == 200
         assert service.await_args.args[-1] == "org/model"
-        assert service.await_args.kwargs == {"history": history}
+        assert service.await_args.kwargs == {"history": history, "config_epoch": "revision"}
         assert "no-store" in response.headers["cache-control"]
     else:
         assert response.status_code == 404
@@ -168,12 +169,14 @@ async def test_catalog_visibility_gates_live_queries_for_regular_user(
 
 
 async def test_admin_can_open_model_latency_before_publication(admin_client, mock_db, monkeypatch):
+    mock_db.scalar.return_value = "revision"
     service = AsyncMock(return_value={"rows": []})
     monkeypatch.setattr(models_catalog, "model_live_latency", service)
     response = await admin_client.get("/api/models/org%2Fmodel/live-latency")
     assert response.status_code == 200
     assert service.await_args.args[-1] == "org/model"
-    mock_db.scalar.assert_not_awaited()
+    assert service.await_args.kwargs["config_epoch"] == "revision"
+    assert "custom_model_catalog" not in str(mock_db.scalar.await_args.args[0])
 
 
 async def test_multiple_namespaces_send_exact_namespace_and_pod_pairs(monkeypatch, mock_db, mock_litellm):
@@ -346,3 +349,52 @@ async def test_verified_pod_history_matches_deployment_role_and_engine(mock_db):
     }
     group.has_unverified_pods = True
     assert latency._history_targets(group, "east", managed, known) == {}
+
+
+async def test_history_and_live_share_one_route_snapshot_after_half_minute(monkeypatch, mock_db, mock_litellm):
+    reader = wire_clusters(monkeypatch, mock_db, [external("A", "a")])
+    mock_litellm.get_model_info.return_value = [registration("org/model", "a", SERVICE)]
+    wall_time = 1817
+    monkeypatch.setattr(latency, "time", SimpleNamespace(time=lambda: wall_time))
+    monkeypatch.setattr(latency, "read_latency_history", AsyncMock(return_value=dict.fromkeys(latency.METRICS, [])))
+    stored = {}
+
+    async def shared(db, *, scope, history, now, load):
+        key = (json.dumps(scope, sort_keys=True), history, now)
+        if key not in stored:
+            stored[key] = json.dumps(await load())
+        return json.loads(stored[key])
+
+    monkeypatch.setattr(latency, "cached_latency", shared)
+    for history in (True, False, False, True):
+        result = await latency.model_live_latency(
+            mock_db, mock_litellm, "org/model", history=history, config_epoch="v1",
+        )
+        assert {r["pool"] for r in result["rows"]} == {"prefill", "decode"}
+    # Both readers discover the targets at :15 even though history ends at :00.
+    assert len(stored) == 3
+    assert latency.namespace_scopes.await_count == latency.workload_snapshots.read.await_count == 1
+    assert reader.await_count == 2 and latency.read_latency_history.await_count == 2
+    mock_litellm.get_model_info.assert_awaited_once()
+    # A changed generation rebuilds the actual Pod mapping, even within the same tick.
+    await latency.model_live_latency(mock_db, mock_litellm, "org/model", config_epoch="v2")
+    assert latency.namespace_scopes.await_count == 2
+    # A later viewer can reuse the completed 30-second backfill across a 15-second live tick.
+    for wall_time in (1831, 1846):
+        await latency.model_live_latency(mock_db, mock_litellm, "org/model", history=True, config_epoch="v2")
+    assert latency.namespace_scopes.await_count == 3 and latency.read_latency_history.await_count == 4
+
+
+async def test_rotated_credentials_between_plan_and_measurement_skip_prometheus(monkeypatch, mock_db, mock_litellm):
+    reader = wire_clusters(monkeypatch, mock_db, [external("A", "a")])
+    mock_litellm.get_model_info.return_value = [registration("org/model", "a", SERVICE)]
+    token = "private-token-before-rotation"
+    rotated = PrometheusConnection("https://new", True, "env", "different-cluster", "new-secret")
+    monkeypatch.setattr(latency, "resolve_prometheus_connection", AsyncMock(side_effect=[
+        PrometheusConnection("https://central", True, "env", "a", token), rotated,
+    ]))
+    plan = await latency._resolve_targets(mock_db, mock_litellm, "org/model", 1815)
+    assert token not in json.dumps(plan) and "https://central" not in json.dumps(plan)
+    result = await latency._read_plan(mock_db, plan, False, 1815)
+    assert {r["status"] for r in result["rows"]} == {"misconfigured"}
+    reader.assert_not_awaited()

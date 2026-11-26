@@ -32,6 +32,7 @@ from app.services.cluster_prometheus import (
     PrometheusConfigError,
     PrometheusFields,
     apply_prometheus_fields,
+    invalidate_latency_routes,
     lock_prometheus_settings,
     probe_prometheus,
     proposed_connection,
@@ -296,6 +297,7 @@ async def create_cluster(
         await db.flush()
         if body.is_default:
             await _unset_other_defaults(db, keep_id=cluster.id)
+        await invalidate_latency_routes(db)
         await db.commit()
     await db.refresh(cluster)
     return _serialize(cluster)
@@ -386,6 +388,7 @@ async def update_cluster(
         await db.flush()
         if body.is_default:
             await _unset_other_defaults(db, keep_id=cluster.id)
+        await invalidate_latency_routes(db)
         await db.commit()
         await db.refresh(cluster)
         return _serialize(cluster)
@@ -406,6 +409,7 @@ async def delete_cluster(
             raise HTTPException(status_code=404, detail="Cluster not found")
         await db.delete(cluster)
         try:
+            await invalidate_latency_routes(db)
             await db.commit()
         except IntegrityError:
             await db.rollback()

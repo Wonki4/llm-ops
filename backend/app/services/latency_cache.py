@@ -3,7 +3,6 @@
 import asyncio
 import hashlib
 import json
-import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
@@ -17,8 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.db.models.custom_latency_cache import CustomLatencyCache
 
 _MAX_LOCAL_ENTRIES = 128
+_MAX_LOCAL_BYTES = 16 * 1024 * 1024
 _MAX_RESULT_BYTES = 256 * 1024  # A 30-minute graph has 61 points per metric.
-_LEASE_SECONDS = 45  # Covers 12s of ownership discovery + 16s of Prometheus range queries.
+_LEASE_SECONDS = 45
+_RENEW_SECONDS = _LEASE_SECONDS / 3
 _DB_TIMEOUT = 1.5
 _CACHE_ERRORS = (SQLAlchemyError, OSError, TimeoutError)
 
@@ -64,15 +65,33 @@ async def _finish(factory, key, owner, result, ttl):
             ))
 
 
+async def _renew_while_loading(factory, key, owner):
+    # Cold requests may need several batches of Kubernetes discovery before querying Prometheus.
+    while True:
+        await asyncio.sleep(_RENEW_SECONDS)
+        try:
+            async with asyncio.timeout(_DB_TIMEOUT), factory.begin() as db:
+                renewed = await db.execute(update(CustomLatencyCache).where(
+                    CustomLatencyCache.key == key, CustomLatencyCache.owner == owner,
+                ).values(expires_at=func.now() + timedelta(seconds=_LEASE_SECONDS)))
+                if not renewed.rowcount:
+                    return
+        except _CACHE_ERRORS:
+            # The existing lease may still be valid; only its current owner can publish.
+            continue
+
+
 class LatencyCache:
-    def __init__(self):
+    def __init__(self, *, max_result_bytes: int = _MAX_RESULT_BYTES):
+        self.max_result_bytes = max_result_bytes
         self.recent = OrderedDict()
+        self.recent_bytes = 0
         self.pending = {}
 
     async def read(
         self, db: AsyncSession, *, scope: dict, history: bool, now: float, load: Callable[[], Awaitable[dict]],
     ) -> dict:
-        """Call after authorization and target resolution. Only the scope digest is persisted."""
+        """Call after authorization. Only the digest of the cache key is persisted."""
         bind = getattr(db, "bind", None)
         if not isinstance(bind, AsyncEngine) or bind.dialect.name != "postgresql":
             return await load()
@@ -83,26 +102,39 @@ class LatencyCache:
         while True:
             if key in self.recent:
                 self.recent.move_to_end(key)
-                return self.recent[key]
+                return self.recent[key][0]
             if key not in self.pending:
                 break
-            await self.pending[key].wait()
+            value = await asyncio.shield(self.pending[key])
+            if value is not None:
+                return value
         # Keep the fetch in its originating request, whose HTTP client owns the connection.
         # Cancelled waiters leave the active reader alone. Cancelling the reader wakes the waiters.
-        self.pending[key] = asyncio.Event()
+        pending = self.pending[key] = asyncio.get_running_loop().create_future()
         try:
             value = await self._shared(async_sessionmaker(bind), digest, 30 if history else 15, load)
-            if len(json.dumps(value)) <= _MAX_RESULT_BYTES:
-                self.recent[key] = value
-                if len(self.recent) > _MAX_LOCAL_ENTRIES:
-                    self.recent.popitem(last=False)
+            size = len(json.dumps(value))
+            if size <= self.max_result_bytes:
+                self.recent[key] = (value, size)
+                self.recent_bytes += size
+                while len(self.recent) > _MAX_LOCAL_ENTRIES or self.recent_bytes > _MAX_LOCAL_BYTES:
+                    _, (_, evicted_size) = self.recent.popitem(last=False)
+                    self.recent_bytes -= evicted_size
+            # Requests already waiting share even a result too large to retain.
+            pending.set_result(value)
             return value
+        except asyncio.CancelledError:
+            pending.set_result(None)
+            raise
+        except Exception as exc:
+            pending.set_exception(exc)
+            pending.exception()  # A lone reader may have no waiters to retrieve it.
+            raise
         finally:
-            self.pending.pop(key).set()
+            del self.pending[key]
 
     async def _shared(self, factory, key, ttl, load):
         owner = uuid.uuid4()
-        deadline = time.monotonic() + _LEASE_SECONDS + 2
         interval = 0.1
         while True:
             try:
@@ -114,18 +146,19 @@ class LatencyCache:
                 return value
             if claimed:
                 break
-            if time.monotonic() >= deadline:
-                return await load()
             await asyncio.sleep(interval)
             interval = min(1.0, 2 * interval)
 
         cacheable = None
+        renewal = asyncio.create_task(_renew_while_loading(factory, key, owner))
         try:
             value = await load()
-            if len(json.dumps(value)) <= _MAX_RESULT_BYTES:
+            if len(json.dumps(value)) <= self.max_result_bytes:
                 cacheable = value
             return value
         finally:
+            renewal.cancel()
+            await asyncio.gather(renewal, return_exceptions=True)
             # Only the current lease owner can publish. A crashed worker's lease expires on its own.
             try:
                 await _finish(factory, key, owner, cacheable, ttl)
@@ -133,4 +166,5 @@ class LatencyCache:
                 pass
 
 
-cached_latency = LatencyCache().read
+# Whole-model plans and history responses can cover many clusters and pools.
+cached_latency = LatencyCache(max_result_bytes=4 * 1024 * 1024).read

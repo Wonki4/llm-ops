@@ -350,12 +350,13 @@ function AdminPersonalUsers({ modelName }: { modelName: string }) {
 function PersonalUsableChip({ modelName }: { modelName: string }) {
   const t = useTranslations("modelDetail");
   const { data: me } = useMe();
-  const { data: models } = useModels();
   const state = grantState(me?.models);
-  const index = buildAccessGroupIndex(models);
-  const byName = new Map((models ?? []).map((m) => [m.model_name, m]));
-  const usable =
-    state === "all" || (state === "custom" && expandPersonalScope(me?.models, index, byName, models).some((g) => g.name === modelName));
+  const direct = state === "all" || (state === "custom" && me?.models?.includes(modelName));
+  const needsGroups = state === "custom" && !direct;
+  const { data: models } = useModels(needsGroups);
+  const usable = direct || (needsGroups && models && expandPersonalScope(
+    me?.models, buildAccessGroupIndex(models), new Map(models.map((m) => [m.model_name, m])), models,
+  ).some((g) => g.name === modelName));
   if (!usable) return null;
   return (
     <div>

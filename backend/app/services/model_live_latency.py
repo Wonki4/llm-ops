@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import time
 import uuid
 from collections import defaultdict
@@ -12,6 +13,7 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
+from app.config import settings
 from app.db.models.custom_external_serving import CustomExternalServing
 from app.db.models.custom_kv_observation import CustomKVObservation
 from app.db.models.custom_llmd_stack import CustomLlmdStack
@@ -20,6 +22,7 @@ from app.services import pd_serving
 from app.services.cluster_prometheus import PrometheusConfigError, resolve_prometheus_connection
 from app.services.clusters import namespace_scopes
 from app.services.latency_cache import cached_latency, latency_tick
+from app.services.latency_inventory import inventory_source, read_latency_inventory
 from app.services.litellm_registration import ingress_api_base, with_v1
 from app.services.llmd_links import selector_matches
 from app.services.llmd_manifests import llmd_service_name, stack_selector
@@ -39,7 +42,6 @@ from app.services.prometheus_latency import (
     read_latency_history,
 )
 from app.services.serving_topology import (
-    _cloud_provider,
     _endpoint,
     _route_indexes,
     _route_targets,
@@ -292,27 +294,18 @@ def _history_row(series):
     }
 
 
-async def model_live_latency(db, litellm, name, *, history=False):
-    now = latency_tick(time.time(), history=history)
-    response = {"rows": [], "unmapped_count": 0, "window_seconds": WINDOW_SECONDS}
-    if history:
-        end = int(now) // HISTORY_STEP_SECONDS * HISTORY_STEP_SECONDS
-        response.update(
-            end_at=datetime.fromtimestamp(end, UTC).isoformat(),
-            step_seconds=HISTORY_STEP_SECONDS,
-            history_seconds=HISTORY_SECONDS,
-        )
-    else:
-        response.update(evaluated_at=datetime.fromtimestamp(now, UTC).isoformat(), refresh_seconds=15)
-    registrations = await litellm.get_model_info()
+def _connection_digest(url, label, token):
+    # Only this fingerprint crosses workers; the actual credential is resolved on a cache miss.
+    return hashlib.sha256(json.dumps([url, label, token]).encode()).hexdigest()
+
+
+async def _resolve_targets(db, litellm, name, now):
+    registrations = await read_latency_inventory(db, litellm, now=now)
     selected = [r for r in registrations if r.get("model_name") == name]
-    # Public provider domains and provider-only registrations cannot identify a
-    # cluster. An API entered via the external form can still be a known Ingress.
-    if not selected or all(
-        _cloud_provider(r.get("litellm_params") or {}, {}, _endpoint((r.get("litellm_params") or {}).get("api_base")))
-        for r in selected
-    ):
-        return {**response, "unmapped_count": len(selected)}
+    plan = {"targets": [], "unmapped_count": 0}
+    if not selected or all(r["is_cloud"] for r in selected):
+        plan["unmapped_count"] = len(selected)
+        return plan
     dep = CustomModelDeployment
     managed = (
         await db.scalars(
@@ -347,7 +340,7 @@ async def model_live_latency(db, litellm, name, *, history=False):
     owners, engines = _registered_targets(managed, external)
     incomplete = len(routes) != len(scopes) or any(r.get("unavailable") for r in routes.values())
     aliases, unmapped = _map_registrations(registrations, routes, owners, incomplete=incomplete)
-    response["unmapped_count"] = unmapped[name]
+    plan["unmapped_count"] = unmapped[name]
     targets = aliases[name]
     connections = {}
     for cid in {t.scope[0] for t in targets if t.scope in by_scope}:
@@ -375,14 +368,14 @@ async def model_live_latency(db, litellm, name, *, history=False):
     groups = defaultdict(Pool)
     for target in sorted(targets, key=str):
         if target.scope not in by_scope:
-            response["unmapped_count"] += 1
+            plan["unmapped_count"] += 1
             continue
         cid, ns = target.scope
         conn, data = connections[cid], observations.get(target.scope)
         if conn is None or conn == "misconfigured" or data is None:
             status = "unconfigured" if conn is None else ("misconfigured" if conn == "misconfigured" else "error")
             row = _row(cid, cluster_names[cid], [target.name], [ns], None, None, False)
-            response["rows"].append({**row, **_blank(status, history)})
+            plan["targets"].append({"row": row, "status": status})
             continue
         pods = list(_pods(target, data, routes, stacks, engines))
         whole = set(_whole_deployments(target, data, routes, stacks, engines))
@@ -392,7 +385,7 @@ async def model_live_latency(db, litellm, name, *, history=False):
             group.deployments[ns].add(deployment)
         if not pods and not whole:
             row = _row(cid, cluster_names[cid], [target.name], [ns], None, None, False)
-            response["rows"].append({**row, **_blank("missing", history)})
+            plan["targets"].append({"row": row, "status": "missing"})
         for pod, engine, role, deployment in pods:
             group = groups[cid, engine, role]
             group.pods[ns].add(pod)
@@ -400,45 +393,103 @@ async def model_live_latency(db, litellm, name, *, history=False):
             owner = (data["pod_owners"].get(pod) or {}).get("deployment")
             if not owner or (deployment, engine, role, owner[0]) not in whole:
                 group.has_unverified_pods = True
-    known = await _observed_pod_names(db, groups, engines, now) if history else {}
-    # Auth can provision the portal user in this same session. Finish that transaction
-    # and return its connection before cache readers contend for short independent leases.
+    known = await _observed_pod_names(db, groups, engines, now)
+    for (cid, engine, role), group in groups.items():
+        shared = any(len(selected_aliases[(cid, ns), p]) > 1 for ns, pods in group.pods.items() for p in pods)
+        names = set.union(*group.deployments.values())
+        row = _row(cid, cluster_names[cid], names, group.deployments, engine, role, shared)
+        conn = connections[cid]
+        plan["targets"].append({
+            "row": row,
+            "connection": _connection_digest(conn.url, conn.cluster_label, conn.token),
+            # Zero-replica namespaces still contribute to the historical membership query.
+            "namespaces": sorted(group.pods or group.deployments),
+            "pods": {ns: sorted(pods) for ns, pods in group.pods.items()},
+            "history": _history_targets(group, cid, engines, known),
+        })
     await db.commit()
-    read_metrics = read_latency_history if history else read_latency
-    async with httpx.AsyncClient() as client:
+    return plan
 
-        async def measure(key):
-            cid, engine, role = key
+
+async def _read_plan(db, plan, history, now):
+    response = {"rows": [], "unmapped_count": plan["unmapped_count"], "window_seconds": WINDOW_SECONDS}
+    if history:
+        response.update(
+            end_at=datetime.fromtimestamp(now, UTC).isoformat(),
+            step_seconds=HISTORY_STEP_SECONDS,
+            history_seconds=HISTORY_SECONDS,
+        )
+    else:
+        response.update(evaluated_at=datetime.fromtimestamp(now, UTC).isoformat(), refresh_seconds=15)
+
+    connections = {}
+    queries = []
+    for target in plan["targets"]:
+        row = target["row"]
+        cid = row["cluster_id"]
+        status = target.get("status")
+        if not status and (row["engine"] not in ("vllm", "sglang") or (not target["pods"] and not history)):
+            status = "missing"
+        if not status:
+            if cid not in connections:
+                try:
+                    connections[cid] = await resolve_prometheus_connection(db, cid)
+                except PrometheusConfigError:
+                    connections[cid] = None
             conn = connections[cid]
-            group = groups[key]
-            # Empty namespaces can have history after a scale-to-zero. Instant queries need only live Pods.
-            ns, *others = sorted(group.pods or group.deployments)
-            shared = any(len(selected_aliases[(cid, n), p]) > 1 for n, pods in group.pods.items() for p in pods)
-            names = set.union(*group.deployments.values())
-            row = _row(cid, cluster_names[cid], names, group.deployments, engine, role, shared)
-            if engine not in ("vllm", "sglang") or (not group.pods and not history):
-                return {**row, **_blank("missing", history)}
-            history_options = _history_targets(group, cid, engines, known) if history else {}
-            pods = {n: sorted(names) for n, names in group.pods.items()}
-            cache_scope = {
-                "model": name, "cluster": cid, "engine": engine, "pool": role,
-                "url": conn.url, "cluster_label": conn.cluster_label,
-                "credential_digest": hashlib.sha256((conn.token or "").encode()).hexdigest(),
-                "pods": pods, "owners": sorted((n, d, uid) for (n, d), uid in group.owners.items()),
-                "history": history_options,
-            }
+            # A concurrent config edit can occur between discovering the pool and preparing a query.
+            if conn and _connection_digest(conn.url, conn.cluster_label, conn.token) == target["connection"]:
+                queries.append((target, conn))
+                continue
+            status = "misconfigured"
+        response["rows"].append({**row, **_blank(status, history)})
 
-            async def load():
-                return await read_metrics(
-                    client, conn.url, namespace=ns, pods=pods.get(ns, []), engine=engine,
+    # Do not hold the portal connection while waiting for Prometheus or publishing a shared result.
+    await db.commit()
+    if queries:
+        read_metrics = read_latency_history if history else read_latency
+        async with httpx.AsyncClient() as client:
+            async def measure(target, conn):
+                row = target["row"]
+                ns, *others = target["namespaces"]
+                pods = target["pods"]
+                metrics = await read_metrics(
+                    client, conn.url, namespace=ns, pods=pods.get(ns, []), engine=row["engine"],
                     cluster_label=conn.cluster_label, bearer_token=conn.token, now=now,
                     additional_targets=[(n, pods.get(n, [])) for n in others],
-                    allow_model_aliases_across_pods=True, **history_options,
+                    allow_model_aliases_across_pods=True, **(target["history"] if history else {}),
                 )
+                return {**row, **(_history_row(metrics) if history else metrics)}
 
-            metrics = await cached_latency(db, scope=cache_scope, history=history, now=now, load=load)
-            return {**row, **(_history_row(metrics) if history else metrics)}
-
-        response["rows"].extend(await asyncio.gather(*(measure(key) for key in groups)))
+            response["rows"].extend(await asyncio.gather(*(measure(target, conn) for target, conn in queries)))
     response["rows"].sort(key=lambda r: (r["cluster_name"], r["namespace"], r["deployment_name"], r["pool"] or ""))
     return response
+
+
+async def model_live_latency(db, litellm, name, *, history=False, config_epoch=None):
+    # The endpoint already checked this user's access. Release its transaction before sharing work.
+    await db.commit()
+    evaluated = time.time()
+    routing_tick = latency_tick(evaluated, history=False)
+    now = latency_tick(evaluated, history=history)
+    scope = {
+        "model": name, "config": config_epoch, "inventory": inventory_source(litellm),
+        "portal_scope": [settings.kubeconfig_path, settings.k8s_default_namespace],
+        "prometheus": _connection_digest(
+            settings.prometheus_url,
+            [settings.prometheus_shared, settings.prometheus_cluster_label, settings.prometheus_cluster_value],
+            settings.prometheus_bearer_token.get_secret_value(),
+        ),
+    }
+
+    async def load_result():
+        plan = await cached_latency(
+            db, scope={**scope, "kind": "deployment-pools"}, history=False, now=routing_tick,
+            load=lambda: _resolve_targets(db, litellm, name, routing_tick),
+        )
+        return await _read_plan(db, plan, history, now)
+
+    return await cached_latency(
+        db, scope={**scope, "kind": "model-latency"},
+        history=history, now=now, load=load_result,
+    )

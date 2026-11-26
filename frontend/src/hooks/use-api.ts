@@ -546,9 +546,10 @@ export function useRequesterHistory(requestId: string | null) {
 
 // ─── Models ──────────────────────────────────────────────────
 
-export function useModels() {
+export function useModels(enabled = true) {
   return useQuery({
     queryKey: queryKeys.models,
+    enabled,
     queryFn: () =>
       apiFetch<{ models: ModelWithCatalog[] }>("/api/models").then((r) => r.models),
   });

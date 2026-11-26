@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from app.api import k8s_clusters as api
 from app.config import settings
@@ -134,6 +135,11 @@ async def db_client(registry, admin_client):
 
 async def test_create_edit_probe_remove_and_secret_handling(db_client, monkeypatch):
     client, factory, _ = db_client
+    async def revision():
+        async with factory() as db:
+            return await db.scalar(select(prom.latency_config_revision()))
+
+    before = await revision()
     base = f"https://{uuid.uuid4()}.example.test/query"
     body = fields(url=base.upper().replace("/QUERY", "/query") + "/", prometheus_bearer_token="read-secret")
     response = await client.post(
@@ -149,6 +155,8 @@ async def test_create_edit_probe_remove_and_secret_handling(db_client, monkeypat
     result = response.json()
     cid = result["id"]
     try:
+        created = await revision()
+        assert created != before
         assert result["prometheus_has_token"] and result["prometheus_url"] == base
         assert "read-secret" not in response.text and "prometheus_bearer_token" not in result
         original = None
@@ -160,6 +168,8 @@ async def test_create_edit_probe_remove_and_secret_handling(db_client, monkeypat
         assert "read-secret" not in listed.text
         updated = await client.put(f"{API}/{cid}", json={"prometheus_cluster_value": "gpu-b"})
         assert updated.status_code == 200
+        edited = await revision()
+        assert edited != created
         async with factory() as db:
             conn = await prom.resolve_prometheus_connection(db, uuid.UUID(cid))
             assert conn.cluster_label == ("cluster", "gpu-b") and conn.token == "read-secret"
@@ -170,6 +180,7 @@ async def test_create_edit_probe_remove_and_secret_handling(db_client, monkeypat
         assert (await client.post(API + "/prometheus/test", json={"cluster_id": cid, **destination})).status_code == 400
         probe.assert_not_awaited()
         assert (await client.put(f"{API}/{cid}", json=destination)).status_code == 400
+        assert await revision() == edited
         assert (await client.post(API + "/prometheus/test", json={"cluster_id": cid})).json()["series_found"]
         assert probe.await_args.args[0].token == "read-secret"
         assert (await client.put(f"{API}/{cid}", json=destination | {"prometheus_bearer_token": ""})).status_code == 200
@@ -178,7 +189,9 @@ async def test_create_edit_probe_remove_and_secret_handling(db_client, monkeypat
         async with factory() as db:
             assert await prom.resolve_prometheus_connection(db, uuid.UUID(cid)) is None
     finally:
+        before_delete = await revision()
         assert (await client.delete(f"{API}/{cid}")).status_code == 200
+        assert await revision() != before_delete
 
 
 async def test_concurrent_writers_cannot_share_the_same_scope(db_client):

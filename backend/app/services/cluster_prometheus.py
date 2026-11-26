@@ -8,12 +8,30 @@ from urllib.parse import urlsplit
 
 import httpx
 from pydantic import BaseModel, Field, SecretStr
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.models.custom_k8s_cluster import CustomK8sCluster
+from app.db.models.custom_portal_settings import CustomPortalSettings
 from app.services import crypto
+
+_LATENCY_CONFIG_REVISION = "model_latency_cluster_revision"
+
+
+def latency_config_revision():
+    """A single indexed value read alongside the per-request catalog visibility check."""
+    value = select(CustomPortalSettings.value).where(CustomPortalSettings.key == _LATENCY_CONFIG_REVISION)
+    return func.coalesce(value.scalar_subquery(), "initial")
+
+
+async def invalidate_latency_routes(db: AsyncSession) -> None:
+    """Rotate the routing cache namespace in the same transaction as the cluster write."""
+    change = insert(CustomPortalSettings).values(key=_LATENCY_CONFIG_REVISION, value=str(uuid.uuid4()))
+    await db.execute(change.on_conflict_do_update(
+        index_elements=[CustomPortalSettings.key], set_={"value": change.excluded.value},
+    ))
 
 
 class PrometheusConfigError(ValueError):
