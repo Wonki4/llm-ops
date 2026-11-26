@@ -338,6 +338,18 @@ async def preflight(db, job, candidate, attempt, dep):
     return results
 
 
+def restored_assets_match(current, previous):
+    if not previous:
+        return False
+    # Older asset records already covered config.json in weights_sha256. Ignore only
+    # the newly added per-file digest when restoring one of those records.
+    normalized = {
+        key: {k: v for k, v in asset.items() if k != "config_digest" or k in previous.get(key, {})}
+        for key, asset in current.items()
+    }
+    return normalized == previous
+
+
 def apply_pins(dep, assets):
     def pin(pool, asset):
         pool["image"] = asset["image"]
@@ -558,6 +570,10 @@ async def cleanup(db, job, attempt, dep):
 
     if not dep and not attempt.state.get("registration_started"):
         return True
+    if dep and "kv_observations" not in attempt.state:
+        from app.jobs.observe_kv_capacity import retain_attempt
+
+        await retain_attempt(attempt, dep)
     k8s = await k8s_for_cluster(db, job.cluster_id)
     if attempt.state.get("registration_started"):
         model_id = str(stable_id(attempt, "litellm"))
@@ -671,6 +687,9 @@ async def publish(db, job, attempt, dep):
     if not smoke.get("ok"):
         raise ValueError(smoke.get("reason", "Published deployment smoke test failed"))
     await _ensure_catalog(db, job.model_name, job.created_by)
+    from app.jobs.observe_kv_capacity import retain_attempt
+
+    await retain_attempt(attempt, dep)
     dep.litellm_model_id, dep.validation_state = model_id, "published"
     if dep.router_stack_id:
         stack.validation_private = False

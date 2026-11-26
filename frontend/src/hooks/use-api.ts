@@ -1,6 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { appendLatencySample, latencyKey, retiredLatencySamples, type LatencyMetric, type LatencySample, type LatencyTarget } from "@/lib/model-latency";
 import type { PdRole } from "@/lib/pd-serving";
 import { scopeQuery, type ScopedItem, type ServingScope } from "@/lib/serving-scope";
 import { apiFetch } from "@/lib/api";
@@ -549,9 +550,10 @@ export function useRequesterHistory(requestId: string | null) {
 
 // ─── Models ──────────────────────────────────────────────────
 
-export function useModels() {
+export function useModels(enabled = true) {
   return useQuery({
     queryKey: queryKeys.models,
+    enabled,
     queryFn: () =>
       apiFetch<{ models: ModelWithCatalog[] }>("/api/models").then((r) => r.models),
   });
@@ -918,6 +920,94 @@ export function useModelSummary(modelName: string | null) {
     queryFn: () =>
       apiFetch<ModelSummary>(`/api/models/${encodeURIComponent(modelName!)}/summary`),
     enabled: !!modelName,
+  });
+}
+
+export interface LiveLatencyMetric {
+  status: string;
+  p50_ms: number | null;
+  lower_bound_ms?: number;
+}
+
+export interface LiveLatencyRow extends LatencyTarget {
+  status: string;
+  last_scraped_at: string | null;
+  metrics: Record<LatencyMetric, LiveLatencyMetric>;
+  recent?: LatencySample[];
+  historyOnly?: boolean;
+}
+
+interface ModelLiveLatencyResult {
+  rows: LiveLatencyRow[];
+  unmapped_count: number;
+  evaluated_at: string;
+  window_seconds: number;
+  refresh_seconds: number;
+}
+
+export interface LatencyHistoryRow extends LatencyTarget {
+  scope_source?: "deployment_owner" | "deployment_target" | "observed_pods" | "current_pods" | "unavailable";
+  history: Array<Omit<LatencySample, "at"> & { at: string }>;
+  unavailable_metrics?: LatencyMetric[];
+}
+
+interface ModelLatencyHistoryResult {
+  rows: LatencyHistoryRow[];
+  end_at: string;
+  history_seconds: number;
+  step_seconds: number;
+}
+
+export function useModelLatencyHistory(modelName: string) {
+  return useQuery({
+    queryKey: ["model-live-latency-history", modelName],
+    queryFn: ({ signal }) => apiFetch<ModelLatencyHistoryResult>(
+      `/api/models/${encodeURIComponent(modelName)}/live-latency/history`, { signal, cache: "no-store" },
+    ),
+    // Backfill on entry or after returning to an idle tab. Live polls extend the graph.
+    staleTime: 60_000,
+    retry: 1,
+  });
+}
+
+export function useModelLiveLatency(modelName: string) {
+  const client = useQueryClient();
+  const queryKey = ["model-live-latency", modelName];
+  return useQuery({
+    queryKey,
+    queryFn: async ({ signal }) => {
+      const latest = await apiFetch<ModelLiveLatencyResult>(
+        `/api/models/${encodeURIComponent(modelName)}/live-latency`,
+        { signal, cache: "no-store" },
+      );
+      const previous = client.getQueryData<ModelLiveLatencyResult>(queryKey);
+      const oldRows = new Map(previous?.rows.map((row) => [latencyKey(row), row]));
+      const evaluated = Date.parse(latest.evaluated_at);
+      const at = Number.isFinite(evaluated) ? evaluated : Date.now();
+      for (const row of latest.rows) {
+        const key = latencyKey(row);
+        const old = oldRows.get(key);
+        oldRows.delete(key);
+        if (row.status === "error" && !row.last_scraped_at) row.last_scraped_at = old?.last_scraped_at ?? null;
+        const value = (name: LatencyMetric) => row.metrics[name].status === "ok" ? row.metrics[name].p50_ms : null;
+        const bounds = Object.fromEntries(Object.entries(row.metrics)
+          .filter(([, item]) => item.status === "above_range" && item.lower_bound_ms != null)
+          .map(([metric, item]) => [metric, item.lower_bound_ms]));
+        row.recent = appendLatencySample(old?.recent ?? [], {
+          at,
+          ttft: value("ttft"), e2e: value("e2e"), itl: value("itl"), lower_bounds_ms: bounds,
+        }, latest.refresh_seconds * 1000);
+      }
+      for (const old of oldRows.values()) {
+        const recent = retiredLatencySamples(old.recent ?? [], at);
+        if (recent.length) latest.rows.push({ ...old, historyOnly: true, last_scraped_at: null, recent });
+      }
+      return latest;
+    },
+    staleTime: 0,
+    refetchInterval: (query) => (query.state.data?.refresh_seconds ?? 15) * 1000,
+    refetchIntervalInBackground: false,
+    retry: false,
   });
 }
 
@@ -1586,7 +1676,15 @@ export function useSaveBenchmarkPresets() {
 
 // ─── K8s Clusters (admin) ──────────────────────────────────────────
 
-export interface CreateK8sClusterBody {
+export interface PrometheusSettingsBody {
+  prometheus_url?: string | null;
+  prometheus_shared?: boolean;
+  prometheus_cluster_label?: string | null;
+  prometheus_cluster_value?: string | null;
+  prometheus_bearer_token?: string | null;
+}
+
+export interface CreateK8sClusterBody extends PrometheusSettingsBody {
   name: string;
   context: string;
   namespace?: string;
@@ -1629,6 +1727,7 @@ export function useDefaultNamespace(clusterId: string): string {
 export function useCreateK8sCluster() {
   const qc = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: (body: CreateK8sClusterBody) =>
       apiFetch<K8sClusterSummary>("/api/admin/k8s-clusters", {
         method: "POST",
@@ -1641,6 +1740,7 @@ export function useCreateK8sCluster() {
 export function useUpdateK8sCluster() {
   const qc = useQueryClient();
   return useMutation({
+    gcTime: 0,
     mutationFn: ({ id, body }: { id: string; body: UpdateK8sClusterBody }) =>
       apiFetch<K8sClusterSummary>(`/api/admin/k8s-clusters/${id}`, {
         method: "PUT",
@@ -1667,6 +1767,17 @@ export function useTestK8sCluster() {
         method: "POST",
         body: JSON.stringify(body),
       }),
+  });
+}
+
+export function useTestClusterPrometheus() {
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (body: PrometheusSettingsBody & { cluster_id?: string }) =>
+      apiFetch<{ ok: boolean; message: string; series_found: boolean | null }>(
+        "/api/admin/k8s-clusters/prometheus/test",
+        { method: "POST", body: JSON.stringify(body) },
+      ),
   });
 }
 

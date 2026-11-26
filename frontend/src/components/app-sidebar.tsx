@@ -24,6 +24,7 @@ import {
   LayoutDashboard,
   LogOut,
   Megaphone,
+  Menu,
   ScrollText,
   Server,
   Settings,
@@ -54,6 +55,7 @@ export function AppSidebar() {
   const scopes = useTeamScopes();
   const t = useTranslations("sidebar");
 
+  const [mobileOpen, setMobileOpen] = useState(false);
   const userRole: UserRole = me?.role ?? "user";
 
   const stored = useSyncExternalStore(subscribe, snapshot, () => "{}");
@@ -74,14 +76,18 @@ export function AppSidebar() {
     try { localStorage.setItem(storageKey, JSON.stringify(next)); window.dispatchEvent(new Event(storageKey)); } catch { /* storage unavailable */ }
   }
   return (
-    <aside className="flex h-full w-64 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex h-14 items-center border-b px-4">
-        <Link href="/" className="flex items-center gap-2 font-bold text-lg">
+    <aside className="flex max-h-[80dvh] shrink-0 flex-col bg-sidebar text-sidebar-foreground md:h-full md:max-h-none md:w-64 md:border-r">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b px-4 md:h-14">
+        <Link href="/" onNavigate={() => setMobileOpen(false)} className="flex items-center gap-2 font-bold text-lg">
           <LayoutDashboard className="h-5 w-5" />
           LLM Ops
         </Link>
+        <button type="button" aria-label={t("menu")} aria-expanded={mobileOpen} aria-controls="app-navigation"
+          onClick={() => setMobileOpen(!mobileOpen)} className="rounded-md p-2 hover:bg-sidebar-accent md:hidden">
+          <Menu className="size-5" />
+        </button>
       </div>
-      <nav className="flex-1 overflow-y-auto p-3">
+      <nav id="app-navigation" className={cn("min-h-0 flex-1 overflow-y-auto p-3 md:block", !mobileOpen && "hidden")}>
         <div className="space-y-1">
           {[undefined, "serving", "models", "people"].map(section => {
             const group = section as NavigationGroup | undefined;
@@ -98,7 +104,7 @@ export function AppSidebar() {
               <div id={group ? `nav-${group}` : undefined} hidden={!open} className="space-y-1">
                 {items.map(item => {
                   const Icon = icons[item.key as keyof typeof icons] ?? Boxes;
-                  return <Link key={item.key} href={item.href} aria-current={active === item.key ? "page" : undefined}
+                  return <Link key={item.key} href={item.href} onNavigate={() => setMobileOpen(false)} aria-current={active === item.key ? "page" : undefined}
                     className={cn("flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                       active === item.key ? "bg-primary/10 text-primary" : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground")}>
                     <Icon className="size-4" />{t(item.key)}
@@ -109,7 +115,7 @@ export function AppSidebar() {
           })}
         </div>
       </nav>
-      <div className="border-t p-3 space-y-2">
+      <div className={cn("shrink-0 space-y-2 border-t p-3 md:block", !mobileOpen && "hidden")}>
         <p className="text-xs text-muted-foreground truncate px-1">
           {me?.user_id || ""}
         </p>

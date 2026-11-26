@@ -1,5 +1,6 @@
 "use client";
 
+import { KVObservations } from "@/components/kv-observations";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ interface Deployment {
 }
 
 interface DeploymentDetail extends Deployment {
+  kv_observations?: import("@/types").KVObservation[];
   cluster_id: string | null;
   image: string;
   gpu_type: string | null;
@@ -156,6 +158,7 @@ export function TeamDeploymentDetail({ id }: { id: string }) {
         <div key={k} className="contents"><dt className="text-muted-foreground">{t(k)}</dt><dd className="break-all">{v}</dd></div>)}
       <dt className="text-muted-foreground">Ingress</dt><dd className="break-all">{d.ingress_host}</dd>
     </dl>
+    <KVObservations rows={d.kv_observations} />
     {scope.role === "operator" && <OperatorDeploymentActions key={d.id} deployment={d} scope={scope} />}
     {!!d.events.length && <section className="max-w-2xl space-y-2"><h2 className="font-semibold">{t("events")}</h2>
       <ul className="divide-y">{d.events.map((e, i) => <li key={i} className="flex flex-wrap gap-x-3 py-2 text-sm">

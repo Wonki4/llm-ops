@@ -39,6 +39,11 @@ class CustomK8sCluster(CustomBase):
     argocd_dest_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
     kubeconfig_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     api_server: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    prometheus_url: Mapped[str | None] = mapped_column(String(1024))
+    prometheus_shared: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    prometheus_cluster_label: Mapped[str | None] = mapped_column(String(128))
+    prometheus_cluster_value: Mapped[str | None] = mapped_column(String(256))
+    prometheus_token_encrypted: Mapped[str | None] = mapped_column(Text)
     # Storage mounted read-only into benchmarks against a raw model_name (tokenizer
     # / weights), resolved for the job's namespace. Replaces default_nfs_* (052).
     bench_storage_id: Mapped[uuid.UUID | None] = mapped_column(

@@ -1,6 +1,10 @@
 """Tests for model catalog CRUD endpoints."""
 
+import json
+import os
 import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -74,7 +78,9 @@ async def test_team_catalog_requires_membership_before_reading_models(user_clien
 
 
 @pytest.mark.asyncio
-async def test_team_catalog_does_not_report_empty_grants_when_litellm_is_unavailable(admin_client, mock_db, mock_litellm):
+async def test_team_catalog_does_not_report_empty_grants_when_litellm_is_unavailable(
+    admin_client, mock_db, mock_litellm,
+):
     catalog = MagicMock()
     catalog.scalars.return_value.all.return_value = []
     mock_db.execute.return_value = catalog
@@ -229,3 +235,67 @@ async def test_summary_finds_editable_deployment_for_shared_model_name(admin_cli
 async def test_removed_redis_catalog_endpoints_are_unavailable(admin_client, method, path):
     response = await admin_client.request(method, path)
     assert response.status_code == 404
+
+
+async def test_summary_keeps_benchmark_inputs_out_of_shared_cache(admin_client, mock_litellm, monkeypatch):
+    from sqlalchemy import delete, select, update
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.api import models_catalog
+    from app.db.models.custom_benchmark_run import CustomBenchmarkRun as Run
+    from app.db.models.custom_latency_cache import CustomLatencyCache as Cache
+    from app.db.session import get_db
+    from app.main import app
+
+    url = os.environ.get("CLUSTER_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("Requires the isolated migrated PostgreSQL test database")
+    assert make_url(url).database.endswith("_test")
+    engine = create_async_engine(url, pool_size=1, max_overflow=0)
+    sessions = async_sessionmaker(engine)
+
+    async def session():
+        async with sessions() as db:
+            yield db
+
+    app.dependency_overrides[get_db] = session
+    clock = datetime.now(UTC)
+    monkeypatch.setattr(models_catalog, "time", SimpleNamespace(time=clock.timestamp))
+    model = "summary/" + uuid.uuid4().hex
+    perf, accuracy = uuid.uuid4(), uuid.uuid4()
+    tag = "run-input-" + uuid.uuid4().hex
+    mock_litellm.get_model_info.return_value = [{"model_name": model, "model_info": {"id": "runtime"}}]
+    path = f"/api/models/{model}/summary"
+    cache_key = None
+    try:
+        async with sessions.begin() as db:
+            for kind, run_id, finished in [
+                ("performance", uuid.uuid4(), clock - timedelta(minutes=1)),
+                ("performance", perf, clock), ("accuracy", accuracy, clock),
+            ]:
+                db.add(Run(id=run_id, model_name=model, kind=kind, tool="runner", status="succeeded", created_by="test",
+                           finished_at=finished, params={"job_label": tag}, result={"value": str(run_id)}))
+        output = await admin_client.get(path)
+        assert output.status_code == 200
+        assert output.json()["performance"]["result"] == {"value": str(perf)}
+        assert output.json()["accuracy"]["params"] == {"job_label": tag}
+
+        async with sessions.begin() as db:
+            cache_key, cached = (await db.execute(select(Cache.key, Cache.payload).where(
+                Cache.payload["run_ids"].contains([str(perf)]),
+            ))).one()
+            assert set(cached["run_ids"]) == {str(perf), str(accuracy)}
+            assert tag not in json.dumps(cached) and "result" not in cached
+            await db.execute(delete(Run).where(Run.id == accuracy))
+            await db.execute(update(Run).where(Run.id == perf).values(result={"value": "corrected"}))
+
+        repeated = (await admin_client.get(path)).json()
+        assert repeated["accuracy"] is None and repeated["performance"]["result"] == {"value": "corrected"}
+        mock_litellm.get_model_info.assert_awaited_once()
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(delete(Run).where(Run.model_name == model))
+            if cache_key:
+                await db.execute(delete(Cache).where(Cache.key == cache_key))
+        await engine.dispose()
