@@ -739,7 +739,16 @@ export interface CreateBenchmarkRequest {
 
 export interface BenchmarkPresetSettings { presets: Record<string, LoadPreset>; default_preset: string; }
 
+export interface ServiceObjectives {
+  ttft_ms: number | null;
+  tpot_ms: number | null;
+  e2el_ms: number | null;
+  max_error_percent: number;
+  min_slo_percent: number;
+}
+
 export interface LoadPreset {
+  slo?: ServiceObjectives;
   name?: string;
   workload_type?: "synthetic" | "agentic_replay";
   num_sessions?: number;

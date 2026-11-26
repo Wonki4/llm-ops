@@ -6,6 +6,25 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+class ServiceObjectives(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, allow_inf_nan=False)
+    ttft_ms: float | None = Field(None, gt=0)
+    tpot_ms: float | None = Field(None, gt=0)
+    e2el_ms: float | None = Field(None, gt=0)
+    max_error_percent: float = Field(1, ge=0, lt=100)
+    min_slo_percent: float = Field(99, gt=0, le=100)
+
+    @model_validator(mode="after")
+    def latency_target(self):
+        if all(limit is None for limit in (self.ttft_ms, self.tpot_ms, self.e2el_ms)):
+            raise ValueError("Set at least one latency objective")
+        return self
+
+
+def default_objectives():
+    return ServiceObjectives(ttft_ms=2000, tpot_ms=100)
+
+
 class PerformanceWorkload(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False, strict=True)
     workload_version: Literal[1, 2] = 1
@@ -22,6 +41,7 @@ class PerformanceWorkload(BaseModel):
     seed: int = 0
     ignore_eos: bool = False
     goodput: str | None = None
+    slo: ServiceObjectives | None = None
 
     @model_validator(mode="after")
     def scenario_snapshot(self):
@@ -61,7 +81,17 @@ class PerformanceWorkload(BaseModel):
         return value
 
 
-BOOKKEEPING = {"preset", "preset_name", "tokenizer", "external_source", "nfs_server", "nfs_path", "nfs_mount_path"}
+BOOKKEEPING = {
+    "capacity_search",
+    "_capacity_identity",
+    "preset",
+    "preset_name",
+    "tokenizer",
+    "external_source",
+    "nfs_server",
+    "nfs_path",
+    "nfs_mount_path",
+}
 
 
 def performance_workload(params):

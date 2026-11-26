@@ -1,4 +1,6 @@
-import type { LoadPreset } from "@/types";
+import type { LoadPreset, ServiceObjectives } from "@/types";
+
+export const defaultObjectives: ServiceObjectives = { ttft_ms: 2000, tpot_ms: 100, e2el_ms: null, max_error_percent: 1, min_slo_percent: 99 };
 
 export const DEFAULT_PERF_PARAMS = {
   workload_type: "synthetic" as "synthetic" | "agentic_replay",
@@ -6,13 +8,13 @@ export const DEFAULT_PERF_PARAMS = {
   max_concurrency: 8 as number | string, cache_ratio: 90, num_sessions: 40,
   request_rate: "" as number | string, seed: 0, ignore_eos: false, tokenizer: "",
   scenario: undefined as Record<string, unknown> | undefined,
-  goodput: "",
+  goodput: "", slo: defaultObjectives,
 };
 export type PerfParams = typeof DEFAULT_PERF_PARAMS;
 export const requestCount = (p: PerfParams) => p.workload_type === "agentic_replay" ? p.num_sessions * 3 : p.num_prompts;
 export function applyPreset(p: PerfParams, preset: LoadPreset): PerfParams {
   return { ...p, ...preset, workload_type: preset.workload_type ?? "synthetic", num_sessions: preset.num_sessions ?? 40,
-    cache_ratio: preset.cache_ratio ?? 0, scenario: undefined };
+    cache_ratio: preset.cache_ratio ?? 0, slo: preset.slo ?? defaultObjectives, scenario: undefined };
 }
 export function matchedPresetKey(presets: Record<string, LoadPreset> | undefined, p: PerfParams) {
   return Object.entries(presets ?? {}).find(([, x]) =>
@@ -25,7 +27,7 @@ export function workloadParams(p: PerfParams): Record<string, unknown> {
   return { workload_version: 2, workload_type: p.workload_type, random_input_len: p.random_input_len,
     random_output_len: p.random_output_len, num_prompts: p.num_prompts, max_concurrency: Number(p.max_concurrency),
     cache_ratio: p.workload_type === "agentic_replay" ? 0 : p.cache_ratio, num_sessions: p.num_sessions,
-    seed: p.seed, ignore_eos: p.workload_type === "synthetic" && p.ignore_eos,
+    slo: p.slo, seed: p.seed, ignore_eos: p.workload_type === "synthetic" && p.ignore_eos,
     ...(p.scenario && p.workload_type === "agentic_replay" ? { scenario: p.scenario } : {}),
     ...(p.request_rate !== "" ? { request_rate: Number(p.request_rate) } : {}), ...(p.goodput ? { goodput: p.goodput } : {}) };
 }

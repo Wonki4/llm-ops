@@ -3,12 +3,12 @@ import { useTranslations } from "next-intl";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
-import type { LoadPreset } from "@/types";
+import type { LoadPreset, ServiceObjectives } from "@/types";
 import { applyPreset, matchedPresetKey, type PerfParams } from "@/lib/benchmark-workload";
 export { DEFAULT_PERF_PARAMS, matchedPresetKey, type PerfParams } from "@/lib/benchmark-workload";
 
-export function PerfWorkloadFields({ presets, perf, onChange, idPrefix = "", estimatedInput = false }: {
-  idPrefix?: string; estimatedInput?: boolean; presets: Record<string, LoadPreset> | undefined; perf: PerfParams; onChange: (next: PerfParams) => void;
+export function PerfWorkloadFields({ presets, perf, onChange, idPrefix = "", estimatedInput = false, minArrivals = 1 }: {
+  idPrefix?: string; estimatedInput?: boolean; minArrivals?: number; presets: Record<string, LoadPreset> | undefined; perf: PerfParams; onChange: (next: PerfParams) => void;
 }) {
   const t = useTranslations("benchmarkSimple");
   const active = matchedPresetKey(presets, perf);
@@ -25,7 +25,7 @@ export function PerfWorkloadFields({ presets, perf, onChange, idPrefix = "", est
     </div>
     {agentic && <p className="rounded-md bg-muted p-3 text-sm">{t("scenarioHint")}</p>}
     <div className="grid gap-4 sm:grid-cols-3">
-      <NumberField id={idPrefix + (agentic ? "num_sessions" : "num_prompts")} label={t(agentic ? "sessions" : "requests")} hint="" min={1} value={agentic ? perf.num_sessions : perf.num_prompts} onChange={v => onChange({ ...perf, [agentic ? "num_sessions" : "num_prompts"]: v })} />
+      <NumberField id={idPrefix + (agentic ? "num_sessions" : "num_prompts")} label={t(agentic ? "sessions" : "requests")} hint="" min={minArrivals} value={agentic ? perf.num_sessions : perf.num_prompts} onChange={v => onChange({ ...perf, [agentic ? "num_sessions" : "num_prompts"]: v })} />
       <NumberField id={`${idPrefix}max_concurrency`} label={t(agentic ? "concurrentSessions" : "concurrency")} hint="" min={1} value={Number(perf.max_concurrency)} onChange={v => onChange({ ...perf, max_concurrency: v })} />
       {!agentic && <NumberField id={`${idPrefix}cache_ratio`} label={t("ratio")} hint={t("ratioHint")} min={0} max={100} step="any" value={perf.cache_ratio} onChange={v => onChange({ ...perf, cache_ratio: v })} />}
       {!agentic && <NumberField id={`${idPrefix}random_input_len`} label={t(estimatedInput ? "estimatedInputTokens" : "inputTokens")} hint="" min={1} value={perf.random_input_len} onChange={v => onChange({ ...perf, random_input_len: v })} />}
@@ -98,4 +98,20 @@ export function NumberField({
       <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
+}
+
+export function ObjectiveFields({ value, onChange }: {
+  value: ServiceObjectives; onChange: (next: ServiceObjectives) => void;
+}) {
+  const t = useTranslations("capacityBenchmark");
+  return <fieldset className="space-y-2"><legend className="text-sm font-semibold">{t("objectives")}</legend>
+    <div className="grid gap-3 sm:grid-cols-3">{(["ttft_ms", "tpot_ms", "e2el_ms", "max_error_percent", "min_slo_percent"] as const).map(key => {
+      const latency = key.endsWith("_ms");
+      return <label key={key} className="space-y-1 text-sm"><span>{t(key)}</span>
+        <Input type="number" step="any" min={key === "max_error_percent" ? 0 : 0.000001}
+          max={latency ? undefined : key === "max_error_percent" ? 99.999999 : 100}
+          required={!latency || (!value.ttft_ms && !value.tpot_ms && !value.e2el_ms && key === "ttft_ms")}
+          value={value[key] ?? ""} onChange={e => onChange({ ...value, [key]: e.target.value === "" ? null : Number(e.target.value) })} />
+      </label>;
+    })}</div></fieldset>;
 }

@@ -224,6 +224,15 @@ async def _drive_job(k8s: K8sClient, run: CustomBenchmarkRun) -> int:
             run.error_message = (parsed or {}).get("error") or "Runner finished without emitting RESULT marker"
         run.finished_at = _now()
         transitions += 1
+    elif active and not failed and (run.params or {}).get("capacity_search"):
+        try:
+            logs = await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name, tail_lines=4)
+            partial = _parse_result(logs)
+            if partial and partial.get("capacity_search") and partial != run.result:
+                run.result = partial
+                transitions += 1
+        except ApiException:
+            logger.debug("Capacity checkpoint not available for %s", run.id)
     elif failed > 0:
         logs = await k8s.read_job_pod_logs(run.k8s_namespace, run.k8s_job_name)
         parsed = _parse_result(logs)

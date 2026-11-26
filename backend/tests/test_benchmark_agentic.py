@@ -178,7 +178,15 @@ async def test_full_runner_against_streaming_engine_and_cache_counters(monkeypat
         return web.json_response({"tokens": list(range(1000))})
 
     async def metrics(request):
-        return web.Response(text="\n".join(f"vllm:prefix_cache_{key}_total {value}" for key, value in totals.items()))
+        lines = [f"vllm:prefix_cache_{key}_total {value}" for key, value in totals.items()]
+        for phase, value in (
+            ("prefill_time_seconds", len(calls) * 0.125),
+            ("decode_time_seconds", 0),
+            ("prefill_kv_computed_tokens", totals["queries"] - totals["hits"]),
+        ):
+            key = f"vllm:request_{phase}"
+            lines += [f"# TYPE {key} histogram", f"{key}_sum {value}", f"{key}_count {len(calls)}"]
+        return web.Response(text="\n".join(lines))
 
     async def completion(request):
         assert request.headers["Authorization"] == "Bearer local-runner-test-key"
@@ -256,6 +264,40 @@ async def test_full_runner_against_streaming_engine_and_cache_counters(monkeypat
         assert "configured_tokens" not in result["input"]
         assert result["metrics"]["total_input_tokens"] == sum(len(json.dumps(p["messages"])) for p in calls[2:])
         assert result["metrics"]["cache"]["hit_rate"] is None
+        # Run the validation-only search against this HTTP endpoint. Count only
+        # measured calls at the confirmed point, excluding all probes and warmups.
+        import time
+        calls.clear()
+        search_load = workload(cache_ratio=90)
+        search_load.update(num_prompts=4, request_rate=10, slo={"e2el_ms": 3000, "min_slo_percent": 99, "max_error_percent": 0})
+        monkeypatch.setenv("BENCH_TOKEN_INPUT", "1")
+        monkeypatch.setenv("BENCH_ISOLATED", "1")
+        monkeypatch.setenv("BENCH_VALIDATION_WARMUP", "1")
+        monkeypatch.setenv("BENCH_CAPACITY_SEARCH", json.dumps({"max_rate": 10, "refinements": 1, "max_lag_ms": 100, "repeats": 3}))
+        monkeypatch.setenv("BENCH_CAPACITY_SCOPE", "deployment")
+        monkeypatch.setenv("BENCH_CAPACITY_DEADLINE", str(time.time() + 30))
+        monkeypatch.setenv("BENCH_WORKLOAD", json.dumps(search_load))
+        await runner.main()
+        result = json.loads(capsys.readouterr().out.split("<<<RESULT>>>")[-1])
+        search = result["capacity_search"]
+        assert search["confirmed"] and search["best"]["repetitions"] == 3
+        assert search["best"]["slo_rates"] == search["best"]["all_rates"]
+        assert result["metrics"]["requested"] == result["metrics"]["slo_completed"] == 12
+        assert result["metrics"]["slo_input_tokens"] == 1200 and result["metrics"]["slo_output_tokens"] == 12
+        assert result["metrics"]["cache"]["queries"] == 1200 and len(calls) == 24
+        assert result["metrics"]["cache"]["hit_rate"] == 0.9
+        # Every confirmation retains its own sample for recipe comparison.
+        rounds = [p for p in search["probes"] if p["step"] == "confirmation"]
+        assert len(rounds) == 3
+        expected = {
+            "source": "vllm_request_histograms",
+            "completed": 4,
+            "prefill_seconds": 0.125,
+            "decode_seconds": 0,
+            "computed_input_tokens": 10,
+        }
+        assert all(p["phase_observation"] == expected for p in rounds)
+        assert result["metrics"]["phase_observation"] == {**expected, "completed": 12}
     finally:
         await server.cleanup()
 
