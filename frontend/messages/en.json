@@ -1998,6 +1998,7 @@
       "chunkedPrefillSize": "Chunked prefill size",
       "disableRadixCache": "Disable radix cache",
       "enableTorchCompile": "Torch compile",
+      "enableMetrics": "Prometheus metrics",
       "reasoningParser": "Reasoning parser",
       "toolCallParser": "Tool call parser",
       "enableAutoToolChoice": "Auto tool choice"
@@ -2179,6 +2180,7 @@
     "resRequest": "request",
     "resLimit": "limit",
     "engineFlags": "Flags",
+    "setInExtraArgs": "Set in extra arguments",
     "summaryCount": "{count}",
     "summaryNone": "none",
     "summaryDefault": "defaults",

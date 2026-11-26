@@ -118,13 +118,16 @@ async def test_preview_unknown_storage_400(client_for_user, super_user, mock_db)
     assert resp.status_code == 400 and SID in resp.text
 
 
-async def test_preview_matches_what_deploy_applies_for_pd(client_for_user, super_user, mock_db):
-    """Same recipe + target: the preview's manifests are exactly what create_deployment sends to K8s."""
+@pytest.mark.parametrize(("recipe", "replicas"), [
+    (PD, 1),
+    ({**RECIPE, "engine": "sglang", "image": "lmsysorg/sglang:test"}, 3),
+])
+async def test_preview_matches_what_deploy_applies(client_for_user, super_user, mock_db, recipe, replicas):
     mock_db.execute = AsyncMock(return_value=_result(None))
     mock_db.refresh = AsyncMock()
     k8s = MagicMock()
     k8s.create_or_patch = AsyncMock()
-    deploy = {k: v for k, v in PD.items() if k not in ("name",)}
+    deploy = {k: v for k, v in recipe.items() if k != "name"}
     with (
         patch("app.api.serving_recipes.resolve_entries", AsyncMock(side_effect=_bound)),
         patch("app.api.model_deployments.resolve_entries", AsyncMock(side_effect=_bound)),
@@ -133,13 +136,21 @@ async def test_preview_matches_what_deploy_applies_for_pd(client_for_user, super
         patch("app.api.model_deployments._attach_router", AsyncMock()),
     ):
         async with client_for_user(super_user) as client:
-            preview = await client.post(URL, json={**PD, "namespace": "prod"})
+            preview = await client.post(URL, json={**recipe, "namespace": "prod"})
             created = await client.post("/api/model-deployments", json={
-                **deploy, "model_name": "llama", "namespace": "prod", "ingress_host": "llama.local", "replicas": 1,
+                **deploy, "model_name": "llama", "namespace": "prod",
+                "ingress_host": "llama.local", "replicas": replicas,
             })
     assert preview.status_code == 200, preview.text
     assert created.status_code == 201, created.text
     k8s_docs = [d for d, m in zip(_docs(preview), preview.json()["manifests"]) if m["kind"] != "values.yaml"]
+    if recipe.get("engine") == "sglang":
+        # The recipe preview uses one replica. The deployment reuses its Pod template at the chosen scale.
+        spec = k8s_docs[0]["spec"]
+        assert spec["template"]["spec"]["containers"][0]["args"].count("--enable-metrics") == 1
+        spec["replicas"] = replicas
+        # The preview uses a placeholder host before the deployment target is chosen.
+        k8s_docs[-1]["spec"]["rules"][0]["host"] = "llama.local"
     assert k8s_docs == k8s.create_or_patch.await_args.args[1]
 
 

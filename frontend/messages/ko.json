@@ -1998,6 +1998,7 @@
       "chunkedPrefillSize": "청크 프리필 크기",
       "disableRadixCache": "Radix 캐시 비활성화",
       "enableTorchCompile": "Torch compile",
+      "enableMetrics": "Prometheus 메트릭",
       "reasoningParser": "Reasoning 파서",
       "toolCallParser": "Tool call 파서",
       "enableAutoToolChoice": "자동 tool choice"
@@ -2179,6 +2180,7 @@
     "resRequest": "요청",
     "resLimit": "제한",
     "engineFlags": "플래그",
+    "setInExtraArgs": "추가 인자에서 설정됨",
     "summaryCount": "{count}개",
     "summaryNone": "없음",
     "summaryDefault": "기본값",

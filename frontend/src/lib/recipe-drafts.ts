@@ -53,7 +53,7 @@ function fitField(field: EngineArgField, value: Scalar): Scalar | undefined {
       return Number.isFinite(n) ? n : undefined;
     }
     case "bool":
-      return value === true ? true : undefined;
+      return typeof value === "boolean" ? value : undefined;
     case "select":
       return typeof value === "string" && field.options.includes(value) ? value : undefined;
     case "text":
@@ -90,8 +90,8 @@ export function splitEngineArgs(
   const kept: EngineArgs = {};
   const relocated: string[] = [];
   for (const [key, raw] of Object.entries(engineArgs ?? {})) {
-    if (raw == null || raw === false || raw === "") continue;
     const field = fields.get(key);
+    if (raw == null || raw === "" || (raw === false && !(field?.type === "bool" && field.defaultOn))) continue;
     const fitted = field ? fitField(field, raw) : undefined;
     if (fitted !== undefined) kept[key] = fitted;
     else relocated.push(flagLine(key, raw));

@@ -188,7 +188,7 @@ export function PoolConfigCards({
 
       <FormSection title={t("sectionEngineArgs")} hint={t("engineArgsHint")}>
         <EngineArgsFields
-          engine={engine} values={value.engine_args} idPrefix={id("arg")}
+          engine={engine} values={value.engine_args} extraArgs={value.vllm_extra_args} idPrefix={id("arg")}
           onChange={(key, v) => onChange({ engine_args: withEngineArg(value.engine_args, key, v) })}
         />
         <Field id={id("args")} label={t("extraArgs")} hint={pdHints ? t("pdHint") : t("extraArgsPortHint")}>
