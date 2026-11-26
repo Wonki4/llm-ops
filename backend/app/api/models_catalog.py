@@ -4,7 +4,8 @@ import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
@@ -22,6 +23,7 @@ from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
 from app.db.session import get_db, get_litellm_db
+from app.services.model_live_latency import model_live_latency
 from app.services.model_registry import merge_models
 from app.services.personal_access import access_groups_from_model_info
 
@@ -487,6 +489,34 @@ async def get_catalog_history(
             for h in history
         ]
     }
+
+
+async def _read_model_latency(model_name, response, user, litellm, db, *, history=False):
+    response.headers["Cache-Control"] = "private, no-store"
+    if user.global_role != GlobalRole.SUPER_USER:
+        visible = await db.scalar(select(CustomModelCatalog.visible).where(CustomModelCatalog.model_name == model_name))
+        if not visible:
+            raise HTTPException(404, "Model not found")
+    try:
+        return await model_live_latency(db, litellm, model_name, history=history)
+    except httpx.HTTPError:
+        raise HTTPException(503, "Model routing information unavailable") from None
+
+
+@router.get("/{model_name:path}/live-latency")
+async def live_latency(
+    model_name: str, response: Response, user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client), db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await _read_model_latency(model_name, response, user, litellm, db)
+
+
+@router.get("/{model_name:path}/live-latency/history")
+async def latency_history(
+    model_name: str, response: Response, user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client), db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await _read_model_latency(model_name, response, user, litellm, db, history=True)
 
 
 @router.get("/{model_name:path}/summary")

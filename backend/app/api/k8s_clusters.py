@@ -28,6 +28,14 @@ from app.db.models.custom_k8s_cluster import CustomK8sCluster
 from app.db.models.custom_user import CustomUser
 from app.db.session import get_db
 from app.services import crypto
+from app.services.cluster_prometheus import (
+    PrometheusConfigError,
+    PrometheusFields,
+    apply_prometheus_fields,
+    lock_prometheus_settings,
+    probe_prometheus,
+    proposed_connection,
+)
 from app.services.clusters import k8s_for_cluster
 from app.services.oidc_kubeconfig import OidcKubeconfigError, oidc_provider_config
 from app.services.storage_store import load_storages
@@ -43,7 +51,7 @@ _SAVED_PROBE_TIMEOUT_SECONDS = 40
 _LEGACY_NFS = ("default_nfs_server", "default_nfs_path", "default_nfs_mount_path")
 
 
-class CreateClusterRequest(BaseModel):
+class CreateClusterRequest(PrometheusFields):
     name: str
     context: str
     namespace: str = "default"
@@ -66,7 +74,7 @@ class CreateClusterRequest(BaseModel):
         return data
 
 
-class UpdateClusterRequest(BaseModel):
+class UpdateClusterRequest(PrometheusFields):
     name: str | None = None
     context: str | None = None
     namespace: str | None = None
@@ -87,6 +95,10 @@ class UpdateClusterRequest(BaseModel):
         if isinstance(data, dict) and any(data.get(k) is not None for k in _LEGACY_NFS):
             raise ValueError("default_nfs_* were replaced by bench_storage_id + bench_mount_path")
         return data
+
+
+class PrometheusTestRequest(PrometheusFields):
+    cluster_id: uuid.UUID | None = None
 
 
 class TestClusterRequest(BaseModel):
@@ -200,6 +212,11 @@ def _serialize(c: CustomK8sCluster) -> dict:
         "bench_storage_id": str(c.bench_storage_id) if c.bench_storage_id else None,
         "bench_mount_path": c.bench_mount_path,
         "gpu_label_key": getattr(c, "gpu_label_key", None) or "gpu-type",
+        "prometheus_url": getattr(c, "prometheus_url", None),
+        "prometheus_shared": bool(getattr(c, "prometheus_shared", False)),
+        "prometheus_cluster_label": getattr(c, "prometheus_cluster_label", None),
+        "prometheus_cluster_value": getattr(c, "prometheus_cluster_value", None),
+        "prometheus_has_token": bool(getattr(c, "prometheus_token_encrypted", None)),
         "has_kubeconfig": bool(c.kubeconfig_encrypted),
         "created_by": c.created_by,
         "created_at": c.created_at.isoformat() if c.created_at else None,
@@ -271,11 +288,15 @@ async def create_cluster(
         created_by=user.user_id,
         updated_by=user.user_id,
     )
-    db.add(cluster)
-    await db.flush()
-    if body.is_default:
-        await _unset_other_defaults(db, keep_id=cluster.id)
-    await db.commit()
+    async with _cluster_write(db):
+        if body.has_prometheus_changes:
+            await lock_prometheus_settings(db)
+            await apply_prometheus_fields(db, body, cluster)
+        db.add(cluster)
+        await db.flush()
+        if body.is_default:
+            await _unset_other_defaults(db, keep_id=cluster.id)
+        await db.commit()
     await db.refresh(cluster)
     return _serialize(cluster)
 
@@ -286,6 +307,8 @@ async def _cluster_write(db: AsyncSession):
     try:
         async with asyncio.timeout(_CLUSTER_WRITE_TIMEOUT_SECONDS):
             yield
+    except PrometheusConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except TimeoutError as e:
         await db.rollback()
         raise HTTPException(
@@ -303,6 +326,8 @@ async def update_cluster(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     async with _cluster_write(db):
+        if body.has_prometheus_changes:
+            await lock_prometheus_settings(db)
         result = await db.execute(
             select(CustomK8sCluster).where(CustomK8sCluster.id == uuid.UUID(cluster_id)).with_for_update()
         )
@@ -355,6 +380,8 @@ async def update_cluster(
         if body.argocd_dest_server is not None:
             cluster.argocd_dest_server = body.argocd_dest_server.strip() or None
 
+        if body.has_prometheus_changes:
+            await apply_prometheus_fields(db, body, cluster)
         cluster.updated_by = user.user_id
         await db.flush()
         if body.is_default:
@@ -397,6 +424,24 @@ async def test_unsaved_cluster(
     """Test a kubeconfig+context before saving."""
     parsed, _ = _parse_kubeconfig(body.kubeconfig, body.context, body.oidc_ca_pem)
     return await _run_probe(parsed, body.context)
+
+
+@router.post("/prometheus/test")
+async def test_cluster_prometheus(
+    body: PrometheusTestRequest,
+    user: CustomUser = Depends(require_super_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    cluster = await db.get(CustomK8sCluster, body.cluster_id) if body.cluster_id else None
+    if body.cluster_id and cluster is None:
+        raise HTTPException(status_code=404, detail="Cluster not found")
+    try:
+        conn = await proposed_connection(db, body, cluster)
+    except PrometheusConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not conn:
+        raise HTTPException(status_code=400, detail="Prometheus 조회 주소를 설정하세요.")
+    return await probe_prometheus(conn)
 
 
 @router.post("/{cluster_id}/test")

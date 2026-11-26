@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -73,6 +74,13 @@ class Settings(BaseSettings):
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
     k8s_default_namespace: str = "default"
+    # Prometheus for deployments targeting the portal cluster (cluster_id IS NULL).
+    # The UI's default registered cluster is a separate, ID-addressed destination.
+    prometheus_url: str = ""
+    prometheus_shared: bool = False
+    prometheus_cluster_label: str = ""
+    prometheus_cluster_value: str = ""
+    prometheus_bearer_token: SecretStr = SecretStr("")
     # GPU profile node scan (LIST nodes + LIST pods in all namespaces); grows with cluster size.
     # Keep below the ingress read timeout (commonly 60s).
     gpu_node_scan_timeout: float = 30.0

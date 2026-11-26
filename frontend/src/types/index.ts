@@ -900,6 +900,11 @@ export interface K8sClusterSummary {
   bench_mount_path: string | null;
   /** Node label key marking GPU kinds on this cluster (default gpu-type). */
   gpu_label_key: string;
+  prometheus_url: string | null;
+  prometheus_shared: boolean;
+  prometheus_cluster_label: string | null;
+  prometheus_cluster_value: string | null;
+  prometheus_has_token: boolean;
   has_kubeconfig: boolean;
   created_by: string | null;
   created_at: string | null;

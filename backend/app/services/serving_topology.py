@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from kubernetes_asyncio import client
 
+from app.services.external_servings import _detect_engine
 from app.services.llmd_links import selector_matches
 from app.services.llmd_manifests import llmd_service_name, stack_selector
 from app.services.model_deployment_manifests import LABEL_MODEL
@@ -92,6 +93,11 @@ async def read_workloads(k8s, namespace):
             _replicaset_owners(api, namespace),
         )
     return {
+        "pod_engines": {
+            p.metadata.name: detected[0]
+            for p in pods.items
+            if (detected := _detect_engine([{"image": c.image} for c in p.spec.containers or []]))
+        },
         "pod_owners": {p.metadata.name: _pod_owner(p.metadata, replica_sets) for p in pods.items},
         "pods": [
             (
@@ -152,6 +158,10 @@ class NamespaceSnapshots:
             return data
         finally:
             self.pending.pop(key, None)
+
+
+route_snapshots = NamespaceSnapshots(read_routes)
+workload_snapshots = NamespaceSnapshots(read_workloads)
 
 
 # A provider protocol alone (notably openai/*) does not identify the host of a custom endpoint.
