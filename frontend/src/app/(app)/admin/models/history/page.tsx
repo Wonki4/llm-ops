@@ -1,4 +1,13 @@
-import { Suspense } from "react";
-import { AdminPage } from "@/components/admin-page";
-import { ModelLifecycle } from "@/components/model-lifecycle";
-export default function Page() {return <AdminPage><Suspense><ModelLifecycle /></Suspense></AdminPage>;}
+import { redirect } from "next/navigation";
+
+export default async function LegacyModelHistoryPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ tab?: string; q?: string }>;
+}) {
+  const { tab, q } = await searchParams;
+  if (tab === "history") {
+    redirect(q ? `/admin/models?${new URLSearchParams({ q })}` : "/admin/models");
+  }
+  redirect("/models/calendar");
+}

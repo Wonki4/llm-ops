@@ -34,7 +34,6 @@ LiteLLM 권한·요금 데이터를 재사용한다.
 | | 인프라 | `/admin/infrastructure?tab=clusters|storages|gpu|pods` | 클러스터·ArgoCD / 스토리지 / GPU 프로필 / Pod 기본 설정 |
 | 모델 관리 | 모델 등록·카탈로그 | `/admin/models` | 대시보드 요약·등록·카탈로그 |
 | | 라우팅 그래프 | `/admin/serving/topology` | 기존 그래프와 클러스터 범위 재사용 |
-| | 상태·일정 | `/admin/models/history?tab=schedule|history` | 공개·종료 일정 / 상태 변경 이력 |
 | 팀·사용자 관리 | 팀 | `/admin/teams`, `/admin/teams/{id}` | 목록에서 팀별 숨김 전환; 상세는 멤버 / 모델 호출 권한 / 서빙 권한 / 예산·한도 / 사용량 / 설정 |
 | | 사용자 | `/admin/users/{id}?tab=teams|personal|keys` | 소속 팀 / 개인 모델 권한 / API 키 |
 | | 모델 접근 그룹 | `/admin/access-groups?group={name}&tab=models|teams|users` | 모델 / 할당된 팀 / 할당된 사용자 |
@@ -46,6 +45,9 @@ LiteLLM 권한·요금 데이터를 재사용한다.
 `pricing`, `assignments` 탭으로 연결 / 카탈로그 / 요금 / 할당 현황을 표시한다.
 `history` 같은 호출명은 시스템 경로와 충돌하지 않으며 `/`가 있는 호출명도 지원한다.
 기존 `/admin/models/{호출명}` 주소는 새 상세로 연결한다.
+카탈로그 탭에서는 해당 모델의 최근 상태 변경 5건과 전체 이력을 확인할 수 있다.
+공개·종료 일정 조회는 상단 모델 캘린더로 통합했다. 기존 `/admin/models/history`의
+일정 링크는 모델 캘린더로, 이력 링크는 검색어를 보존해 모델 목록으로 연결한다.
 
 이전 `/admin/models/dashboard`, `/admin/storages`, `/admin/budgets`, `/admin/usage`는 각각 모델 목록,
 인프라 스토리지, 예산 탭, 사용량 탭으로 연결한다. `/admin/settings`의 기존 탭은 해당 인프라·정책

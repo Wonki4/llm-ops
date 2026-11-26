@@ -8,6 +8,7 @@ import { useModelConnections } from "@/hooks/use-model-connections";
 import { AdminTeamList } from "@/components/admin-team-list";
 import { AdminPage } from "@/components/admin-page";
 import { PageTabs, usePageTab } from "@/components/page-tabs";
+import { ModelStatusHistorySection } from "@/components/model-status-history-section";
 import { ModelCatalogEditor } from "@/components/model-catalog-editor";
 import { ModelConnectionList } from "@/components/model-connection-list";
 import { ModelCostScheduleSection } from "@/components/model-cost-schedule-section";
@@ -46,7 +47,12 @@ function Detail() {
     <div><h1 className="text-2xl font-bold">{model.catalog?.display_name || name}</h1><p className="font-mono text-sm text-muted-foreground">{name}</p></div>
     <PageTabs label={t("title")} active={tab} tabs={tabs.map(id => {const q = new URLSearchParams(params.toString());q.set("tab",id);return {id,label:t(id),href:`${base}?${q}`};})} />
     {tab === "connections" && <ModelConnectionList modelName={name} />}
-    {tab === "catalog" && <ModelCatalogEditor key={model.catalog?.updated_at || "new"} model={model} />}
+    {tab === "catalog" && (
+      <div className="max-w-2xl space-y-6">
+        <ModelCatalogEditor key={model.catalog?.updated_at || "new"} model={model} />
+        <ModelStatusHistorySection key={model.catalog?.id ?? name} catalogId={model.catalog?.id} expandable />
+      </div>
+    )}
     {tab === "pricing" && <Pricing name={name} />}
     {tab === "assignments" && <ModelAssignments name={name} groups={accessGroupsOf(model)} />}
   </div>;
