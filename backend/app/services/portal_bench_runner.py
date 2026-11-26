@@ -201,6 +201,8 @@ def chat_inputs(tokenizer_name, workload):
 
     tokenizer = AutoTokenizer.from_pretrained(
         tokenizer_name,
+        **({"revision": os.environ["BENCH_TOKENIZER_REVISION"]} if os.environ.get("BENCH_TOKENIZER_REVISION") else {}),
+        **({"local_files_only": True} if os.environ.get("HF_HUB_OFFLINE") == "1" else {}),
         **({"trust_remote_code": True} if os.environ.get("BENCH_VALIDATION_TRUST_REMOTE_CODE") == "1" else {}),
     )
     expected = os.environ.get("BENCH_VALIDATION_TOKENIZER_SHA256")
