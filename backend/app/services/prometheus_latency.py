@@ -15,6 +15,8 @@ METRICS = {
     "e2e": "e2e_request_latency_seconds",
     "itl": "inter_token_latency_seconds",
 }
+_SGLANG_REQUEST_MODE_BUCKETS = {f"sglang:{METRICS[key]}_bucket" for key in ("ttft", "e2e")}
+_REQUEST_MODES = frozenset({"true", "false"})
 WINDOW_SECONDS = 300
 HISTORY_SECONDS = 1800
 HISTORY_STEP_SECONDS = 30
@@ -58,7 +60,7 @@ def _query(bucket: str, scopes: list[str]) -> str:
 
 def _interpret(
     samples, expected_pods: set[tuple[str, str]], required_labels: dict[str, str],
-    now: float, allow_model_aliases_across_pods: bool,
+    now: float, allow_model_aliases_across_pods: bool, bucket: str,
 ) -> tuple[dict, float | None]:
     buckets = defaultdict(dict)
     scrapes = defaultdict(dict)
@@ -92,8 +94,8 @@ def _interpret(
     if now - oldest > STALE_SECONDS or set(buckets) != set(scrapes):
         return _empty("partial"), oldest
     # One physical exporter can appear under two jobs/instances in a central Prometheus.
-    # Verify a single scrape series per logical engine/model dimension before using sum().
-    logical_engines = set()
+    # Count each engine's observations once, even when scraped by multiple jobs.
+    seen_modes = defaultdict(set)
     pod_models = defaultdict(set)
     layout = None
     traffic = 0.0
@@ -103,9 +105,15 @@ def _interpret(
         pod = (labels["namespace"], labels["pod"])
         pod_models[pod].add(labels.get("model_name"))
         logical = (pod, labels.get("engine"), labels.get("engine_index"), labels.get("dp_rank"))
-        if logical in logical_engines:
+        # Newer SGLang exposes disjoint TTFT/E2E histograms per request mode.
+        # A legacy histogram without this label already covers both modes.
+        mode = labels.get("is_streaming") if bucket in _SGLANG_REQUEST_MODE_BUCKETS else None
+        if mode is not None and mode not in _REQUEST_MODES:
             return _empty("partial"), oldest
-        logical_engines.add(logical)
+        covered = _REQUEST_MODES if mode is None else {mode}
+        if seen_modes[logical].intersection(covered):
+            return _empty("partial"), oldest
+        seen_modes[logical].update(covered)
         # A removed/delayed finite bucket can still contribute a historical rate even
         # when +Inf is fresh. Verify every bound has both a live scrape and a rate.
         if rates.keys() != scrapes[identity].keys():
@@ -158,7 +166,7 @@ async def _read_metric(
         if not isinstance(rows, list):
             return _empty("error"), None
         samples = ((row["metric"], row["value"][1]) for row in rows)
-        return _interpret(samples, pods, required_labels, now, allow_model_aliases_across_pods)
+        return _interpret(samples, pods, required_labels, now, allow_model_aliases_across_pods, bucket)
     except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError, OverflowError):
         # Do not return the upstream URL, authentication headers, or response body.
         return _empty("error"), None
@@ -226,7 +234,7 @@ async def read_latency(
         "metrics": metrics,
     }
 
-def _history_points(matrix, ticks, expected_pods, required_labels, allow_aliases):
+def _history_points(matrix, ticks, expected_pods, required_labels, allow_aliases, bucket):
     # Reuse the instant-query checks at each evaluation time, including the timestamp
     # of the actual scrape. A matrix sample's outer timestamp is only its evaluation time.
     samples = {tick: [] for tick in ticks}
@@ -239,7 +247,7 @@ def _history_points(matrix, ticks, expected_pods, required_labels, allow_aliases
             samples[tick].append((labels, value))
             previous = tick
     return {
-        tick: _interpret(values, expected_pods, required_labels, tick, allow_aliases)[0]
+        tick: _interpret(values, expected_pods, required_labels, tick, allow_aliases, bucket)[0]
         for tick, values in samples.items()
     }
 
@@ -304,7 +312,7 @@ async def read_latency_history(
             chunk = times[offset:offset + chunk_steps]
             matrix = await _range_matrix(client, url, headers, query, chunk)
             points.update(_history_points(
-                matrix, chunk, expected_pods, required_labels, allow_model_aliases_across_pods,
+                matrix, chunk, expected_pods, required_labels, allow_model_aliases_across_pods, bucket,
             ))
         return points
 

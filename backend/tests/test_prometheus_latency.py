@@ -223,6 +223,44 @@ async def history(handler, **changes):
         return await read_latency_history(client, "https://prom.example/central/", **{**options, **changes})
 
 
+@pytest.mark.parametrize("second_scrape", [None, "same_mode", "label_dropped"])
+async def test_sglang_combines_request_modes_but_rejects_duplicate_scrapes(second_scrape):
+    def handler(request):
+        query = query_of(request)
+        assert "histogram_quantile(0.5, sum by (le) (rate(" in query
+        if "sglang:inter_token_latency_seconds" in query:
+            rows = metric_rows()
+        else:
+            # Eight non-streaming requests below 0.1s and eight streaming above it.
+            # Only Prometheus emits the population quantile, shared by both histograms.
+            rows = metric_rows(p50=0.1, extra={"job": "serving", "is_streaming": "false"})
+            streaming = metric_rows(extra={"job": "serving", "is_streaming": "true"})[1:]
+            for row in rows[1:] + streaming:
+                labels = row["metric"]
+                if labels["portal_latency_kind"] == "bucket":
+                    in_range = labels["le"] == "0.1" and labels["is_streaming"] == "false"
+                    row["value"][1] = "8" if in_range or labels["le"] == "+Inf" else "0"
+            rows.extend(streaming)
+            if second_scrape:
+                for row in streaming:
+                    labels = {**row["metric"], "job": "second-job"}
+                    if second_scrape == "label_dropped":
+                        labels.pop("is_streaming")
+                    rows.append({**row, "metric": labels})
+        if request.url.path.endswith("/query_range"):
+            return matrix(matrix_rowset({NOW: rows}))
+        return ok(rows)
+
+    live = await read(handler, engine="sglang")
+    series = await history(handler, engine="sglang")
+    for metric in ("ttft", "e2e"):
+        expected_ms = None if second_scrape else 100
+        assert live["metrics"][metric] == {"status": "partial" if second_scrape else "ok", "p50_ms": expected_ms}
+        assert series[metric][-1] == [NOW, expected_ms]
+    assert live["metrics"]["itl"] == {"status": "ok", "p50_ms": 50}
+    assert series["itl"][-1] == [NOW, 50]
+
+
 async def test_history_uses_actual_prometheus_grid_and_marks_gaps_per_timestamp():
     chunk = matrix_rowset({
         NOW - 150: metric_rows(stamp=NOW - 155, p50=0.01),
