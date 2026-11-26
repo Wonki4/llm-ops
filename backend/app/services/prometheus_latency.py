@@ -7,6 +7,7 @@ import re
 import time
 from collections import defaultdict
 from datetime import UTC, datetime
+from itertools import groupby
 
 import httpx
 
@@ -31,10 +32,13 @@ def _empty(status: str) -> dict:
     return {"status": status, "p50_ms": None}
 
 
-def _scope(namespace: str, pods: set[str], cluster_label: tuple[str, str] | None, model_name: str | None) -> str:
-    # The pattern is a union of literal Pod names. Prometheus anchors both ends of =~ matchers.
-    pod_union = "|".join(re.escape(pod).replace(r"\-", "-") for pod in sorted(pods))
-    selectors = [f'namespace={json.dumps(namespace)}', f'pod=~{json.dumps(pod_union)}']
+def _names(names) -> str:
+    # Both ends of Prometheus regex matchers are anchored. Escape every literal name.
+    return json.dumps("|".join(re.escape(name).replace(r"\-", "-") for name in sorted(names)))
+
+
+def _selector(namespace, matcher, cluster_label, model_name=None) -> str:
+    selectors = [f'namespace={json.dumps(namespace)}', matcher]
     if cluster_label is not None:
         label, value = cluster_label
         if not _LABEL_NAME.fullmatch(label) or label.startswith("__") or label in _RESERVED_LABELS or not value:
@@ -45,6 +49,45 @@ def _scope(namespace: str, pods: set[str], cluster_label: tuple[str, str] | None
             raise ValueError("Empty Prometheus model name")
         selectors.append(f"model_name={json.dumps(model_name, ensure_ascii=False)}")
     return ",".join(selectors)
+
+
+def _scope(namespace: str, pods: set[str], cluster_label: tuple[str, str] | None, model_name: str | None) -> str:
+    return _selector(namespace, f'pod=~{_names(pods)}', cluster_label, model_name)
+
+
+def _owner_query(deployments: dict[str, list[str]], cluster_label: tuple[str, str] | None) -> str:
+    """Membership of each Deployment at each evaluation time, including replaced ReplicaSets."""
+    pairs = []
+    scope = ["namespace", *([cluster_label[0]] if cluster_label else [])]
+    rs_key = ",".join([*scope, "replicaset"])
+    pod_key = ",".join([*scope, "pod"])
+    for namespace, names in sorted(deployments.items()):
+        pod = _selector(namespace, 'owner_kind="ReplicaSet",owner_is_controller="true"', cluster_label)
+        rs = _selector(namespace, f'owner_kind="Deployment",owner_is_controller="true",owner_name=~{_names(names)}',
+                       cluster_label)
+        # Deduplicate kube-state-metrics scrape replicas before joining. Keep the actual
+        # Deployment name for validating the response, including multi-namespace groups.
+        owners = (
+            f'group by ({rs_key},pod) (label_replace(kube_pod_owner{{{pod}}} == 1,'
+            f' "replicaset", "$1", "owner_name", "(.+)"))'
+            f' * on ({rs_key}) group_left(deployment) '
+            f'group by ({rs_key},deployment) (label_replace(kube_replicaset_owner{{{rs}}} == 1,'
+            f' "deployment", "$1", "owner_name", "(.+)"))'
+        )
+        # Some installations only collect the two owner gauges. Exclude Pods known to be
+        # pending, terminated or deleting when those lifecycle metrics are available.
+        inactive = _selector(namespace, 'phase=~"Pending|Succeeded|Failed|Unknown"', cluster_label)
+        deleting = _selector(namespace, 'pod!=""', cluster_label)
+        deployment = _selector(namespace, f'deployment=~{_names(names)}', cluster_label)
+        zero_replicas = (
+            f'group by ({",".join([*scope, "deployment"])}) (kube_deployment_status_replicas{{{deployment}}} == 0)'
+        )
+        pairs.append(
+            f'(({owners}) unless on ({pod_key}) (kube_pod_status_phase{{{inactive}}} == 1)'
+            f' unless on ({pod_key}) (kube_pod_deletion_timestamp{{{deleting}}} > 0))'
+            f' or label_replace({zero_replicas}, "{_SERIES_KIND}", "zero_replicas", "", ".*")'
+        )
+    return " or ".join(pairs)
 
 
 def _query(bucket: str, scopes: list[str]) -> str:
@@ -272,6 +315,85 @@ async def _range_matrix(client, url, headers, query, ticks):
     return matrix
 
 
+def _target_query(targets, cluster_label, *, dimension):
+    # up=0 still identifies an expected scrape target. An unhealthy replica must
+    # be counted in coverage checks even when its latency samples are unavailable.
+    dimensions = ["namespace", "pod"]
+    if dimension == "deployment":
+        dimensions.append("deployment")
+    if cluster_label:
+        dimensions.append(cluster_label[0])
+    group = ",".join(dimensions)
+    selectors = []
+    for namespace, names in sorted(targets.items()):
+        matcher = f'{dimension}=~{_names(names)}'
+        if dimension == "deployment":
+            matcher += ',pod!=""'
+        selectors.append(_selector(namespace, matcher, cluster_label))
+    return f"group by ({group}) (" + " or ".join(f"up{{{s}}}" for s in selectors) + ")"
+
+
+def _membership_at_ticks(matrix, targets, cluster_label, ticks, dimension):
+    pods = {tick: set() for tick in ticks}
+    deployments_by_tick = defaultdict(set)
+    seen = {}
+    for series in matrix:
+        labels = series["metric"]
+        ns, target = labels["namespace"], labels[dimension]
+        zero = dimension == "deployment" and labels.get(_SERIES_KIND) == "zero_replicas"
+        pod = labels.get("pod")
+        if (not zero and not pod) or target not in targets.get(ns, ()) or (
+            cluster_label and labels.get(cluster_label[0]) != cluster_label[1]
+        ):
+            raise ValueError("Out-of-scope Deployment membership")
+        previous = -1
+        for tick, value in series["values"]:
+            if tick not in pods or tick <= previous or float(value) != 1:
+                raise ValueError("Invalid Deployment membership sample")
+            previous = tick
+            if dimension == "deployment":
+                deployments_by_tick[tick].add((ns, target))
+            if zero:
+                continue
+            key = (tick, ns, pod)
+            if key in seen and seen[key] != target:
+                raise ValueError("Ambiguous Pod owner at evaluation time")
+            seen[key] = target
+            pods[tick].add((ns, pod))
+    if dimension == "deployment":
+        expected = {(ns, name) for ns, names in targets.items() for name in names}
+        if expected != set().union(*deployments_by_tick.values()):
+            # The source returned only some requested Deployments. Falling back to another
+            # selector or presenting just the visible subset could misattribute traffic.
+            raise ValueError("Incomplete Deployment membership")
+        for tick in ticks:
+            if deployments_by_tick[tick] != expected:
+                # A missing Deployment could be at zero replicas or its exporter could
+                # be unavailable. Without population evidence the combined value is unknown.
+                pods[tick].clear()
+    return {tick: frozenset(names) for tick, names in pods.items()}
+
+
+async def _deployment_membership(client, url, headers, deployments, cluster_label, ticks, observed_pods):
+    # A custom cluster dimension may itself be named "deployment" or "replicaset".
+    # Only try membership sources whose own dimensions do not overwrite the cluster filter.
+    cluster_key = cluster_label[0] if cluster_label else None
+    queries = []
+    if cluster_key not in {"owner_kind", "owner_is_controller", "owner_name", "replicaset", "deployment", "phase"}:
+        queries.append(("deployment_owner", _owner_query(deployments, cluster_label), deployments, "deployment"))
+    if cluster_key != "deployment":
+        deployment_targets = _target_query(deployments, cluster_label, dimension="deployment")
+        queries.append(("deployment_target", deployment_targets, deployments, "deployment"))
+    if observed_pods:
+        pod_targets = _target_query(observed_pods, cluster_label, dimension="pod")
+        queries.append(("observed_pods", pod_targets, observed_pods, "pod"))
+    for source, query, allowed, dimension in queries:
+        matrix = await _range_matrix(client, url, headers, query, ticks)
+        if matrix:
+            return source, _membership_at_ticks(matrix, allowed, cluster_label, ticks, dimension)
+    return "current_pods", None
+
+
 async def read_latency_history(
     client: httpx.AsyncClient,
     base_url: str,
@@ -285,35 +407,70 @@ async def read_latency_history(
     model_name: str | None = None,
     additional_targets: list[tuple[str, list[str]]] | None = None,
     allow_model_aliases_across_pods: bool = False,
+    deployments: dict[str, list[str]] | None = None,
+    observed_pods: dict[str, list[str]] | None = None,
 ) -> dict:
     """Return [epoch second, median ms] on a common grid; missing or unsuitable samples are gaps.
 
     A None series represents a range retrieval failure. All queries use the same
     exact Pod/cluster matchers as the live reading, including legacy metric lookup.
+    For a confirmed whole Deployment/pool, resolve the Pod roster at each historical
+    tick. Adjacent ticks with the same roster share a range query.
     """
     engine = engine.lower()
     end = int(time.time() if now is None else now) // HISTORY_STEP_SECONDS * HISTORY_STEP_SECONDS
     ticks = range(end - HISTORY_SECONDS, end + 1, HISTORY_STEP_SECONDS)
     selection = _select_scope(engine, namespace, pods, additional_targets, cluster_label, model_name)
-    if not selection:
-        return {key: [[tick, None] for tick in ticks] for key in METRICS}
-    selectors, expected_pods, required_labels = selection
     url = base_url.rstrip("/") + "/api/v1/query_range"
     headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
-
-    # Split time, not series: all replica buckets must contribute to the same quantile.
-    # This bounds each decoded matrix even for models with many replicas.
-    chunk_steps = max(1, 2048 // len(expected_pods))
+    source, roster = "current_pods", None
+    if deployments and engine in {"vllm", "sglang"}:
+        if any(not ns or not names or not all(names) for ns, names in deployments.items()):
+            raise ValueError("Empty Deployment scope")
+        if any(ns not in deployments or not names or not all(names) for ns, names in (observed_pods or {}).items()):
+            raise ValueError("Invalid previously observed Pod scope")
+        try:
+            async with asyncio.timeout(12):
+                source, roster = await _deployment_membership(
+                    client, url, headers, deployments, cluster_label, ticks, observed_pods,
+                )
+        except (httpx.HTTPError, KeyError, TypeError, ValueError, IndexError, OverflowError, TimeoutError):
+            # A partial or invalid ownership response cannot authorize a wider selector.
+            return {**dict.fromkeys(METRICS), "scope_source": "unavailable"}
+    if selection:
+        _, current_pods, required_labels = selection
+    else:
+        current_pods = set()
+        required_labels = dict([cluster_label]) if cluster_label else {}
+        if model_name is not None:
+            required_labels["model_name"] = model_name
+    if roster is None:
+        roster = dict.fromkeys(ticks, frozenset(current_pods))
+    elif roster[ticks[-1]] != current_pods:
+        # The final grid point can straddle a rollout or a delayed owner scrape.
+        # Preserve earlier observed membership; avoid showing an incomplete latest aggregate.
+        roster[ticks[-1]] = frozenset()
 
     async def fetch(bucket, times):
-        query = _query(bucket, selectors)
         points = {}
-        for offset in range(0, len(times), chunk_steps):
-            chunk = times[offset:offset + chunk_steps]
-            matrix = await _range_matrix(client, url, headers, query, chunk)
-            points.update(_history_points(
-                matrix, chunk, expected_pods, required_labels, allow_model_aliases_across_pods, bucket,
-            ))
+        for names, interval in groupby(times, key=roster.__getitem__):
+            interval = list(interval)
+            if not names:
+                points.update(dict.fromkeys(interval, _empty("missing")))
+                continue
+            namespaces = defaultdict(set)
+            for ns, pod in names:
+                namespaces[ns].add(pod)
+            selectors = [_scope(ns, namespaces[ns], cluster_label, model_name) for ns in sorted(namespaces)]
+            query = _query(bucket, selectors)
+            # Split time, not series: combine all replica buckets for each quantile.
+            chunk_steps = max(1, 2048 // len(names))
+            for offset in range(0, len(interval), chunk_steps):
+                chunk = interval[offset:offset + chunk_steps]
+                matrix = await _range_matrix(client, url, headers, query, chunk)
+                points.update(_history_points(
+                    matrix, chunk, names, required_labels, allow_model_aliases_across_pods, bucket,
+                ))
         return points
 
     async def metric(key):
@@ -345,4 +502,7 @@ async def read_latency_history(
             return None
 
     results = await asyncio.gather(*(metric(key) for key in METRICS))
-    return dict(zip(METRICS, results, strict=True))
+    output = dict(zip(METRICS, results, strict=True))
+    if deployments:
+        output["scope_source"] = source
+    return output

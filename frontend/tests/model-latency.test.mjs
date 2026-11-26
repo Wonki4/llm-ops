@@ -7,7 +7,7 @@ const source = await readFile(new URL("../src/lib/model-latency.ts", import.meta
 const { outputText } = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 });
-const { appendLatencySample, combineLatencySamples, formatLatency, latencyAxis, latencyKey, latencyPeak, latencySegments, LATENCY_HISTORY_MS } =
+const { appendLatencySample, combineLatencySamples, formatLatency, latencyAxis, latencyKey, latencyPeak, latencySegments, matchLatencyRows, retiredLatencySamples, LATENCY_HISTORY_MS } =
   await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 
 function sample(at, value) { return { at, ttft: value, e2e: value, itl: value }; }
@@ -17,6 +17,25 @@ test("two clusters or pools using the same Kubernetes names get separate chart t
   assert.notEqual(latencyKey(target), latencyKey({ ...target, cluster_id: "b" }));
   assert.notEqual(latencyKey(target), latencyKey({ ...target, pool: "prefill" }));
   assert.equal(latencyKey(target), latencyKey({ ...target, shared: true }));
+  const unnamedId = { ...target, cluster_id: null };
+  assert.notEqual(latencyKey(unnamedId), latencyKey({ ...unnamedId, cluster_name: "GPU-B" }));
+  assert.notEqual(latencyKey(unnamedId), latencyKey({ ...unnamedId, cluster_id: unnamedId.cluster_name }));
+});
+
+test("a rollout retains history without presenting an earlier reading as the current value", () => {
+  const old = { cluster_id: null, cluster_name: "default", namespace: "serving", deployment_name: "chat", engine: "sglang", pool: null };
+  const history = { ...old, scope_source: "deployment_owner" };
+  const updated = { ...old, shared: true };
+  const unknown = { ...old, engine: null };
+  const during = matchLatencyRows([unknown], [history, history]);
+  assert.equal(during.size, 2);
+  assert.equal(during.get(latencyKey(old)).live, undefined);
+  assert.equal(during.get(latencyKey(old)).history, history);
+  assert.equal(during.get(latencyKey(unknown)).live, unknown);
+  const after = matchLatencyRows([updated], [history]);
+  assert.equal(after.size, 1);
+  assert.deepEqual(after.get(latencyKey(old)), { target: updated, history, live: updated });
+  assert.equal(matchLatencyRows([], [history]).get(latencyKey(old)).history, history);
 });
 
 test("live polls take precedence over overlapping backfill, with a bounded time range", () => {
@@ -27,6 +46,15 @@ test("live polls take precedence over overlapping backfill, with a bounded time 
   const recent = appendLatencySample([sample(0, 1), sample(LATENCY_HISTORY_MS - 15000, 2)], sample(LATENCY_HISTORY_MS + 1, 0), 15000);
   assert.equal(recent.length, 2);
   assert.equal(recent.at(-1).ttft, 0);
+});
+
+test("poll-only values survive a rollout gap, split the returned trace and expire", () => {
+  const observed = [sample(100, 0), { ...sample(115, null), lower_bounds_ms: { ttft: 1000 } }];
+  const missing = retiredLatencySamples(observed, 130);
+  assert.deepEqual(missing, [...observed, { ...sample(130, null), missedPoll: true }]);
+  assert.deepEqual(retiredLatencySamples(missing, 145), missing);
+  assert.equal(latencySegments(appendLatencySample(missing, sample(145, 50), 15), "ttft", 45).length, 2);
+  assert.deepEqual(retiredLatencySamples(missing, 116 + LATENCY_HISTORY_MS), []);
 });
 
 test("missing samples and time gaps split lines, preserving a measured zero", () => {

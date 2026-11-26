@@ -1,7 +1,7 @@
 "use client";
 
 import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { appendLatencySample, latencyKey, type LatencyMetric, type LatencySample, type LatencyTarget } from "@/lib/model-latency";
+import { appendLatencySample, latencyKey, retiredLatencySamples, type LatencyMetric, type LatencySample, type LatencyTarget } from "@/lib/model-latency";
 import type { PdRole } from "@/lib/pd-serving";
 import { scopeQuery, type ScopedItem, type ServingScope } from "@/lib/serving-scope";
 import { apiFetch } from "@/lib/api";
@@ -929,6 +929,7 @@ export interface LiveLatencyRow extends LatencyTarget {
   last_scraped_at: string | null;
   metrics: Record<LatencyMetric, LiveLatencyMetric>;
   recent?: LatencySample[];
+  historyOnly?: boolean;
 }
 
 interface ModelLiveLatencyResult {
@@ -940,6 +941,7 @@ interface ModelLiveLatencyResult {
 }
 
 export interface LatencyHistoryRow extends LatencyTarget {
+  scope_source?: "deployment_owner" | "deployment_target" | "observed_pods" | "current_pods" | "unavailable";
   history: Array<Omit<LatencySample, "at"> & { at: string }>;
   unavailable_metrics?: LatencyMetric[];
 }
@@ -976,17 +978,24 @@ export function useModelLiveLatency(modelName: string) {
       const previous = client.getQueryData<ModelLiveLatencyResult>(queryKey);
       const oldRows = new Map(previous?.rows.map((row) => [latencyKey(row), row]));
       const evaluated = Date.parse(latest.evaluated_at);
+      const at = Number.isFinite(evaluated) ? evaluated : Date.now();
       for (const row of latest.rows) {
-        const old = oldRows.get(latencyKey(row));
+        const key = latencyKey(row);
+        const old = oldRows.get(key);
+        oldRows.delete(key);
         if (row.status === "error" && !row.last_scraped_at) row.last_scraped_at = old?.last_scraped_at ?? null;
         const value = (name: LatencyMetric) => row.metrics[name].status === "ok" ? row.metrics[name].p50_ms : null;
         const bounds = Object.fromEntries(Object.entries(row.metrics)
           .filter(([, item]) => item.status === "above_range" && item.lower_bound_ms != null)
           .map(([metric, item]) => [metric, item.lower_bound_ms]));
         row.recent = appendLatencySample(old?.recent ?? [], {
-          at: Number.isFinite(evaluated) ? evaluated : Date.now(),
+          at,
           ttft: value("ttft"), e2e: value("e2e"), itl: value("itl"), lower_bounds_ms: bounds,
         }, latest.refresh_seconds * 1000);
+      }
+      for (const old of oldRows.values()) {
+        const recent = retiredLatencySamples(old.recent ?? [], at);
+        if (recent.length) latest.rows.push({ ...old, historyOnly: true, last_scraped_at: null, recent });
       }
       return latest;
     },

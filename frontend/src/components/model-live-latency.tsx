@@ -10,7 +10,7 @@ import {
   useModelLatencyHistory, useModelLiveLatency, type LatencyHistoryRow, type LiveLatencyRow,
 } from "@/hooks/use-api";
 import {
-  combineLatencySamples, formatLatency, LATENCY_HISTORY_MS, latencyAxis, latencyKey, latencyMetrics, latencyPeak, latencySegments,
+  combineLatencySamples, formatLatency, LATENCY_HISTORY_MS, latencyAxis, latencyMetrics, latencyPeak, latencySegments, matchLatencyRows,
   type LatencyMetric, type LatencySample, type LatencyScale, type LatencyTarget,
 } from "@/lib/model-latency";
 
@@ -40,20 +40,16 @@ function LineKey({ index }: { index: number }) {
 }
 
 function makeSeries(current: LiveLatencyRow[] | undefined, history: LatencyHistoryRow[], start: number, end: number) {
-  const past = new Map(history.map((row) => [latencyKey(row), row]));
-  const live = new Map(current?.map((row) => [latencyKey(row), row]));
-  const rows = current ?? history;
+  const rows = [...matchLatencyRows(current, history)].filter(([, row]) =>
+    row.live || !current || row.history?.history.some((point) => Date.parse(point.at) >= start));
   const clusterCounts = new Map<string, number>();
-  for (const row of rows) clusterCounts.set(row.cluster_name, (clusterCounts.get(row.cluster_name) ?? 0) + 1);
-  return rows.map((target): Series => {
-    const key = latencyKey(target);
-    const stored = past.get(key);
-    const latest = live.get(key);
+  for (const [, { target }] of rows) clusterCounts.set(target.cluster_name, (clusterCounts.get(target.cluster_name) ?? 0) + 1);
+  return rows.map(([key, { target, history: stored, live: latest }]): Series => {
     const samples = (stored?.history ?? []).map((point) => ({ ...point, at: Date.parse(point.at) }));
     const label = clusterCounts.get(target.cluster_name) === 1 ? target.cluster_name
       : [target.cluster_name, target.namespace, target.deployment_name, target.engine, target.pool].filter(Boolean).join(" / ");
     return {
-      target, key, label, live: latest, history: stored,
+      target, key, label, live: latest?.historyOnly ? undefined : latest, history: stored,
       samples: combineLatencySamples(samples, latest?.recent ?? [], start, end),
     };
   });
@@ -257,6 +253,7 @@ export function ModelLiveLatency({ modelName }: { modelName: string }) {
             <LineKey index={i} /><span className="break-all">{[s.target.cluster_name, s.target.namespace, s.target.deployment_name,
               s.target.engine, s.target.pool].filter(Boolean).join(" / ")}</span>
             {s.target.shared && <span>{t("shared")}</span>}
+            {s.history?.scope_source && t.has(`historyScope.${s.history.scope_source}`) && <span>{t(`historyScope.${s.history.scope_source}`)}</span>}
             {s.live?.last_scraped_at && <time dateTime={s.live.last_scraped_at}>{formatStamp(s.live.last_scraped_at)}</time>}
           </li>)}</ul>
         </details>

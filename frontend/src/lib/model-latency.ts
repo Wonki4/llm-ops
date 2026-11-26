@@ -40,7 +40,18 @@ export function formatLatency(milliseconds: number, locale: string) {
 }
 
 export function latencyKey(row: LatencyTarget) {
-  return JSON.stringify([row.cluster_id, row.namespace, row.deployment_name, row.engine, row.pool]);
+  return JSON.stringify([row.cluster_id ?? { name: row.cluster_name }, row.namespace, row.deployment_name, row.engine, row.pool]);
+}
+
+/** Keep the history trace when a live rollout temporarily loses a serving target. */
+export function matchLatencyRows<L extends LatencyTarget, H extends LatencyTarget>(current: L[] | undefined, history: H[]) {
+  const rows = new Map<string, { target: LatencyTarget; history?: H; live?: L }>();
+  for (const target of history) rows.set(latencyKey(target), { target, history: target });
+  for (const target of current ?? []) {
+    const key = latencyKey(target);
+    rows.set(key, { target, history: rows.get(key)?.history, live: target });
+  }
+  return rows;
 }
 
 export function appendLatencySample(history: LatencySample[], next: LatencySample, interval: number) {
@@ -51,6 +62,18 @@ export function appendLatencySample(history: LatencySample[], next: LatencySampl
     kept.push({ at: last.at + interval, missedPoll: true, ttft: null, e2e: null, itl: null });
   }
   kept.push(next);
+  return kept;
+}
+
+/** Keep in-window poll observations after a target vanishes, with a break before it returns. */
+export function retiredLatencySamples(samples: LatencySample[], now: number): LatencySample[] {
+  const kept = samples.filter((point) => point.at >= now - LATENCY_HISTORY_MS);
+  const hasReading = (point: LatencySample) => latencyMetrics.some((m) => point[m] != null || point.lower_bounds_ms?.[m] != null);
+  if (!kept.some(hasReading)) return [];
+  const last = kept[kept.length - 1];
+  if (last.at < now && hasReading(last)) {
+    kept.push({ at: now, ttft: null, e2e: null, itl: null, missedPoll: true });
+  }
   return kept;
 }
 

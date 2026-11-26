@@ -217,6 +217,7 @@ def test_managed_registration_with_custom_base_pins_only_its_own_service():
     from app.services.model_deployment_manifests import k8s_resource_names
 
     dep = SimpleNamespace(
+        id="deployment-id",
         cluster_id="B",
         namespace="serving",
         model_name="internal",
@@ -276,3 +277,72 @@ def test_history_row_exposes_lower_bounds_only_at_affected_time_and_metric():
     assert first["ttft"] is None and first["lower_bounds_ms"] == {"ttft": 10_000}
     assert first["e2e"] == 22_000
     assert second["ttft"] == 0 and second["e2e"] is None and "lower_bounds_ms" not in second
+
+
+def _revision(engine, selector, labels, uid="chat-uid"):
+    return {"uid": uid, "engine": engine, "selector": selector, "labels": labels}
+
+
+@pytest.mark.parametrize("live_pods", [[], ["new-1", "new-2", "new-3"]])
+async def test_history_keeps_owned_deployment_across_scale_and_at_zero(monkeypatch, mock_db, mock_litellm, live_pods):
+    wire_clusters(monkeypatch, mock_db, [external("A", "a")])
+    mock_litellm.get_model_info.return_value = [registration("model", "a", SERVICE)]
+    selector = {"app": "engine"}
+    snapshot = {
+        "pods": [(p, selector, "Running", True, False) for p in live_pods],
+        "pod_engines": dict.fromkeys(live_pods, "sglang"),
+        "pod_owners": {p: {"deployment": ("chat-uid", "chat")} for p in live_pods},
+        "deployment_revisions": {
+            "chat": [_revision("sglang", selector, {**selector, "version": v}) for v in ["old", "new"]],
+            "chat-canary": [_revision("sglang", {"app": "canary"}, {"app": "canary"}, "other-uid")],
+        },
+    }
+    monkeypatch.setattr(latency.workload_snapshots, "read", AsyncMock(return_value=snapshot))
+    history = AsyncMock(return_value={k: [] for k in latency.METRICS} | {"scope_source": "deployment_owner"})
+    monkeypatch.setattr(latency, "read_latency_history", history)
+    response = await latency.model_live_latency(mock_db, mock_litellm, "model", history=True)
+    row, = response["rows"]
+    assert (row["deployment_name"], row["engine"], row["scope_source"]) == ("chat", "sglang", "deployment_owner")
+    assert history.await_args.kwargs["deployments"] == {"serving": ["chat"]}
+    assert history.await_args.kwargs["pods"] == live_pods
+
+
+def test_release_specific_service_never_expands_to_sibling_revisions():
+    target = latency.Target(("A", "serving"), "preview", "service")
+    snapshots = {target.scope: {"services": {"preview": {"release": "canary"}}}}
+    # Even if all retained replicas match, release is mutable across revisions.
+    data = {"deployment_revisions": {
+        "chat": [_revision("vllm", {"app": "chat"}, {"app": "chat", "release": "canary"})],
+    }}
+    assert not list(latency._whole_deployments(target, data, snapshots, {}, {}))
+
+
+def test_prefill_and_decode_are_distinct_owned_workloads():
+    target = latency.Target(("A", "serving"), "chat", "service")
+    snapshots = {target.scope: {"services": {"chat": {"app": "chat"}}}}
+    revisions = {}
+    for role in ("prefill", "decode"):
+        labels = {"app": "chat", LABEL_PD_ROLE: role}
+        revisions[f"chat-{role}"] = [_revision("vllm", labels, labels, role)]
+    assert set(latency._whole_deployments(target, {"deployment_revisions": revisions}, snapshots, {}, {})) == {
+        ("chat-prefill", "vllm", "prefill", "prefill"), ("chat-decode", "vllm", "decode", "decode"),
+    }
+
+
+async def test_verified_pod_history_matches_deployment_role_and_engine(mock_db):
+    target = latency.Target(("east", "serving"), "chat-dc", "deployment")
+    managed = {target: latency.ManagedWorkload("vllm", "managed-id", "decode")}
+    group = latency.Pool()
+    group.owners["serving", "chat-dc"] = "uid"
+    group.pods["serving"].add("current")
+    group.deployments["serving"].add("chat-dc")
+    mock_db.execute.return_value = [
+        ("managed-id", "decode", "vllm", "old"), ("managed-id", "prefill", "vllm", "wrong-role"),
+        ("managed-id", "decode", "sglang", "wrong-engine"), ("other-id", "decode", "vllm", "wrong-owner"),
+    ]
+    known = await latency._observed_pod_names(mock_db, {("east", "vllm", "decode"): group}, managed, 1800)
+    assert latency._history_targets(group, "east", managed, known) == {
+        "deployments": {"serving": ["chat-dc"]}, "observed_pods": {"serving": ["current", "old"]},
+    }
+    group.has_unverified_pods = True
+    assert latency._history_targets(group, "east", managed, known) == {}

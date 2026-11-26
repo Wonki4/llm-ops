@@ -1,9 +1,11 @@
 """Resolve catalog names to serving Pods before querying per-cluster Prometheus."""
 
 import asyncio
+import hashlib
 import time
+import uuid
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 import httpx
@@ -11,15 +13,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
 from app.db.models.custom_external_serving import CustomExternalServing
+from app.db.models.custom_kv_observation import CustomKVObservation
 from app.db.models.custom_llmd_stack import CustomLlmdStack
 from app.db.models.custom_model_deployment import CustomModelDeployment
 from app.services import pd_serving
 from app.services.cluster_prometheus import PrometheusConfigError, resolve_prometheus_connection
 from app.services.clusters import namespace_scopes
+from app.services.latency_cache import cached_latency, latency_tick
 from app.services.litellm_registration import ingress_api_base, with_v1
 from app.services.llmd_links import selector_matches
 from app.services.llmd_manifests import llmd_service_name, stack_selector
-from app.services.model_deployment_manifests import k8s_resource_names
+from app.services.model_deployment_manifests import (
+    LABEL_LLMD_MODEL,
+    LABEL_MODEL,
+    LABEL_OWNER,
+    PORTAL_OWNERS,
+    k8s_resource_names,
+)
 from app.services.prometheus_latency import (
     HISTORY_SECONDS,
     HISTORY_STEP_SECONDS,
@@ -45,6 +55,22 @@ class Target:
     kind: str  # Kubernetes Service (including llm-d), or registered Deployment
 
 
+@dataclass(frozen=True)
+class ManagedWorkload:
+    engine: str
+    deployment_id: uuid.UUID
+    role: str
+
+
+@dataclass
+class Pool:
+    pods: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    deployments: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
+    # Only verified, whole Deployments may contribute deleted replicas to history.
+    owners: dict[tuple[str, str], str] = field(default_factory=dict)
+    has_unverified_pods: bool = False
+
+
 def _scope(row):
     return (str(row.cluster_id) if row.cluster_id else None, row.namespace)
 
@@ -64,7 +90,8 @@ def _registered_targets(managed, external):
             if not key.endswith("deployment"):
                 continue
             target = Target(_scope(dep), name, "deployment")
-            engines[target] = dep.engine
+            role = key.removesuffix("_deployment") if key != "deployment" else "aggregated"
+            engines[target] = ManagedWorkload(dep.engine, dep.id, role)
             if not dep.litellm_model_id:
                 continue
             # Only pin a registration at the physical ingress or its own Service.
@@ -129,12 +156,19 @@ async def _snapshot(reader, scope):
         return None
 
 
-def _pods(target, workloads, routes, stacks, engines):
-    scope = target.scope
-    spec = routes.get(scope, {})
-    selector = spec.get("services", {}).get(target.name, {})
+def _selector(target, routes, stacks):
     if target in stacks:
-        selector = stack_selector(stacks[target].values_snapshot or stacks[target].helm_values or {})
+        return stack_selector(stacks[target].values_snapshot or stacks[target].helm_values or {})
+    return routes.get(target.scope, {}).get("services", {}).get(target.name, {})
+
+
+def _pod_role(labels):
+    role = labels.get(pd_serving.LABEL_PD_ROLE) or labels.get(pd_serving.LABEL_ROLE)
+    return role if role in pd_serving.ROLES else None
+
+
+def _pods(target, workloads, routes, stacks, engines):
+    selector = _selector(target, routes, stacks)
     for pod, labels, phase, _, terminating in workloads.get("pods", ()):
         if terminating or phase != "Running":
             continue
@@ -145,9 +179,73 @@ def _pods(target, workloads, routes, stacks, engines):
                 continue
         elif not selector_matches(selector, labels):
             continue
-        engine = workloads["pod_engines"].get(pod) or engines.get(Target(scope, deployment, "deployment"))
-        role = labels.get(pd_serving.LABEL_PD_ROLE) or labels.get(pd_serving.LABEL_ROLE)
-        yield pod, engine or "unknown", role if role in pd_serving.ROLES else None, deployment or target.name
+        managed = engines.get(Target(target.scope, deployment, "deployment"))
+        engine = workloads["pod_engines"].get(pod) or (managed.engine if managed else "unknown")
+        yield pod, engine, _pod_role(labels), deployment or target.name
+
+
+def _whole_deployments(target, data, routes, stacks, managed):
+    """Find whole workloads even at zero replicas. A service selecting one revision stays Pod-scoped."""
+    selector = _selector(target, routes, stacks)
+    for name, revisions in data.get("deployment_revisions", {}).items():
+        owner = managed.get(Target(target.scope, name, "deployment"))
+        if target.kind == "deployment" and name != target.name:
+            continue
+        identities = set()
+        for revision in revisions:
+            labels = dict(revision["selector"])
+            if owner and labels.get(LABEL_OWNER) in PORTAL_OWNERS and labels.get(LABEL_MODEL):
+                # Our renderer stamps the immutable model identity under llm-d's routing label as well.
+                labels[LABEL_LLMD_MODEL] = labels[LABEL_MODEL]
+                if owner.role in pd_serving.ROLES and labels.get(pd_serving.LABEL_PD_ROLE) == owner.role:
+                    labels[pd_serving.LABEL_ROLE] = owner.role
+            if target.kind == "service" and not (
+                selector_matches(selector, labels) and selector_matches(selector, revision["labels"])
+            ):
+                break
+            engine = revision["engine"] or (owner.engine if owner else None)
+            identities.add((engine, _pod_role(revision["labels"]), revision["uid"]))
+        else:
+            if len(identities) == 1:
+                engine, role, uid = identities.pop()
+                if engine in ("sglang", "vllm"):
+                    yield name, engine, role, uid
+
+
+async def _observed_pod_names(db, groups, managed, now):
+    """Re-use this portal's worker-verified Pod → ReplicaSet → Deployment associations."""
+    wanted = {}
+    for (cid, engine, role), group in groups.items():
+        if group.has_unverified_pods:
+            continue
+        for ns, name in group.owners:
+            saved = managed.get(Target((cid, ns), name, "deployment"))
+            if saved and saved.engine == engine and saved.role == (role or "aggregated"):
+                wanted[saved.deployment_id, saved.role, engine] = (cid, ns, name)
+    result = defaultdict(set)
+    if wanted:
+        row = CustomKVObservation
+        records = await db.execute(select(row.deployment_id, row.role, row.engine, row.pod_name).where(
+            row.deployment_id.in_({key[0] for key in wanted}),
+            row.last_seen >= datetime.fromtimestamp(now - HISTORY_SECONDS - WINDOW_SECONDS, UTC),
+        ).distinct())
+        for dep_id, role, engine, pod in records:
+            if location := wanted.get((dep_id, role, engine)):
+                result[location].add(pod)
+    return result
+
+
+def _history_targets(group, cid, managed, known):
+    if group.has_unverified_pods or not group.owners:
+        return {}
+    options = {"deployments": {ns: sorted(names) for ns, names in group.deployments.items()}}
+    if all(Target((cid, ns), name, "deployment") in managed for ns, name in group.owners):
+        observed = {ns: set(group.pods.get(ns, ())) for ns in group.deployments}
+        for ns, name in group.owners:
+            observed[ns].update(known.get((cid, ns, name), ()))
+        if all(observed.values()):
+            options["observed_pods"] = {ns: sorted(names) for ns, names in observed.items()}
+    return options
 
 
 def _blank(status, history):
@@ -160,10 +258,10 @@ def _blank(status, history):
     }
 
 
-def _row(scope, deployments, namespaces, engine, pool, shared):
+def _row(cluster_id, cluster_name, deployments, namespaces, engine, pool, shared):
     return {
-        "cluster_id": scope.cluster_id,
-        "cluster_name": scope.name,
+        "cluster_id": cluster_id,
+        "cluster_name": cluster_name,
         "namespace": ", ".join(sorted(namespaces)),
         "deployment_name": ", ".join(sorted(deployments)),
         "shared": shared,
@@ -185,6 +283,7 @@ def _history_row(series):
             if bound:
                 point.setdefault("lower_bounds_ms", {})[metric] = bound[0]
     return {
+        "scope_source": series.get("scope_source", "current_pods"),
         "unavailable_metrics": unavailable,
         "history": [
             {"at": datetime.fromtimestamp(t, UTC).isoformat(), **values}
@@ -194,7 +293,7 @@ def _history_row(series):
 
 
 async def model_live_latency(db, litellm, name, *, history=False):
-    now = time.time()
+    now = latency_tick(time.time(), history=history)
     response = {"rows": [], "unmapped_count": 0, "window_seconds": WINDOW_SECONDS}
     if history:
         end = int(now) // HISTORY_STEP_SECONDS * HISTORY_STEP_SECONDS
@@ -242,6 +341,7 @@ async def model_live_latency(db, litellm, name, *, history=False):
         db, {_scope(row) for row in [*managed, *external, *stack_rows]}, include_registered=True
     )
     by_scope = {(s.cluster_id, s.namespace): s for s in scopes}
+    cluster_names = {s.cluster_id: s.name for s in scopes}
     route_results = await asyncio.gather(*(_snapshot(route_snapshots, s) for s in scopes))
     routes = {key: data for key, data in zip(by_scope, route_results) if data}
     owners, engines = _registered_targets(managed, external)
@@ -272,52 +372,71 @@ async def model_live_latency(db, litellm, name, *, history=False):
                 for pod, *_ in _pods(target, data, routes, stacks, engines):
                     selected_aliases[target.scope, pod].add(alias)
 
-    groups = defaultdict(lambda: defaultdict(set))
-    deployments = defaultdict(set)
+    groups = defaultdict(Pool)
     for target in sorted(targets, key=str):
         if target.scope not in by_scope:
             response["unmapped_count"] += 1
             continue
         cid, ns = target.scope
-        scope = by_scope[target.scope]
         conn, data = connections[cid], observations.get(target.scope)
         if conn is None or conn == "misconfigured" or data is None:
             status = "unconfigured" if conn is None else ("misconfigured" if conn == "misconfigured" else "error")
-            response["rows"].append({**_row(scope, [target.name], [ns], None, None, False), **_blank(status, history)})
+            row = _row(cid, cluster_names[cid], [target.name], [ns], None, None, False)
+            response["rows"].append({**row, **_blank(status, history)})
             continue
         pods = list(_pods(target, data, routes, stacks, engines))
-        if not pods:
-            response["rows"].append(
-                {**_row(scope, [target.name], [ns], None, None, False), **_blank("missing", history)}
-            )
+        whole = set(_whole_deployments(target, data, routes, stacks, engines))
+        for deployment, engine, role, uid in whole:
+            group = groups[cid, engine, role]
+            group.owners[ns, deployment] = uid
+            group.deployments[ns].add(deployment)
+        if not pods and not whole:
+            row = _row(cid, cluster_names[cid], [target.name], [ns], None, None, False)
+            response["rows"].append({**row, **_blank("missing", history)})
         for pod, engine, role, deployment in pods:
-            key = (cid, engine, role)
-            groups[key][ns].add(pod)
-            deployments[key].add(deployment)
+            group = groups[cid, engine, role]
+            group.pods[ns].add(pod)
+            group.deployments[ns].add(deployment)
+            owner = (data["pod_owners"].get(pod) or {}).get("deployment")
+            if not owner or (deployment, engine, role, owner[0]) not in whole:
+                group.has_unverified_pods = True
+    known = await _observed_pod_names(db, groups, engines, now) if history else {}
+    # Auth can provision the portal user in this same session. Finish that transaction
+    # and return its connection before cache readers contend for short independent leases.
+    await db.commit()
     read_metrics = read_latency_history if history else read_latency
     async with httpx.AsyncClient() as client:
 
         async def measure(key):
             cid, engine, role = key
             conn = connections[cid]
-            namespaces = groups[key]
-            ns, *others = sorted(namespaces)
-            shared = any(len(selected_aliases[(cid, n), p]) > 1 for n, pods in namespaces.items() for p in pods)
-            row = _row(by_scope[cid, ns], deployments[key], namespaces, engine, role, shared)
-            if engine not in ("vllm", "sglang"):
+            group = groups[key]
+            # Empty namespaces can have history after a scale-to-zero. Instant queries need only live Pods.
+            ns, *others = sorted(group.pods or group.deployments)
+            shared = any(len(selected_aliases[(cid, n), p]) > 1 for n, pods in group.pods.items() for p in pods)
+            names = set.union(*group.deployments.values())
+            row = _row(cid, cluster_names[cid], names, group.deployments, engine, role, shared)
+            if engine not in ("vllm", "sglang") or (not group.pods and not history):
                 return {**row, **_blank("missing", history)}
-            metrics = await read_metrics(
-                client,
-                conn.url,
-                namespace=ns,
-                pods=sorted(namespaces[ns]),
-                engine=engine,
-                cluster_label=conn.cluster_label,
-                bearer_token=conn.token,
-                now=now,
-                additional_targets=[(n, sorted(namespaces[n])) for n in others],
-                allow_model_aliases_across_pods=True,
-            )
+            history_options = _history_targets(group, cid, engines, known) if history else {}
+            pods = {n: sorted(names) for n, names in group.pods.items()}
+            cache_scope = {
+                "model": name, "cluster": cid, "engine": engine, "pool": role,
+                "url": conn.url, "cluster_label": conn.cluster_label,
+                "credential_digest": hashlib.sha256((conn.token or "").encode()).hexdigest(),
+                "pods": pods, "owners": sorted((n, d, uid) for (n, d), uid in group.owners.items()),
+                "history": history_options,
+            }
+
+            async def load():
+                return await read_metrics(
+                    client, conn.url, namespace=ns, pods=pods.get(ns, []), engine=engine,
+                    cluster_label=conn.cluster_label, bearer_token=conn.token, now=now,
+                    additional_targets=[(n, pods.get(n, [])) for n in others],
+                    allow_model_aliases_across_pods=True, **history_options,
+                )
+
+            metrics = await cached_latency(db, scope=cache_scope, history=history, now=now, load=load)
             return {**row, **(_history_row(metrics) if history else metrics)}
 
         response["rows"].extend(await asyncio.gather(*(measure(key) for key in groups)))

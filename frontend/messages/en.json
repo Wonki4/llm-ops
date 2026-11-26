@@ -694,7 +694,14 @@
       "historyError": "Could not load the earlier samples. Live values update independently.",
       "partialHistory": "Could not load part of this trend.",
       "sources": "Collection details",
-      "coverage": "The trend covers currently mapped serving replicas. Gaps indicate periods without usable samples."
+      "coverage": "Each point combines the replicas in the deployment and pool at that time. Gaps indicate missing membership or measurements.",
+      "historyScope": {
+        "deployment_owner": "Kubernetes controller ownership",
+        "deployment_target": "Prometheus deployment label",
+        "observed_pods": "Includes only Pods identified by the portal",
+        "current_pods": "Current Pods only · limited history before replacement",
+        "unavailable": "Historical Pod membership unavailable"
+      }
     },
     "defaultTitle": "Model Details",
     "sections": {

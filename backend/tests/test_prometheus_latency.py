@@ -403,3 +403,162 @@ async def test_range_history_distinguishes_real_median_empty_and_overflow():
     })
     result = await history(lambda req: matrix(rows), engine="sglang")
     assert result["ttft"][-3:] == [[NOW - 60, None], [NOW - 30, None, 10_000], [NOW, 10_000]]
+
+
+def membership(pod, times, *, deployment="chat", cluster="cluster-a"):
+    return {
+        "metric": {"namespace": "serving", "deployment": deployment, "pod": pod, "env": cluster},
+        "values": [[t, "1"] for t in times],
+    }
+
+
+@pytest.mark.parametrize("source", ["deployment_owner", "deployment_target"])
+async def test_deployment_history_uses_the_actual_replicas_at_each_step_of_a_rollout(source):
+    # At the time the page is opened, only "new" still exists in Kubernetes.
+    rosters = {NOW - 90: ["old"], NOW - 60: ["old", "extra"], NOW - 30: ["extra", "new"], NOW: ["new"]}
+    seen = []
+
+    def handler(req):
+        query = query_of(req)
+        if "kube_pod_owner" in query or "up{" in query:
+            seen.append(query)
+            if "kube_pod_owner" in query:
+                assert 'owner_name=~"chat",env="cluster-a"' in query
+                assert ' * on (namespace,env,replicaset) group_left(deployment)' in query
+                assert 'owner_kind="ReplicaSet",owner_is_controller="true",env="cluster-a"' in query
+                if source == "deployment_target":
+                    return matrix([])
+            else:
+                assert 'up{namespace="serving",deployment=~"chat",pod!="",env="cluster-a"}' in query
+            return matrix([
+                membership(p, [t for t, names in rosters.items() if p in names]) for p in ["old", "extra", "new"]
+            ])
+        params = parse_qs(req.content.decode())
+        tick = int(params["start"][0])
+        assert tick == int(params["end"][0])
+        assert f'pod=~"{"|".join(sorted(rosters[tick]))}",env="cluster-a"' in query
+        rows = []
+        for p in rosters[tick]:
+            sample = metric_rows(p, stamp=tick - 3, p50=0.004)
+            rows.extend(sample[1:] if rows else sample)
+        return matrix(matrix_rowset({tick: rows}))
+
+    result = await history(handler, engine="sglang", pods=["new"], deployments={"serving": ["chat"]})
+    assert result["scope_source"] == source
+    assert len(seen) == (1 if source == "deployment_owner" else 2)
+    assert result["ttft"][-4:] == [[tick, 4] for tick in rosters]
+    assert result["e2e"] == result["itl"] == result["ttft"]
+
+
+@pytest.mark.parametrize("suffix", ["changed", "foreign"])
+async def test_suspect_owner_metadata_never_falls_back_to_a_broad_selector(suffix):
+    def handler(req):
+        assert "kube_pod_owner" in query_of(req)
+        row = membership("p-1", [NOW], deployment="chat-canary" if suffix == "changed" else "chat",
+                         cluster="cluster-b" if suffix == "foreign" else "cluster-a")
+        return matrix([row])
+
+    result = await history(handler, deployments={"serving": ["chat"]})
+    assert result == {"scope_source": "unavailable", "e2e": None, "itl": None, "ttft": None}
+
+
+async def test_deployment_history_missing_metadata_falls_back_to_verified_current_pods():
+    def handler(req):
+        query = query_of(req)
+        if "kube_pod_owner" in query or "up{" in query:
+            return matrix([])
+        assert 'pod=~"engine-abc"' in query
+        return matrix(matrix_rowset({NOW: metric_rows()}))
+
+    result = await history(handler, engine="sglang", deployments={"serving": ["chat"]})
+    assert result["scope_source"] == "current_pods"
+    assert result["itl"][-1] == [NOW, 50]
+
+
+async def test_observed_pods_restore_history_with_exact_per_namespace_target_names():
+    def handler(req):
+        query = query_of(req)
+        if "kube_pod_owner" in query or 'deployment=~' in query:
+            return matrix([])
+        if "up{" in query:
+            assert 'up{namespace="serving",pod=~"new|old",env="cluster-a"}' in query
+            assert 'up{namespace="blue",pod=~"blue-old",env="cluster-a"}' in query
+            assert "== 1" not in query  # a failed scrape target must remain expected
+            return matrix([
+                {"metric": {"namespace": ns, "pod": pod, "env": "cluster-a"}, "values": [[tick, "1"]]}
+                for ns, pod, tick in (("blue", "blue-old", NOW - 30), ("serving", "old", NOW - 30),
+                                      ("serving", "new", NOW))
+            ])
+        params = parse_qs(req.content.decode())
+        tick = int(params["start"][0])
+        rows = metric_rows("new" if tick == NOW else "old", stamp=tick - 2)
+        if tick != NOW:
+            rows += metric_rows("blue-old", stamp=tick - 2, extra={"namespace": "blue"})[1:]
+        return matrix(matrix_rowset({tick: rows}))
+
+    result = await history(handler, pods=["new"], engine="sglang", deployments={"serving": ["chat"], "blue": ["other"]},
+                           observed_pods={"serving": ["new", "old"], "blue": ["blue-old"]})
+    assert result["scope_source"] == "observed_pods"
+    assert result["e2e"][-2:] == [[NOW - 30, 50], [NOW, 50]]
+
+
+async def test_partial_ownership_query_does_not_query_other_sources():
+    def handler(req):
+        assert "kube_pod_owner" in query_of(req)
+        return matrix([], warnings=["remote storage unavailable"])
+
+    result = await history(handler, deployments={"serving": ["chat"]}, observed_pods={"serving": ["old"]})
+    assert result["scope_source"] == "unavailable"
+    assert all(result[k] is None for k in ("ttft", "e2e", "itl"))
+
+
+@pytest.mark.parametrize("zero_evidence", [True, False])
+async def test_multi_deployment_coverage_requires_roster_or_verified_zero(zero_evidence):
+    def handler(req):
+        query = query_of(req)
+        if "kube_pod_owner" in query:
+            rows = [membership(POD, [NOW - 30, NOW])]
+            if zero_evidence:
+                rows.append({"metric": {"namespace": "serving", "env": "cluster-a", "deployment": "canary",
+                                        "portal_latency_kind": "zero_replicas"}, "values": [[NOW, "1"]]})
+            return matrix(rows)
+        assert zero_evidence and 'pod=~"engine-abc"' in query
+        return matrix(matrix_rowset({NOW: metric_rows()}))
+
+    result = await history(handler, engine="sglang", deployments={"serving": ["chat", "canary"]})
+    if zero_evidence:
+        assert result["ttft"][-2:] == [[NOW - 30, None], [NOW, 50]]
+    else:
+        assert result["scope_source"] == "unavailable"
+        assert result["ttft"] is None
+
+
+@pytest.mark.parametrize("dimension", ["owner_name", "replicaset", "deployment", "phase"])
+async def test_cluster_dimension_collisions_keep_exact_cluster_scope(dimension):
+    def handler(req):
+        query = query_of(req)
+        assert "kube_pod_owner" not in query
+        assert f'{dimension}="cluster-a"' in query
+        if "up{" in query:
+            assert dimension != "deployment"
+            return matrix([])
+        assert 'pod=~"engine-abc"' in query
+        return matrix(matrix_rowset({NOW: metric_rows(extra={dimension: "cluster-a"})}))
+
+    result = await history(handler, engine="sglang", cluster_label=(dimension, "cluster-a"),
+                           deployments={"serving": ["chat"]})
+    assert result["scope_source"] == "current_pods"
+    assert result["ttft"][-1] == [NOW, 50]
+
+
+async def test_scaled_to_zero_preserves_earlier_history_without_reusing_old_pods_as_live():
+    def handler(req):
+        query = query_of(req)
+        if "kube_pod_owner" in query:
+            return matrix([membership("old", [NOW - 60, NOW - 30, NOW])])
+        params = parse_qs(req.content.decode())
+        assert int(params["end"][0]) == NOW - 30 and 'pod=~"old"' in query
+        return matrix(matrix_rowset({t: metric_rows("old", stamp=t - 2) for t in (NOW - 60, NOW - 30)}))
+
+    result = await history(handler, pods=[], engine="sglang", deployments={"serving": ["chat"]})
+    assert result["ttft"][-3:] == [[NOW - 60, 50], [NOW - 30, 50], [NOW, None]]
