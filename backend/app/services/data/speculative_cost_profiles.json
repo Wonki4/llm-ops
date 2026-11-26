@@ -1,0 +1,977 @@
+{
+  "Inferact/Kimi-K3-DSpark": {
+    "body_params": 2387811584,
+    "config_digest": "5a3c2f4f91c965ed93b14de5f12a4e9c17fd98d8c99916ed2deb26ce8702f970",
+    "context_params": 277544960,
+    "draft_bytes": 4817103362,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "5a3c2f4f91c965ed93b14de5f12a4e9c17fd98d8c99916ed2deb26ce8702f970",
+      "speculative_tensor_digest": "ec05e7026e4fa707cfd8ca2b0257bbb25137472cebe7c5aea6a9f573791f62d1"
+    },
+    "head_bytes": 2348810240,
+    "head_params": 1174405120,
+    "heads": 64,
+    "implementation": "models/kimi_k3/nvidia/dspark_mla.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "latent": 576,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 192,
+    "revision": "cf6b8244620e7ea4b0651d214f28e89eac75bed6",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "target_proofs": {
+      "moonshotai/Kimi-K3": {
+        "config_digest": "9710e121a58d03ac92c8d6da287a19541994319afbbe6d6202af001ffd379213",
+        "weight_index_digest": "a1c5210650ce71d2d3ae9ec5a101ac4afd3cf4b10091be589853437eb967febd"
+      }
+    },
+    "target_revisions": {
+      "moonshotai/Kimi-K3": "c7945ea0e737dcaddd22c68ddb7639b1407c081c"
+    },
+    "topk": 0,
+    "windows": [
+      0,
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "Inferact/Kimi-K3.1-Pro-DSpark": {
+    "body_params": 2479889920,
+    "config_digest": "9f1317c5767d909b7a558a28e67b0ae418e512925eb26ca9c615217283bbb9c0",
+    "context_params": 330301440,
+    "draft_bytes": 4959953154,
+    "equivalent_revisions": [
+      "e4e6e6261e9f8b6d5f249f9627eb6b109d762d5f"
+    ],
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "9f1317c5767d909b7a558a28e67b0ae418e512925eb26ca9c615217283bbb9c0",
+      "speculative_tensor_digest": "259fcdf055ad7b6cda7024479f81f47a896d5f2f1b2c6fb766b42c8edb73cf8e"
+    },
+    "head_bytes": 2348810240,
+    "head_params": 1174405120,
+    "heads": 96,
+    "implementation": "model_executor/models/qwen3_dspark.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "kv_head_dim": 64,
+    "kv_heads": 16,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 64,
+    "revision": "50f5a10c9385fb9a225c534dda8f7a1f5ae87110",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "target_proofs": {
+      "moonshotai/Kimi-K3.1-Pro": {
+        "config_digest": "d95037631e3f23bf527a9f476f25209b231b46853a84877b9c56d5672b8d1202",
+        "weight_index_digest": "6500b553254ae3955e19bbf93d8cf3eee17101df4430493b33ce44d8ea1e2925"
+      }
+    },
+    "target_revisions": {
+      "moonshotai/Kimi-K3.1-Pro": "d9e99b0792a5e93b78ea9bea62a68167e36ddd9e"
+    },
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "Inferact/MiniMax-M3-EAGLE3-GQA": {
+    "body_params": 616562688,
+    "config_digest": "d26ea8053832f6df4a399d8abfac5ccbbfb2959f4786c9f069f0a21175d7d6aa",
+    "context_params": 616562688,
+    "draft_bytes": 6149984256,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "d26ea8053832f6df4a399d8abfac5ccbbfb2959f4786c9f069f0a21175d7d6aa",
+      "speculative_tensor_digest": "e4edf544613115c15a180c6cae715b56b5eea79e4f7da352879dc13beff55e6d"
+    },
+    "head_bytes": 2458386432,
+    "head_params": 1229193216,
+    "heads": 64,
+    "implementation": "model_executor/models/llama_eagle3.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "kv_head_dim": 128,
+    "kv_heads": 4,
+    "lookup_bytes": 2458386432,
+    "max_width": 0,
+    "method": "eagle3",
+    "query_dim": 128,
+    "revision": "96692486b5fd38ebf8fd2a5f6bb53427d30819a8",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": false,
+    "target_proofs": {
+      "MiniMaxAI/MiniMax-M3-MXFP8": {
+        "config_digest": "a3698fff231a6cd92f632dcbe50f0b1dbda716994f29ccde9f0fa9d2a87698bf",
+        "weight_index_digest": "41126751cfdb44c2fb33522bcaaa6f6ca057462838b3493a347678e6e1ca24ee"
+      },
+      "amd/MiniMax-M3-MXFP4": {
+        "config_digest": "f9206d22c6b6af823ed19846dd958b9a1d10d53918324514a319ac44303a36f7",
+        "weight_index_digest": "bd745cdf2e2acbe3a923faee1efd0d62f919ec0af9f7e806788dcb77056e1dfd"
+      },
+      "nvidia/MiniMax-M3-NVFP4": {
+        "config_digest": "440d22038ffa0bcb93fa01e8d2d555e3840d939167c08eace81b9cce386fb117",
+        "weight_index_digest": "1401838cb37be2f2242754dd593f3df27cf062a948bac29f70f5e694eeb268fc"
+      }
+    },
+    "target_revisions": {
+      "MiniMaxAI/MiniMax-M3-MXFP8": "d2be410f483297907301ec94fdf0ca5385f9b169",
+      "amd/MiniMax-M3-MXFP4": "b83d14e3d64bf373a207f3c2a7e9f0b0f1e7fc3a",
+      "nvidia/MiniMax-M3-NVFP4": "901464083161bf8612a29ff7ad29914cd4ab4a85"
+    },
+    "topk": 0,
+    "windows": [
+      0
+    ]
+  },
+  "Inferact/Qwen3.8-Flash-Next-NVFP4": {
+    "body_params": 110184960,
+    "config_digest": "98ced7d100a56614cc70a680edfbb31fcfdc4fb4e7f039920da3ef689ca05f74",
+    "context_params": 110184960,
+    "draft_bytes": 1596726784,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "98ced7d100a56614cc70a680edfbb31fcfdc4fb4e7f039920da3ef689ca05f74",
+      "weight_index_digest": "94afd2cacf644bdfcba16d1d1d459866f2c4b208835551e78b76930efa862dce"
+    },
+    "head_bytes": 1271398400,
+    "head_params": 635699200,
+    "heads": 24,
+    "implementation": "models/qwen4_exp/nvidia/mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 256,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "qsa": {
+      "compress_ratio": 4,
+      "default_index_dtype": "bf16",
+      "head_dim": 128,
+      "query_heads": 4,
+      "raw_key_bytes": 280,
+      "token_topk": 2048
+    },
+    "query_dim": 256,
+    "revision": "103a7608316173ca6edd49929544244de7ffda70",
+    "routed_bytes": 1415589888,
+    "routed_params": 2516582400,
+    "shared_head": true,
+    "topk": 10,
+    "windows": [
+      0
+    ]
+  },
+  "MiniMaxAI/MiniMax-M3.1-Flash": {
+    "body_params": 1958418688,
+    "config_digest": "df6a3668e2de5b8dc0e883e3767495ad17af7e4d69fabe9683088be015fda9ab",
+    "context_params": 220200960,
+    "draft_bytes": 2301852674,
+    "experts": 0,
+    "geometry_proof": {},
+    "head_bytes": 2458386432,
+    "head_params": 1229193216,
+    "heads": 64,
+    "implementation": "models/minimax_m3/common/dspark.py",
+    "included_in_target_index": false,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 4,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "ce7f4df87d2e05262f5775f373dac4772f134041",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      4096,
+      4096,
+      4096,
+      4096,
+      4096
+    ]
+  },
+  "Qwen/Qwen3.8-Flash-Next": {
+    "body_params": 110184960,
+    "config_digest": "889658f2508e8c61d409b02e70e0d78d8d4452ec65aaafbe129805d213d2e74b",
+    "context_params": 110184960,
+    "draft_bytes": 5214301696,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "889658f2508e8c61d409b02e70e0d78d8d4452ec65aaafbe129805d213d2e74b",
+      "weight_index_digest": "99e815241ef03325536b0aaa4441deea45174c17fae31e10f0bb456410c590de"
+    },
+    "head_bytes": 1271398400,
+    "head_params": 635699200,
+    "heads": 24,
+    "implementation": "models/qwen4_exp/nvidia/mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 256,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "qsa": {
+      "compress_ratio": 4,
+      "default_index_dtype": "bf16",
+      "head_dim": 128,
+      "query_heads": 4,
+      "raw_key_bytes": 280,
+      "token_topk": 2048
+    },
+    "query_dim": 256,
+    "revision": "812d96e10a0dd82b69d749e68693698cf6c36daa",
+    "routed_bytes": 5033164800,
+    "routed_params": 2516582400,
+    "shared_head": true,
+    "topk": 10,
+    "windows": [
+      0
+    ]
+  },
+  "Qwen/Qwen3.8-Flash-Next-FP8": {
+    "body_params": 110184960,
+    "config_digest": "c22eb0a053eed62e18f0184d3ca62d3798f208c3e00b9feee939fc3dbacdc8ca",
+    "context_params": 110184960,
+    "draft_bytes": 2698026496,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "c22eb0a053eed62e18f0184d3ca62d3798f208c3e00b9feee939fc3dbacdc8ca",
+      "weight_index_digest": "0419e2c2dfbb925257d7409405433a793cf7ff7d96f3eba882a815ec6d9fe7a6"
+    },
+    "head_bytes": 1271398400,
+    "head_params": 635699200,
+    "heads": 24,
+    "implementation": "models/qwen4_exp/nvidia/mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 256,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "qsa": {
+      "compress_ratio": 4,
+      "default_index_dtype": "bf16",
+      "head_dim": 128,
+      "query_heads": 4,
+      "raw_key_bytes": 280,
+      "token_topk": 2048
+    },
+    "query_dim": 256,
+    "revision": "7fb48d708ca6cd8eeed8f4db0433be18af96984f",
+    "routed_bytes": 2516889600,
+    "routed_params": 2516582400,
+    "shared_head": true,
+    "topk": 10,
+    "windows": [
+      0
+    ]
+  },
+  "RedHatAI/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-FP8": {
+    "body_params": 123731968,
+    "config_digest": "5ed5d901b48fa2d5ed2c698881530e08b03982eb150864c2426e12571b840baf",
+    "context_params": 123731968,
+    "draft_bytes": 2990224896,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "5ed5d901b48fa2d5ed2c698881530e08b03982eb150864c2426e12571b840baf",
+      "weight_index_digest": "786a11988a4222294414df2bfc1e4b634e19da06afed18ed8a0c2c686fa4fac2"
+    },
+    "head_bytes": 1073741824,
+    "head_params": 536870912,
+    "heads": 32,
+    "implementation": "model_executor/models/nemotron_h_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 128,
+    "revision": "38effd54b334bfda8fce082f4290aa56d86b7533",
+    "routed_bytes": 2822373376,
+    "routed_params": 2818572288,
+    "shared_head": true,
+    "topk": 22,
+    "windows": [
+      0
+    ]
+  },
+  "amd/MiniMax-M3.1-Flash-Quark-MXFP4": {
+    "body_params": 1958418688,
+    "config_digest": "f8271816269d417a273a8360be49a7812ff690c625becce8e488be7af8bea697",
+    "context_params": 220200960,
+    "draft_bytes": 2301852674,
+    "experts": 0,
+    "geometry_proof": {},
+    "head_bytes": 2458386432,
+    "head_params": 1229193216,
+    "heads": 64,
+    "implementation": "models/minimax_m3/common/dspark.py",
+    "included_in_target_index": false,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 4,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "8543e8e665210c6866f1f8e6ef93a3b9ebe5718c",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      4096,
+      4096,
+      4096,
+      4096,
+      4096
+    ]
+  },
+  "amd/Mistral-Large-4-1T-A52B-Quark-MXFP4": {
+    "body_params": 1995046912,
+    "config_digest": "76c389e073353bc40718d3e23b92a2d3c24c04841d9147fa1dea6d319d0a87e0",
+    "context_params": 199360512,
+    "draft_bytes": 4199938048,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "76c389e073353bc40718d3e23b92a2d3c24c04841d9147fa1dea6d319d0a87e0",
+      "weight_index_digest": "1681d3eba737ea1cede4121711623deece496656942c10fb272aaffcc8817765"
+    },
+    "head_bytes": 2516582400,
+    "head_params": 1258291200,
+    "heads": 64,
+    "implementation": "models/mistral/mistral_large4/nvidia/dspark.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 209715200,
+    "max_width": 3,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "793c850b6b8104a5c65ae86a28fb8e7fb877b975",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "lightseekorg/kimi-k2.5-eagle3-mla": {
+    "body_params": 666763264,
+    "config_digest": "41b5a1f9663119fb8e8b583fd541a191c5c7ab043a5e503235024d59cc125510",
+    "context_params": 666763264,
+    "draft_bytes": 6031208448,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "41b5a1f9663119fb8e8b583fd541a191c5c7ab043a5e503235024d59cc125510",
+      "speculative_tensor_digest": "2d4f15f4dffe0adf14d5685840051e5455b769648e5942bbfa4b53830d493d5c"
+    },
+    "head_bytes": 2348810240,
+    "head_params": 1174405120,
+    "heads": 64,
+    "implementation": "model_executor/models/deepseek_eagle3.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "latent": 576,
+    "lookup_bytes": 2348810240,
+    "max_width": 0,
+    "method": "eagle3",
+    "query_dim": 192,
+    "revision": "9c0c42dfe8460a1d90ff9825de910fb51b0d293c",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": false,
+    "target_proofs": {
+      "amd/Kimi-K2.5-MXFP4": {
+        "config_digest": "a404c855b23eb9de13a4bd45928c517e746c4bbf7614e9d7c24bdc44d209384c",
+        "weight_index_digest": "473e178a75dc4d1df5d150d48428bcc3aece58e3e5bf135046bb7b57e7a85f13"
+      },
+      "moonshotai/Kimi-K2.5": {
+        "config_digest": "acd5bb01a16f64b309599cd6ed196be056f613c99d6bc9300692b82cd10882f6",
+        "weight_index_digest": "bdba19b127c4d1dc57dc3b6f3366c10739c7e7f13baf3f5424b556469a4dbc1b"
+      },
+      "nvidia/Kimi-K2.5-NVFP4": {
+        "config_digest": "c375d7d566b6fa706ba46fec9ef938e829c5ba1accb20541d4f0c75dddefcd8f",
+        "weight_index_digest": "7e8723756225d00dea4ea2b89b4d59bc262f94118a7d8d2e2f5d9e04071fd265"
+      }
+    },
+    "target_revisions": {
+      "amd/Kimi-K2.5-MXFP4": "42c6da365fdd32ae482ee7eb8bdc563da31c3404",
+      "moonshotai/Kimi-K2.5": "94b44e57fb4797fde1c1872bed70aef3c93a07f6",
+      "nvidia/Kimi-K2.5-NVFP4": "0fd0a5e6879298d3476e3b61852a79792a35ae3d"
+    },
+    "topk": 0,
+    "windows": [
+      0
+    ]
+  },
+  "lightseekorg/kimi-k2.6-eagle3-mla": {
+    "body_params": 666763264,
+    "config_digest": "b03a03c3b5948f3dc992f91845bc1ceb89e4cb41113564ca2a203ba86ec1bcaf",
+    "context_params": 666763264,
+    "draft_bytes": 6031208448,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "b03a03c3b5948f3dc992f91845bc1ceb89e4cb41113564ca2a203ba86ec1bcaf",
+      "speculative_tensor_digest": "4dd20806a2a5713581c7917d61bfbcf56fba4a68cad72d6565a06ff45fd74a97"
+    },
+    "head_bytes": 2348810240,
+    "head_params": 1174405120,
+    "heads": 64,
+    "implementation": "model_executor/models/deepseek_eagle3.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "latent": 576,
+    "lookup_bytes": 2348810240,
+    "max_width": 0,
+    "method": "eagle3",
+    "query_dim": 192,
+    "revision": "d49b3f0329cc0dfc4d09c66e6c51266e1674ef02",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": false,
+    "target_proofs": {
+      "RedHatAI/Kimi-K2.6-FP8-BLOCK": {
+        "config_digest": "80030d7c70284a7aa46e2a7a8c727263ccd9cbca86ffda059386dad4358bb3d7",
+        "weight_index_digest": "45bb104cf1c08ef209187f107e56c3f056d39bc05aab2153de219dfd81007e2f"
+      },
+      "RedHatAI/Kimi-K2.6-NVFP4": {
+        "config_digest": "cc6a1b4ed85695c2c16aa61bfac47f99a6872d764d143e63b238236094b4c89c",
+        "weight_index_digest": "f266992f4b8af4b42114a6e93f8f2f92f6e9da37015292b1a60464a019a08ef9"
+      },
+      "moonshotai/Kimi-K2.6": {
+        "config_digest": "85825ca6e18cbe539eb83ee09eedfb3f4222265929f06e9f535a6d9364f55899",
+        "weight_index_digest": "00a982d005d6e39b25cfcb379a7e6d57f393fc0346e70892ea4271c259c0d1e3"
+      },
+      "nvidia/Kimi-K2.6-NVFP4": {
+        "config_digest": "af4c0fea7ec43d5438532eeef8daa9fcabbdf97ddedc9da2319aa675f68f51ff",
+        "weight_index_digest": "5bb72bd3bf09b300e6854b01366349ff7d51f5e94b0d6049c2f87c1f3aaf8984"
+      }
+    },
+    "target_revisions": {
+      "RedHatAI/Kimi-K2.6-FP8-BLOCK": "317300b0ef4ec429ad7296b46e4278ab1922dd08",
+      "RedHatAI/Kimi-K2.6-NVFP4": "c971191171c2df61f1434b438121266a3baffec5",
+      "moonshotai/Kimi-K2.6": "7eb5002f6aadc958aed6a9177b7ed26bb94011bb",
+      "nvidia/Kimi-K2.6-NVFP4": "2fd3a800dedd098b8327eb49e93ebc75f85da19f"
+    },
+    "topk": 0,
+    "windows": [
+      0
+    ]
+  },
+  "lightseekorg/kimi-k2.7-coder-eagle3.1-mla": {
+    "body_params": 666763264,
+    "config_digest": "443de56a741900fb3ea2c7f7dccc299ade1b0dc27bf5258de61fb84db96a97e8",
+    "context_params": 666763264,
+    "draft_bytes": 6031251456,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "443de56a741900fb3ea2c7f7dccc299ade1b0dc27bf5258de61fb84db96a97e8",
+      "speculative_tensor_digest": "40c1e8cd119e16396e316bc39d7c1ba93333b74289d084f6987ae50d3e2fa7d9"
+    },
+    "head_bytes": 2348810240,
+    "head_params": 1174405120,
+    "heads": 64,
+    "implementation": "model_executor/models/deepseek_eagle3.py",
+    "included_in_target_index": false,
+    "integrated": false,
+    "latent": 576,
+    "lookup_bytes": 2348810240,
+    "max_width": 0,
+    "method": "eagle3",
+    "query_dim": 192,
+    "revision": "20afca3aa32d44c32c0226fb5e4915dfa905af28",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": false,
+    "target_proofs": {
+      "moonshotai/Kimi-K2.7-Code": {
+        "config_digest": "ffbb57bff844e024f6c112640b63da80af228ceb8fb3e2e21908a21febbcdffb",
+        "weight_index_digest": "f6dd3318271f0121445d2af1c0c3f75707127a84a625f86bc0eaae9deb848f40"
+      }
+    },
+    "target_revisions": {
+      "moonshotai/Kimi-K2.7-Code": "74797c9c62378b951a1f6fcf5c4631024e9b8bef"
+    },
+    "topk": 0,
+    "windows": [
+      0
+    ]
+  },
+  "mistralai/Mistral-Large-4-1T-A52B": {
+    "body_params": 1995046912,
+    "config_digest": "3081fb94f5001f34a21e08437df710bb0b6423beada9184b566a8f5b1ee46277",
+    "context_params": 199360512,
+    "draft_bytes": 4199938048,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "3081fb94f5001f34a21e08437df710bb0b6423beada9184b566a8f5b1ee46277",
+      "weight_index_digest": "dda188a5487ea7eaf23d71c8eee21d83cf1c88b3558a8198e00a5a1507d62b70"
+    },
+    "head_bytes": 2516582400,
+    "head_params": 1258291200,
+    "heads": 64,
+    "implementation": "models/mistral/mistral_large4/nvidia/dspark.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 209715200,
+    "max_width": 3,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "6c0166e17ab8a3d504ff1553804abec9fb0993dc",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "mistralai/Mistral-Large-4-1T-A52B-NVFP4": {
+    "body_params": 1995046912,
+    "config_digest": "c09dc9ea714c8de78f42f8a86dc6c1ecec039f8a8c465eb39cc33994f2f89cfd",
+    "context_params": 199360512,
+    "draft_bytes": 4199938048,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "c09dc9ea714c8de78f42f8a86dc6c1ecec039f8a8c465eb39cc33994f2f89cfd",
+      "weight_index_digest": "42b6e6447c077af8f479d17e2595aeeb27e823f61852bce382a8176c34f00da4"
+    },
+    "head_bytes": 2516582400,
+    "head_params": 1258291200,
+    "heads": 64,
+    "implementation": "models/mistral/mistral_large4/nvidia/dspark.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 209715200,
+    "max_width": 3,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "b8897f6fc5e86fadd6ebd0bddf08fe99591790db",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-BF16": {
+    "body_params": 478150656,
+    "config_digest": "8f92735a43afae0d94b73fb9e658910ed548818a188eb2fc51513e88c9e689cd",
+    "context_params": 478150656,
+    "draft_bytes": 22431221760,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "8f92735a43afae0d94b73fb9e658910ed548818a188eb2fc51513e88c9e689cd",
+      "weight_index_digest": "8edd9a7e2b78e51612d41d3e4851fb9159d8d466a6f2207e1236b0a78ab76eb0"
+    },
+    "head_bytes": 2147483648,
+    "head_params": 1073741824,
+    "heads": 64,
+    "implementation": "model_executor/models/nemotron_h_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 128,
+    "revision": "77df655d5e9f8362164ed14dd8b48f8bce657498",
+    "routed_bytes": 21474836480,
+    "routed_params": 10737418240,
+    "shared_head": true,
+    "topk": 22,
+    "windows": [
+      0
+    ]
+  },
+  "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4": {
+    "body_params": 478150656,
+    "config_digest": "0c939f324c8910f5ebdafbe2a56d7e4e074c50042a3b4f26326bf71a3fe33929",
+    "context_params": 478150656,
+    "draft_bytes": 22431221760,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "0c939f324c8910f5ebdafbe2a56d7e4e074c50042a3b4f26326bf71a3fe33929",
+      "weight_index_digest": "41951cc6db98b717cf45c73dd6f0503c050e99c70a9662abe01d9511bc2bed06"
+    },
+    "head_bytes": 2147483648,
+    "head_params": 1073741824,
+    "heads": 64,
+    "implementation": "model_executor/models/nemotron_h_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 128,
+    "revision": "02462641f13d3af838b904f48195b9bb8a1e4ebc",
+    "routed_bytes": 21474836480,
+    "routed_params": 10737418240,
+    "shared_head": true,
+    "topk": 22,
+    "windows": [
+      0
+    ]
+  },
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16": {
+    "body_params": 123731968,
+    "config_digest": "be121eafe4c174c8bc7204da2cd063baa0392c0adfd41dd82fc9e0bba5b0f9a0",
+    "context_params": 123731968,
+    "draft_bytes": 5884651520,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "be121eafe4c174c8bc7204da2cd063baa0392c0adfd41dd82fc9e0bba5b0f9a0",
+      "weight_index_digest": "ce355e06784fc7e06d47e9c55d9a28125171fa18d1d1a9027ae50a5ea39dba2b"
+    },
+    "head_bytes": 1073741824,
+    "head_params": 536870912,
+    "heads": 32,
+    "implementation": "model_executor/models/nemotron_h_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 128,
+    "revision": "fb0ee0bc6b3f70342afd8d84cb80dbadbaa8a1fe",
+    "routed_bytes": 5637144576,
+    "routed_params": 2818572288,
+    "shared_head": true,
+    "topk": 22,
+    "windows": [
+      0
+    ]
+  },
+  "nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4": {
+    "body_params": 123731968,
+    "config_digest": "35189a8038d1b1f934e58cba50eb7e97b42a4da569424e35b9fd1048058bc7ea",
+    "context_params": 123731968,
+    "draft_bytes": 1769654296,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "35189a8038d1b1f934e58cba50eb7e97b42a4da569424e35b9fd1048058bc7ea",
+      "weight_index_digest": "c368acdbcfe882236af1ec79df4a1fb6127e6ed9f742d59c01c21fe96ddc2741"
+    },
+    "head_bytes": 536870912,
+    "head_params": 536870912,
+    "heads": 32,
+    "implementation": "model_executor/models/nemotron_h_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 128,
+    "revision": "ae1368329b1fc76b71534c5d04b87b35d9cc6e15",
+    "routed_bytes": 1585455104,
+    "routed_params": 2818572288,
+    "shared_head": true,
+    "topk": 22,
+    "windows": [
+      0
+    ]
+  },
+  "nvidia/Qwen3.5-397B-A17B-NVFP4": {
+    "body_params": 153096192,
+    "config_digest": "8058591f5ffb5bdacf6cdd87a0d1db126a12cf19259257aec25a91ec22918779",
+    "context_params": 153096192,
+    "draft_bytes": 13191136256,
+    "experts": 512,
+    "geometry_proof": {
+      "config_digest": "8058591f5ffb5bdacf6cdd87a0d1db126a12cf19259257aec25a91ec22918779",
+      "weight_index_digest": "86f260841280e77b8b14be2324e7201a5caade50ed6d87c1815c7016eb75af08"
+    },
+    "head_bytes": 2034237440,
+    "head_params": 1017118720,
+    "heads": 32,
+    "implementation": "model_executor/models/qwen3_5_mtp.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "kv_head_dim": 256,
+    "kv_heads": 2,
+    "lookup_bytes": 0,
+    "max_width": 0,
+    "method": "mtp",
+    "query_dim": 256,
+    "revision": "12b28061efd8145b11226e4fab2528ee4f39ef09",
+    "routed_bytes": 12884901888,
+    "routed_params": 6442450944,
+    "shared_head": true,
+    "topk": 10,
+    "windows": [
+      0
+    ]
+  },
+  "tencent/Hy4": {
+    "body_params": 3291355136,
+    "config_digest": "dab00b0f4c9265f650eabccc1033bd6aa29080cf1459856a9f2a06ae074d7714",
+    "context_params": 0,
+    "draft_bytes": 6582933122,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "dab00b0f4c9265f650eabccc1033bd6aa29080cf1459856a9f2a06ae074d7714",
+      "weight_index_digest": "8433cb5cfa21cf7dda97139c4f3aba58682063ef95df7b4105674284872041d6"
+    },
+    "head_bytes": 1484783616,
+    "head_params": 742391808,
+    "heads": 64,
+    "implementation": "models/hy_v4/nvidia/dfly_speculator.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 0,
+    "max_width": 6,
+    "method": "dfly",
+    "query_dim": 256,
+    "revision": "c10c0de5b6f850703fb0a90e65d1c32b558b9167",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "tencent/Hy4-FP8": {
+    "body_params": 3291355136,
+    "config_digest": "2ae591dd0bc9a9a053d4655743ff8f587e5fa7c5af53f6b93df1661ae0c8d423",
+    "context_params": 0,
+    "draft_bytes": 3367867202,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "2ae591dd0bc9a9a053d4655743ff8f587e5fa7c5af53f6b93df1661ae0c8d423",
+      "weight_index_digest": "19d5132bf5f198d57e357d719bad36880b212d4f909d949f4f16b3e6f170518f"
+    },
+    "head_bytes": 1484783616,
+    "head_params": 742391808,
+    "heads": 64,
+    "implementation": "models/hy_v4/nvidia/dfly_speculator.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 0,
+    "max_width": 6,
+    "method": "dfly",
+    "query_dim": 256,
+    "revision": "d063b5853ecf56e0776266dab28305fc17a137cc",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "tencent/Hy4-flash": {
+    "body_params": 845614080,
+    "config_digest": "1f56ac1a3063f926e91ec43842bfdc0fd6d4401ef91bcdecd1fc27dd506ea968",
+    "context_params": 0,
+    "draft_bytes": 1691372866,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "1f56ac1a3063f926e91ec43842bfdc0fd6d4401ef91bcdecd1fc27dd506ea968",
+      "weight_index_digest": "0cd31d2ffceb989e4d465d0c80be5731f6941dbf434ad84506e30930fa02e192"
+    },
+    "head_bytes": 742391808,
+    "head_params": 371195904,
+    "heads": 32,
+    "implementation": "models/hy_v4/nvidia/dfly_speculator.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 0,
+    "max_width": 6,
+    "method": "dfly",
+    "query_dim": 256,
+    "revision": "eccd3123eec73f2040f4c9ed0de1883593470510",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "tencent/Hy4-flash-FP8": {
+    "body_params": 845614080,
+    "config_digest": "617a2b86e568195c3ad41b98af7be15cfc4820260921966846dab7a354d2c7db",
+    "context_params": 0,
+    "draft_bytes": 973185986,
+    "experts": 0,
+    "geometry_proof": {
+      "config_digest": "617a2b86e568195c3ad41b98af7be15cfc4820260921966846dab7a354d2c7db",
+      "weight_index_digest": "50927d159b771ccffd4bb3d076751c2d63850d475c1287f8b15268e4398a3421"
+    },
+    "head_bytes": 742391808,
+    "head_params": 371195904,
+    "heads": 32,
+    "implementation": "models/hy_v4/nvidia/dfly_speculator.py",
+    "included_in_target_index": true,
+    "integrated": true,
+    "latent": 576,
+    "lookup_bytes": 0,
+    "max_width": 6,
+    "method": "dfly",
+    "query_dim": 256,
+    "revision": "8a1b19890d3533aefc730f8b41f4b55f50cc31c0",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      2048,
+      2048,
+      2048,
+      2048,
+      2048
+    ]
+  },
+  "thinkingmachines/Inkling-2-Mini": {
+    "body_params": 317866000,
+    "config_digest": "a7a349601f0984c4abf999c480ef775d8567d21f5f84b4e8a3e035b44f288dc2",
+    "context_params": 28311552,
+    "draft_bytes": 635795744,
+    "experts": 0,
+    "geometry_proof": {},
+    "head_bytes": 926318592,
+    "head_params": 463159296,
+    "heads": 24,
+    "implementation": "models/inkling2/nvidia/dspark.py",
+    "included_in_target_index": false,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 8,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "7a67ae2314b44ef05c87fd1d4d311c58aaeb18f6",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      1024,
+      0,
+      1024
+    ]
+  },
+  "thinkingmachines/Inkling-2-Small": {
+    "body_params": 1711620144,
+    "config_digest": "58211cb34baf5e71ef4cc12c2f17466775a0bfb2c23d5abae9ecc3bd44f770fb",
+    "context_params": 94371840,
+    "draft_bytes": 3423420768,
+    "experts": 0,
+    "geometry_proof": {},
+    "head_bytes": 1852637184,
+    "head_params": 926318592,
+    "heads": 48,
+    "implementation": "models/inkling2/nvidia/dspark.py",
+    "included_in_target_index": false,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 8,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "885d78bfca61a7e9a498e33cfa7ad35850533b8c",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      1024,
+      1024,
+      0,
+      1024,
+      1024
+    ]
+  },
+  "thinkingmachines/Inkling-2-Small-MXFP8": {
+    "body_params": 1711620144,
+    "config_digest": "4e8ce9c2be0af55f5c13d8555b5cc52a0e9c74f6dc908b0933bd21e05a09d4c7",
+    "context_params": 94371840,
+    "draft_bytes": 3423420768,
+    "experts": 0,
+    "geometry_proof": {},
+    "head_bytes": 1852637184,
+    "head_params": 926318592,
+    "heads": 48,
+    "implementation": "models/inkling2/nvidia/dspark.py",
+    "included_in_target_index": false,
+    "integrated": true,
+    "kv_head_dim": 128,
+    "kv_heads": 8,
+    "lookup_bytes": 0,
+    "max_width": 7,
+    "method": "dspark",
+    "query_dim": 128,
+    "revision": "14f2cb29a5d0f4c1fda8f645fa339e936c2147a2",
+    "routed_bytes": 0,
+    "routed_params": 0,
+    "shared_head": true,
+    "topk": 0,
+    "windows": [
+      1024,
+      1024,
+      0,
+      1024,
+      1024
+    ]
+  }
+}

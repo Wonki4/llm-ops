@@ -13,6 +13,7 @@ import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { ManifestYamlView } from "@/components/manifest-yaml-view";
+import { RecipeKvCapacity, useRecipeCapacityScenario } from "@/components/recipe-kv-capacity";
 import { cn } from "@/lib/utils";
 import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
@@ -31,6 +32,7 @@ export function RecipeYamlPanel({
 }: { recipe: ServingRecipeInput | null; emptyText?: string; fill?: boolean; className?: string }) {
   const t = useTranslations("servingRecipes");
   const ts = useTranslations("storages");
+  const tc = useTranslations("savedRecipeCapacity");
   const { data: clusters } = useK8sClusters();
 
   const [clusterId, setClusterId] = useState("");
@@ -39,16 +41,21 @@ export function RecipeYamlPanel({
   // What gets rendered; text fields apply on Enter / "Render again", the cluster on change.
   const [target, setTarget] = useState<Target>({ clusterId: "", namespace: "", modelName: "" });
   const defaultNs = useDefaultNamespace(clusterId);
+  const [showCapacity, setShowCapacity] = useState(false);
+  const { scenario, changeScenario, syncRecipeLimit } = useRecipeCapacityScenario();
 
   const body: ServingRecipePreviewBody | null = recipe
     ? {
         ...recipe,
+        ...(showCapacity ? { capacity_scenario: scenario } : {}),
         cluster_id: target.clusterId || null,
         namespace: target.namespace.trim() || null,
         model_name: target.modelName.trim() || null,
       }
     : null;
   const preview = usePreviewServingRecipe(body);
+  const capacity = preview.isPlaceholderData ? undefined : preview.data?.kv_capacity;
+  if (showCapacity) syncRecipeLimit(capacity);
   const manifests = preview.data?.manifests ?? [];
   const isPd = recipe?.serving_mode === "pd";
 
@@ -95,15 +102,21 @@ export function RecipeYamlPanel({
             onChange={(e) => setModelName(e.target.value)} onKeyDown={onEnter}
           />
         </div>
-        <Button type="button" size="sm" variant="outline" onClick={() => apply()} disabled={!recipe || preview.isFetching} title={t("previewRender")}>
+        <Button type="button" size="sm" variant="outline" onClick={() => { apply(); if (target.clusterId === clusterId && target.namespace === namespace && target.modelName === modelName) void preview.refetch(); }} disabled={!recipe || preview.isFetching} title={t("previewRender")}>
           {preview.isFetching ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}
           <span className="sm:sr-only xl:not-sr-only">{t("previewRender")}</span>
         </Button>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      {recipe && <div className="flex gap-1">
+        <Button type="button" size="xs" variant={showCapacity ? "ghost" : "secondary"}
+          aria-pressed={!showCapacity} onClick={() => setShowCapacity(false)}>YAML</Button>
+        <Button type="button" size="xs" variant={showCapacity ? "secondary" : "ghost"}
+          aria-pressed={showCapacity} onClick={() => setShowCapacity(true)}>{tc("capacity")}</Button>
+      </div>}
+      {!showCapacity && <p className="text-[11px] text-muted-foreground">
         {isPd ? <>{t("previewPdRouterNote")} {t("previewModelNameNote")}</> : t("previewIngressNote", { host: INGRESS_PLACEHOLDER })}
-      </p>
+      </p>}
 
       {!recipe ? (
         <div className="flex flex-1 items-center justify-center rounded-md border border-dashed p-6 text-center text-xs text-muted-foreground">
@@ -122,13 +135,17 @@ export function RecipeYamlPanel({
               {preview.data!.warnings.map((w) => <li key={w}>{warningText(w)}</li>)}
             </ul>
           )}
-          {preview.data?.router_images && (
+          {!showCapacity && preview.data?.router_images && (
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-1 text-xs">
               <dt>{t("routerEppImage")}</dt><dd className="break-all font-mono">{preview.data.router_images.epp}</dd>
               <dt>{t("routerEnvoyImage")}</dt><dd className="break-all font-mono">{preview.data.router_images.envoy}</dd>
             </dl>
           )}
-          <ManifestYamlView manifests={manifests} fill={fill} refreshing={preview.isFetching} />
+          {showCapacity ? (
+            <div className={cn("min-h-0 overflow-y-auto", fill ? "flex-1" : "max-h-[55vh]")} aria-busy={preview.isFetching}>
+              <RecipeKvCapacity data={capacity} scenario={scenario} onChange={changeScenario} />
+            </div>
+          ) : <ManifestYamlView manifests={manifests} fill={fill} refreshing={preview.isFetching} />}
         </>
       )}
     </div>
