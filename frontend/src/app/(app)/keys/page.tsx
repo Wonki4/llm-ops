@@ -1,5 +1,7 @@
 "use client";
 
+import { ModelDemandPanel } from "@/components/model-demand";
+
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -231,6 +233,8 @@ export default function AllKeysPage() {
           </Link>
         </Button>
       </div>
+
+      {me && <ModelDemandPanel scope="user" subject={me.user_id} keys={allKeys}/>}
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">

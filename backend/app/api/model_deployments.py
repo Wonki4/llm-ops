@@ -38,6 +38,7 @@ from app.services import (
     recipe_reapply,
     serving_rollout,
 )
+from app.services.kv_observations import deployment_observations
 from app.services.aggregated_router import RouterOption
 from app.services.clusters import (
     argocd_placement_for,
@@ -608,6 +609,7 @@ async def get_deployment(
         **_serialize(dep, await _recipe_names(db, [dep])),
         "litellm_model": litellm_model,  # provider-prefixed routing identifier
         "llmd_stacks": linked,
+        "kv_observations": await deployment_observations(db, dep.id),
         "router_stack": await _router_stack_summary(db, dep),
         "storage_stale": await stale_storage_ids(db, dep),
     }

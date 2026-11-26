@@ -1,6 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { AdminPage } from "@/components/admin-page";
+import { PageTabs, usePageTab } from "@/components/page-tabs";
+import { AdminTeamList } from "@/components/admin-team-list";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { Layers, Loader2, Lock, Pencil, Plus, Search, Trash2, UserPlus } from "lucide-react";
@@ -23,10 +27,11 @@ import { Input } from "@/components/ui/input";
  * Model access groups: pick a group on the left; the right shows its models and the
  * users whose personal-key grant names it, with bulk add (search / pasted roster).
  */
-export default function AccessGroupsPage() {
+function AccessGroupsPage() {
   const t = useTranslations("accessGroups");
   const { data, isLoading } = useAccessGroups();
-  const [selected, setSelected] = useState<string | null>(null);
+  const params=useSearchParams();const router=useRouter();const selected=params.get("group");
+  function setSelected(name:string|null){const q=new URLSearchParams(params.toString());if(name)q.set("group",name);else q.delete("group");q.delete("teams_page");router.push(`?${q}`,{scroll:false});}
   const [creating, setCreating] = useState(false);
   const groups = data?.groups ?? [];
   const current = groups.find((g) => g.name === selected) ?? groups[0] ?? null;
@@ -88,6 +93,7 @@ function GroupDetail({
   onDeleted: () => void;
 }) {
   const t = useTranslations("accessGroups");
+  const tp=useTranslations("portalTeams");const params=useSearchParams();const [tab]=usePageTab(["models","teams","users"],"models");
   const { data: members, isLoading } = useAccessGroupMembers(group.name);
   const remove = useRemoveAccessGroupUsers();
   const del = useDeleteAccessGroup();
@@ -144,8 +150,9 @@ function GroupDetail({
           <Trash2 className="size-3.5" />{t("deleteGroup")}
         </Button>
       </CardHeader>
-      <CardContent className="space-y-6">
-        <section className="space-y-2">
+      <CardContent className="space-y-6"><PageTabs label={group.name} active={tab} tabs={["models","teams","users"].map(id=>{const q=new URLSearchParams(params.toString());q.set("tab",id);return {id,label:tp(id === "models" ? "model" : id),href:`?${q}`};})} />
+        {tab === "teams" && <AdminTeamList accessGroup={group.name} />}
+        {tab === "models" && <section className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium">{t("modelsSection", { count: group.models.length })}</h3>
             <Button size="sm" variant="outline" onClick={() => setEditing(true)} data-testid="access-group-edit-models">
@@ -160,9 +167,9 @@ function GroupDetail({
               </Badge>
             ))}
           </div>
-        </section>
+        </section>}
 
-        <section className="space-y-2">
+        {tab === "users" && <section className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="mr-auto text-sm font-medium">{t("usersSection", { count: members?.length ?? group.user_count })}</h3>
             <div className="relative w-56">
@@ -201,7 +208,7 @@ function GroupDetail({
               ))}
             </div>
           )}
-        </section>
+        </section>}
       </CardContent>
 
       <GroupModelsDialog open={editing} onOpenChange={setEditing} models={models} group={group} />
@@ -209,3 +216,5 @@ function GroupDetail({
     </Card>
   );
 }
+
+export default function Page(){return <AdminPage><Suspense><AccessGroupsPage /></Suspense></AdminPage>;}

@@ -133,7 +133,7 @@ def test_portal_sglang_manifest_round_trips():
     d = out["draft"]
     assert out["warnings"] == []
     assert d["engine"] == "sglang" and d["model_path"] == dep.model_path
-    assert d["engine_args"] == {"tp-size": 2, "context-length": 4096}
+    assert d["engine_args"] == {"tp-size": 2, "context-length": 4096, "enable-metrics": True}
     assert d["runtime"] == {"access_log_exclude_paths": ["/health", "/metrics", "/v1/models"]}
     assert d["gpu_count"] == 0 and d["pvc_mounts"] == [] and d["env"] is None
 

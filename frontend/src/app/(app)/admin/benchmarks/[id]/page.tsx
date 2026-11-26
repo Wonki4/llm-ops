@@ -11,6 +11,7 @@ import { useLocaleTag, parseServerDate } from "@/lib/locale";
 import { useBenchmark, useCancelBenchmark, useDeleteBenchmark } from "@/hooks/use-api";
 import type { BenchmarkRun } from "@/types";
 import { CacheResults, PerformanceResults, experimentOf } from "@/components/benchmark-cache";
+import { BenchmarkWorkloadSummary } from "@/components/benchmark-workload-summary";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,10 +38,10 @@ function formatDateTime(dateStr: string | null, localeTag: string): string {
   });
 }
 
-function formatDuration(start: string | null, end: string | null): string {
+function formatDuration(start: string | null, end: string | null, updatedAt: number): string {
   if (!start) return "-";
   const startMs = new Date(start).getTime();
-  const endMs = end ? new Date(end).getTime() : Date.now();
+  const endMs = end ? new Date(end).getTime() : updatedAt;
   const sec = Math.max(0, Math.round((endMs - startMs) / 1000));
   if (sec < 60) return `${sec}s`;
   const m = Math.floor(sec / 60);
@@ -61,16 +62,25 @@ function JsonBlock({ value }: { value: unknown }) {
 
 export default function AdminBenchmarkDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { id } = use(params);
+  const listState = use(searchParams);
   const t = useTranslations("adminBenchmarks");
   const te = useTranslations("benchExperiment");
   const ts = useTranslations("benchmarkStatus");
   const localeTag = useLocaleTag();
 
-  const { data: run, isLoading } = useBenchmark(id);
+  const { data: run, isLoading, dataUpdatedAt } = useBenchmark(id);
+  const listParams = new URLSearchParams();
+  for (const key of ["q", "experiment", "status", "page"]) {
+    if (typeof listState[key] === "string") listParams.set(key, listState[key]);
+  }
+  if (run) listParams.set("model", run.model_name);
+  const listHref = `/admin/benchmarks?${listParams}`;
   const tv = useTranslations("recipeValidation");
   const cancelMutation = useCancelBenchmark();
 
@@ -94,7 +104,7 @@ export default function AdminBenchmarkDetailPage({
     deleteMutation.mutate(run.id, {
       onSuccess: () => {
         toast.success(t("deleteSuccess"));
-        router.push("/admin/benchmarks");
+        router.push(listHref);
       },
       onError: (err) =>
         toast.error(err instanceof Error ? err.message : t("deleteFail")),
@@ -114,7 +124,7 @@ export default function AdminBenchmarkDetailPage({
       <div className="flex items-start justify-between gap-4">
         <div>
           <Link
-            href="/admin/benchmarks"
+            href={listHref}
             className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
           >
             <ArrowLeft className="size-3.5" />
@@ -132,9 +142,10 @@ export default function AdminBenchmarkDetailPage({
           <p className="text-sm text-muted-foreground mt-1 font-mono">
             {run.result?.runner === "portal" ? te("portalRunner") : run.tool} · {run.kind} · {run.id}
           </p>
+          <div className="mt-3"><BenchmarkWorkloadSummary run={run} /></div>
         </div>
         <div className="flex items-center gap-2">
-          <Button asChild variant="outline" size="sm"><Link href={`/admin/benchmarks/new?from=${run.id}`}>{te("rerun")}</Link></Button>
+          {run.kind !== "accuracy" && <Button asChild variant="outline" size="sm"><Link href={`/admin/benchmarks/new?from=${run.id}`}>{te("rerun")}</Link></Button>}
           {canCancel && (
             <Button
               variant="outline"
@@ -182,7 +193,7 @@ export default function AdminBenchmarkDetailPage({
           />
           <Row
             label={t("duration")}
-            value={formatDuration(run.started_at, run.finished_at)}
+            value={formatDuration(run.started_at, run.finished_at, dataUpdatedAt)}
           />
           <Separator />
           <Row label={t("k8sJob")} value={run.k8s_job_name ?? "-"} mono />

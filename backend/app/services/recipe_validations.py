@@ -214,7 +214,7 @@ async def snapshot(db, recipe_id, conditions, cluster_id, namespace, user, *, re
 
 def check_comparability(snapshots, conditions):
     weights = {s["recipe"].get("hf_repo_id") or s["recipe"]["model_path"] for s in snapshots}
-    if len(weights) > 1 and not conditions.quality_gates:
+    if conditions.version == 1 and len(weights) > 1 and not conditions.quality_gates:
         raise HTTPException(400, "Alternative weights require predefined absolute quality floors")
     if conditions.selection_metric in ("output_throughput", "throughput_per_gpu"):
         if conditions.selection_metric == "output_throughput" and len({s["gpu_count"] for s in snapshots}) > 1:
@@ -319,6 +319,16 @@ async def detail(db, job):
             )
         ).all()
     )
+    from app.db.models.custom_kv_observation import CustomKVObservation
+    from app.services.kv_observations import summary
+
+    observations = {}
+    if attempts:
+        rows = await db.scalars(select(CustomKVObservation).where(
+            CustomKVObservation.attempt_id.in_([a.id for a in attempts])
+        ).order_by(CustomKVObservation.active.desc(), CustomKVObservation.last_seen.desc()))
+        for observation in rows.all():
+            observations.setdefault(observation.attempt_id, []).append(summary(observation))
     result = serialize_job(job)
     from app.services.validation_search import progress
 
@@ -361,6 +371,7 @@ async def detail(db, job):
                             "state",
                         )
                     },
+                    "kv_observations": a.state.get("kv_observations") or observations.get(a.id, []),
                     "benchmarks": [_serialize(r) for r in runs if r.validation_attempt_id == a.id],
                 }
                 for a in attempts

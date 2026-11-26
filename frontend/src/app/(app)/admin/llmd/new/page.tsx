@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { FormSelect, FormSelectItem, FormSelectGroup } from "@/components/ui/form-select";
 
 type FormState = {
   name: string;
@@ -197,26 +198,26 @@ export default function NewLlmdStackPage() {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="llmd-model">{t("targetModel")}</Label>
-                <select
+                <FormSelect placeholder={t("targetModelPlaceholder")}
                   id="llmd-model"
                   value={targetSelectValue}
-                  onChange={(e) => onTargetChange(e.target.value)}
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  onValueChange={(selectedValue) => onTargetChange(selectedValue)}
+                  className="w-full"
                 >
-                  <option value="" disabled>{t("targetModelPlaceholder")}</option>
-                  <optgroup label={t("targetGroupPortal")}>
+                  <FormSelectItem value="" disabled>{t("targetModelPlaceholder")}</FormSelectItem>
+                  <FormSelectGroup label={t("targetGroupPortal")}>
                     {(deployments ?? []).map((d) => (
-                      <option key={d.id} value={d.model_name}>{d.model_name}</option>
+                      <FormSelectItem key={d.id} value={d.model_name}>{d.model_name}</FormSelectItem>
                     ))}
-                  </optgroup>
-                  <optgroup label={t("targetGroupExternal")}>
+                  </FormSelectGroup>
+                  <FormSelectGroup label={t("targetGroupExternal")}>
                     {servings.map((s) => (
-                      <option key={externalKey(s)} value={externalKey(s)}>
+                      <FormSelectItem key={externalKey(s)} value={externalKey(s)}>
                         {s.deployment_name} ({s.engine} · {s.namespace})
-                      </option>
+                      </FormSelectItem>
                     ))}
-                  </optgroup>
-                </select>
+                  </FormSelectGroup>
+                </FormSelect>
                 <p className="text-xs text-muted-foreground">{t("targetModelHint")}</p>
               </div>
               {form.target_kind === "external" && selectedExternal && (
@@ -225,33 +226,33 @@ export default function NewLlmdStackPage() {
                   {Object.keys(selectedExternal.labels).length === 0 ? (
                     <p className="text-xs text-muted-foreground">{t("endpointLabelNone")}</p>
                   ) : (
-                    <select
+                    <FormSelect
                       id="llmd-endpoint-label"
                       value={form.endpoint_selector}
-                      onChange={(e) => setForm({ ...form, endpoint_selector: e.target.value })}
-                      className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                      onValueChange={(selectedValue) => setForm({ ...form, endpoint_selector: selectedValue })}
+                      className="w-full"
                     >
                       {Object.entries(selectedExternal.labels).map(([k, v]) => (
-                        <option key={`${k}=${v}`} value={`${k}=${v}`}>{k}={v}</option>
+                        <FormSelectItem key={`${k}=${v}`} value={`${k}=${v}`}>{k}={v}</FormSelectItem>
                       ))}
-                    </select>
+                    </FormSelect>
                   )}
                   <p className="text-xs text-muted-foreground">{t("endpointLabelHint")}</p>
                 </div>
               )}
               <div className="space-y-2">
                 <Label htmlFor="llmd-cluster">{t("clusterLabel")}</Label>
-                <select
+                <FormSelect placeholder={t("clusterDefault")}
                   id="llmd-cluster"
                   value={form.cluster_id}
-                  onChange={(e) => setForm({ ...form, cluster_id: e.target.value })}
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+                  onValueChange={(selectedValue) => setForm({ ...form, cluster_id: selectedValue })}
+                  className="w-full"
                 >
-                  <option value="">{t("clusterDefault")}</option>
+                  <FormSelectItem value="">{t("clusterDefault")}</FormSelectItem>
                   {(clusters ?? []).map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}{c.is_default ? " ★" : ""}</option>
+                    <FormSelectItem key={c.id} value={c.id}>{c.name}{c.is_default ? " ★" : ""}</FormSelectItem>
                   ))}
-                </select>
+                </FormSelect>
               </div>
             </div>
 

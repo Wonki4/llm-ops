@@ -1,5 +1,6 @@
 "use client";
 
+import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -12,17 +13,19 @@ const OPTIONS = [
   { value: "system", icon: Monitor },
 ] as const;
 
+const subscribe = () => () => {};
+
 export function ThemeToggle() {
-  // next-themes returns `theme === undefined` on the server and the first client
-  // render alike, so reading it directly is hydration-safe (no mounted guard needed).
   const { theme, setTheme } = useTheme();
+  // The server cannot read the theme stored in this browser.
+  const selected = useSyncExternalStore(subscribe, () => theme, () => undefined);
   const t = useTranslations("theme");
 
   return (
     <div className="flex items-center gap-1 px-1">
       <div className="flex flex-1 overflow-hidden rounded-md border">
         {OPTIONS.map(({ value, icon: Icon }) => {
-          const active = theme === value;
+          const active = selected === value;
           return (
             <button
               key={value}

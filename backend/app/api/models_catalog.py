@@ -1,34 +1,36 @@
 """Model catalog CRUD endpoints (Super User only) + public model list."""
 
 import logging
+import time
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func as sa_func
 from sqlalchemy import select
 from sqlalchemy import text as sa_text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.teams import _get_unified_access_groups
 from app.auth.deps import get_current_user, require_super_user
-from app.clients.litellm import BASE_PRICE_FIELDS, LiteLLMClient, deployment_base_prices, get_litellm_client
-from app.clients.redis import (
-    catalog_delete as redis_delete,
-)
-from app.clients.redis import (
-    catalog_get as redis_get,
-)
-from app.clients.redis import (
-    catalog_set as redis_set,
-)
+from app.auth.permissions import get_team_access
+from app.clients.litellm import BASE_PRICE_FIELDS, LiteLLMClient, get_litellm_client
 from app.config import settings
 from app.db.models.custom_benchmark_run import CustomBenchmarkRun
 from app.db.models.custom_model_catalog import CustomModelCatalog, ModelStatus
 from app.db.models.custom_model_cost_schedule import CustomModelCostSchedule
 from app.db.models.custom_model_status_history import CustomModelStatusHistory
 from app.db.models.custom_user import CustomUser, GlobalRole
-from app.db.session import get_db
+from app.db.session import get_db, get_litellm_db
+from app.services.cluster_prometheus import latency_config_revision
+from app.services.latency_cache import cached_latency
+from app.services.latency_inventory import inventory_source, read_latency_inventory
+from app.services.model_live_latency import model_live_latency
+from app.services.model_registry import merge_models
+from app.services.model_registry import public_model_info as _sanitize_litellm_info
+from app.services.personal_access import access_groups_from_model_info
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/models", tags=["models"])
@@ -76,73 +78,50 @@ def _serialize_model(m: CustomModelCatalog) -> dict:
     }
 
 
-# Fields to strip from litellm_params (may contain secrets)
-SENSITIVE_LITELLM_FIELDS = {"api_key", "api_base", "api_version", "custom_llm_provider"}
-
-
-def _sanitize_litellm_info(lm: dict) -> dict:
-    """Remove sensitive fields from LiteLLM model info before sending to frontend."""
-    sanitized = dict(lm)
-    params = sanitized.get("litellm_params")
-    if isinstance(params, dict):
-        sanitized["litellm_params"] = {k: v for k, v in params.items() if k not in SENSITIVE_LITELLM_FIELDS}
-    sanitized["model_info"] = {**(lm.get("model_info") or {}), **deployment_base_prices(lm)}
-    return sanitized
-
-
 @router.get("")
 async def list_models(
+    http_response: Response,
+    team_id: str | None = None,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
+    litellm_db: AsyncSession = Depends(get_litellm_db),
 ) -> dict:
-    """List all models (merged LiteLLM + catalog)."""
+    """List visible models and, for a team, recognise its grants even outside the catalog."""
+    http_response.headers["Cache-Control"] = "private, no-store"
+    is_admin = user.global_role == GlobalRole.SUPER_USER
+    if team_id is not None:
+        await get_team_access(user, team_id, litellm_db)
+        await litellm_db.commit()
     # Get catalog entries from custom DB
     result = await db.execute(select(CustomModelCatalog).order_by(CustomModelCatalog.display_name))
     catalog = result.scalars().all()
     catalog_map = {m.model_name: _serialize_model(m) for m in catalog}
+    await db.commit()  # Release the request connection before waiting for another inventory reader.
 
-    # Get LiteLLM model info for runtime data
+    # Only runtime metadata is shared; catalog visibility and team grants come from this request.
     try:
-        litellm_models = await litellm.get_model_info()
-    except Exception:
+        litellm_models = await read_latency_inventory(db, litellm)
+    except Exception as exc:
         logger.error("Failed to fetch LiteLLM model info", exc_info=True)
+        if team_id is not None:
+            raise HTTPException(status_code=503, detail="Team model groups are unavailable") from exc
         litellm_models = []
 
-    is_admin = user.global_role == GlobalRole.SUPER_USER
-
-    # Merge: catalog entry + LiteLLM runtime info
-    models = []
-    for lm in litellm_models:
-        model_name = lm.get("model_name", "")
-        catalog_entry = catalog_map.pop(model_name, None)
-        # Non-admin: skip models without catalog or hidden models
-        if not is_admin:
-            if not catalog_entry:
-                continue
-            if catalog_entry.get("visible") is False:
-                continue
-        models.append(
-            {
-                "model_name": model_name,
-                "litellm_info": _sanitize_litellm_info(lm),
-                "catalog": catalog_entry,
-            }
+    response = {"models": merge_models(litellm_models, catalog_map, admin=is_admin, sanitize=_sanitize_litellm_info)}
+    if team_id is not None:
+        direct = await litellm_db.scalar(
+            sa_text('SELECT models FROM "LiteLLM_TeamTable" WHERE team_id = :id'), {"id": team_id}
         )
-
-    # Add catalog-only entries (not yet in LiteLLM)
-    for name, entry in catalog_map.items():
-        if not is_admin and entry.get("visible") is False:
-            continue
-        models.append(
-            {
-                "model_name": name,
-                "litellm_info": None,
-                "catalog": entry,
-            }
-        )
-
-    return {"models": models}
+        grants = set(direct or [])
+        inherited = await _get_unified_access_groups(litellm_db, [team_id])
+        for group in inherited.get(team_id, []):
+            grants.update(group["models"])
+        # Only name groups this team references. Their non-public member models stay out of the response.
+        groups = access_groups_from_model_info(litellm_models)
+        model_names = {row.get("model_name") for row in litellm_models}
+        response["referenced_access_groups"] = sorted(grants.intersection(groups).difference(model_names))
+    return response
 
 
 @router.get("/catalog")
@@ -499,40 +478,40 @@ async def get_catalog_history(
     }
 
 
-# ─── Per-model Redis cache entries ──────────────────────────────
-#
-# Each model can have a Redis-backed cache entry per allowed suffix
-# (chat, hcp, common, ...). The Redis hash key uses model_name directly,
-# so a model is uniquely keyed by (suffix, model_name). Same model in
-# the same suffix is one entry — saving overwrites.
+async def _read_model_latency(model_name, response, user, litellm, db, *, history=False):
+    response.headers["Cache-Control"] = "private, no-store"
+    access = select(latency_config_revision())
+    if user.global_role != GlobalRole.SUPER_USER:
+        access = access.where(CustomModelCatalog.model_name == model_name, CustomModelCatalog.visible.is_(True))
+    config_epoch = await db.scalar(access)
+    if config_epoch is None:
+        raise HTTPException(404, "Model not found")
+    try:
+        return await model_live_latency(db, litellm, model_name, history=history, config_epoch=config_epoch)
+    except httpx.HTTPError:
+        raise HTTPException(503, "Model routing information unavailable") from None
 
 
-DEFAULT_CATALOG = "chat"
+@router.get("/{model_name:path}/live-latency")
+async def live_latency(
+    model_name: str, response: Response, user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client), db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await _read_model_latency(model_name, response, user, litellm, db)
 
 
-async def _get_allowed_suffixes(db: AsyncSession) -> list[str]:
-    """Read configured catalog suffixes from portal settings."""
-    result = await db.execute(
-        sa_text("SELECT value FROM custom_portal_settings WHERE key = 'catalog_suffixes'")
-    )
-    raw = result.scalar()
-    import json as _json
-    return _json.loads(raw) if raw else [DEFAULT_CATALOG]
-
-
-class ModelCacheEntry(BaseModel):
-    model: str = ""
-    apiBase: str = ""
-    apiKey: str = ""
-    options: dict = {}
-
-    class Config:
-        extra = "allow"
+@router.get("/{model_name:path}/live-latency/history")
+async def latency_history(
+    model_name: str, response: Response, user: CustomUser = Depends(get_current_user),
+    litellm: LiteLLMClient = Depends(get_litellm_client), db: AsyncSession = Depends(get_db),
+) -> dict:
+    return await _read_model_latency(model_name, response, user, litellm, db, history=True)
 
 
 @router.get("/{model_name:path}/summary")
 async def model_summary(
     model_name: str,
+    response: Response,
     user: CustomUser = Depends(get_current_user),
     litellm: LiteLLMClient = Depends(get_litellm_client),
     db: AsyncSession = Depends(get_db),
@@ -544,6 +523,7 @@ async def model_summary(
     accuracy benchmark runs. Pricing is read-only here — editing the
     schedule/catalog stays on the admin-only management endpoints.
     """
+    response.headers["Cache-Control"] = "private, no-store"
     is_admin = user.global_role == GlobalRole.SUPER_USER
 
     result = await db.execute(select(CustomModelCatalog).where(CustomModelCatalog.model_name == model_name))
@@ -553,10 +533,38 @@ async def model_summary(
     if not is_admin and (catalog is None or catalog.visible is False):
         raise HTTPException(status_code=404, detail="Model not found")
 
+    catalog_fields = _serialize_model(catalog) if catalog else None
+    await db.commit()
+    now = time.time()
+    scope = {
+        "kind": "public-model-summary", "model": model_name,
+        "inventory": inventory_source(litellm), "timezone": settings.schedule_timezone,
+    }
+    data = await cached_latency(
+        db, scope=scope, history=False, now=now, load=lambda: _summary_snapshot(db, litellm, model_name, now),
+    )
+    # Benchmark params and results can contain user-provided data. Only their IDs are shared.
+    metrics = {"performance": None, "accuracy": None}
+    run_ids = data["run_ids"]
+    if run_ids:
+        run = CustomBenchmarkRun
+        for r in await db.execute(
+            select(run.kind, run.tool, run.result, run.params, run.finished_at).where(
+                run.id.in_(run_ids), run.model_name == model_name, run.status == "succeeded",
+            )
+        ):
+            metrics[r.kind] = {
+                "tool": r.tool, "result": r.result, "params": r.params,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            }
+    return {"model_name": model_name, "catalog": catalog_fields, **data["runtime"], **metrics}
+
+
+async def _summary_snapshot(db, litellm, model_name, now):
     litellm_info = None
     deployment_prices = []
     try:
-        for lm in await litellm.get_model_info():
+        for lm in await read_latency_inventory(db, litellm, now=now):
             if lm.get("model_name") != model_name:
                 continue
             # A name may group config-file and editable database deployments.
@@ -591,85 +599,22 @@ async def model_summary(
         for s in sched_result.scalars().all()
     ]
 
-    runs_result = await db.execute(
-        select(CustomBenchmarkRun)
-        .where(
-            CustomBenchmarkRun.model_name == model_name,
-            CustomBenchmarkRun.status == "succeeded",
-        )
-        .order_by(CustomBenchmarkRun.finished_at.desc())
+    run = CustomBenchmarkRun
+    latest_ids = await db.scalars(
+        select(run.id).where(
+            run.model_name == model_name, run.status == "succeeded", run.kind.in_(("performance", "accuracy")),
+        ).distinct(run.kind).order_by(run.kind, run.finished_at.desc(), run.id.desc())
     )
-    runs = list(runs_result.scalars().all())
 
-    def _latest(kind: str) -> dict | None:
-        for r in runs:
-            if r.kind == kind:
-                return {
-                    "tool": r.tool,
-                    "result": r.result,
-                    "params": r.params,
-                    "finished_at": r.finished_at.isoformat() if r.finished_at else None,
-                }
-        return None
-
-    return {
-        "model_name": model_name,
-        "catalog": _serialize_model(catalog) if catalog else None,
+    runtime = {
         "litellm_info": litellm_info,
         "deployment_prices": deployment_prices,
         "schedule_timezone": settings.schedule_timezone,
         "cost_schedule": cost_schedule,
-        "performance": _latest("performance"),
-        "accuracy": _latest("accuracy"),
     }
-
-
-@router.get("/{model_name}/cache")
-async def get_model_cache(
-    model_name: str,
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Return per-suffix cache entries for a model. Missing suffixes return null."""
-    suffixes = await _get_allowed_suffixes(db)
-    entries: dict[str, dict | None] = {}
-    for suffix in suffixes:
-        entries[suffix] = await redis_get(suffix, model_name)
-    return {"model_name": model_name, "suffixes": suffixes, "entries": entries}
-
-
-@router.put("/{model_name}/cache/{suffix}")
-async def set_model_cache_entry(
-    model_name: str,
-    suffix: str,
-    body: ModelCacheEntry,
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Set a model's cache entry for a specific suffix (Super User only)."""
-    suffixes = await _get_allowed_suffixes(db)
-    if suffix not in suffixes:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"허용되지 않은 suffix입니다: '{suffix}'. 허용 목록: {suffixes}",
-        )
-    data = body.model_dump()
-    await redis_set(suffix, model_name, data)
-    return {"model_name": model_name, "suffix": suffix, **data}
-
-
-@router.delete("/{model_name}/cache/{suffix}")
-async def delete_model_cache_entry(
-    model_name: str,
-    suffix: str,
-    user: CustomUser = Depends(require_super_user),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    """Delete a model's cache entry for a specific suffix (Super User only)."""
-    deleted = await redis_delete(suffix, model_name)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Cache entry not found")
-    return {"deleted": True, "model_name": model_name, "suffix": suffix}
+    ids = [str(run_id) for run_id in latest_ids]
+    await db.commit()
+    return {"runtime": runtime, "run_ids": ids}
 
 
 # ─── Per-model cost schedule (time-of-day pricing) ──────────────

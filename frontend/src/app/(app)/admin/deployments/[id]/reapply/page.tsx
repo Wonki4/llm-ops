@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { RecipeOptions } from "@/components/recipe-options";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ManifestDiffView } from "@/components/manifest-diff-view";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const diffKey = (m: ManifestDiff) => `${m.kind}/${m.name}`;
 
@@ -108,15 +109,15 @@ function ReapplyFromRecipe() {
               {candidates.length === 0 ? (
                 <p className="h-9 text-xs leading-9 text-muted-foreground">{t("reapplyNoRecipes")}</p>
               ) : (
-                <select
+                <FormSelect placeholder={t("reapplyPickRecipe")}
                   id="reapply-recipe"
-                  className="h-9 min-w-48 rounded-md border border-input bg-transparent px-3 text-sm"
+                  className="min-w-48"
                   value={recipeId ?? ""}
-                  onChange={(e) => pickRecipe(e.target.value)}
+                  onValueChange={(selectedValue) => pickRecipe(selectedValue)}
                 >
-                  {!recipeId && <option value="">{t("reapplyPickRecipe")}</option>}
+                  {!recipeId && <FormSelectItem value="">{t("reapplyPickRecipe")}</FormSelectItem>}
                   <RecipeOptions recipes={candidates} />
-                </select>
+                </FormSelect>
               )}
             </div>
             <Button asChild variant="outline" disabled={reapply.isPending}>

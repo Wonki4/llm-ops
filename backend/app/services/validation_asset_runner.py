@@ -10,6 +10,25 @@ import os
 from pathlib import Path
 
 
+def tokenizer_location(reference, revision, offline):
+    """Resolve in the current Pod; never persist a previous Pod's temporary cache path."""
+    if Path(reference).is_dir():
+        return reference, revision
+    if reference.startswith("/"):
+        raise ValueError("Tokenizer directory is missing from the selected storage binding")
+    from huggingface_hub import snapshot_download
+
+    path = Path(
+        snapshot_download(
+            reference,
+            revision=revision,
+            local_files_only=offline,
+            allow_patterns=["*.json", "*.model", "*.tiktoken", "*.py", "*.jinja", "*.txt"],
+        )
+    )
+    return str(path), path.name if path.parent.name == "snapshots" else revision
+
+
 def inspect_assets(config):
     from transformers import AutoTokenizer
 
@@ -65,21 +84,30 @@ def inspect_assets(config):
         if path.is_file() and path.suffix in (".json", ".model", ".tiktoken", ".py", ".jinja", ".txt")
     }
     fingerprint = hashlib.sha256()
+    config_digest = hashlib.sha256()
     total = 0
     for path in sorted(files):
         fingerprint.update(str(path.relative_to(root)).encode())
         with path.open("rb") as stream:
             while chunk := stream.read(4 * 1024 * 1024):
                 fingerprint.update(chunk)
+                if path == root / "config.json":
+                    config_digest.update(chunk)
                 total += len(chunk)
-    server_path = config.get("server_tokenizer") or str(root)
-    tokenizer_revision = config.get("tokenizer_revision")
-    if config.get("server_tokenizer") and not Path(server_path).is_dir():
-        from huggingface_hub import snapshot_download
-
-        server_path = snapshot_download(server_path, revision=tokenizer_revision, local_files_only=offline)
-        if Path(server_path).parent.name == "snapshots":
-            tokenizer_revision = Path(server_path).name
+    server_reference = config.get("server_tokenizer") or model
+    if config.get("server_tokenizer"):
+        server_path, tokenizer_revision = tokenizer_location(
+            server_reference, config.get("tokenizer_revision"), offline
+        )
+    else:
+        server_path, tokenizer_revision = str(root), revision
+    tokenizer_reference = config.get("tokenizer") or server_reference
+    if config.get("tokenizer"):
+        tokenizer_path, workload_revision = tokenizer_location(
+            tokenizer_reference, config.get("workload_tokenizer_revision"), offline
+        )
+    else:
+        tokenizer_path, workload_revision = server_path, tokenizer_revision
 
     def load_tokenizer(path):
         return AutoTokenizer.from_pretrained(
@@ -92,7 +120,6 @@ def inspect_assets(config):
         return hashlib.sha256(json.dumps(tokenizer.get_vocab(), sort_keys=True).encode()).hexdigest()
 
     server_tokenizer = load_tokenizer(server_path)
-    tokenizer_path = config.get("tokenizer") or server_path
     tokenizer = load_tokenizer(tokenizer_path)
     if not tokenizer.encode("Recipe validation readiness check"):
         raise ValueError("Tokenizer returned no tokens")
@@ -101,14 +128,16 @@ def inspect_assets(config):
 
     return {
         "weights_sha256": fingerprint.hexdigest(),
+        "config_digest": config_digest.hexdigest(),
         "tokenizer_sha256": tokenizer_digest(tokenizer),
         "server_tokenizer_sha256": tokenizer_digest(server_tokenizer),
         "bytes": total,
         "shards": len(shards),
         "revision": revision,
         "tokenizer_revision": tokenizer_revision,
-        "tokenizer": tokenizer_path,
-        "server_tokenizer": server_path,
+        "tokenizer": tokenizer_reference,
+        "workload_tokenizer_revision": workload_revision,
+        "server_tokenizer": server_reference,
         "offline": offline,
     }
 

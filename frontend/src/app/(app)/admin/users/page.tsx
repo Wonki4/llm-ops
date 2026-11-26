@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const PAGE_SIZE_OPTIONS = [10, 30, 50, 100, 300] as const;
 const DEFAULT_PAGE_SIZE = 50;
@@ -85,18 +86,17 @@ export default function AdminUsersPage() {
             className="pl-8 h-9"
           />
         </div>
-        <select
-          className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+        <FormSelect placeholder={t("roleAll")} aria-label={t("roleAll")}
           value={role}
-          onChange={(e) => {
-            setRole(e.target.value);
+          onValueChange={(selectedValue) => {
+            setRole(selectedValue);
             setPage(1);
           }}
         >
-          <option value="">{t("roleAll")}</option>
-          <option value="super_user">{t("roleAdmin")}</option>
-          <option value="user">{t("roleUser")}</option>
-        </select>
+          <FormSelectItem value="">{t("roleAll")}</FormSelectItem>
+          <FormSelectItem value="super_user">{t("roleAdmin")}</FormSelectItem>
+          <FormSelectItem value="user">{t("roleUser")}</FormSelectItem>
+        </FormSelect>
         {(search || role) && (
           <Button
             variant="ghost"
@@ -207,20 +207,21 @@ export default function AdminUsersPage() {
               <p className="text-sm text-muted-foreground">
                 {t("pagination", { total: data.total, start: (page - 1) * pageSize + 1, end: Math.min(page * pageSize, data.total) })}
               </p>
-              <select
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+              <FormSelect
+                aria-label={t("perPage", { size: pageSize })}
+                size="sm"
                 value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
+                onValueChange={(selectedValue) => {
+                  setPageSize(Number(selectedValue));
                   setPage(1);
                 }}
               >
                 {PAGE_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
+                  <FormSelectItem key={size} value={size}>
                     {t("perPage", { size })}
-                  </option>
+                  </FormSelectItem>
                 ))}
-              </select>
+              </FormSelect>
             </div>
             <div className="flex items-center gap-2">
               <Button

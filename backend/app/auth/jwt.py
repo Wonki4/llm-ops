@@ -1,5 +1,6 @@
 """JWT verification using Keycloak JWKS endpoint."""
 
+import asyncio
 import time
 from dataclasses import dataclass
 
@@ -10,19 +11,27 @@ from app.config import settings
 
 _jwks_cache: dict | None = None
 _jwks_cache_time: float = 0
+_jwks_refresh: asyncio.Task[dict] | None = None
 JWKS_CACHE_TTL = 3600  # 1 hour
 
 
 async def _get_jwks() -> dict:
-    global _jwks_cache, _jwks_cache_time
-    now = time.time()
-    if _jwks_cache and (now - _jwks_cache_time) < JWKS_CACHE_TTL:
+    global _jwks_refresh
+    if _jwks_cache and time.monotonic() - _jwks_cache_time < JWKS_CACHE_TTL:
         return _jwks_cache
+    # A cold worker can receive many different JWTs at once. Share only the public keys.
+    if _jwks_refresh is None or _jwks_refresh.done():
+        _jwks_refresh = asyncio.create_task(_refresh_jwks())
+    return await asyncio.shield(_jwks_refresh)
+
+
+async def _refresh_jwks() -> dict:
+    global _jwks_cache, _jwks_cache_time
     async with httpx.AsyncClient(verify=settings.ssl_verify) as client:
         resp = await client.get(settings.effective_jwks_uri)
         resp.raise_for_status()
         _jwks_cache = resp.json()
-        _jwks_cache_time = now
+        _jwks_cache_time = time.monotonic()
         assert _jwks_cache is not None
         return _jwks_cache
 

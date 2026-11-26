@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from kubernetes_asyncio import client
 
+from app.services.external_servings import _detect_engine
 from app.services.llmd_links import selector_matches
 from app.services.llmd_manifests import llmd_service_name, stack_selector
 from app.services.model_deployment_manifests import LABEL_MODEL
@@ -25,14 +26,35 @@ def _apps_owner(ref, kind):
     return ref is not None and ref.kind == kind and ref.api_version.split("/")[0] in {"apps", "extensions"}
 
 
-async def _replicaset_owners(api, namespace):
+async def _replica_sets(api, namespace):
     try:
         sets = await client.AppsV1Api(api).list_namespaced_replica_set(namespace, _request_timeout=8)
     except Exception as exc:
         # Pod routing remains useful if the cluster identity cannot list ReplicaSets.
         logger.info("ReplicaSet owners unavailable in %s (%s)", namespace, type(exc).__name__)
-        return {}
-    return {rs.metadata.uid: _controller(rs.metadata) for rs in sets.items}
+        return []
+    return sets.items
+
+
+def _deployment_revisions(replica_sets):
+    revisions = defaultdict(list)
+    for rs in replica_sets:
+        owner = _controller(rs.metadata)
+        if not _apps_owner(owner, "Deployment"):
+            continue
+        template = rs.spec.template
+        engine = _detect_engine([{"image": c.image} for c in template.spec.containers or []])
+        # A ReplicaSet inherits the Deployment selector, adding its revision hash.
+        # Only the original selector is guaranteed to apply across a rollout.
+        selector = dict(rs.spec.selector.match_labels or {})
+        selector.pop("pod-template-hash", None)
+        revisions[owner.name].append({
+            "uid": owner.uid,
+            "selector": selector,
+            "labels": template.metadata.labels or {},
+            "engine": engine[0] if engine else None,
+        })
+    return dict(revisions)
 
 
 def _pod_owner(metadata, replica_sets):
@@ -89,10 +111,17 @@ async def read_workloads(k8s, namespace):
     async with await k8s._api_client() as api:
         pods, replica_sets = await asyncio.gather(
             client.CoreV1Api(api).list_namespaced_pod(namespace, _request_timeout=8),
-            _replicaset_owners(api, namespace),
+            _replica_sets(api, namespace),
         )
+    owners = {rs.metadata.uid: _controller(rs.metadata) for rs in replica_sets}
     return {
-        "pod_owners": {p.metadata.name: _pod_owner(p.metadata, replica_sets) for p in pods.items},
+        "deployment_revisions": _deployment_revisions(replica_sets),
+        "pod_engines": {
+            p.metadata.name: detected[0]
+            for p in pods.items
+            if (detected := _detect_engine([{"image": c.image} for c in p.spec.containers or []]))
+        },
+        "pod_owners": {p.metadata.name: _pod_owner(p.metadata, owners) for p in pods.items},
         "pods": [
             (
                 p.metadata.name,
@@ -154,6 +183,10 @@ class NamespaceSnapshots:
             self.pending.pop(key, None)
 
 
+route_snapshots = NamespaceSnapshots(read_routes)
+workload_snapshots = NamespaceSnapshots(read_workloads)
+
+
 # A provider protocol alone (notably openai/*) does not identify the host of a custom endpoint.
 _CLOUD_PROVIDERS = {
     "openai": "OpenAI", "text-completion-openai": "OpenAI", "anthropic": "Anthropic",
@@ -172,6 +205,9 @@ _CLOUD_HOSTS = {
 
 
 def _cloud_provider(params, info, url):
+    if info.get("portal_connection_type") == "external":
+        prefix = (params.get("model") or "").partition("/")[0]
+        return _CLOUD_PROVIDERS.get(prefix, "External API")
     if params.get("api_base"):
         if url is None:
             return None

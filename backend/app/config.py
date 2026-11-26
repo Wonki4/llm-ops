@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings
 
 
@@ -8,6 +9,8 @@ class Settings(BaseSettings):
     litellm_database_url: str = ""
 
     litellm_base_url: str = "http://localhost:4000"
+    # Set from the same environment as LiteLLM general_settings when it is file-based.
+    litellm_token_rate_limit_type: Literal["input", "output", "total"] | None = None
     litellm_admin_api_key: str = "sk-1234"
 
     keycloak_base_url: str = "http://localhost:8082"
@@ -46,11 +49,6 @@ class Settings(BaseSettings):
 
     frontend_url: str = "http://localhost:3002"
 
-    redis_url: str = "redis://localhost:6379/0"
-    redis_password: str = ""
-    redis_cluster: bool = False
-    redis_catalog_prefix: str = "GENERATIVE:AI:"
-
     external_api_key: str = ""
 
     # ── Inference gateway Keycloak SSO ──────────────────────────
@@ -78,6 +76,13 @@ class Settings(BaseSettings):
     # Model deployment / Kubernetes
     kubeconfig_path: str = ""  # mounted kubeconfig file path; empty disables K8s features
     k8s_default_namespace: str = "default"
+    # Prometheus for deployments targeting the portal cluster (cluster_id IS NULL).
+    # The UI's default registered cluster is a separate, ID-addressed destination.
+    prometheus_url: str = ""
+    prometheus_shared: bool = False
+    prometheus_cluster_label: str = ""
+    prometheus_cluster_value: str = ""
+    prometheus_bearer_token: SecretStr = SecretStr("")
     # GPU profile node scan (LIST nodes + LIST pods in all namespaces); grows with cluster size.
     # Keep below the ingress read timeout (commonly 60s).
     gpu_node_scan_timeout: float = 30.0

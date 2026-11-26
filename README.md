@@ -6,7 +6,7 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 
 | 구분 | 기술 |
 |------|------|
-| **Backend** | FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16, Redis |
+| **Backend** | FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16 |
 | **Frontend** | Next.js 16, React 19, TypeScript, TailwindCSS 4, shadcn/ui |
 | **인증** | Keycloak 26 (SSO/SAML), 세션 기반 인증 |
 | **프록시** | LiteLLM Proxy |
@@ -26,11 +26,6 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
               │ Portal DB │ │ LiteLLM DB│
               │ (custom_*)│ │ (LiteLLM_*)│
               └───────────┘ └───────────┘
-                    │
-              ┌─────▼─────┐
-              │   Redis   │
-              │  (캐시)   │
-              └───────────┘
 ```
 
 ### 이중 데이터베이스 구조
@@ -144,14 +139,10 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 
 #275 버전에서 업그레이드할 때는 기존 단가 워커를 먼저 중지하세요. 새 워커는 이전 적용 기록과 LiteLLM 배포의 수정 시각 및 요금이 일치하는 경우에만 이전 워커가 변경한 필드를 한 번 복원합니다. 이후에 직접 수정된 배포는 LiteLLM의 현재 단가를 유지합니다. DB를 분리한 구성에서는 이 전환에 워커의 `APP_LITELLM_DATABASE_URL`이 필요합니다. 기존 카탈로그에 저장된 기본단가는 과금이나 표시에 사용하지 않습니다.
 
-#### 모델 캐시 관리
-- Redis Hash Set 기반 모델 캐시 CRUD
-- 카탈로그 선택기 (chat, embeddings 등)
-- 검색 (Display Name / Model / API Base)
-- 항목 테이블: Display Name, Model, API Base, API Key 상태, Options (JSON)
-- 등록/수정 모달: Display Name, Model, API Base, API Key, Options (JSON)
-- 카탈로그 설정: 카탈로그 목록 관리
-- 일반/클러스터 Redis 모두 지원, 모델 카탈로그와 독립 운영
+#### 팀 표시 관리
+- 팀·사용자 관리 → 팀 목록의 **표시 설정** 드롭다운에서 표시 / 팀 탐색에서만 숨김 / 멤버에게도 숨김을 선택합니다.
+- **멤버에게도 숨김**을 선택하면 소속 멤버의 내 팀·키 목록에서도 숨깁니다.
+- 포털 관리자는 숨긴 팀도 계속 조회·관리할 수 있습니다.
 
 #### 예산 관리
 - 통계 카드: 전체 예산 수, 미연결 예산 수 (정리 버튼)
@@ -166,7 +157,6 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 - **신규 유저 자동 등록**:
   - 기본 팀 ID (모든 유저, 쉼표로 여러 팀 지원)
   - 추가 팀 규칙 (사번 prefix 기반): 기본 팀 + 규칙 팀 합산 배정
-- **팀 숨기기**: 일반 유저에게 비노출할 팀 ID 관리
 - **Kubernetes 클러스터**: kubeconfig 등록 및 연결 테스트. Keycloak OIDC 형식은 [OIDC kubeconfig 등록 안내](docs/cluster-oidc-kubeconfig.md) 참고
 
 #### 모델 서빙 — Prefill/Decode 분리 (P/D)
@@ -191,7 +181,7 @@ LiteLLM 프록시를 감싸는 LLM 운영 관리 포털입니다. Keycloak SSO �
 - **유저 ID**: 내부적으로 대문자 (`.upper()`) 사용, Keycloak은 소문자
 - **키 형식**: sk-JWT (HS256 서명), `sk-` prefix는 사용자/네트워크에 미노출
 - **키 별칭**: `metadata.display_alias`에 저장, LiteLLM 내부 `key_alias`와 분리
-- **숨김 팀**: 팀 목록, 팀 탐색, 키 목록에서 일반 유저에게 미표시
+- **숨김 팀**: 기본은 팀 탐색에서만 제외하고, 멤버에게도 숨김을 선택하면 내 팀·키 목록에서도 제외
 - **모델 가시성**: `visible=false` 모델은 API 응답, 대시보드, 이력에서 일반 유저에게 미표시
 
 ### Rate Limit (TPM/RPM) 정책
@@ -226,12 +216,11 @@ litellm-ops/
 │   │   │   ├── teams.py         # 팀 관리, 멤버, 설정
 │   │   │   ├── keys.py          # API 키 CRUD
 │   │   │   ├── models_catalog.py # 모델 카탈로그, 이력
-│   │   │   ├── catalog.py       # Redis 모델 캐시
 │   │   │   ├── team_requests.py # 요청 워크플로우
 │   │   │   ├── budgets.py       # 예산 조회
 │   │   │   └── portal_settings.py # 포털 설정
 │   │   ├── auth/          # 인증/인가
-│   │   ├── clients/       # 외부 서비스 클라이언트 (LiteLLM, Redis)
+│   │   ├── clients/       # 외부 서비스 클라이언트 (LiteLLM)
 │   │   ├── db/            # DB 모델, 세션
 │   │   └── config.py      # 설정
 │   ├── migrations/        # Alembic 마이그레이션
@@ -308,20 +297,13 @@ litellm-ops/
 | POST | `/api/team-requests/{id}/approve` | 요청 승인 |
 | POST | `/api/team-requests/{id}/reject` | 요청 거절 |
 
-### 모델 캐시 (Redis)
-| Method | Path | 설명 |
-|--------|------|------|
-| GET | `/api/catalog` | 캐시 목록 |
-| POST | `/api/catalog` | 캐시 항목 추가 |
-| PUT | `/api/catalog/entry/{name}` | 캐시 항목 수정 |
-| DELETE | `/api/catalog/entry/{name}` | 캐시 항목 삭제 |
-
 ### 설정
 | Method | Path | 설명 |
 |--------|------|------|
 | GET | `/api/settings` | 포털 설정 조회 |
 | PUT | `/api/settings` | 포털 설정 변경 |
-| GET/PUT | `/api/settings/hidden-teams` | 숨김 팀 관리 |
+| GET/PUT | `/api/settings/hidden-teams` | 숨김 팀 설정 조회·전체 변경 (호환 API) |
+| PATCH | `/api/settings/hidden-teams/{team_id}` | 팀별 숨김 설정 변경 |
 | GET/PUT | `/api/settings/default-team-rules` | 사번 기반 팀 규칙 |
 
 ## 로컬 개발
@@ -355,10 +337,6 @@ cd backend && alembic upgrade head
 | `KEYCLOAK_REALM` | Keycloak Realm |
 | `KEYCLOAK_CLIENT_ID` | Keycloak Client ID |
 | `KEYCLOAK_CLIENT_SECRET` | Keycloak Client Secret |
-| `APP_REDIS_URL` | Redis 연결 URL |
-| `APP_REDIS_PASSWORD` | Redis 비밀번호 |
-| `APP_REDIS_CLUSTER` | Redis 클러스터 모드 (true/false) |
-| `APP_REDIS_CATALOG_PREFIX` | Redis 카탈로그 키 prefix |
 | `SESSION_COOKIE_NAME` | 세션 쿠키 이름 |
 | `SESSION_SECRET` | 세션 암호화 키 |
 

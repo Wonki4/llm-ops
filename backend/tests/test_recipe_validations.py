@@ -106,6 +106,7 @@ async def db():
         "custom_recipe_validation",
         "custom_validation_candidate",
         "custom_validation_attempt",
+        "custom_kv_observation",
         "custom_model_deployment",
         "custom_benchmark_run",
         "custom_serving_recipe",
@@ -132,7 +133,7 @@ def user():
 @pytest.fixture
 def protocol():
     return ValidationConditions(
-        ingress_host="model.example.test", performance={"num_prompts": 2, "max_concurrency": 1}
+        version=2, ingress_host="model.example.test", performance={"num_prompts": 2, "max_concurrency": 1}
     ).model_dump(mode="json")
 
 
@@ -203,7 +204,8 @@ def test_assessment_uses_medians_and_never_ranks_partial_results(protocol):
     assert [c.position for c in rank(candidates, "output_throughput")] == [1, 2]
 
 
-def test_alternative_quality_and_gpu_comparability(protocol):
+def test_legacy_alternative_quality_and_gpu_comparability(protocol):
+    protocol["version"] = 1
     snaps = [{"recipe": {"model_path": "a"}, "gpu_count": 2}, {"recipe": {"model_path": "b"}, "gpu_count": 4}]
     with pytest.raises(HTTPException, match="quality"):
         service.check_comparability(snaps, ValidationConditions.model_validate(protocol))
@@ -596,6 +598,7 @@ async def test_llm_analysis_does_not_echo_source_credentials(db, user, protocol)
 
 
 def test_cache_partial_result_cannot_pass(protocol):
+    protocol["version"] = 1
     protocol["prefix_len"] = 768
     runs = [
         SimpleNamespace(id=uuid4(), kind="performance", params={}, status="succeeded", result=run_result(protocol))
@@ -698,8 +701,10 @@ async def test_mcp_uses_the_same_create_and_resume_endpoints(protocol, monkeypat
     assert run.call_args.kwargs == {"job_id": "same-durable-job", "body": patch}
 
 
-async def test_different_weight_bytes_require_quality_floor_even_with_same_repository(db, user, protocol, monkeypatch):
+@pytest.mark.parametrize("version", [1, 2])
+async def test_weight_changes_keep_legacy_quality_gate_only(db, user, protocol, monkeypatch, version):
     job, candidate, attempt, _ = await prepared_attempt(db, user, protocol)
+    job.conditions = {**job.conditions, "version": version}
     attempt.state = {"assets": {"0": {"weights_sha256": "original"}}, "outcome": "passed"}
     attempt.finished_at = datetime.now(UTC)
     candidate.status = "passed"
@@ -716,10 +721,13 @@ async def test_different_weight_bytes_require_quality_floor_even_with_same_repos
     await db.flush()
     await tick(db, job)
     await db.flush()
-    monkeypatch.setattr(runtime, "preflight", AsyncMock(return_value={"0": {"weights_sha256": "different"}}))
+    monkeypatch.setattr(runtime, "preflight", AsyncMock(return_value={"0": {"weights_sha256": "different", "image": "engine@sha256:abc"}}))
     await tick(db, job)
     active = await db.scalar(select(CustomValidationAttempt).where(CustomValidationAttempt.finished_at.is_(None)))
-    assert active.error_code == "quality_floor_required" and active.status == "collecting"
+    if version == 1:
+        assert active.error_code == "quality_floor_required" and active.status == "collecting"
+    else:
+        assert active.error_code is None and active.status == "applying"
 
 
 @pytest.mark.parametrize("reject_winner", [False, True])
@@ -1006,3 +1014,36 @@ async def test_invalid_draft_returns_validation_error_without_input_values(db, u
     assert error.value.status_code == 422
     assert "never-return-this" not in str(error.value.detail)
     assert not (await db.scalars(select(CustomValidationCandidate))).all()
+
+
+def test_new_protocol_rejects_accuracy_and_keeps_agentic_counts(protocol):
+    from app.services.benchmark_workload import PerformanceWorkload
+    from app.jobs.reconcile_recipe_validations import measurement_plan
+    from pydantic import ValidationError
+
+    for change in ({"accuracy": {"tasks": "mmlu"}}, {"prefix_len": 100}, {"selection_metric": "p99_ttft_ms"}):
+        with pytest.raises(ValidationError):
+            ValidationConditions.model_validate({**protocol, **change})
+    protocol["performance"] = PerformanceWorkload(workload_version=2, workload_type="agentic_replay", num_sessions=2).model_dump()
+    plan = measurement_plan(protocol)
+    assert len(plan) == 3 and all(kind == "performance" for _, kind, _ in plan)
+    runs = [SimpleNamespace(id=uuid4(), kind=kind, params=params, status="succeeded", result={"metrics": {
+        "completed": 6, "failed": 0, "skipped": 0, "completed_sessions": 2,
+        "output_throughput": 100 + i * 10, "p99_ttft_ms": 50, "request_throughput": 2,
+    }}) for i, (_, kind, params) in enumerate(plan)]
+    assert assess(runs, protocol, 2)["passed"]
+    assert assess(runs, protocol, 2)["metrics"]["output_throughput"] == 110
+    runs[0].result["metrics"]["completed_sessions"] = 1
+    assert not assess(runs, protocol, 2)["passed"]
+
+
+def test_new_alternatives_need_comparable_tokens_and_gpu_but_not_quality(protocol):
+    conditions = ValidationConditions.model_validate(protocol)
+    snaps = [{"recipe": {"model_path": "original"}, "gpu_count": 2}, {"recipe": {"model_path": "quantized"}, "gpu_count": 4}]
+    with pytest.raises(HTTPException, match="GPU"):
+        service.check_comparability(snaps, conditions)
+    conditions.selection_metric = "throughput_per_gpu"
+    with pytest.raises(HTTPException, match="tokenizer"):
+        service.check_comparability(snaps, conditions)
+    conditions.tokenizer = "/models/common-tokenizer"
+    service.check_comparability(snaps, conditions)

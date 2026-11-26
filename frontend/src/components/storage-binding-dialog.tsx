@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const MANUAL = "__manual__";
 
@@ -67,27 +68,27 @@ export function StorageBindingDialog({
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="binding-cluster">{t("cluster")}</Label>
-            <select
+            <FormSelect placeholder={t("clusterDefault")}
               id="binding-cluster"
-              className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="w-full"
               value={form.cluster_id ?? ""}
-              onChange={(e) => set({ cluster_id: e.target.value || null })}
+              onValueChange={(selectedValue) => set({ cluster_id: selectedValue || null })}
             >
-              <option value="">{t("clusterDefault")}</option>
-              {(clusters ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+              <FormSelectItem value="">{t("clusterDefault")}</FormSelectItem>
+              {(clusters ?? []).map((c) => <FormSelectItem key={c.id} value={c.id}>{c.name}</FormSelectItem>)}
+            </FormSelect>
           </div>
           <div className="space-y-1">
             <Label htmlFor="binding-type">{t("type")}</Label>
-            <select
+            <FormSelect
               id="binding-type"
-              className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="w-full"
               value={form.type}
-              onChange={(e) => set({ type: e.target.value as "pvc" | "nfs" })}
+              onValueChange={(selectedValue) => set({ type: selectedValue as "pvc" | "nfs" })}
             >
-              <option value="pvc">PVC</option>
-              <option value="nfs">NFS</option>
-            </select>
+              <FormSelectItem value="pvc">PVC</FormSelectItem>
+              <FormSelectItem value="nfs">NFS</FormSelectItem>
+            </FormSelect>
           </div>
           <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="binding-namespace">{t("namespace")}</Label>
@@ -98,20 +99,20 @@ export function StorageBindingDialog({
             <div className="space-y-1 sm:col-span-2">
               <Label htmlFor="binding-claim">{t("claimName")}</Label>
               {!showManual && pvcList.length > 0 ? (
-                <select
+                <FormSelect
                   id="binding-claim"
-                  className="w-full h-9 rounded-md border border-input bg-transparent px-3 font-mono text-sm"
+                  className="w-full font-mono"
                   value={form.claim_name ?? ""}
-                  onChange={(e) => (e.target.value === MANUAL ? setManual(true) : set({ claim_name: e.target.value }))}
+                  onValueChange={(selectedValue) => (selectedValue === MANUAL ? setManual(true) : set({ claim_name: selectedValue }))}
                 >
-                  <option value="" />
+                  <FormSelectItem value="" />
                   {pvcList.map((p) => (
-                    <option key={p.name} value={p.name}>
+                    <FormSelectItem key={p.name} value={p.name}>
                       {p.name} · {p.phase ?? "?"}{p.capacity ? ` · ${p.capacity}` : ""}
-                    </option>
+                    </FormSelectItem>
                   ))}
-                  <option value={MANUAL}>{t("claimManual")}</option>
-                </select>
+                  <FormSelectItem value={MANUAL}>{t("claimManual")}</FormSelectItem>
+                </FormSelect>
               ) : (
                 <Input id="binding-claim" className="font-mono" value={form.claim_name ?? ""} onChange={(e) => set({ claim_name: e.target.value })} />
               )}

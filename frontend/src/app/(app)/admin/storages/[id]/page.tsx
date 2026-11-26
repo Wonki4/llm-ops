@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { FormSelect, FormSelectItem } from "@/components/ui/form-select";
 
 const KINDS: StorageKind[] = ["weights", "cache", "data", "other"];
 
@@ -91,14 +92,14 @@ function StorageDetailView({ storage }: { storage: StorageDetail }) {
           </div>
           <div className="space-y-1">
             <Label htmlFor="storage-kind">{t("kind")}</Label>
-            <select
+            <FormSelect
               id="storage-kind"
-              className="w-full h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+              className="w-full"
               value={form.kind}
-              onChange={(e) => setForm({ ...form, kind: e.target.value as StorageKind })}
+              onValueChange={(selectedValue) => setForm({ ...form, kind: selectedValue as StorageKind })}
             >
-              {KINDS.map((k) => <option key={k} value={k}>{t(`kind_${k}`)}</option>)}
-            </select>
+              {KINDS.map((k) => <FormSelectItem key={k} value={k}>{t(`kind_${k}`)}</FormSelectItem>)}
+            </FormSelect>
           </div>
           <div className="space-y-1 sm:col-span-3">
             <Label htmlFor="storage-description">{t("description")}</Label>
